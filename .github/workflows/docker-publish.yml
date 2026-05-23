@@ -106,11 +106,14 @@ jobs:
                   build-args: |
                       SENTINELLO_VERSION=${{ steps.meta.outputs.version }}
                   # push-by-digest = "push the layer manifest under sha256:... only, no tag" — the
-                  # merge job then composes tags pointing at these digests. Two output lines = push
-                  # the same digest to both registries in this single build.
+                  # merge job then composes tags pointing at these digests. ONE output with
+                  # comma-separated names so buildx produces a SINGLE manifest list and pushes it
+                  # to both registries — guaranteeing the content-addressed digest is identical at
+                  # GHCR and Hub. Two separate `--output` lines produce two distinct manifest
+                  # lists (different attestation manifests → different digests), and `containerimage.digest`
+                  # ends up matching only one registry, so the cross-registry merge step 404s.
                   outputs: |
-                      type=image,name=${{ env.GHCR_IMAGE }},push-by-digest=true,name-canonical=true,push=${{ github.event_name == 'push' || inputs.push }}
-                      type=image,name=${{ env.HUB_IMAGE }},push-by-digest=true,name-canonical=true,push=${{ github.event_name == 'push' || inputs.push }}
+                      type=image,"name=${{ env.GHCR_IMAGE }},${{ env.HUB_IMAGE }}",push-by-digest=true,name-canonical=true,push=${{ github.event_name == 'push' || inputs.push }}
                   # Per-platform GHA cache scopes — without this both arches fight over the same
                   # ~10GB org cache and partially evict each other.
                   cache-from: type=gha,scope=${{ env.PLATFORM_PAIR }}
