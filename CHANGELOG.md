@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.0](https://github.com/walkofcode/sentinello/compare/v0.1.0...v1.0.0) (2026-05-23)
+
+
+### Features
+
+* initial open-source release ([8e5a02a](https://github.com/walkofcode/sentinello/commit/8e5a02a9433139af8bd222809a4ffc66f336e045))
+
+## Changelog
+
 All notable changes to Sentinello will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
