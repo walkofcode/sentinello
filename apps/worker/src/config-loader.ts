@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path'
 import yaml from 'js-yaml'
 import { z } from 'zod'
 import {
+    deleteRoot,
     getRootByPath,
     listRoots,
     setConfigValue,
@@ -134,6 +135,32 @@ export function discoverDockerRoots(db: DrizzleDb, at: number): void {
         }
         upsertRoot(db, root)
     }
+}
+
+// Docker-only mirror of discoverDockerRoots that REMOVES roots whose /roots/<name> mount went
+// away between worker boots, along with every project / scan / finding / notification under
+// them (cascade lives in deleteRoot). Scope is strictly limited to paths under /roots/ so a
+// config-seeded or manually-added root pointing anywhere else on disk is never touched even if
+// it is temporarily missing. Detection mirrors discoverDockerRoots (the /.dockerenv marker and
+// presence of /roots), so on PM2 / bare-metal hosts this returns immediately.
+export function pruneDockerRoots(db: DrizzleDb): { removed: number } {
+    if (!existsSync(DOCKER_ENV_MARKER)) return { removed: 0 }
+    if (!existsSync(DOCKER_ROOTS_DIR)) return { removed: 0 }
+    const entries = readdirSync(DOCKER_ROOTS_DIR, { withFileTypes: true })
+    const mounted = new Set<string>()
+    for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        if (entry.name.startsWith('.')) continue
+        mounted.add(join(DOCKER_ROOTS_DIR, entry.name))
+    }
+    const dockerPathPrefix = DOCKER_ROOTS_DIR + '/'
+    const stale = listRoots(db).filter(function isStale(r) {
+        return r.path.startsWith(dockerPathPrefix) && !mounted.has(r.path)
+    })
+    for (const r of stale) {
+        deleteRoot(db, r.id)
+    }
+    return { removed: stale.length }
 }
 
 export const DEFAULT_SCHEDULE = { intervalHours: 24, startHour: 0 } as const

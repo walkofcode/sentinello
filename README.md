@@ -158,12 +158,18 @@ starting at 02:00 in `Europe/Madrid` runs at 02:00, 08:00, 14:00, 20:00 Madrid t
   scanned. Every subdirectory of `/roots` is auto-registered as a root on boot
   (the directory name becomes its label); no **Settings → Roots** step needed.
   `/roots` is optional — add roots from the portal instead if you prefer.
+  Reconciliation is two-way: a `/roots/<name>` whose host mount disappeared
+  between boots is removed at the next worker start, together with every
+  project, scan, finding, and notification record under it.
 
 > **Projects are kept only while they exist on disk.** When a sweep finds a previously-known project
 > gone from a root it walked, Sentinello **deletes** that project and all of its history (scans,
-> findings, notification state) — there is no "missing" tombstone. A temporarily unmounted root is
-> skipped, not reconciled, so its projects are never deleted while the mount is absent; they return
-> on the next sweep once the mount is back.
+> findings, notification state) — there is no "missing" tombstone. For Docker mounts under
+> `/roots/<name>`, the same applies to the **root itself** at worker boot — an unmounted
+> `/roots/<name>` is purged with all its history. Roots **outside** `/roots/` (manually added in
+> the portal, or seeded from `sentinello.config.yaml`) are never auto-pruned — a temporarily
+> unmounted manual root is skipped, not reconciled, so its projects survive the outage and
+> reappear on the next sweep once the mount is back.
 
 ## Health
 

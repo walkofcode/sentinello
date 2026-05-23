@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import lockfile from 'proper-lockfile'
 import { backfillFindingsLifecycle, getConfigValue, getLastScanFinishedAt, listRoots, openDb, resetOrphanedRunningRequests, resolveDbPath, resolveLockPath, runMigrations } from '@sentinello/db'
-import { CONFIG_KEYS, DEFAULT_SCHEDULE, discoverDockerRoots, loadConfigFile, seedFromConfig, type IntervalHours } from './config-loader'
+import { CONFIG_KEYS, DEFAULT_SCHEDULE, discoverDockerRoots, loadConfigFile, pruneDockerRoots, seedFromConfig, type IntervalHours } from './config-loader'
 import { startScheduler, sweepActiveProjects } from './scheduler'
 import { startScanRequestPoller } from './scan-request-poller'
 import { startLockfileWatcher, type WatcherHandle } from './watcher'
@@ -59,6 +59,14 @@ async function main(): Promise<void> {
     const rootsAfter = listRoots(db).length
     if (rootsAfter > rootsBefore) {
         console.log('[worker] auto-registered ' + (rootsAfter - rootsBefore) + ' root' + (rootsAfter - rootsBefore === 1 ? '' : 's') + ' from /roots')
+    }
+    // Discover first (so newly-mounted /roots/<name> entries are picked up) then prune (so
+    // /roots/<name> entries whose host mount disappeared between boots are removed along with
+    // every project / finding / scan under them). Scope is strictly /roots/* — manual or
+    // config-seeded paths anywhere else are never touched.
+    const pruned = pruneDockerRoots(db)
+    if (pruned.removed > 0) {
+        console.log('[worker] pruned ' + pruned.removed + ' stale root' + (pruned.removed === 1 ? '' : 's') + ' from /roots')
     }
     const runtime = createWorkerRuntime()
     const scheduler = startScheduler({ db, sqlite, runtime })
