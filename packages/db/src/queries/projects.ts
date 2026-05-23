@@ -50,32 +50,41 @@ export function upsertProject(db: DrizzleDb, project: Project): void {
         .run()
 }
 
-// Hard-delete a project and everything that hangs off it. Sentinello keeps only projects it
-// currently sees on disk: when discovery finds a project gone (under a root it actually walked —
-// an unmounted root is skipped, never reconciled), it deletes the project rather than tombstoning
-// it. SQLite FKs here are advertised but not CASCADE-enforced, so we cascade explicitly in one
-// transaction, child rows before parents. notification_deliveries hangs off events (not the
-// project) so it must go before the events it references.
+// Hard-delete a batch of projects and everything that hangs off them. Sentinello keeps only
+// projects it currently sees on disk: when discovery finds a project gone (under a root it
+// actually walked — an unmounted root is skipped, never reconciled), it deletes the project
+// rather than tombstoning it. SQLite FKs here are advertised but not CASCADE-enforced, so we
+// cascade explicitly, child rows before parents. notification_deliveries hangs off events (not
+// the project) so it must go before the events it references.
+//
+// Operates on the provided tx — callers wrap (or batch with sibling deletes) inside a single
+// transaction. No-op when projectIds is empty so callers can pass results of a lookup without
+// gating.
+export function cascadeDeleteProjects(tx: DrizzleDb, projectIds: string[]): void {
+    if (projectIds.length === 0) return
+    const eventRows = tx
+        .select({ id: notificationEvents.id })
+        .from(notificationEvents)
+        .where(inArray(notificationEvents.projectId, projectIds))
+        .all()
+    const eventIds = eventRows.map(function pickId(r) { return r.id })
+    if (eventIds.length > 0) {
+        tx.delete(notificationDeliveries).where(inArray(notificationDeliveries.eventId, eventIds)).run()
+    }
+    tx.delete(notificationEvents).where(inArray(notificationEvents.projectId, projectIds)).run()
+    tx.delete(notificationTargetProjects).where(inArray(notificationTargetProjects.projectId, projectIds)).run()
+    // findings reference scans via scan_id / resolved_scan_id, so delete findings before scans.
+    tx.delete(findings).where(inArray(findings.projectId, projectIds)).run()
+    tx.delete(scans).where(inArray(scans.projectId, projectIds)).run()
+    tx.delete(scanRequests).where(inArray(scanRequests.projectId, projectIds)).run()
+    // Only project-scoped mutes; global finding mutes (project_id IS NULL) are unrelated.
+    tx.delete(mutes).where(inArray(mutes.projectId, projectIds)).run()
+    tx.delete(projects).where(inArray(projects.id, projectIds)).run()
+}
+
 export function deleteProject(db: DrizzleDb, id: string): void {
     db.transaction(function txn(tx) {
-        const eventRows = tx
-            .select({ id: notificationEvents.id })
-            .from(notificationEvents)
-            .where(eq(notificationEvents.projectId, id))
-            .all()
-        const eventIds = eventRows.map(function pickId(r) { return r.id })
-        if (eventIds.length > 0) {
-            tx.delete(notificationDeliveries).where(inArray(notificationDeliveries.eventId, eventIds)).run()
-        }
-        tx.delete(notificationEvents).where(eq(notificationEvents.projectId, id)).run()
-        tx.delete(notificationTargetProjects).where(eq(notificationTargetProjects.projectId, id)).run()
-        // findings reference scans via scan_id / resolved_scan_id, so delete findings before scans.
-        tx.delete(findings).where(eq(findings.projectId, id)).run()
-        tx.delete(scans).where(eq(scans.projectId, id)).run()
-        tx.delete(scanRequests).where(eq(scanRequests.projectId, id)).run()
-        // Only project-scoped mutes; global finding mutes (project_id IS NULL) are unrelated.
-        tx.delete(mutes).where(eq(mutes.projectId, id)).run()
-        tx.delete(projects).where(eq(projects.id, id)).run()
+        cascadeDeleteProjects(tx, [id])
     })
 }
 

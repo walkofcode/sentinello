@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import type { DrizzleDb } from '../client'
-import { appConfig, roots } from '../schema'
-import { deleteTargetRootsForRoot } from './notification-target-roots'
+import { appConfig, notificationTargetRoots, projects, roots, scanRequests } from '../schema'
+import { cascadeDeleteProjects } from './projects'
 
 export type Root = typeof roots.$inferSelect
 
@@ -58,10 +58,23 @@ export function updateRootLabel(db: DrizzleDb, id: string, label: string | null)
     db.update(roots).set({ label }).where(eq(roots.id, id)).run()
 }
 
+// Hard-delete a root and everything underneath it in one transaction. Three tables reference
+// roots.id with ON DELETE no action (foreign_keys = ON is set in client.ts), so a bare DELETE
+// fails with FOREIGN KEY constraint failed once any child rows exist: projects.root_id,
+// scan_requests.root_id (root-level requests with project_id null), and
+// notification_target_roots.root_id. We cascade explicitly child-first; project cascade is
+// reused from cascadeDeleteProjects so this stays in lockstep with deleteProject.
 export function deleteRoot(db: DrizzleDb, id: string): void {
-    // Wipe notification-target scope rows referencing this root first; otherwise a target with
-    // an explicit allow-list could end up pointing at a deleted root and the dispatch query would
-    // silently include 0 matching projects without surfacing the broken reference.
-    deleteTargetRootsForRoot(db, id)
-    db.delete(roots).where(eq(roots.id, id)).run()
+    db.transaction(function txn(tx) {
+        const projectRows = tx.select({ id: projects.id }).from(projects).where(eq(projects.rootId, id)).all()
+        const projectIds = projectRows.map(function pickId(r) { return r.id })
+        cascadeDeleteProjects(tx, projectIds)
+        // Root-scoped scan requests (rootId set, projectId null) — not covered by the per-project cascade.
+        tx.delete(scanRequests).where(eq(scanRequests.rootId, id)).run()
+        // Notification-target scope rows referencing this root. A target with an explicit allow-list
+        // pointing at a deleted root would otherwise silently match 0 projects without surfacing the
+        // broken reference.
+        tx.delete(notificationTargetRoots).where(eq(notificationTargetRoots.rootId, id)).run()
+        tx.delete(roots).where(eq(roots.id, id)).run()
+    })
 }
