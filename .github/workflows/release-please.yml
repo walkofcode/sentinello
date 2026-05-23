@@ -7,10 +7,10 @@
 #      and appends entries to CHANGELOG.md.
 #   3. When that PR is merged, release-please creates the git tag (vX.Y.Z) AND a GitHub
 #      Release whose body is the changelog excerpt.
-#   4. The second job in this workflow (`docker-publish`) then fires
-#      .github/workflows/docker-publish.yml via workflow_dispatch against the new tag.
+#   4. The second job in this workflow (`dispatch-image-publish`) then fires
+#      .github/workflows/publish-image.yml via workflow_dispatch against the new tag.
 #      We chain via workflow_dispatch (rather than the natural `push: tags: v*` trigger
-#      on docker-publish) because tags pushed by GITHUB_TOKEN do NOT trigger downstream
+#      on publish-image) because tags pushed by GITHUB_TOKEN do NOT trigger downstream
 #      workflows — workflow_dispatch and repository_dispatch are the two documented
 #      exceptions to that rule. This keeps the whole chain on the default GITHUB_TOKEN —
 #      no PAT and no GitHub App required.
@@ -45,18 +45,18 @@ jobs:
                   manifest-file: .release-please-manifest.json
                   token: ${{ secrets.GITHUB_TOKEN }}
 
-    docker-publish:
+    dispatch-image-publish:
         needs: release-please
         if: needs.release-please.outputs.release_created == 'true'
         runs-on: ubuntu-latest
         permissions:
             actions: write
         steps:
-            - name: Dispatch docker-publish for the new tag
+            - name: Dispatch publish-image for the new tag
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
-                  gh workflow run docker-publish.yml \
+                  gh workflow run publish-image.yml \
                       --repo ${{ github.repository }} \
                       --ref ${{ needs.release-please.outputs.tag_name }} \
                       -f push=true

@@ -1,21 +1,28 @@
 # Build and publish the official Sentinello container image.
 #
 # Triggers:
-#   - Push of a `v*` tag (e.g. `v0.1.0`) → builds linux/amd64 + linux/arm64 and pushes to
+#   - Push of a `v*` tag (e.g. `v0.1.0`) → builds linux/amd64 + linux/arm64 and publishes to
 #     both ghcr.io/walkofcode/sentinello and walkofcode/sentinello with tags:
 #       latest, vX.Y.Z, vX.Y, sha-<short>
 #   - workflow_dispatch → manual run. Defaults to build-only (no push) for dry-run smoke tests;
-#     flip the `push` input to true to actually push (useful for re-publishing `latest` off main).
+#     flip the `push` input to true to actually publish (useful for re-publishing `latest` off main).
 #
-# Build topology — why two `build` jobs + a `merge` job rather than one matrix-less job that
-# emits a multi-arch image:
+# Build topology — why a matrix `build` + two parallel `publish-*` jobs:
 #   - linux/amd64 builds on ubuntu-latest (native amd64) and linux/arm64 builds on
 #     ubuntu-24.04-arm (native arm64). Free on public repos. No QEMU emulation = ~5-10× faster.
-#   - Each platform pushes a single-arch image to both registries by digest only (no tag) and
-#     uploads its digest as a GHA artifact.
-#   - The `merge` job downloads both digests and runs `docker buildx imagetools create` to
-#     combine them into a multi-arch manifest at every operator-facing tag, on both registries.
-#   - This is Docker's official multi-platform pattern; see
+#   - The build step pushes a SINGLE manifest list per arch to BOTH registries via the
+#     comma-separated `name=A,B` syntax in one `type=image` output. This guarantees the
+#     content-addressed digest is identical at both registries — the previous "two `--output`
+#     lines" form produced two distinct manifest lists (different attestation manifests) with
+#     different digests, breaking the multi-arch merge step. See:
+#       https://docs.docker.com/build/exporters/image-registry/
+#   - Each per-arch build uploads its digest as a GHA artifact.
+#   - `publish-ghcr` and `publish-hub` run in PARALLEL after the matrix finishes. Each
+#     downloads both per-arch digests and runs `docker buildx imagetools create` against its
+#     own registry to compose the multi-arch manifest at every operator-facing tag. Splitting
+#     them isolates registry failures (Hub down ≠ GHCR also fails) and overlaps the imagetools
+#     work across two runners.
+#   - This is Docker's official multi-platform pattern, generalised to multi-registry; see
 #     https://docs.docker.com/build/ci/github-actions/multi-platform/.
 #
 # Secrets required (Settings → Secrets and variables → Actions):
@@ -23,7 +30,7 @@
 #   - DOCKERHUB_TOKEN    — Docker Hub access token, Read/Write/Delete scoped to walkofcode/sentinello
 # GHCR uses the built-in GITHUB_TOKEN — no extra secret needed beyond enabling Packages.
 
-name: docker-publish
+name: publish-image
 
 on:
     push:
@@ -86,7 +93,7 @@ jobs:
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             # In the per-arch build we only need the labels + the SENTINELLO_VERSION build-arg —
-            # tags are assigned by the merge job that creates the multi-arch manifest.
+            # tags are assigned by the publish-* jobs that create the multi-arch manifests.
             - name: Extract image metadata (labels + version)
               id: meta
               uses: docker/metadata-action@v6
@@ -105,13 +112,12 @@ jobs:
                   labels: ${{ steps.meta.outputs.labels }}
                   build-args: |
                       SENTINELLO_VERSION=${{ steps.meta.outputs.version }}
-                  # push-by-digest = "push the layer manifest under sha256:... only, no tag" — the
-                  # merge job then composes tags pointing at these digests. ONE output with
-                  # comma-separated names so buildx produces a SINGLE manifest list and pushes it
-                  # to both registries — guaranteeing the content-addressed digest is identical at
-                  # GHCR and Hub. Two separate `--output` lines produce two distinct manifest
-                  # lists (different attestation manifests → different digests), and `containerimage.digest`
-                  # ends up matching only one registry, so the cross-registry merge step 404s.
+                  # ONE output line with two comma-separated names. Buildx then produces a
+                  # SINGLE manifest list and pushes it to both registries — guaranteeing the
+                  # content-addressed digest is identical at GHCR and Hub.
+                  # The earlier "two `--output` lines" form generated two distinct manifest
+                  # lists (each with its own attestation manifest) and `containerimage.digest`
+                  # only matched one of them, so the cross-registry merge step 404'd.
                   outputs: |
                       type=image,"name=${{ env.GHCR_IMAGE }},${{ env.HUB_IMAGE }}",push-by-digest=true,name-canonical=true,push=${{ github.event_name == 'push' || inputs.push }}
                   # Per-platform GHA cache scopes — without this both arches fight over the same
@@ -126,7 +132,8 @@ jobs:
               run: |
                   mkdir -p /tmp/digests
                   digest='${{ steps.build.outputs.digest }}'
-                  # Filename = bare hash (sha256: stripped) so the merge step can `printf '...@sha256:%s' *`.
+                  # Filename = bare hash (sha256: stripped) so each publish step can
+                  # `printf '<image>@sha256:%s' *` over the digest directory.
                   touch "/tmp/digests/${digest#sha256:}"
 
             - name: Upload digest
@@ -138,8 +145,12 @@ jobs:
                   if-no-files-found: error
                   retention-days: 1
 
-    merge:
-        # Skip the manifest step on workflow_dispatch runs where push=false (dry-run smoke test).
+    # publish-ghcr and publish-hub are intentionally separate jobs running in parallel. Both
+    # depend only on `build` and write to independent registries — splitting them isolates
+    # registry-side failures (Hub auth/outage doesn't take GHCR down with it) and overlaps the
+    # imagetools work across two runners.
+
+    publish-ghcr:
         needs: build
         if: ${{ github.event_name == 'push' || inputs.push }}
         runs-on: ubuntu-latest
@@ -161,20 +172,11 @@ jobs:
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Log in to Docker Hub
-              uses: docker/login-action@v4
-              with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-            # Compute the final tag set the operators see. Same rules as before the split.
             - name: Extract image metadata (tags)
               id: meta
               uses: docker/metadata-action@v6
               with:
-                  images: |
-                      ${{ env.GHCR_IMAGE }}
-                      ${{ env.HUB_IMAGE }}
+                  images: ${{ env.GHCR_IMAGE }}
                   tags: |
                       type=semver,pattern={{version}}
                       type=semver,pattern={{major}}.{{minor}}
@@ -183,27 +185,69 @@ jobs:
                       type=raw,value=latest,enable={{is_default_branch}}
                       type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 
-            # imagetools create -t <target> <source...> writes a multi-arch list at every target
-            # tag, referencing the per-platform digests already in that registry. We run it once
-            # per registry (GHCR and Docker Hub) so no cross-registry blob copy is needed — each
-            # platform's build step already pushed its digest to both registries above.
             - name: Create multi-arch manifest and push
               working-directory: /tmp/digests
               run: |
-                  ghcr_tags=$(jq -cr --arg img '${{ env.GHCR_IMAGE }}' '.tags | map(select(startswith($img + ":"))) | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON")
-                  hub_tags=$(jq -cr --arg img '${{ env.HUB_IMAGE }}' '.tags | map(select(startswith($img + ":"))) | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON")
-                  sources_ghcr=$(printf '${{ env.GHCR_IMAGE }}@sha256:%s ' *)
-                  sources_hub=$(printf '${{ env.HUB_IMAGE }}@sha256:%s ' *)
-                  echo "GHCR tags:     $ghcr_tags"
-                  echo "Hub tags:      $hub_tags"
-                  echo "GHCR sources:  $sources_ghcr"
-                  echo "Hub sources:   $sources_hub"
+                  tags=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+                  sources=$(printf '${{ env.GHCR_IMAGE }}@sha256:%s ' *)
+                  echo "Tags:    $tags"
+                  echo "Sources: $sources"
                   # The `-t <tag>` and `<image>@sha256:<digest>` strings MUST split on whitespace
                   # into separate argv entries for imagetools, so unquoted expansion is intentional.
                   # shellcheck disable=SC2086
-                  docker buildx imagetools create $ghcr_tags $sources_ghcr
+                  docker buildx imagetools create $tags $sources
+
+            - name: Inspect resulting manifests
+              run: |
+                  for tag in $(jq -cr '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON"); do
+                      echo "::group::imagetools inspect $tag"
+                      docker buildx imagetools inspect "$tag"
+                      echo "::endgroup::"
+                  done
+
+    publish-hub:
+        needs: build
+        if: ${{ github.event_name == 'push' || inputs.push }}
+        runs-on: ubuntu-latest
+        steps:
+            - name: Download per-arch digests
+              uses: actions/download-artifact@v8
+              with:
+                  path: /tmp/digests
+                  pattern: digests-*
+                  merge-multiple: true
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v4
+
+            - name: Log in to Docker Hub
+              uses: docker/login-action@v4
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Extract image metadata (tags)
+              id: meta
+              uses: docker/metadata-action@v6
+              with:
+                  images: ${{ env.HUB_IMAGE }}
+                  tags: |
+                      type=semver,pattern={{version}}
+                      type=semver,pattern={{major}}.{{minor}}
+                      type=ref,event=branch
+                      type=sha,prefix=sha-,format=short
+                      type=raw,value=latest,enable={{is_default_branch}}
+                      type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+            - name: Create multi-arch manifest and push
+              working-directory: /tmp/digests
+              run: |
+                  tags=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+                  sources=$(printf '${{ env.HUB_IMAGE }}@sha256:%s ' *)
+                  echo "Tags:    $tags"
+                  echo "Sources: $sources"
                   # shellcheck disable=SC2086
-                  docker buildx imagetools create $hub_tags $sources_hub
+                  docker buildx imagetools create $tags $sources
 
             - name: Inspect resulting manifests
               run: |
