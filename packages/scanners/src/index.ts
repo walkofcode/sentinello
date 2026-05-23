@@ -3,6 +3,8 @@ import { npmAuditPlugin } from './npm-audit'
 
 export * from './types'
 export { npmAuditPlugin, runNpmAudit } from './npm-audit'
+export { filterFindingsByLockfileResolution } from './lockfile-cross-check'
+export type { CrossCheckResult } from './lockfile-cross-check'
 
 const registry = new Map<string, ScannerPlugin>()
 registry.set(npmAuditPlugin.name, npmAuditPlugin)

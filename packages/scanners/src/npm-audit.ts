@@ -15,6 +15,7 @@ import type {
     ScanResult
 } from './types'
 import { pickSafeFixVersion } from './version-fix'
+import { filterFindingsByLockfileResolution } from './lockfile-cross-check'
 
 const SCANNER_NAME = 'npm-audit'
 
@@ -826,6 +827,17 @@ function looksLikeLegacyShape(rawText: string): boolean {
     }
 }
 
+// Emits a single stderr line per scan when the lockfile cross-check actually dropped findings.
+// Silent when zero drops, so quiet scans stay quiet. The advisory-id list is truncated to keep
+// the line readable even when an override cascades through a large dep graph.
+function logCrossCheckDrops(result: { droppedCount: number; droppedAdvisoryIds: string[] }, packageManager: string): void {
+    if (result.droppedCount === 0) return
+    const MAX_LIST = 10
+    const head = result.droppedAdvisoryIds.slice(0, MAX_LIST)
+    const tail = result.droppedAdvisoryIds.length > MAX_LIST ? `, +${result.droppedAdvisoryIds.length - MAX_LIST} more` : ''
+    process.stderr.write(`[${SCANNER_NAME}] lockfile cross-check (${packageManager}): dropped ${result.droppedCount} finding(s) out of vulnerable range [${head.join(', ')}${tail}]\n`)
+}
+
 export async function runNpmAudit(projectPath: string, ctx: ScanContext): Promise<ScanResult> {
     const startedAt = Date.now()
     const lockfile = await detectLockfile(projectPath)
@@ -929,11 +941,13 @@ export async function runNpmAudit(projectPath: string, ctx: ScanContext): Promis
             return errorResult('audit_schema_mismatch', `pnpm audit JSON schema mismatch: ${pnpmValidation.error.message.slice(0, 400)}`, startedAt, rawText)
         }
         const pnpmClassifier = await buildDepClassifier(projectPath, lockfile, new Map())
-        const findings = normalizePnpmAuditOutput(pnpmValidation.data, pnpmClassifier)
+        const rawFindings = normalizePnpmAuditOutput(pnpmValidation.data, pnpmClassifier)
+        const crossChecked = filterFindingsByLockfileResolution(rawFindings)
+        logCrossCheckDrops(crossChecked, lockfile.packageManager)
         return {
             status: 'ok',
             reasonCode: 'ok',
-            findings,
+            findings: crossChecked.kept,
             rawJson: rawText,
             errorText: null,
             durationMs: Date.now() - startedAt
@@ -957,10 +971,13 @@ export async function runNpmAudit(projectPath: string, ctx: ScanContext): Promis
         return errorResult('audit_no_advisories', 'npm-audit output had no concrete advisory objects', startedAt, rawText)
     }
 
+    const crossChecked = filterFindingsByLockfileResolution(findings)
+    logCrossCheckDrops(crossChecked, lockfile.packageManager)
+
     return {
         status: 'ok',
         reasonCode: 'ok',
-        findings,
+        findings: crossChecked.kept,
         rawJson: rawText,
         errorText: null,
         durationMs: Date.now() - startedAt
