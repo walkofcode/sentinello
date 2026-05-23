@@ -51,12 +51,19 @@ export function setNotificationTargetEnabled(db: DrizzleDb, id: string, enabled:
 }
 
 export function deleteNotificationTarget(db: DrizzleDb, id: string): void {
-    // Cascade scope rows first so they can't outlive their target. notification_deliveries
-    // is intentionally NOT cascaded here — historical delivery rows are a long-lived audit trail
-    // and would normally be archived by a separate cleanup if ever needed.
-    deleteTargetRootsForTarget(db, id)
-    deleteTargetProjectsForTarget(db, id)
-    db.delete(notificationTargets).where(eq(notificationTargets.id, id)).run()
+    // Three FK children point at notification_targets.id and the client opens with
+    // foreign_keys = ON, so all three must be addressed or the parent delete is rejected
+    // with FOREIGN KEY constraint failed:
+    //   - notification_target_roots / notification_target_projects: deleted child-first here
+    //     because scope rows are meaningless without their parent target.
+    //   - notification_deliveries: handled at the DB by ON DELETE SET NULL — the historical
+    //     delivery row survives as an audit trail with target_id nulled out.
+    // Wrapped in a transaction so a partial failure can't leave the scope rows orphaned.
+    db.transaction(function cascade(tx) {
+        deleteTargetRootsForTarget(tx, id)
+        deleteTargetProjectsForTarget(tx, id)
+        tx.delete(notificationTargets).where(eq(notificationTargets.id, id)).run()
+    })
 }
 
 // Patch-style update: only the fields supplied are written. createdAt is never updated (it is the

@@ -217,9 +217,12 @@ export const notificationTargets = sqliteTable(
 // Per-target root scope. Zero rows for a target = "all roots" (the default for legacy targets and
 // for newly created targets that don't narrow scope). One or more rows = explicit allow-list:
 // dispatch only fires the target for events whose project belongs to one of the listed roots.
-// Membership is wiped when either the target or the root is deleted (cascade is handled by the
-// query layer because SQLite doesn't auto-cascade without PRAGMA foreign_keys + ON DELETE clauses,
-// and we prefer explicit query-layer cascades for symmetry with notification_deliveries).
+// Membership is wiped when either the target or the root is deleted. With foreign_keys = ON the
+// default FK action (NO ACTION) would BLOCK the parent delete; we want CASCADE semantics here
+// because scope rows have no meaning without their parent. We do that at the query layer
+// (deleteNotificationTarget child-first) rather than via ON DELETE CASCADE so the cascade is
+// visible in code and easy to grep — different from notification_deliveries below, which uses
+// ON DELETE SET NULL so audit rows survive a target delete.
 export const notificationTargetRoots = sqliteTable(
     'notification_target_roots',
     {
@@ -246,7 +249,7 @@ export const notificationTargetRoots = sqliteTable(
 // Per-target project scope, parallel to notification_target_roots. Zero rows in BOTH this table and
 // notification_target_roots = "everything" (the default). When either table has rows, the target is
 // scoped to an additive allow-list: dispatch fires for an event whose project belongs to a listed
-// root OR whose project id is listed here. Same query-layer cascade rules as the roots table.
+// root OR whose project id is listed here. Same query-layer child-first cascade as the roots table.
 export const notificationTargetProjects = sqliteTable(
     'notification_target_projects',
     {
@@ -372,6 +375,13 @@ export const muteLifts = sqliteTable(
 )
 
 // Per-(event, target) dispatch state. One row per pair. Makes "Slack succeeded, Telegram failed" tractable.
+//
+// target_id is nullable + ON DELETE SET NULL: when an operator deletes a notification target we keep
+// the delivery row as a long-lived audit trail ("this event was sent at T to a target that has since
+// been removed") and merely null out the link to the now-gone parent. Every reader filters with
+// `WHERE target_id = '<concrete-id>'`, which SQL-naturally drops the orphan NULL rows, so dispatch
+// / backfill / lookups are unaffected. The pair_uidx UNIQUE (event_id, target_id) still holds —
+// SQLite treats NULLs as distinct in unique indexes, so multiple events with target_id = NULL coexist.
 export const notificationDeliveries = sqliteTable(
     'notification_deliveries',
     {
@@ -382,10 +392,9 @@ export const notificationDeliveries = sqliteTable(
                 return notificationEvents.id
             }),
         targetId: text('target_id')
-            .notNull()
             .references(function ref() {
                 return notificationTargets.id
-            }),
+            }, { onDelete: 'set null' }),
         firstAttemptedAt: integer('first_attempted_at'),
         // Canonical "delivered to this target" timestamp. Never cleared after set.
         firstSucceededAt: integer('first_succeeded_at'),

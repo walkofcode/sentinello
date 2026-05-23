@@ -286,7 +286,11 @@ export type NotificationEvent = {
 export type NotificationDelivery = {
     id: string
     eventId: string
-    targetId: string
+    // Nullable: when the parent notification_target is deleted, SQLite sets this to NULL (ON DELETE
+    // SET NULL on the FK) so the delivery row survives as an audit trail of "we sent this once, to
+    // a target that no longer exists". Dispatch/backfill readers all filter by concrete targetId
+    // and SQL-drop the orphan rows naturally.
+    targetId: string | null
     firstAttemptedAt: number | null
     firstSucceededAt: number | null
     lastAttemptedAt: number | null
