@@ -7,6 +7,17 @@
 #   - workflow_dispatch → manual run. Defaults to build-only (no push) for dry-run smoke tests;
 #     flip the `push` input to true to actually push (useful for re-publishing `latest` off main).
 #
+# Build topology — why two `build` jobs + a `merge` job rather than one matrix-less job that
+# emits a multi-arch image:
+#   - linux/amd64 builds on ubuntu-latest (native amd64) and linux/arm64 builds on
+#     ubuntu-24.04-arm (native arm64). Free on public repos. No QEMU emulation = ~5-10× faster.
+#   - Each platform pushes a single-arch image to both registries by digest only (no tag) and
+#     uploads its digest as a GHA artifact.
+#   - The `merge` job downloads both digests and runs `docker buildx imagetools create` to
+#     combine them into a multi-arch manifest at every operator-facing tag, on both registries.
+#   - This is Docker's official multi-platform pattern; see
+#     https://docs.docker.com/build/ci/github-actions/multi-platform/.
+#
 # Secrets required (Settings → Secrets and variables → Actions):
 #   - DOCKERHUB_USERNAME — `walkofcode` (or a bot account with push to that org)
 #   - DOCKERHUB_TOKEN    — Docker Hub access token, Read/Write/Delete scoped to walkofcode/sentinello
@@ -25,26 +36,43 @@ on:
                 type: boolean
                 default: false
 
+env:
+    GHCR_IMAGE: ghcr.io/walkofcode/sentinello
+    HUB_IMAGE: walkofcode/sentinello
+
 permissions:
     contents: read
     packages: write
 
 jobs:
-    build-and-push:
-        runs-on: ubuntu-latest
+    build:
+        # Matrix runs the two platform builds in parallel on native runners — no QEMU.
+        # ubuntu-24.04-arm is free for public repos; flip to ubuntu-latest if the repo ever
+        # goes private and arm minutes become billable.
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - platform: linux/amd64
+                      runner: ubuntu-latest
+                    - platform: linux/arm64
+                      runner: ubuntu-24.04-arm
+        runs-on: ${{ matrix.runner }}
         steps:
-            - name: Checkout
-              uses: actions/checkout@v4
+            - name: Slash-safe platform tag for cache scope / artifact name
+              run: |
+                  platform=${{ matrix.platform }}
+                  echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
 
-            - name: Set up QEMU (for linux/arm64 cross-build)
-              uses: docker/setup-qemu-action@v3
+            - name: Checkout
+              uses: actions/checkout@v6
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
+              uses: docker/setup-buildx-action@v4
 
             - name: Log in to GHCR
               if: ${{ github.event_name == 'push' || inputs.push }}
-              uses: docker/login-action@v3
+              uses: docker/login-action@v4
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -52,18 +80,98 @@ jobs:
 
             - name: Log in to Docker Hub
               if: ${{ github.event_name == 'push' || inputs.push }}
-              uses: docker/login-action@v3
+              uses: docker/login-action@v4
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-            - name: Extract image metadata (tags + OCI labels)
+            # In the per-arch build we only need the labels + the SENTINELLO_VERSION build-arg —
+            # tags are assigned by the merge job that creates the multi-arch manifest.
+            - name: Extract image metadata (labels + version)
               id: meta
-              uses: docker/metadata-action@v5
+              uses: docker/metadata-action@v6
               with:
                   images: |
-                      ghcr.io/walkofcode/sentinello
-                      walkofcode/sentinello
+                      ${{ env.GHCR_IMAGE }}
+                      ${{ env.HUB_IMAGE }}
+
+            - name: Build and push by digest
+              id: build
+              uses: docker/build-push-action@v7
+              with:
+                  context: .
+                  file: ./Dockerfile
+                  platforms: ${{ matrix.platform }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  build-args: |
+                      SENTINELLO_VERSION=${{ steps.meta.outputs.version }}
+                  # push-by-digest = "push the layer manifest under sha256:... only, no tag" — the
+                  # merge job then composes tags pointing at these digests. Two output lines = push
+                  # the same digest to both registries in this single build.
+                  outputs: |
+                      type=image,name=${{ env.GHCR_IMAGE }},push-by-digest=true,name-canonical=true,push=${{ github.event_name == 'push' || inputs.push }}
+                      type=image,name=${{ env.HUB_IMAGE }},push-by-digest=true,name-canonical=true,push=${{ github.event_name == 'push' || inputs.push }}
+                  # Per-platform GHA cache scopes — without this both arches fight over the same
+                  # ~10GB org cache and partially evict each other.
+                  cache-from: type=gha,scope=${{ env.PLATFORM_PAIR }}
+                  cache-to: type=gha,mode=max,scope=${{ env.PLATFORM_PAIR }}
+                  provenance: true
+                  sbom: true
+
+            - name: Export digest to artifact
+              if: ${{ github.event_name == 'push' || inputs.push }}
+              run: |
+                  mkdir -p /tmp/digests
+                  digest='${{ steps.build.outputs.digest }}'
+                  # Filename = bare hash (sha256: stripped) so the merge step can `printf '...@sha256:%s' *`.
+                  touch "/tmp/digests/${digest#sha256:}"
+
+            - name: Upload digest
+              if: ${{ github.event_name == 'push' || inputs.push }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: digests-${{ env.PLATFORM_PAIR }}
+                  path: /tmp/digests/*
+                  if-no-files-found: error
+                  retention-days: 1
+
+    merge:
+        # Skip the manifest step on workflow_dispatch runs where push=false (dry-run smoke test).
+        needs: build
+        if: ${{ github.event_name == 'push' || inputs.push }}
+        runs-on: ubuntu-latest
+        steps:
+            - name: Download per-arch digests
+              uses: actions/download-artifact@v4
+              with:
+                  path: /tmp/digests
+                  pattern: digests-*
+                  merge-multiple: true
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v4
+
+            - name: Log in to GHCR
+              uses: docker/login-action@v4
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Log in to Docker Hub
+              uses: docker/login-action@v4
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            # Compute the final tag set the operators see. Same rules as before the split.
+            - name: Extract image metadata (tags)
+              id: meta
+              uses: docker/metadata-action@v6
+              with:
+                  images: |
+                      ${{ env.GHCR_IMAGE }}
+                      ${{ env.HUB_IMAGE }}
                   tags: |
                       type=semver,pattern={{version}}
                       type=semver,pattern={{major}}.{{minor}}
@@ -72,18 +180,32 @@ jobs:
                       type=raw,value=latest,enable={{is_default_branch}}
                       type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 
-            - name: Build and push
-              uses: docker/build-push-action@v6
-              with:
-                  context: .
-                  file: ./Dockerfile
-                  platforms: linux/amd64,linux/arm64
-                  push: ${{ github.event_name == 'push' || inputs.push }}
-                  tags: ${{ steps.meta.outputs.tags }}
-                  labels: ${{ steps.meta.outputs.labels }}
-                  build-args: |
-                      SENTINELLO_VERSION=${{ steps.meta.outputs.version }}
-                  cache-from: type=gha
-                  cache-to: type=gha,mode=max
-                  provenance: true
-                  sbom: true
+            # imagetools create -t <target> <source...> writes a multi-arch list at every target
+            # tag, referencing the per-platform digests already in that registry. We run it once
+            # per registry (GHCR and Docker Hub) so no cross-registry blob copy is needed — each
+            # platform's build step already pushed its digest to both registries above.
+            - name: Create multi-arch manifest and push
+              working-directory: /tmp/digests
+              run: |
+                  ghcr_tags=$(jq -cr --arg img '${{ env.GHCR_IMAGE }}' '.tags | map(select(startswith($img + ":"))) | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+                  hub_tags=$(jq -cr --arg img '${{ env.HUB_IMAGE }}' '.tags | map(select(startswith($img + ":"))) | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+                  sources_ghcr=$(printf '${{ env.GHCR_IMAGE }}@sha256:%s ' *)
+                  sources_hub=$(printf '${{ env.HUB_IMAGE }}@sha256:%s ' *)
+                  echo "GHCR tags:     $ghcr_tags"
+                  echo "Hub tags:      $hub_tags"
+                  echo "GHCR sources:  $sources_ghcr"
+                  echo "Hub sources:   $sources_hub"
+                  # The `-t <tag>` and `<image>@sha256:<digest>` strings MUST split on whitespace
+                  # into separate argv entries for imagetools, so unquoted expansion is intentional.
+                  # shellcheck disable=SC2086
+                  docker buildx imagetools create $ghcr_tags $sources_ghcr
+                  # shellcheck disable=SC2086
+                  docker buildx imagetools create $hub_tags $sources_hub
+
+            - name: Inspect resulting manifests
+              run: |
+                  for tag in $(jq -cr '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON"); do
+                      echo "::group::imagetools inspect $tag"
+                      docker buildx imagetools inspect "$tag"
+                      echo "::endgroup::"
+                  done
