@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.1](https://github.com/walkofcode/sentinello/compare/v1.1.0...v1.1.1) (2026-05-23)
+
+
+### Bug Fixes
+
+* **ci:** collapse build outputs into one comma-separated name to keep manifest digest stable across registries ([623d304](https://github.com/walkofcode/sentinello/commit/623d304d4bb15e9f13349d6907b08cfa4ee78569))
+
+
+### Refactor
+
+* **ci:** split publish into parallel publish-ghcr / publish-hub jobs and rename to publish-image.yml ([89c249a](https://github.com/walkofcode/sentinello/commit/89c249ab426ab75eb15f06620636d628ed928485))
+
 ## [1.1.0](https://github.com/walkofcode/sentinello/compare/v1.0.1...v1.1.0) (2026-05-23)
 
 
