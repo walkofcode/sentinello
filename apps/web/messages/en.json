@@ -464,7 +464,7 @@
                 "disable": "Core function — not disableable"
             },
             "github": {
-                "purpose": "Update check for the footer badge",
+                "purpose": "Update check for the top-of-page banner",
                 "when": "About every 6 hours",
                 "disable": "Settings → Advanced, or SENTINELLO_UPDATE_FEED_URL=off"
             },

@@ -464,7 +464,7 @@
                 "disable": "Fonction principale — non désactivable"
             },
             "github": {
-                "purpose": "Vérification de mise à jour pour le badge du pied de page",
+                "purpose": "Vérification de mise à jour pour la bannière en haut de page",
                 "when": "Environ toutes les 6 heures",
                 "disable": "Paramètres → Avancé, ou SENTINELLO_UPDATE_FEED_URL=off"
             },

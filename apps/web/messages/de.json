@@ -464,7 +464,7 @@
                 "disable": "Kernfunktion — nicht deaktivierbar"
             },
             "github": {
-                "purpose": "Update-Prüfung für das Fußzeilen-Abzeichen",
+                "purpose": "Update-Prüfung für das Banner am Seitenanfang",
                 "when": "Etwa alle 6 Stunden",
                 "disable": "Einstellungen → Erweitert, oder SENTINELLO_UPDATE_FEED_URL=off"
             },

@@ -464,7 +464,7 @@
                 "disable": "核心功能——无法禁用"
             },
             "github": {
-                "purpose": "为页脚徽章检查更新",
+                "purpose": "为页面顶部横幅检查更新",
                 "when": "约每 6 小时一次",
                 "disable": "设置 → 高级，或 SENTINELLO_UPDATE_FEED_URL=off"
             },

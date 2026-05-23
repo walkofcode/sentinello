@@ -464,7 +464,7 @@
                 "disable": "コア機能 — 無効化できません"
             },
             "github": {
-                "purpose": "フッターバッジ用の更新チェック",
+                "purpose": "ページ上部のバナー用の更新チェック",
                 "when": "約6時間ごと",
                 "disable": "設定 → 詳細設定、または SENTINELLO_UPDATE_FEED_URL=off"
             },

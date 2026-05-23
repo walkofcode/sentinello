@@ -464,7 +464,7 @@
                 "disable": "핵심 기능 — 비활성화 불가"
             },
             "github": {
-                "purpose": "푸터 배지를 위한 업데이트 확인",
+                "purpose": "페이지 상단 배너를 위한 업데이트 확인",
                 "when": "약 6시간마다",
                 "disable": "설정 → 고급, 또는 SENTINELLO_UPDATE_FEED_URL=off"
             },

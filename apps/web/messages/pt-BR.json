@@ -464,7 +464,7 @@
                 "disable": "Função essencial — não pode ser desativada"
             },
             "github": {
-                "purpose": "Verificação de atualização para o selo do rodapé",
+                "purpose": "Verificação de atualização para o banner no topo da página",
                 "when": "A cada 6 horas, aproximadamente",
                 "disable": "Configurações → Avançado, ou SENTINELLO_UPDATE_FEED_URL=off"
             },

@@ -464,7 +464,7 @@
                 "disable": "Función central — no se puede deshabilitar"
             },
             "github": {
-                "purpose": "Verificación de actualizaciones para la insignia del pie de página",
+                "purpose": "Verificación de actualizaciones para el banner superior",
                 "when": "Aproximadamente cada 6 horas",
                 "disable": "Configuración → Avanzado, o SENTINELLO_UPDATE_FEED_URL=off"
             },

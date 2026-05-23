@@ -464,7 +464,7 @@
                 "disable": "Funzione principale — non disabilitabile"
             },
             "github": {
-                "purpose": "Controllo aggiornamenti per il badge nel footer",
+                "purpose": "Controllo aggiornamenti per il banner in cima alla pagina",
                 "when": "Circa ogni 6 ore",
                 "disable": "Impostazioni → Avanzate, oppure SENTINELLO_UPDATE_FEED_URL=off"
             },
