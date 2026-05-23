@@ -56,10 +56,14 @@
     },
     "Footer": {
         "version": "Sentinello v{version}",
-        "updateAvailable": "有可用更新 v{version}",
         "madeBy": "制作者",
         "about": "关于",
         "legalNotice": "使用 Sentinello 即表示你接受<terms>条款</terms>、<privacy>隐私政策</privacy>和<disclaimer>免责声明</disclaimer>。"
+    },
+    "UpdateBanner": {
+        "title": "Sentinello v{version} 已可用。",
+        "cta": "查看发布说明",
+        "dismiss": "关闭"
     },
     "Time": {
         "never": "从不",

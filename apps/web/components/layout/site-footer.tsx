@@ -19,17 +19,6 @@ export async function SiteFooter() {
                 >
                     {t('version', { version: info.current })}
                 </a>
-                {info.updateAvailable && info.latest && (
-                    <a
-                        href={info.releaseUrl || 'https://github.com/walkofcode/sentinello/releases'}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-medium text-emerald-700 transition-colors hover:bg-emerald-500/20 dark:text-emerald-300"
-                    >
-                        {t('updateAvailable', { version: info.latest })}
-                        <span aria-hidden="true">↗</span>
-                    </a>
-                )}
                 <span className="text-muted-foreground/80">
                     {t('madeBy')}{' '}
                     <a

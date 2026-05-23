@@ -56,10 +56,14 @@
     },
     "Footer": {
         "version": "Sentinello v{version}",
-        "updateAvailable": "v{version} available",
         "madeBy": "Made by",
         "about": "About",
         "legalNotice": "By using Sentinello you accept the <terms>Terms</terms>, <privacy>Privacy Policy</privacy>, and <disclaimer>Disclaimer</disclaimer>."
+    },
+    "UpdateBanner": {
+        "title": "Sentinello v{version} is available.",
+        "cta": "View release notes",
+        "dismiss": "Dismiss"
     },
     "Time": {
         "never": "never",

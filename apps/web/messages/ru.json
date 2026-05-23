@@ -56,10 +56,14 @@
     },
     "Footer": {
         "version": "Sentinello v{version}",
-        "updateAvailable": "Доступна v{version}",
         "madeBy": "Создано",
         "about": "О программе",
         "legalNotice": "Используя Sentinello, вы принимаете <terms>Условия</terms>, <privacy>Политику конфиденциальности</privacy> и <disclaimer>Отказ от ответственности</disclaimer>."
+    },
+    "UpdateBanner": {
+        "title": "Доступна Sentinello v{version}.",
+        "cta": "Посмотреть примечания к выпуску",
+        "dismiss": "Закрыть"
     },
     "Time": {
         "never": "никогда",

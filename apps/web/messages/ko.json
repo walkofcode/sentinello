@@ -56,10 +56,14 @@
     },
     "Footer": {
         "version": "Sentinello v{version}",
-        "updateAvailable": "v{version} 사용 가능",
         "madeBy": "제작",
         "about": "정보",
         "legalNotice": "Sentinello를 사용함으로써 <terms>이용약관</terms>, <privacy>개인정보 처리방침</privacy>, <disclaimer>면책조항</disclaimer>에 동의하게 됩니다."
+    },
+    "UpdateBanner": {
+        "title": "Sentinello v{version}을(를) 사용할 수 있습니다.",
+        "cta": "릴리스 노트 보기",
+        "dismiss": "닫기"
     },
     "Time": {
         "never": "안 함",
