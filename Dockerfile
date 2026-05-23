@@ -69,7 +69,14 @@ COPY packages/notifications/package.json packages/notifications/
 COPY packages/scanners/package.json packages/scanners/
 
 # Strict-mode install — exact versions only, .npmrc minimum-release-age in force.
-RUN pnpm install --frozen-lockfile
+#
+# The cache mount on pnpm's content-addressable store persists across buildkit invocations
+# (it lives inside the GHA cache scope written by `cache-to: type=gha,mode=max,scope=<platform>`
+# in .github/workflows/docker-publish.yml). When only some workspace manifests change, pnpm
+# resolves to the same content hashes and the download phase is skipped. For first builds on a
+# cold runner the mount is empty and behaves like a regular install.
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store,id=pnpm-store \
+    pnpm install --frozen-lockfile
 
 # ---------------------------------------------------------------------------
 # Stage 3: build — full source + turbo build. Produces .next/standalone for web and
