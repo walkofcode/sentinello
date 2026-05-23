@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.0](https://github.com/walkofcode/sentinello/compare/v1.0.1...v1.1.0) (2026-05-23)
+
+
+### Features
+
+* **web:** confirm before deleting roots and notification targets ([36d8c2c](https://github.com/walkofcode/sentinello/commit/36d8c2c5bbce270c31dbae1d546237c73f26fabe))
+* **web:** replace footer update-available pill with dismissible top-of-page banner ([82d793a](https://github.com/walkofcode/sentinello/commit/82d793a63e538541cf0e56a57f46a3923d9d9fb3))
+* **worker:** prune stale /roots/&lt;name&gt; entries on boot when their host mount is gone ([14ebb45](https://github.com/walkofcode/sentinello/commit/14ebb453dbc8f74c83e55e9cbc4df35e1495eedb))
+
+
+### Bug Fixes
+
+* **db:** cascade-delete projects, scan_requests, and target-roots on deleteRoot ([a233f40](https://github.com/walkofcode/sentinello/commit/a233f40532344763e7fda71aeafb2c7b4b397820))
+
 ## [1.0.1](https://github.com/walkofcode/sentinello/compare/v1.0.0...v1.0.1) (2026-05-23)
 
 
