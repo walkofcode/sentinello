@@ -183,6 +183,11 @@
                 "labelOptional": "ラベル（任意）",
                 "adding": "追加中…",
                 "addFolder": "このフォルダを追加"
+            },
+            "deleteConfirm": {
+                "title": "ルートを削除しますか?",
+                "description": "{path} を完全に削除しますか? {projectCount, plural, =0 {このルートに紐づくプロジェクトはありません。} one {このルート配下の # 件のプロジェクトと、そのスキャン・検出結果・通知履歴もすべて削除されます。} other {このルート配下の # 件のプロジェクトと、それらのスキャン・検出結果・通知履歴もすべて削除されます。}} この操作は取り消せません。",
+                "confirm": "ルートを削除"
             }
         },
         "schedule": {
@@ -236,6 +241,11 @@
             "dialog": {
                 "title": "通知先を追加",
                 "description": "Slack、Telegram、または汎用 Webhook。オンにした深刻度がこの通知先に配信されます。"
+            },
+            "deleteConfirm": {
+                "title": "通知先を削除しますか?",
+                "description": "通知先 {identity} を完全に削除しますか? 既存の配信履歴は保持されますが、この通知先には今後イベントは送信されません。",
+                "confirm": "通知先を削除"
             },
             "scopeCount": "{count} 件選択",
             "webhookFlavor": "ペイロード形式",

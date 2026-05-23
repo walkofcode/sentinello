@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { useTranslations } from 'next-intl'
 import { Plus, Trash2, Power, Pencil, Send, History } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input, Label } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { SeverityPill } from '@/components/ui/severity-pill'
@@ -37,19 +38,34 @@ type Props = {
 
 export function NotificationTargetList({ targets, roots, projects }: Props) {
     const t = useTranslations('Settings')
+    const tc = useTranslations('Common')
     const [pending, startTransition] = useTransition()
     const [editingId, setEditingId] = useState<string | null>(null)
     const [feedback, setFeedback] = useState<ActionFeedback | null>(null)
     const [addOpen, setAddOpen] = useState(false)
+    // Confirm-then-delete: the trash icon stages the row id, the modal commits via deleteNotificationTargetAction.
+    const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+    const pendingTarget = pendingDeleteId && targets.find(function byId(x) { return x.id === pendingDeleteId }) || null
     function toggle(id: string, enabled: boolean) {
         startTransition(async function persist() {
             await setNotificationTargetEnabledAction(id, !enabled)
         })
     }
-    function remove(id: string) {
+    function requestDelete(id: string) {
+        setFeedback(null)
+        setPendingDeleteId(id)
+    }
+    function cancelDelete() {
+        if (pending) return
+        setPendingDeleteId(null)
+    }
+    function confirmDelete() {
+        if (!pendingDeleteId) return
+        const id = pendingDeleteId
         startTransition(async function persist() {
             await deleteNotificationTargetAction(id)
             if (editingId === id) setEditingId(null)
+            setPendingDeleteId(null)
         })
     }
     function testSend(id: string) {
@@ -117,7 +133,7 @@ export function NotificationTargetList({ targets, roots, projects }: Props) {
                                     isEditing={isEditing}
                                     pending={pending}
                                     onToggle={function onToggle() { toggle(t.id, t.enabled) }}
-                                    onRemove={function onRemove() { remove(t.id) }}
+                                    onRemove={function onRemove() { requestDelete(t.id) }}
                                     onTest={function onTest() { testSend(t.id) }}
                                     onHistory={function onHistory() { sendHistory(t.id) }}
                                     onEdit={function onEdit() {
@@ -153,7 +169,7 @@ export function NotificationTargetList({ targets, roots, projects }: Props) {
                                             isEditing={isEditing}
                                             pending={pending}
                                             onToggle={function onToggle() { toggle(t.id, t.enabled) }}
-                                            onRemove={function onRemove() { remove(t.id) }}
+                                            onRemove={function onRemove() { requestDelete(t.id) }}
                                             onTest={function onTest() { testSend(t.id) }}
                                             onHistory={function onHistory() { sendHistory(t.id) }}
                                             onEdit={function onEdit() {
@@ -170,6 +186,17 @@ export function NotificationTargetList({ targets, roots, projects }: Props) {
                 </>
             )}
             <AddTargetDialog open={addOpen} onClose={function close() { setAddOpen(false) }} roots={roots} projects={projects} />
+            <ConfirmDialog
+                open={pendingTarget !== null}
+                onClose={cancelDelete}
+                onConfirm={confirmDelete}
+                title={t('notifications.deleteConfirm.title')}
+                description={pendingTarget && t('notifications.deleteConfirm.description', { identity: maskedIdentity(pendingTarget) }) || ''}
+                confirmLabel={t('notifications.deleteConfirm.confirm')}
+                cancelLabel={tc('cancel')}
+                destructive
+                pending={pending}
+            />
         </div>
     )
 }

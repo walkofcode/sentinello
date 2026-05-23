@@ -183,6 +183,11 @@
                 "labelOptional": "Bezeichnung (optional)",
                 "adding": "Wird hinzugefügt…",
                 "addFolder": "Diesen Ordner hinzufügen"
+            },
+            "deleteConfirm": {
+                "title": "Stammverzeichnis entfernen?",
+                "description": "{path} dauerhaft entfernen? {projectCount, plural, =0 {Diesem Stammverzeichnis sind keine Projekte zugeordnet.} one {# darunter liegendes Projekt wird ebenfalls gelöscht, einschließlich seiner Scans, Findings und Benachrichtigungen.} other {# darunter liegende Projekte werden ebenfalls gelöscht, einschließlich ihrer Scans, Findings und Benachrichtigungen.}} Dies kann nicht rückgängig gemacht werden.",
+                "confirm": "Stammverzeichnis entfernen"
             }
         },
         "schedule": {
@@ -236,6 +241,11 @@
             "dialog": {
                 "title": "Benachrichtigungsziel hinzufügen",
                 "description": "Slack, Telegram oder ein generischer Webhook. Die von Ihnen markierten Schweregrade werden an dieses Ziel zugestellt."
+            },
+            "deleteConfirm": {
+                "title": "Benachrichtigungsziel entfernen?",
+                "description": "Benachrichtigungsziel {identity} dauerhaft entfernen? Der vorhandene Zustellungsverlauf bleibt erhalten, aber es werden keine weiteren Ereignisse an dieses Ziel gesendet.",
+                "confirm": "Ziel entfernen"
             },
             "scopeCount": "{count} ausgewählt",
             "webhookFlavor": "Payload-Format",

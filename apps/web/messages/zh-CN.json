@@ -183,6 +183,11 @@
                 "labelOptional": "标签（可选）",
                 "adding": "添加中…",
                 "addFolder": "添加此文件夹"
+            },
+            "deleteConfirm": {
+                "title": "移除根目录？",
+                "description": "确定永久移除 {path}？{projectCount, plural, =0 {此根目录下没有关联的项目。} one {将一并删除其下的 # 个项目，以及对应的扫描、发现项和通知。} other {将一并删除其下的 # 个项目，以及对应的扫描、发现项和通知。}}此操作无法撤销。",
+                "confirm": "移除根目录"
             }
         },
         "schedule": {
@@ -236,6 +241,11 @@
             "dialog": {
                 "title": "添加通知目标",
                 "description": "Slack、Telegram 或通用 webhook。你勾选的严重程度将被分发到此目标。"
+            },
+            "deleteConfirm": {
+                "title": "移除通知目标？",
+                "description": "确定永久移除通知目标 {identity}？已发送的历史记录将保留，但今后不会再向此目标发送新事件。",
+                "confirm": "移除目标"
             },
             "scopeCount": "已选 {count} 项",
             "webhookFlavor": "负载格式",

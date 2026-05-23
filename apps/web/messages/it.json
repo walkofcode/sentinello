@@ -183,6 +183,11 @@
                 "labelOptional": "Etichetta (facoltativa)",
                 "adding": "Aggiunta in corso…",
                 "addFolder": "Aggiungi questa cartella"
+            },
+            "deleteConfirm": {
+                "title": "Rimuovere la radice?",
+                "description": "Rimuovere definitivamente {path}? {projectCount, plural, =0 {Nessun progetto è collegato a questa radice.} one {Verrà eliminato anche # progetto sotto questa radice, insieme alle sue scansioni, ai suoi findings e alle sue notifiche.} other {Verranno eliminati anche # progetti sotto questa radice, insieme alle loro scansioni, ai loro findings e alle loro notifiche.}} Questa operazione non può essere annullata.",
+                "confirm": "Rimuovi radice"
             }
         },
         "schedule": {
@@ -236,6 +241,11 @@
             "dialog": {
                 "title": "Aggiungi destinazione di notifica",
                 "description": "Slack, Telegram o un webhook generico. Le gravità che spunti saranno consegnate a questa destinazione."
+            },
+            "deleteConfirm": {
+                "title": "Rimuovere la destinazione di notifica?",
+                "description": "Rimuovere definitivamente la destinazione di notifica {identity}? Lo storico delle consegne verrà conservato, ma non verranno più inviati eventi a questa destinazione.",
+                "confirm": "Rimuovi destinazione"
             },
             "scopeCount": "{count} selezionati",
             "webhookFlavor": "Formato del payload",

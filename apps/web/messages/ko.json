@@ -183,6 +183,11 @@
                 "labelOptional": "레이블 (선택 사항)",
                 "adding": "추가 중…",
                 "addFolder": "이 폴더 추가"
+            },
+            "deleteConfirm": {
+                "title": "루트를 삭제하시겠습니까?",
+                "description": "{path}을(를) 영구적으로 삭제하시겠습니까? {projectCount, plural, =0 {이 루트에 연결된 프로젝트가 없습니다.} one {이 루트 아래의 # 개 프로젝트와 해당 스캔, 발견 항목, 알림 내역도 함께 삭제됩니다.} other {이 루트 아래의 # 개 프로젝트와 해당 스캔, 발견 항목, 알림 내역도 함께 삭제됩니다.}} 이 작업은 취소할 수 없습니다.",
+                "confirm": "루트 삭제"
             }
         },
         "schedule": {
@@ -236,6 +241,11 @@
             "dialog": {
                 "title": "알림 대상 추가",
                 "description": "Slack, Telegram 또는 일반 웹훅. 선택한 심각도가 이 대상으로 전달됩니다."
+            },
+            "deleteConfirm": {
+                "title": "알림 대상을 삭제하시겠습니까?",
+                "description": "알림 대상 {identity}을(를) 영구적으로 삭제하시겠습니까? 기존 전송 기록은 유지되지만 이 대상으로는 새로운 이벤트가 전송되지 않습니다.",
+                "confirm": "대상 삭제"
             },
             "scopeCount": "{count}개 선택",
             "webhookFlavor": "페이로드 형식",

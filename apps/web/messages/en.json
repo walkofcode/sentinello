@@ -183,6 +183,11 @@
                 "labelOptional": "Label (optional)",
                 "adding": "Adding…",
                 "addFolder": "Add this folder"
+            },
+            "deleteConfirm": {
+                "title": "Remove root?",
+                "description": "Permanently remove {path}? {projectCount, plural, =0 {No projects are linked to this root.} one {# project under it will also be deleted, along with its scans, findings, and notifications.} other {# projects under it will also be deleted, along with their scans, findings, and notifications.}} This cannot be undone.",
+                "confirm": "Remove root"
             }
         },
         "schedule": {
@@ -236,6 +241,11 @@
             "dialog": {
                 "title": "Add notification target",
                 "description": "Slack, Telegram, or a generic webhook. Severities you tick will be delivered to this target."
+            },
+            "deleteConfirm": {
+                "title": "Remove notification target?",
+                "description": "Permanently remove the notification target {identity}? Existing delivery history will be kept, but no further events will be sent to this target.",
+                "confirm": "Remove target"
             },
             "scopeCount": "{count} selected",
             "webhookFlavor": "Payload format",

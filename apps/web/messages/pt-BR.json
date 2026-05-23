@@ -183,6 +183,11 @@
                 "labelOptional": "Rótulo (opcional)",
                 "adding": "Adicionando…",
                 "addFolder": "Adicionar esta pasta"
+            },
+            "deleteConfirm": {
+                "title": "Remover raiz?",
+                "description": "Remover permanentemente {path}? {projectCount, plural, =0 {Não há projetos vinculados a esta raiz.} one {# projeto sob ela também será excluído, junto com suas varreduras, descobertas e notificações.} other {# projetos sob ela também serão excluídos, junto com suas varreduras, descobertas e notificações.}} Esta ação não pode ser desfeita.",
+                "confirm": "Remover raiz"
             }
         },
         "schedule": {
@@ -236,6 +241,11 @@
             "dialog": {
                 "title": "Adicionar destino de notificação",
                 "description": "Slack, Telegram ou um webhook genérico. As severidades que você marcar serão entregues a este destino."
+            },
+            "deleteConfirm": {
+                "title": "Remover destino de notificação?",
+                "description": "Remover permanentemente o destino de notificação {identity}? O histórico de envios será mantido, mas nenhum evento novo será enviado para este destino.",
+                "confirm": "Remover destino"
             },
             "scopeCount": "{count} selecionados",
             "webhookFlavor": "Formato do payload",

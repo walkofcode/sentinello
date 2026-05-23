@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { useTranslations } from 'next-intl'
 import { Check, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -27,14 +28,30 @@ type Props = {
 
 export function RootList({ roots, anyInFlight }: Props) {
     const t = useTranslations('Settings')
+    const tc = useTranslations('Common')
     const [pending, startTransition] = useTransition()
     const [open, setOpen] = useState(false)
     // Single-row label edit at a time, mirroring NotificationTargetList's editingId pattern.
     const [editingId, setEditingId] = useState<string | null>(null)
     const [draftLabel, setDraftLabel] = useState('')
-    function remove(id: string) {
+    // Confirm-then-delete: the trash icon stages the row id, the modal commits via deleteRootAction.
+    // The fixed deleteRoot in @sentinello/db cascades all projects/scans/findings/notifications under
+    // the root, so an unconfirmed click would wipe a large amount of history irreversibly.
+    const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+    const pendingRoot = pendingDeleteId && roots.find(function byId(r) { return r.id === pendingDeleteId }) || null
+    function requestDelete(id: string) {
+        setPendingDeleteId(id)
+    }
+    function cancelDelete() {
+        if (pending) return
+        setPendingDeleteId(null)
+    }
+    function confirmDelete() {
+        if (!pendingDeleteId) return
+        const id = pendingDeleteId
         startTransition(async function persist() {
             await deleteRootAction(id)
+            setPendingDeleteId(null)
         })
     }
     function scan(id: string) {
@@ -166,7 +183,7 @@ export function RootList({ roots, anyInFlight }: Props) {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
-                                                    onClick={function click() { remove(r.id) }}
+                                                    onClick={function click() { requestDelete(r.id) }}
                                                     disabled={pending}
                                                     aria-label={t('roots.removeAria')}
                                                 >
@@ -185,6 +202,17 @@ export function RootList({ roots, anyInFlight }: Props) {
                 open={open}
                 onClose={function close() { setOpen(false) }}
                 existingPaths={existingPaths}
+            />
+            <ConfirmDialog
+                open={pendingRoot !== null}
+                onClose={cancelDelete}
+                onConfirm={confirmDelete}
+                title={t('roots.deleteConfirm.title')}
+                description={pendingRoot && t('roots.deleteConfirm.description', { path: pendingRoot.path, projectCount: pendingRoot.projectCount }) || ''}
+                confirmLabel={t('roots.deleteConfirm.confirm')}
+                cancelLabel={tc('cancel')}
+                destructive
+                pending={pending}
             />
         </div>
     )
