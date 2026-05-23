@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.1](https://github.com/walkofcode/sentinello/compare/v1.0.0...v1.0.1) (2026-05-23)
+
+
+### Bug Fixes
+
+* **db:** allow deleting a notification target with delivery history ([f5127b4](https://github.com/walkofcode/sentinello/commit/f5127b4da4692506e918ad27aca7b02641f7247e))
+* **scanners:** drop audit findings whose lockfile-resolved install isn't in the vulnerable range ([e90a574](https://github.com/walkofcode/sentinello/commit/e90a57426443a72f22a90ba98cdaea8924f5092a))
+
 ## [1.0.0](https://github.com/walkofcode/sentinello/compare/v0.1.0...v1.0.0) (2026-05-23)
 
 
