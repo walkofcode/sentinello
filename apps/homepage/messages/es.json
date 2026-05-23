@@ -1,0 +1,152 @@
+{
+    "Meta": {
+        "title": "Sentinello — monitoreo temprano de CVE para todo tu portafolio de Node.js",
+        "description": "Monitoreo de vulnerabilidades de dependencias para proyectos Node.js, autoalojado y de código abierto. Apúntalo a tus repositorios y obtén una sola cola de triaje para los CVE conocidos de cada proyecto.",
+        "tagline": "Alerta temprana de CVE para todo tu portafolio de Node.js",
+        "tabTitle": "Sentinello — monitoreo de CVE para Node.js"
+    },
+    "Nav": {
+        "how": "Cómo funciona",
+        "features": "Características",
+        "screenshots": "Capturas",
+        "selfHost": "Autoalojar",
+        "roadmap": "Hoja de ruta",
+        "sections": "Secciones",
+        "github": "GitHub",
+        "openMenu": "Abrir menú",
+        "closeMenu": "Cerrar menú"
+    },
+    "Common": {
+        "copy": "Copiar",
+        "copied": "Copiado"
+    },
+    "Theme": {
+        "toggle": "Cambiar tema",
+        "system": "Tema del sistema",
+        "light": "Tema claro",
+        "dark": "Tema oscuro"
+    },
+    "Language": {
+        "label": "Cambiar idioma"
+    },
+    "Footer": {
+        "copyright": "© {year}",
+        "github": "GitHub",
+        "issues": "Incidencias",
+        "license": "Licencia MIT"
+    },
+    "Hero": {
+        "title": "Un sistema de alerta temprana para las dependencias que dejaste de vigilar.",
+        "subtitle": "En la era de la IA publicas más proyectos Node.js de los que puedes mantener. Sentinello vigila cada uno y revela los CVE conocidos en sus dependencias npm, para que un proyecto olvidado nunca se convierta en un incidente.",
+        "commandCaption": "Ejecútalo con un solo comando:",
+        "ctaPrimary": "Autoalojar ahora",
+        "ctaSecondary": "Marcar con estrella en GitHub",
+        "trust": "Sin cuenta. Sin SaaS. Sin telemetría. Una imagen de Docker y un archivo SQLite: tu código y tus hallazgos nunca salen de tu máquina."
+    },
+    "Why": {
+        "title": "Por qué lo creamos",
+        "lead": "En la era de la IA, publicas más de lo que puedes mantener.",
+        "body1": "Hoy una sola persona desarrolladora crea, entrega y deja atrás una docena de proyectos al año. El sitio de marketing, el panel del cliente, el proyecto personal que llegó a producción sin hacer ruido: siguen funcionando mucho después de que alguien los mirara por última vez.",
+        "callout": "Basta con una sola dependencia olvidada con una falla crítica de ejecución remota de código. El sitio más simple puede convertirse en la puerta de entrada.",
+        "body2": "Sentinello es el sistema de alerta temprana para esa larga cola. Vigila cada proyecto al que lo apuntes, de modo que un nuevo CVE en algo que publicaste hace meses aparezca en un solo lugar, antes de que se convierta en un desastre."
+    },
+    "How": {
+        "title": "Cómo funciona",
+        "subtitle": "Tres pasos. Sin agentes que instalar en tus proyectos, sin cuentas que crear.",
+        "step1Title": "Apúntalo a tu código",
+        "step1Body": "Monta tus repositorios bajo /roots, o agrégalos desde Configuración → Roots. Cada directorio se registra y se descubre automáticamente al iniciar.",
+        "step2Title": "Escanea de forma continua",
+        "step2Body": "Un proceso en segundo plano compara tus dependencias con los CVE conocidos según una programación, instalando la versión de Node que cada proyecto fija cuando hace falta.",
+        "step3Title": "Triaje en una sola cola",
+        "step3Body": "Cada hallazgo de cada proyecto llega a una sola cola que puedes filtrar por severidad, con alertas opcionales a Slack, Telegram o un webhook."
+    },
+    "Features": {
+        "title": "Características",
+        "subtitle": "Todo en un portal autoalojado — sin servicios externos, sin que los datos salgan de tu red.",
+        "queueTitle": "Cola de triaje única",
+        "queueBody": "Ve y tría los CVE de todo tu portafolio en un solo lugar, en vez de npm audit disperso en una docena de copias.",
+        "byProjectTitle": "Explora por proyecto",
+        "byProjectBody": "Entra en cualquier repositorio para ver sus hallazgos actuales, versiones de corrección, historial de escaneos y silenciamientos.",
+        "byLibraryTitle": "Explora por librería",
+        "byLibraryBody": "Cambia a un paquete vulnerable y ve todos los proyectos a los que afecta; luego siléncialo en todos a la vez.",
+        "exportTitle": "Exportación de avisos",
+        "exportBody": "Exporta los hallazgos de un proyecto o una librería como Markdown, con un prompt de remediación personalizable para tu equipo o un LLM.",
+        "scanningTitle": "Escaneo continuo",
+        "scanningBody": "Un proceso en segundo plano vuelve a escanear según una programación, así los nuevos avisos aparecen sin que tengas que acordarte de revisar.",
+        "severityTitle": "Filtrado por severidad",
+        "severityBody": "Ordena y filtra los hallazgos por severidad para atender primero los críticos y el ruido después.",
+        "notificationsTitle": "Notificaciones",
+        "notificationsBody": "Recibe alertas de fallos y hallazgos por Slack, Telegram o un webhook simple, en el idioma que elijas.",
+        "selfContainedTitle": "Una imagen, un archivo",
+        "selfContainedBody": "Una imagen de Docker y un archivo SQLite. Sin servidor de base de datos, sin cola de mensajes, sin dependencia de la nube.",
+        "autoRootsTitle": "Roots autorregistrados",
+        "autoRootsBody": "Todo lo que montes bajo /roots se registra y se escanea al arrancar; el nombre del directorio se vuelve su etiqueta.",
+        "nodeVersionsTitle": "Node por proyecto",
+        "nodeVersionsBody": "Respeta el .nvmrc de cada proyecto, instalando y cacheando una sola vez la versión de Node que fija.",
+        "languagesTitle": "10 idiomas",
+        "languagesBody": "La interfaz del portal, los códigos de motivo de escaneo y los estados están traducidos a 10 idiomas."
+    },
+    "SelfHost": {
+        "title": "Autoalojar",
+        "subtitle": "Autoaloja en minutos. Copia, pega, abre localhost. Fija una etiqueta de versión para producción.",
+        "runTab": "docker run",
+        "composeTab": "docker compose",
+        "pm2Tab": "pm2",
+        "rootsNote": "Todo lo que montes bajo /roots se registra automáticamente al iniciar —el nombre del directorio se vuelve su etiqueta— así que el descubrimiento y el escaneo comienzan solos. Montar es opcional; también puedes agregar roots desde el portal.",
+        "multiArch": "Funciona en linux/amd64 y arm64",
+        "docsLink": "Lee la guía rápida",
+        "githubLink": "Ver en GitHub"
+    },
+    "Screenshots": {
+        "title": "Capturas",
+        "subtitle": "Míralo en acción — el portal escaneando un puñado de proyectos de demostración. Haz clic en cualquier captura para ampliarla.",
+        "close": "Cerrar",
+        "prev": "Anterior",
+        "next": "Siguiente",
+        "dashboardCaption": "Un panel para cada proyecto y cada librería vulnerable de todo tu portafolio.",
+        "projectCaption": "Vista de proyecto: hallazgos actuales, versiones de corrección e historial completo de escaneos.",
+        "libraryCaption": "Vista de librería: todos los proyectos a los que afecta un paquete vulnerable, en un solo lugar.",
+        "exportCaption": "Exporta un aviso listo para remediar como Markdown para tu equipo o un LLM."
+    },
+    "Roadmap": {
+        "title": "Hoja de ruta",
+        "subtitle": "Hoy Sentinello vigila tus dependencias de Node.js. Esto es hacia dónde va — y lo que puedes pedir.",
+        "planned": "Planeado",
+        "sourcesTitle": "Más fuentes de vulnerabilidades",
+        "sourcesBody": "Más allá de la base de datos de avisos de npm — fuentes adicionales como OSV, para hallazgos más amplios y tempranos.",
+        "integrationsTitle": "Más integraciones",
+        "integrationsBody": "Más canales de notificación y formas de conectar Sentinello con las herramientas que tu equipo ya usa.",
+        "sastTitle": "Análisis estático (SAST)",
+        "sastBody": "Detecta patrones de código riesgosos en tu propio código, no solo CVE conocidos en tus dependencias.",
+        "secretsTitle": "Escaneo de secretos y licencias",
+        "secretsBody": "Señala secretos filtrados y problemas de licencias en el mismo portafolio, en la misma cola.",
+        "cta": "Solicitar una integración o fuente",
+        "ctaNote": "Dinos qué integrarías o escanearías a continuación — abre una incidencia en GitHub y ayuda a definir la hoja de ruta."
+    },
+    "WhoFor": {
+        "title": "Para quién es",
+        "lead": "Sentinello es para todos los que tienen más en producción de lo que pueden vigilar: la persona que desarrolla en solitario, el equipo pequeño, la agencia que hace malabares con trabajo de clientes.",
+        "point1": "Publicas proyectos personales y sitios de clientes que deben seguir seguros mucho después del lanzamiento.",
+        "point2": "Quieres una vista de todo el portafolio sin cablear CI en cada repositorio.",
+        "point3": "Prefieres autoalojar antes que entregar el inventario de tu código a un SaaS.",
+        "honest": "Si eres una organización grande con Snyk o Dependabot ya integrados en un pipeline maduro, consérvalos: Sentinello no intenta reemplazar el SCA empresarial. Está aquí para el resto de tu portafolio que nadie vigila. Es de código abierto y con licencia MIT, así que puedes leer exactamente qué hace."
+    },
+    "Notifications": {
+        "title": "Notificaciones y Webhooks",
+        "subtitle": "Entérate en el momento en que un proyecto detecta una vulnerabilidad — y dispara tu propia automatización para corregirla.",
+        "slackTitle": "Slack",
+        "slackBody": "Publica hallazgos en cualquier canal con un webhook entrante, con negrita y viñetas nativas.",
+        "telegramTitle": "Telegram",
+        "telegramBody": "Envía alertas a un chat o grupo mediante un bot — con formato real, no marcado en bruto.",
+        "webhookTitle": "Webhook",
+        "webhookBody": "Haz POST a cualquier endpoint para enrutar las alertas donde tu equipo ya trabaja.",
+        "flavorsTitle": "Dos formatos de webhook",
+        "flavorsSubtitle": "Elige el payload que encaje con lo que estás construyendo.",
+        "jsonTitle": "JSON estructurado",
+        "jsonBody": "Raíz, proyecto y una lista de vulnerabilidades — cada una con librería, versión, versión recomendada y aviso. Listo para que un agente de auto-reparación actúe.",
+        "textTitle": "Aviso en texto plano",
+        "textBody": "La misma exportación de avisos del portal, como texto — pásala directo a un LLM para triar y corregir.",
+        "scopeTitle": "Por raíz o por proyecto",
+        "scopeBody": "Envía todo a un solo lugar, o conecta una raíz específica — o un único proyecto — a su propio canal o webhook."
+    }
+}

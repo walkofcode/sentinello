@@ -1,0 +1,52 @@
+# Sentinello v1 — single service running both apps (web + worker) under pm2-runtime.
+#
+# Default mode: pulls the official published image from GHCR. No local checkout required.
+# Contributors building from source: comment out `image:` and uncomment the `build:` block below.
+#
+# Published image is mirrored to both registries:
+#   - ghcr.io/walkofcode/sentinello   (canonical, auth via GitHub)
+#   - walkofcode/sentinello           (Docker Hub mirror)
+#
+# Roots are mounted read-only at /roots/<name>. Add `-v /host/path:/roots/<name>:ro` (or a
+# `volumes:` entry) for each portfolio root you want scanned — the worker auto-registers every
+# subdirectory of /roots on boot (the dir name becomes the root label), so no manual setup is
+# needed. /roots is optional: mount nothing and add roots from Settings → Roots instead.
+
+services:
+    sentinello:
+        image: ghcr.io/walkofcode/sentinello:latest
+        # Docker Hub alternative — swap the `image:` line above for this one if you prefer:
+        # image: walkofcode/sentinello:latest
+        #
+        # Contributor / source-build mode — uncomment and comment out `image:` above:
+        # build:
+        #     context: .
+        #     dockerfile: Dockerfile
+        container_name: sentinello
+        restart: unless-stopped
+        ports:
+            - '3870:3000'
+        environment:
+            SENTINELLO_DB_PATH: /app/data/sentinello.sqlite
+            SENTINELLO_PORTAL_BASE_URL: ${SENTINELLO_PORTAL_BASE_URL:-http://localhost:3870}
+            ME_NAME: ${ME_NAME:-anonymous}
+        volumes:
+            # The DB + WAL + lock live here — survives container restarts.
+            - sentinello-data:/app/data
+            # nvm-installed Node versions live here. Persisting it means each .nvmrc version is
+            # downloaded once and reused across restarts (the base image's Node 24.14.0 is seeded
+            # into the volume on first create, so it is not masked).
+            - sentinello-nvm:/root/.nvm
+            # Example read-only mount for one portfolio root. Add more as needed — each subdirectory
+            # of /roots is auto-registered on boot (the dir name becomes the label).
+            # - /Users/you/code:/roots/personal:ro
+        healthcheck:
+            test: ['CMD', 'curl', '-fsS', 'http://localhost:3000/api/health']
+            interval: 30s
+            timeout: 5s
+            retries: 3
+            start_period: 30s
+
+volumes:
+    sentinello-data:
+    sentinello-nvm:

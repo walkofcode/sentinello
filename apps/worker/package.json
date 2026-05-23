@@ -1,0 +1,35 @@
+{
+    "name": "@sentinello/worker",
+    "version": "0.1.0",
+    "private": true,
+    "license": "MIT",
+    "description": "Sentinello long-lived worker: scheduler, discovery, audit runner, scan-request poller.",
+    "type": "module",
+    "scripts": {
+        "dev": "tsx watch src/index.ts",
+        "start": "tsx src/index.ts",
+        "lint": "eslint src",
+        "typecheck": "tsc -p tsconfig.json --noEmit"
+    },
+    "dependencies": {
+        "@sentinello/core": "workspace:*",
+        "@sentinello/db": "workspace:*",
+        "@sentinello/notifications": "workspace:*",
+        "@sentinello/scanners": "workspace:*",
+        "chokidar": "5.0.0",
+        "ignore": "7.0.5",
+        "js-yaml": "4.1.1",
+        "node-cron": "4.2.1",
+        "proper-lockfile": "4.1.2",
+        "ulid": "3.0.2",
+        "zod": "4.4.1"
+    },
+    "devDependencies": {
+        "@types/js-yaml": "4.0.9",
+        "@types/node": "25.6.0",
+        "@types/node-cron": "3.0.11",
+        "@types/proper-lockfile": "4.1.4",
+        "nodemon": "3.1.14",
+        "tsx": "4.21.0"
+    }
+}

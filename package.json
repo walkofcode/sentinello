@@ -1,0 +1,60 @@
+{
+    "name": "sentinello",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Centralized dependency-vulnerability monitoring portal",
+    "license": "MIT",
+    "homepage": "https://sentinello.org",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/walkofcode/sentinello.git"
+    },
+    "bugs": {
+        "url": "https://github.com/walkofcode/sentinello/issues"
+    },
+    "author": "Walk of Code LLC <info@sentinello.org> (https://walkofcode.io)",
+    "engines": {
+        "node": ">=24.14.0",
+        "pnpm": ">=10.33.0"
+    },
+    "packageManager": "pnpm@10.33.0",
+    "scripts": {
+        "build": "turbo run build",
+        "dev": "turbo run dev --filter='./apps/*'",
+        "lint": "turbo run lint",
+        "typecheck": "turbo run typecheck",
+        "clean": "turbo run clean && rm -rf node_modules",
+        "docker:build": "docker build --build-arg SENTINELLO_VERSION=$(node -p \"require('./package.json').version\") -t walkofcode/sentinello:dev .",
+        "docker:run": "docker run --rm -it -p 3870:3000 -v sentinello-data:/app/data -v sentinello-nvm:/root/.nvm --name sentinello walkofcode/sentinello:dev",
+        "docker:up": "docker compose up -d",
+        "docker:down": "docker compose down",
+        "demo:gen": "node scripts/gen-demo-projects.mjs",
+        "demo:up": "pnpm docker:build && docker run --rm -it -p 3870:3000 -v sentinello-data:/app/data -v sentinello-nvm:/root/.nvm -v \"$(pwd)/demo-projects:/roots/demo:ro\" --name sentinello walkofcode/sentinello:dev",
+        "shoot": "node scripts/shoot-homepage.mjs"
+    },
+    "devDependencies": {
+        "@eslint/js": "10.0.1",
+        "@types/node": "25.6.0",
+        "@typescript-eslint/eslint-plugin": "8.59.3",
+        "@typescript-eslint/parser": "8.59.3",
+        "eslint": "10.3.0",
+        "eslint-config-prettier": "10.1.8",
+        "playwright": "1.60.0",
+        "prettier": "3.8.3",
+        "turbo": "2.9.14",
+        "typescript": "6.0.3",
+        "typescript-eslint": "8.59.3"
+    },
+    "pnpm": {
+        "overrides": {
+            "postcss@<8.5.10": "8.5.10",
+            "brace-expansion@>=5.0.0 <5.0.6": "5.0.6",
+            "@esbuild-kit/core-utils>esbuild": "0.25.12"
+        },
+        "overridesNotes": {
+            "postcss@<8.5.10": "GHSA-qx2v-qp2m-jg93 XSS via unescaped </style> in stringify. next 16.2.x still pins postcss 8.4.31 exactly; next 16.3-canary has adopted 8.5.10 so Vercel itself considers this combination safe. Remove when next 16.3 stable lands.",
+            "brace-expansion@>=5.0.0 <5.0.6": "GHSA-jxxr-4gwj-5jf2 / CVE-2026-45149 DoS via large numeric range expansion. Remove when @typescript-eslint's minimatch chain resolves brace-expansion >=5.0.6 naturally.",
+            "@esbuild-kit/core-utils>esbuild": "GHSA-67mh-4wv8-2f99 esbuild dev-server CVE. @esbuild-kit/core-utils only calls esbuild.transform()/transformSync()/version (never serve()/build()/context()), so 0.18.20 -> 0.25.12 is safe for the TS-config-loading path drizzle-kit uses. Remove when drizzle-kit 1.0 stable drops @esbuild-kit/* entirely."
+        }
+    }
+}

@@ -1,0 +1,152 @@
+{
+    "Meta": {
+        "title": "Sentinello — 面向整个 Node.js 组合的 CVE 早期预警监控",
+        "description": "面向 Node.js 项目的自托管、开源依赖漏洞监控。把它指向你的仓库，即可在一个分诊队列中查看所有项目的已知 CVE。",
+        "tagline": "面向整个 Node.js 组合的 CVE 早期预警",
+        "tabTitle": "Sentinello — Node.js CVE 监控"
+    },
+    "Nav": {
+        "how": "工作原理",
+        "features": "功能",
+        "screenshots": "截图",
+        "selfHost": "自托管",
+        "roadmap": "路线图",
+        "sections": "板块",
+        "github": "GitHub",
+        "openMenu": "打开菜单",
+        "closeMenu": "关闭菜单"
+    },
+    "Common": {
+        "copy": "复制",
+        "copied": "已复制"
+    },
+    "Theme": {
+        "toggle": "切换主题",
+        "system": "跟随系统",
+        "light": "浅色主题",
+        "dark": "深色主题"
+    },
+    "Language": {
+        "label": "切换语言"
+    },
+    "Footer": {
+        "copyright": "© {year}",
+        "github": "GitHub",
+        "issues": "问题反馈",
+        "license": "MIT 许可证"
+    },
+    "Hero": {
+        "title": "为那些你不再盯着看的依赖，提供一套早期预警系统。",
+        "subtitle": "在 AI 时代，你发布的 Node.js 项目多过你能维护的数量。Sentinello 会盯住其中的每一个，揭示其 npm 依赖中已知的 CVE —— 让被遗忘的项目永远不会演变成事故。",
+        "commandCaption": "一条命令即可运行：",
+        "ctaPrimary": "立即自托管",
+        "ctaSecondary": "在 GitHub 上加星",
+        "trust": "无需账号。没有 SaaS。没有遥测。一个 Docker 镜像和一个 SQLite 文件 —— 你的代码和结果绝不离开你的机器。"
+    },
+    "Why": {
+        "title": "我们为何打造它",
+        "lead": "在 AI 时代，你发布的多过你能维护的。",
+        "body1": "如今，一个人一年里就会启动、交付并放下十几个项目。营销站点、客户仪表盘、悄悄上线到生产环境的业余项目 —— 在最后一次有人查看它们之后，它们仍在长久地运行。",
+        "callout": "只需一个被遗忘、带有严重远程代码执行漏洞的依赖就足够了。最简单的站点也可能成为入侵的入口。",
+        "body2": "Sentinello 正是这条长尾的早期预警系统。它会盯住你指向它的每一个项目，让你几个月前发布的东西里出现的新 CVE 在一个地方浮现 —— 赶在它酿成灾难之前。"
+    },
+    "How": {
+        "title": "工作原理",
+        "subtitle": "三个步骤。无需在你的项目中安装代理，也无需创建账号。",
+        "step1Title": "把它指向你的代码",
+        "step1Body": "将你的仓库挂载到 /roots，或在“设置 → Roots”中添加。每个目录都会在启动时被自动注册和发现。",
+        "step2Title": "持续扫描",
+        "step2Body": "后台工作进程按计划将你的依赖与已知 CVE 比对，并在需要时安装每个项目所固定的 Node 版本。",
+        "step3Title": "在一个队列中分诊",
+        "step3Body": "所有项目的每一条结果都汇入一个可按严重程度筛选的队列 —— 还可选择向 Slack、Telegram 或 Webhook 发送告警。"
+    },
+    "Features": {
+        "title": "功能",
+        "subtitle": "尽在一个自托管门户 —— 没有外部服务，数据不会离开你的网络。",
+        "queueTitle": "单一分诊队列",
+        "queueBody": "在一个地方查看并分诊整个组合的 CVE —— 而不是散落在十几个检出目录里的 npm audit。",
+        "byProjectTitle": "按项目浏览",
+        "byProjectBody": "进入任意仓库，查看其当前发现、修复版本、扫描历史和静音设置。",
+        "byLibraryTitle": "按库浏览",
+        "byLibraryBody": "切换到某个易受攻击的包，查看它影响的每一个项目 —— 然后一次性在所有项目中将其静音。",
+        "exportTitle": "公告导出",
+        "exportBody": "将项目或库的发现导出为 Markdown，并附带可为你的团队或 LLM 自定义的修复提示。",
+        "scanningTitle": "持续扫描",
+        "scanningBody": "后台工作进程按计划重新扫描，新的公告会自动出现，无需你记得去检查。",
+        "severityTitle": "按严重程度筛选",
+        "severityBody": "按严重程度排序和筛选结果，先处理严重项，再处理噪声。",
+        "notificationsTitle": "通知",
+        "notificationsBody": "通过 Slack、Telegram 或一个普通 Webhook 接收失败与发现的告警 —— 使用你选择的语言。",
+        "selfContainedTitle": "一个镜像，一个文件",
+        "selfContainedBody": "一个 Docker 镜像和一个 SQLite 文件。没有数据库服务器，没有消息队列，没有云端依赖。",
+        "autoRootsTitle": "自动注册的 Roots",
+        "autoRootsBody": "挂载到 /roots 下的任何内容都会在启动时被注册和扫描 —— 目录名会成为它的标签。",
+        "nodeVersionsTitle": "按项目区分的 Node",
+        "nodeVersionsBody": "遵循每个项目的 .nvmrc，将其固定的 Node 版本安装并缓存一次。",
+        "languagesTitle": "10 种语言",
+        "languagesBody": "门户界面、扫描原因代码和状态均已本地化为 10 种语言。"
+    },
+    "SelfHost": {
+        "title": "自托管",
+        "subtitle": "几分钟即可自托管。复制、粘贴、打开 localhost。生产环境请固定一个版本标签。",
+        "runTab": "docker run",
+        "composeTab": "docker compose",
+        "pm2Tab": "pm2",
+        "rootsNote": "挂载到 /roots 下的任何内容都会在启动时被自动注册 —— 目录名会成为它的标签 —— 因此发现和扫描会自行开始。挂载是可选的；你也可以从门户中添加 Roots。",
+        "multiArch": "运行于 linux/amd64 和 arm64",
+        "docsLink": "阅读快速开始",
+        "githubLink": "在 GitHub 上查看"
+    },
+    "Screenshots": {
+        "title": "截图",
+        "subtitle": "实际效果一览 —— 门户正在扫描几个演示项目。点击任意截图即可放大查看。",
+        "close": "关闭",
+        "prev": "上一张",
+        "next": "下一张",
+        "dashboardCaption": "一个仪表盘，纵览整个组合中的每个项目和每个易受攻击的库。",
+        "projectCaption": "项目视图：当前发现、修复版本以及完整的扫描历史。",
+        "libraryCaption": "库视图：某个易受攻击的包影响的所有项目，尽在一处。",
+        "exportCaption": "将可直接用于修复的公告导出为 Markdown，交给你的团队或 LLM。"
+    },
+    "Roadmap": {
+        "title": "路线图",
+        "subtitle": "如今 Sentinello 已盯住你的 Node.js 依赖。这是它的发展方向 —— 以及你可以提出的需求。",
+        "planned": "计划中",
+        "sourcesTitle": "更多漏洞来源",
+        "sourcesBody": "在 npm 公告数据库之外 —— 接入 OSV 等更多数据源，让发现更全面、更及时。",
+        "integrationsTitle": "更多集成",
+        "integrationsBody": "更多通知渠道，以及把 Sentinello 接入你团队已在使用的工具的方式。",
+        "sastTitle": "静态分析（SAST）",
+        "sastBody": "不仅检测依赖中的已知 CVE，还能发现你自己源码中的风险模式。",
+        "secretsTitle": "密钥与许可证扫描",
+        "secretsBody": "在同一个组合、同一个队列中，标记被提交的密钥和许可证问题。",
+        "cta": "申请集成或数据源",
+        "ctaNote": "告诉我们你接下来想集成或扫描什么 —— 在 GitHub 上提交 issue，一起塑造路线图。"
+    },
+    "WhoFor": {
+        "title": "适合谁",
+        "lead": "Sentinello 适合所有在生产环境里拥有的东西多过自己能盯住的人 —— 独立开发者、小团队、忙于客户项目的工作室。",
+        "point1": "你发布的业余项目和客户站点，在上线后很久仍需保持安全。",
+        "point2": "你想要覆盖整个组合的视图，而不必为每个仓库接入 CI。",
+        "point3": "比起把代码清单交给 SaaS，你更愿意自托管。",
+        "honest": "如果你是一家大型机构，已经在成熟的流水线中接入了 Snyk 或 Dependabot，那就继续用它们 —— Sentinello 并不想取代企业级 SCA。它面向的是你那部分无人盯防的代码组合。它是开源且采用 MIT 许可证的，因此你可以确切地读到它在做什么。"
+    },
+    "Notifications": {
+        "title": "通知与 Webhook",
+        "subtitle": "在项目出现漏洞的那一刻就收到提醒——并触发你自己的自动化来修复它。",
+        "slackTitle": "Slack",
+        "slackBody": "通过 incoming webhook 将发现结果发布到任意频道，原生支持加粗和项目符号。",
+        "telegramTitle": "Telegram",
+        "telegramBody": "通过机器人向聊天或群组发送告警——以正确的格式呈现，而非原始标记。",
+        "webhookTitle": "Webhook",
+        "webhookBody": "向任意端点发起 POST，把告警路由到团队已经在用的地方。",
+        "flavorsTitle": "两种 Webhook 形式",
+        "flavorsSubtitle": "选择适合你所构建内容的负载。",
+        "jsonTitle": "结构化 JSON",
+        "jsonBody": "根目录、项目以及漏洞列表——每项包含库、版本、推荐版本和公告。可供自动修复代理直接处理。",
+        "textTitle": "纯文本公告",
+        "textBody": "与门户中相同的公告导出内容，以文本形式呈现——可直接交给 LLM 进行分诊和修复。",
+        "scopeTitle": "按根目录或项目划分",
+        "scopeBody": "将所有内容发送到一处，或将某个特定根目录——或单个项目——连接到它自己的频道或 Webhook。"
+    }
+}

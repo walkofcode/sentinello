@@ -1,0 +1,49 @@
+name: Bug report
+description: Report something that isn't working
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. **Security issues:** please follow the [Security Policy](../../SECURITY.md) instead — don't file them here.
+  - type: input
+    id: version
+    attributes:
+      label: Sentinello version
+      description: Shown in the portal footer, or `GET /api/health`.
+      placeholder: e.g. v0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: how-running
+    attributes:
+      label: How are you running it?
+      options:
+        - Docker (ghcr.io / Docker Hub image)
+        - Docker compose
+        - pm2 / bare host
+        - pnpm dev (local development)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what actually happened?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Worker logs, browser console, screenshots — whatever helps.
+      render: shell

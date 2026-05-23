@@ -1,0 +1,152 @@
+{
+    "Meta": {
+        "title": "Sentinello — 전체 Node.js 포트폴리오를 위한 조기 경보형 CVE 모니터링",
+        "description": "Node.js 프로젝트를 위한 자체 호스팅, 오픈 소스 의존성 취약점 모니터링. 저장소를 가리키기만 하면 모든 프로젝트의 알려진 CVE를 하나의 분류 대기열에서 확인할 수 있습니다.",
+        "tagline": "전체 Node.js 포트폴리오를 위한 CVE 조기 경보",
+        "tabTitle": "Sentinello — Node.js CVE 모니터링"
+    },
+    "Nav": {
+        "how": "작동 방식",
+        "features": "기능",
+        "screenshots": "스크린샷",
+        "selfHost": "자체 호스팅",
+        "roadmap": "로드맵",
+        "sections": "섹션",
+        "github": "GitHub",
+        "openMenu": "메뉴 열기",
+        "closeMenu": "메뉴 닫기"
+    },
+    "Common": {
+        "copy": "복사",
+        "copied": "복사됨"
+    },
+    "Theme": {
+        "toggle": "테마 전환",
+        "system": "시스템 테마",
+        "light": "라이트 테마",
+        "dark": "다크 테마"
+    },
+    "Language": {
+        "label": "언어 변경"
+    },
+    "Footer": {
+        "copyright": "© {year}",
+        "github": "GitHub",
+        "issues": "이슈",
+        "license": "MIT 라이선스"
+    },
+    "Hero": {
+        "title": "더 이상 지켜보지 않게 된 의존성을 위한 조기 경보 시스템.",
+        "subtitle": "AI 시대에는 유지할 수 있는 것보다 더 많은 Node.js 프로젝트를 출시하게 됩니다. Sentinello는 그 하나하나를 지켜보며 npm 의존성에 숨은 알려진 CVE를 드러냅니다 — 잊힌 프로젝트가 사고로 이어지기 전에.",
+        "commandCaption": "명령 하나로 실행:",
+        "ctaPrimary": "지금 자체 호스팅",
+        "ctaSecondary": "GitHub에서 별 누르기",
+        "trust": "계정 불필요. SaaS 없음. 텔레메트리 없음. Docker 이미지 하나와 SQLite 파일 하나 — 코드와 발견 결과가 결코 당신의 머신을 떠나지 않습니다."
+    },
+    "Why": {
+        "title": "우리가 이것을 만든 이유",
+        "lead": "AI 시대에는 유지할 수 있는 것보다 더 많이 출시하게 됩니다.",
+        "body1": "이제 한 명의 개발자가 한 해에 열 개가 넘는 프로젝트를 시작하고, 납품하고, 떠납니다. 마케팅 사이트, 고객 대시보드, 조용히 프로덕션에 올라간 사이드 프로젝트 — 누군가 마지막으로 들여다본 뒤로도 한참을 계속 돌아갑니다.",
+        "callout": "치명적인 원격 코드 실행 결함을 가진, 잊힌 의존성 하나면 충분합니다. 가장 단순한 사이트가 침투 경로가 될 수 있습니다.",
+        "body2": "Sentinello는 그 롱테일을 위한 조기 경보 시스템입니다. 가리킨 모든 프로젝트를 지켜보므로, 몇 달 전에 출시한 무언가에 새로운 CVE가 생기면 — 재앙이 되기 전에 — 한곳에 드러납니다."
+    },
+    "How": {
+        "title": "작동 방식",
+        "subtitle": "세 단계. 프로젝트에 설치할 에이전트도, 만들 계정도 없습니다.",
+        "step1Title": "코드를 가리키세요",
+        "step1Body": "저장소를 /roots 아래에 마운트하거나 설정 → Roots에서 추가하세요. 각 디렉터리는 시작 시 자동으로 등록되고 탐색됩니다.",
+        "step2Title": "지속적으로 스캔",
+        "step2Body": "백그라운드 워커가 일정에 따라 의존성을 알려진 CVE와 대조하며, 필요할 때 각 프로젝트가 고정한 Node 버전을 설치합니다.",
+        "step3Title": "하나의 대기열에서 분류",
+        "step3Body": "모든 프로젝트의 모든 발견 결과가 심각도로 필터링할 수 있는 하나의 대기열에 모입니다 — Slack, Telegram 또는 웹훅으로의 알림은 선택 사항입니다."
+    },
+    "Features": {
+        "title": "기능",
+        "subtitle": "자체 호스팅 포털 하나에 모두 — 외부 서비스 없음, 데이터가 네트워크를 떠나지 않음.",
+        "queueTitle": "단일 분류 대기열",
+        "queueBody": "수십 개의 체크아웃에 흩어진 npm audit 대신, 전체 포트폴리오의 CVE를 한곳에서 보고 분류하세요.",
+        "byProjectTitle": "프로젝트별 보기",
+        "byProjectBody": "어떤 저장소든 들어가 현재 발견 결과, 수정 버전, 스캔 기록, 음소거를 확인하세요.",
+        "byLibraryTitle": "라이브러리별 보기",
+        "byLibraryBody": "취약한 패키지로 전환해 영향을 받는 모든 프로젝트를 확인하고 — 한 번에 모든 곳에서 음소거하세요.",
+        "exportTitle": "권고 내보내기",
+        "exportBody": "프로젝트나 라이브러리의 발견 결과를 Markdown으로 내보내세요. 팀이나 LLM을 위해 맞춤 설정 가능한 해결 프롬프트가 포함됩니다.",
+        "scanningTitle": "지속적인 스캔",
+        "scanningBody": "백그라운드 워커가 일정에 따라 다시 스캔하므로, 확인하는 것을 기억하지 않아도 새 권고가 나타납니다.",
+        "severityTitle": "심각도 필터링",
+        "severityBody": "발견 결과를 심각도로 정렬하고 필터링하여 치명적인 것을 먼저, 잡음을 나중에 처리하세요.",
+        "notificationsTitle": "알림",
+        "notificationsBody": "실패와 발견 알림을 Slack, Telegram 또는 단순한 웹훅으로 — 선택한 언어로 받아보세요.",
+        "selfContainedTitle": "이미지 하나, 파일 하나",
+        "selfContainedBody": "Docker 이미지 하나와 SQLite 파일 하나. 데이터베이스 서버도, 메시지 큐도, 클라우드 의존성도 없습니다.",
+        "autoRootsTitle": "자동 등록되는 Roots",
+        "autoRootsBody": "/roots 아래에 마운트한 것은 무엇이든 시작 시 등록되고 스캔됩니다 — 디렉터리 이름이 그 라벨이 됩니다.",
+        "nodeVersionsTitle": "프로젝트별 Node",
+        "nodeVersionsBody": "각 프로젝트의 .nvmrc를 존중하여, 고정된 Node 버전을 한 번만 설치하고 캐시합니다.",
+        "languagesTitle": "10개 언어",
+        "languagesBody": "포털 UI, 스캔 사유 코드, 상태가 10개 언어로 현지화되어 있습니다."
+    },
+    "SelfHost": {
+        "title": "자체 호스팅",
+        "subtitle": "몇 분 만에 자체 호스팅. 복사하고, 붙여넣고, localhost를 여세요. 프로덕션에서는 버전 태그를 고정하세요.",
+        "runTab": "docker run",
+        "composeTab": "docker compose",
+        "pm2Tab": "pm2",
+        "rootsNote": "/roots 아래에 마운트한 것은 무엇이든 시작 시 자동으로 등록되며 — 디렉터리 이름이 그 라벨이 됩니다 — 탐색과 스캔이 저절로 시작됩니다. 마운트는 선택 사항이며, 포털에서 Roots를 추가할 수도 있습니다.",
+        "multiArch": "linux/amd64 및 arm64에서 실행",
+        "docsLink": "빠른 시작 읽기",
+        "githubLink": "GitHub에서 보기"
+    },
+    "Screenshots": {
+        "title": "스크린샷",
+        "subtitle": "실제 동작 보기 — 몇 개의 데모 프로젝트를 스캔하는 포털. 아무 이미지나 클릭하면 확대됩니다.",
+        "close": "닫기",
+        "prev": "이전",
+        "next": "다음",
+        "dashboardCaption": "포트폴리오 전체의 모든 프로젝트와 취약한 라이브러리를 하나의 대시보드에서.",
+        "projectCaption": "프로젝트 보기: 현재 발견 결과, 수정 버전, 전체 스캔 기록.",
+        "libraryCaption": "라이브러리 보기: 취약한 패키지가 영향을 주는 모든 프로젝트를 한곳에서.",
+        "exportCaption": "해결에 바로 쓸 수 있는 권고를 Markdown으로 내보내 팀이나 LLM에 전달하세요."
+    },
+    "Roadmap": {
+        "title": "로드맵",
+        "subtitle": "지금 Sentinello는 당신의 Node.js 의존성을 지켜봅니다. 앞으로 나아갈 방향과 요청할 수 있는 것을 소개합니다.",
+        "planned": "예정",
+        "sourcesTitle": "더 많은 취약점 소스",
+        "sourcesBody": "npm 권고 데이터베이스를 넘어 — OSV 같은 피드를 추가해 더 넓고 빠르게 탐지합니다.",
+        "integrationsTitle": "더 많은 통합",
+        "integrationsBody": "더 많은 알림 채널과, 팀이 이미 사용하는 도구에 Sentinello를 연결하는 방법.",
+        "sastTitle": "정적 분석(SAST)",
+        "sastBody": "의존성의 알려진 CVE뿐 아니라, 당신의 소스 코드에 있는 위험한 패턴도 잡아냅니다.",
+        "secretsTitle": "시크릿 및 라이선스 스캔",
+        "secretsBody": "커밋된 시크릿과 라이선스 문제를 같은 포트폴리오, 같은 대기열에서 표시합니다.",
+        "cta": "통합 또는 소스 요청",
+        "ctaNote": "다음에 통합하거나 스캔하고 싶은 것을 알려주세요 — GitHub에 이슈를 열어 로드맵을 함께 만들어요."
+    },
+    "WhoFor": {
+        "title": "누구를 위한 것인가",
+        "lead": "Sentinello는 지켜볼 수 있는 것보다 더 많은 것을 프로덕션에 두고 있는 모든 이를 위한 것입니다 — 혼자 개발하는 사람, 작은 팀, 고객 작업을 저글링하는 에이전시.",
+        "point1": "출시 후에도 오랫동안 안전해야 하는 사이드 프로젝트와 고객 사이트를 출시합니다.",
+        "point2": "모든 저장소에 CI를 연결하지 않고도 포트폴리오 전반을 한눈에 보고 싶습니다.",
+        "point3": "코드 인벤토리를 SaaS에 넘기기보다 자체 호스팅하는 편을 선호합니다.",
+        "honest": "이미 성숙한 파이프라인에 Snyk나 Dependabot을 연결해 둔 대규모 조직이라면 그대로 쓰세요 — Sentinello는 엔터프라이즈 SCA를 대체하려는 것이 아닙니다. 아무도 지켜보지 않는 나머지 포트폴리오를 위한 것입니다. 오픈 소스이며 MIT 라이선스이므로, 무엇을 하는지 정확히 읽어볼 수 있습니다."
+    },
+    "Notifications": {
+        "title": "알림 및 웹훅",
+        "subtitle": "프로젝트에 취약점이 생기는 즉시 알림을 받고, 이를 수정하기 위한 자체 자동화를 트리거하세요.",
+        "slackTitle": "Slack",
+        "slackBody": "incoming webhook으로 어떤 채널에도 발견 항목을 게시하며, 굵게와 글머리 기호가 기본 지원됩니다.",
+        "telegramTitle": "Telegram",
+        "telegramBody": "봇을 통해 채팅이나 그룹에 알림을 전송하며, 원시 마크업이 아닌 올바른 서식으로 표시됩니다.",
+        "webhookTitle": "웹훅",
+        "webhookBody": "어떤 엔드포인트로든 POST하여 팀이 이미 사용하는 곳으로 알림을 보낼 수 있습니다.",
+        "flavorsTitle": "두 가지 웹훅 형식",
+        "flavorsSubtitle": "구축하려는 것에 맞는 페이로드를 선택하세요.",
+        "jsonTitle": "구조화된 JSON",
+        "jsonBody": "루트, 프로젝트, 취약점 목록 — 각 항목에 라이브러리, 버전, 권장 버전, 권고문이 포함됩니다. 자동 수정 에이전트가 바로 처리할 수 있습니다.",
+        "textTitle": "일반 텍스트 권고문",
+        "textBody": "포털에 표시되는 것과 동일한 권고문 내보내기를 텍스트로 — LLM에 바로 넣어 분류하고 수정하세요.",
+        "scopeTitle": "루트 또는 프로젝트 단위",
+        "scopeBody": "모든 것을 한 곳으로 보내거나, 특정 루트 — 또는 단일 프로젝트 — 를 전용 채널이나 웹훅에 연결하세요."
+    }
+}

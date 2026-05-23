@@ -1,0 +1,38 @@
+# release-please — automated SemVer release engineering.
+#
+# Flow:
+#   1. Every push to `main` runs release-please-action.
+#   2. The action reads conventional-commit subjects since the last release and maintains
+#      a single self-updating PR titled "release: vX.Y.Z" which bumps root package.json
+#      and appends entries to CHANGELOG.md.
+#   3. When that PR is merged, release-please creates the git tag (vX.Y.Z) AND a GitHub
+#      Release whose body is the changelog excerpt.
+#   4. The tag push triggers .github/workflows/docker-publish.yml, which builds and pushes
+#      the official image to ghcr.io/walkofcode/sentinello and walkofcode/sentinello with
+#      SENTINELLO_VERSION baked in.
+#
+# No secrets required — uses the built-in GITHUB_TOKEN with elevated permissions below.
+# Manual override: workflow_dispatch re-runs the action without waiting for a push.
+
+name: release-please
+
+on:
+    push:
+        branches:
+            - main
+    workflow_dispatch:
+
+permissions:
+    contents: write
+    pull-requests: write
+
+jobs:
+    release-please:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Run release-please
+              uses: googleapis/release-please-action@v4
+              with:
+                  config-file: release-please-config.json
+                  manifest-file: .release-please-manifest.json
+                  token: ${{ secrets.GITHUB_TOKEN }}

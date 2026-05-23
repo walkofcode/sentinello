@@ -1,0 +1,69 @@
+# Keep `docker build` reproducible: ignore anything that's produced locally or that
+# would leak host-side state into the image. The Dockerfile's `COPY apps ./apps` and
+# `COPY packages ./packages` rely on this to skip per-workspace node_modules, build
+# outputs, and SQLite data.
+
+# Dependency installs — re-installed inside the deps stage from the lockfile.
+**/node_modules
+
+# Build outputs — re-built inside the build stage.
+**/.next
+**/.turbo
+**/dist
+**/.tsbuildinfo
+
+# Local runtime state — the container creates its own under the /app/data volume.
+data
+**/.pm2
+**/*.log
+**/logs
+
+# Git / VCS — not needed at build time and bloats context.
+.git
+.gitignore
+.gitattributes
+
+# Local secrets — never bake into an image. `.env.example` IS shipped.
+.env
+.env.*
+!.env.example
+
+# Editor / OS noise.
+.DS_Store
+.vscode
+.idea
+*.swp
+*.swo
+
+# Tests + coverage — not part of the runtime image.
+**/coverage
+**/__snapshots__
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+
+# The marketing site (sentinello.org) — not part of the portal image. The Dockerfile builds only
+# web + worker; keep homepage's source and screenshot assets out of the build context entirely.
+apps/homepage
+
+# Plans / scratch / docs that don't need to ship.
+docs
+docs/superpowers
+.woc-ide
+.llm
+.cursor
+.claude
+AGENTS.md
+CLAUDE.md
+demo-projects
+README.md
+
+# Docker meta — already on disk in the build context, no need to copy into image.
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.*.yml
+
+# CI config — not used inside the image.
+.github

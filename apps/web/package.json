@@ -1,0 +1,40 @@
+{
+    "name": "@sentinello/web",
+    "version": "0.1.0",
+    "private": true,
+    "license": "MIT",
+    "description": "Sentinello portal: Next.js App Router (server components + server actions reading and writing packages/db).",
+    "type": "module",
+    "scripts": {
+        "build": "next build",
+        "dev": "PORT=${PORT:-3870} next dev",
+        "start": "PORT=${PORT:-3870} next start",
+        "lint": "eslint app components lib",
+        "typecheck": "tsc --noEmit",
+        "clean": "rm -rf .next .turbo .tsbuildinfo"
+    },
+    "dependencies": {
+        "@sentinello/core": "workspace:*",
+        "@sentinello/db": "workspace:*",
+        "@sentinello/notifications": "workspace:*",
+        "class-variance-authority": "0.7.1",
+        "clsx": "2.1.1",
+        "lucide-react": "1.14.0",
+        "next": "16.2.6",
+        "next-intl": "4.12.0",
+        "next-themes": "0.4.6",
+        "react": "19.2.5",
+        "react-dom": "19.2.5",
+        "tailwind-merge": "3.5.0",
+        "ulid": "3.0.2",
+        "zod": "4.4.1"
+    },
+    "devDependencies": {
+        "@tailwindcss/postcss": "4.2.4",
+        "@types/node": "25.6.0",
+        "@types/react": "19.2.14",
+        "@types/react-dom": "19.2.3",
+        "postcss": "8.5.13",
+        "tailwindcss": "4.2.4"
+    }
+}

@@ -1,0 +1,140 @@
+# Sentinello v1 — multi-stage single-image deployment running both apps under pm2-runtime.
+#
+# Stages:
+#   base    — minimal runtime foundation (node:24.14.0-bookworm-slim + corepack/pnpm + nvm + tini)
+#   deps    — adds python3/build-essential so better-sqlite3 / esbuild / sharp can compile
+#   build   — copies full source and runs `pnpm turbo run build`
+#   runtime — copies build output onto `base` (no compilers, no apt cache) and starts pm2-runtime
+#
+# Why nvm is in the runtime image: the worker shells out to `nvm install` for .nvmrc-aware scans of
+# user-mounted portfolio roots (apps/worker/src/discovery.ts, apps/worker/src/runner.ts). The
+# *runtime* Node version is pinned to 24.14.0 by the base image — nvm is only there so scans of
+# arbitrary `.nvmrc` files in mounted roots behave the same as on a PM2 host. `nvm install` pulls
+# any missing version on first scan; persist /root/.nvm (see docker-compose.yml) so it happens once.
+
+# ---------------------------------------------------------------------------
+# Stage 1: base — the foundation for both `deps` and `runtime`. Keep this lean.
+# ---------------------------------------------------------------------------
+FROM node:24.14.0-bookworm-slim AS base
+
+ENV PNPM_HOME="/root/.local/share/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+ENV NVM_DIR="/root/.nvm"
+
+# tini gives us correct SIGTERM/SIGINT propagation to pm2-runtime's child Node processes.
+# curl + ca-certificates are needed for nvm install and the HEALTHCHECK; git is required
+# by some pnpm git-protocol resolutions even at runtime if any dep ever uses one.
+# libatomic1 is required to RUN newer Node majors (>= 25) that nvm installs for .nvmrc-aware scans —
+# their binaries link against libatomic.so.1, which the slim base image does not ship by default.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        curl ca-certificates git tini libatomic1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install nvm (the worker shells out to `nvm install` for .nvmrc-aware scans).
+ARG NVM_VERSION=0.40.1
+ARG NVM_INSTALL_SHA256=abdb525ee9f5b48b34d8ed9fc67c6013fb0f659712e401ecd88ab989b3af8f53
+RUN curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh" -o /tmp/nvm-install.sh \
+    && echo "${NVM_INSTALL_SHA256}  /tmp/nvm-install.sh" | sha256sum -c - \
+    && bash /tmp/nvm-install.sh \
+    && rm /tmp/nvm-install.sh \
+    && bash -lc "source $NVM_DIR/nvm.sh && nvm install 24.14.0 && nvm alias default 24.14.0"
+
+# Install pnpm matching the version pinned in package.json.
+RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
+
+# ---------------------------------------------------------------------------
+# Stage 2: deps — install workspace dependencies. Has compilers; never shipped.
+# ---------------------------------------------------------------------------
+FROM base AS deps
+
+# Native-build toolchain for better-sqlite3, esbuild, sharp (allowlisted in pnpm-workspace.yaml).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3 build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy lockfile + workspace metadata first so the install layer caches on the lockfile alone.
+COPY pnpm-lock.yaml package.json pnpm-workspace.yaml turbo.json tsconfig.base.json .npmrc ./
+
+# Workspace manifests only — re-running `pnpm install` because one of these changed is cheap;
+# re-running because a random src file changed is what we're avoiding here.
+COPY apps/web/package.json apps/web/
+COPY apps/worker/package.json apps/worker/
+COPY packages/db/package.json packages/db/
+COPY packages/core/package.json packages/core/
+COPY packages/notifications/package.json packages/notifications/
+COPY packages/scanners/package.json packages/scanners/
+
+# Strict-mode install — exact versions only, .npmrc minimum-release-age in force.
+RUN pnpm install --frozen-lockfile
+
+# ---------------------------------------------------------------------------
+# Stage 3: build — full source + turbo build. Produces .next/standalone for web and
+# leaves the worker TS source on disk (worker runs via tsx, no dist).
+# ---------------------------------------------------------------------------
+FROM deps AS build
+
+COPY apps ./apps
+COPY packages ./packages
+COPY ecosystem.config.js ./
+
+# The image ships only the portal (web + worker) and their workspace deps; apps/homepage is the
+# standalone marketing site (sentinello.org), excluded from the build context via .dockerignore.
+# Scope the build to the runtime apps so turbo never looks for the absent homepage package.
+RUN pnpm turbo run build --filter=@sentinello/web --filter=@sentinello/worker
+
+# ---------------------------------------------------------------------------
+# Stage 4: runtime — lean image. No compilers, no apt cache.
+# ---------------------------------------------------------------------------
+FROM base AS runtime
+
+# pm2-runtime is the foreground process supervisor inside the container.
+RUN npm install -g pm2@5.4.3
+
+WORKDIR /app
+
+# Copy /app wholesale from the build stage. This drops ~400MB of apt build-tools
+# vs the previous single-stage Dockerfile while keeping the worker's TS source
+# available (tsx executes it directly — there's no dist/ artifact to copy alone).
+COPY --from=build /app /app
+
+# Version label baked in at build time. docker-publish.yml passes the resolved SemVer
+# from the triggering git tag. Local `pnpm docker:build` injects the root package.json
+# version. Both the UI footer and /api/health read process.env.SENTINELLO_VERSION.
+ARG SENTINELLO_VERSION=dev
+ENV SENTINELLO_VERSION=${SENTINELLO_VERSION}
+
+# OCI image annotations — Docker Hub, GHCR, and orchestrators surface these in the UI.
+# docker-publish.yml's metadata-action emits a superset on push; these are belt-and-suspenders
+# for anyone who does their own `docker build`.
+LABEL org.opencontainers.image.title="Sentinello" \
+      org.opencontainers.image.description="Centralized dependency-vulnerability monitoring portal" \
+      org.opencontainers.image.url="https://sentinello.org" \
+      org.opencontainers.image.source="https://github.com/walkofcode/sentinello" \
+      org.opencontainers.image.documentation="https://sentinello.org" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.vendor="Walk of Code LLC" \
+      org.opencontainers.image.version=${SENTINELLO_VERSION}
+
+ENV NODE_ENV=production
+
+# Volume mount point: the SQLite file, its WAL/SHM siblings, and the worker lock all live here.
+ENV SENTINELLO_DB_PATH=/app/data/sentinello.sqlite
+VOLUME ["/app/data"]
+
+# Default port for the web app. Operators can remap on the host.
+ENV PORT=3000
+EXPOSE 3000
+
+# Orchestrators (compose, k8s, Portainer) use this to detect a wedged web process.
+# The route runs a SELECT 1 against the shared SQLite to assert end-to-end health.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -fsS "http://localhost:${PORT}/api/health" || exit 1
+
+# tini -> pm2-runtime keeps the container alive — exiting only when both apps exit,
+# and propagating SIGTERM cleanly so the worker can drain in-flight scans.
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["pm2-runtime", "start", "ecosystem.config.js"]

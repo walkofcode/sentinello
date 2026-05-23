@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/walkofcode/sentinello/security/advisories/new
+    about: Please report security issues privately — don't open a public issue.
+  - name: Project website
+    url: https://sentinello.org
+    about: Docs, screenshots, and the project overview.

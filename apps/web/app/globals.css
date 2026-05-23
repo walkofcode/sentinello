@@ -1,0 +1,103 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+    --color-background: oklch(99% 0.005 240);
+    --color-foreground: oklch(15% 0.02 240);
+    --color-muted: oklch(96% 0.005 240);
+    --color-muted-foreground: oklch(45% 0.02 240);
+    --color-border: oklch(90% 0.01 240);
+    --color-card: oklch(100% 0 0);
+    --color-card-foreground: oklch(15% 0.02 240);
+    --color-primary: oklch(45% 0.18 260);
+    --color-primary-foreground: oklch(99% 0 0);
+    --color-accent: oklch(94% 0.02 240);
+    --color-accent-foreground: oklch(20% 0.04 240);
+    --color-destructive: oklch(55% 0.22 27);
+    --color-destructive-foreground: oklch(99% 0 0);
+    --color-success: oklch(58% 0.16 145);
+    --color-warning: oklch(70% 0.18 75);
+    --color-sev-critical: oklch(50% 0.24 18);
+    --color-sev-high: oklch(63% 0.21 35);
+    --color-sev-moderate: oklch(70% 0.18 75);
+    --color-sev-low: oklch(70% 0.13 145);
+    --color-sev-info: oklch(70% 0.07 240);
+    --radius-card: 0.75rem;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+
+.dark {
+    --color-background: oklch(13% 0.02 240);
+    --color-foreground: oklch(95% 0.01 240);
+    --color-muted: oklch(20% 0.02 240);
+    --color-muted-foreground: oklch(65% 0.02 240);
+    --color-border: oklch(28% 0.02 240);
+    --color-card: oklch(17% 0.02 240);
+    --color-card-foreground: oklch(95% 0.01 240);
+    --color-primary: oklch(55% 0.2 260);
+    --color-primary-foreground: oklch(99% 0 0);
+    --color-accent: oklch(25% 0.03 240);
+    --color-accent-foreground: oklch(95% 0.01 240);
+    --color-destructive: oklch(65% 0.22 27);
+    --color-destructive-foreground: oklch(98% 0 0);
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+/* Content links: prose inside main, plus any element opted in with .content.
+ * Scoped so navigation, settings tabs, footer chrome, and button-as-link stay
+ * as-is. Uses the theme's --color-primary, which is emitted as a CSS variable. */
+main p a,
+.content a {
+    color: var(--color-primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+main p a:hover,
+.content a:hover {
+    opacity: 0.8;
+}
+
+/* User-selectable density via FontSizeProvider. Tailwind v4 sizes everything in
+ * rem, so changing the root font-size scales text, paddings, gaps, and control
+ * heights together. The `small` step matches the historical browser default
+ * (16px); `normal` is the new default and bumps everything ~2pt up. */
+html[data-font-size='small'] {
+    font-size: 16px;
+}
+html[data-font-size='normal'] {
+    font-size: 18px;
+}
+html[data-font-size='large'] {
+    font-size: 20px;
+}
+html[data-font-size='extra-large'] {
+    font-size: 22px;
+}
+
+html,
+body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html {
+        scroll-behavior: auto;
+    }
+}
+
+* {
+    border-color: var(--color-border);
+}
+
+a {
+    color: inherit;
+    text-decoration: none;
+}

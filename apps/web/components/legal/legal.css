@@ -1,0 +1,29 @@
+div[class*='legal'] p {
+    margin-top: 10px;
+}
+
+div[class*='legal'] h2,
+div[class*='legal'] h3,
+div[class*='legal'] h4 {
+    margin-top: 40px;
+}
+
+div[class*='legal'] ul {
+    list-style-type: disc;
+    margin-bottom: 30px;
+}
+
+div[class*='legal'] li {
+    margin-top: 10px;
+    margin-left: 50px;
+}
+
+div[class*='legal'] a {
+    color: var(--color-primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+div[class*='legal'] a:hover {
+    opacity: 0.8;
+}

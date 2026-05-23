@@ -1,0 +1,14 @@
+packages:
+    - 'apps/*'
+    - 'packages/*'
+
+# better-sqlite3 needs its compiled binding; sharp is required by Next.js image optimization;
+# esbuild's binding is pulled in transitively by drizzle-kit / Next.js. Listing them here approves
+# their post-install scripts without an interactive prompt.
+onlyBuiltDependencies:
+    - better-sqlite3
+    - esbuild
+    - sharp
+
+# Supply-chain quarantine. Mirrored from .npmrc because pnpm 11 reads this only from pnpm-workspace.yaml. Unit = minutes.
+minimumReleaseAge: 10080

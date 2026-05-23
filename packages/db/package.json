@@ -1,0 +1,40 @@
+{
+    "name": "@sentinello/db",
+    "version": "0.1.0",
+    "private": true,
+    "license": "MIT",
+    "description": "Sentinello shared SQLite layer (schema, migrations, typed queries). The literal contract between apps/web and apps/worker.",
+    "type": "module",
+    "main": "./src/index.ts",
+    "types": "./src/index.ts",
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "default": "./src/index.ts"
+        },
+        "./client": {
+            "types": "./src/client.ts",
+            "default": "./src/client.ts"
+        },
+        "./schema": {
+            "types": "./src/schema.ts",
+            "default": "./src/schema.ts"
+        }
+    },
+    "scripts": {
+        "lint": "eslint src",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "db:generate": "drizzle-kit generate"
+    },
+    "dependencies": {
+        "@sentinello/core": "workspace:*",
+        "better-sqlite3": "12.9.0",
+        "drizzle-orm": "0.45.2",
+        "ulid": "3.0.2"
+    },
+    "devDependencies": {
+        "@types/better-sqlite3": "7.6.13",
+        "@types/node": "25.6.0",
+        "drizzle-kit": "0.31.10"
+    }
+}
