@@ -7,9 +7,13 @@
 #      and appends entries to CHANGELOG.md.
 #   3. When that PR is merged, release-please creates the git tag (vX.Y.Z) AND a GitHub
 #      Release whose body is the changelog excerpt.
-#   4. The tag push triggers .github/workflows/docker-publish.yml, which builds and pushes
-#      the official image to ghcr.io/walkofcode/sentinello and walkofcode/sentinello with
-#      SENTINELLO_VERSION baked in.
+#   4. The second job in this workflow (`docker-publish`) then fires
+#      .github/workflows/docker-publish.yml via workflow_dispatch against the new tag.
+#      We chain via workflow_dispatch (rather than the natural `push: tags: v*` trigger
+#      on docker-publish) because tags pushed by GITHUB_TOKEN do NOT trigger downstream
+#      workflows — workflow_dispatch and repository_dispatch are the two documented
+#      exceptions to that rule. This keeps the whole chain on the default GITHUB_TOKEN —
+#      no PAT and no GitHub App required.
 #
 # No secrets required — uses the built-in GITHUB_TOKEN with elevated permissions below.
 # Manual override: workflow_dispatch re-runs the action without waiting for a push.
@@ -29,10 +33,30 @@ permissions:
 jobs:
     release-please:
         runs-on: ubuntu-latest
+        outputs:
+            release_created: ${{ steps.release.outputs.release_created }}
+            tag_name: ${{ steps.release.outputs.tag_name }}
         steps:
             - name: Run release-please
+              id: release
               uses: googleapis/release-please-action@v4
               with:
                   config-file: release-please-config.json
                   manifest-file: .release-please-manifest.json
                   token: ${{ secrets.GITHUB_TOKEN }}
+
+    docker-publish:
+        needs: release-please
+        if: needs.release-please.outputs.release_created == 'true'
+        runs-on: ubuntu-latest
+        permissions:
+            actions: write
+        steps:
+            - name: Dispatch docker-publish for the new tag
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  gh workflow run docker-publish.yml \
+                      --repo ${{ github.repository }} \
+                      --ref ${{ needs.release-please.outputs.tag_name }} \
+                      -f push=true
