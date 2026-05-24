@@ -11,6 +11,7 @@ import {
     backfillForNewTarget,
     deleteNotificationTarget,
     deleteRoot,
+    enqueueWorkerSignal,
     getNotificationTargetById,
     getRootById,
     getRootByPath,
@@ -154,6 +155,9 @@ export async function updateScheduleAction(intervalHours: number, startHour = 0,
     const parsed = scheduleSchema.parse({ intervalHours, startHour, timezone })
     const db = getDb()
     setConfigValue(db, 'schedule', parsed)
+    // Ping the worker via the scan-request-poller mailbox so the running node-cron task is rebuilt
+    // with the new expression/timezone within ~5s instead of waiting for the next process restart.
+    enqueueWorkerSignal(db, 'reload-schedule', Date.now())
     revalidatePath('/settings/schedule')
 }
 

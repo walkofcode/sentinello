@@ -309,6 +309,27 @@ export const appConfig = sqliteTable('app_config', {
     valueJson: text('value_json').notNull()
 })
 
+// Portal → worker control-plane mailbox, sibling to scan_requests. The web app inserts a row when
+// it changes a setting that the worker only reads at boot (today: schedule; tomorrow: watcher flags).
+// The scan-request poller drains pending rows on every tick and dispatches by `kind`; reload
+// handlers are idempotent, so multiple enqueues collapse harmlessly. Kept deliberately tiny — no
+// heartbeat, no payload — because dispatch reads the authoritative state (app_config) itself rather
+// than trusting anything inline on the signal.
+export const workerSignals = sqliteTable(
+    'worker_signals',
+    {
+        id: text('id').primaryKey(),
+        kind: text('kind').notNull(),
+        enqueuedAt: integer('enqueued_at').notNull(),
+        claimedAt: integer('claimed_at')
+    },
+    function workerSignalsIndexes(table) {
+        return {
+            claimedAtIdx: index('worker_signals_claimed_at_idx').on(table.claimedAt)
+        }
+    }
+)
+
 // The discovery / notification ledger. Source of truth for "have we already told the user about this?"
 export const notificationEvents = sqliteTable(
     'notification_events',

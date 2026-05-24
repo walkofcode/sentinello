@@ -101,7 +101,8 @@ same advisory export the portal produces, ready to feed an LLM). URLs/secrets ma
 
 **Settings → Schedule** sets the cadence (1h/3h/6h/12h/24h). For intervals over 1h you can pick a
 **start hour** (0–23) and a **timezone** it's interpreted in (defaults to the server's timezone) so
-the cadence anchors to a chosen time of day.
+the cadence anchors to a chosen time of day. Changes take effect within ~5s — no container restart
+required.
 
 ### Volumes
 

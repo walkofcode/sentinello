@@ -70,7 +70,7 @@ async function main(): Promise<void> {
     }
     const runtime = createWorkerRuntime()
     const scheduler = startScheduler({ db, sqlite, runtime })
-    const poller = startScanRequestPoller({ db, sqlite, runtime })
+    const poller = startScanRequestPoller({ db, sqlite, runtime, scheduler })
     const muteExpiry = startMuteExpirySweep({ db, runtime })
     let watcher: WatcherHandle | null = null
     const watcherEnabled = getConfigValue<boolean>(db, CONFIG_KEYS.watcherEnabled) || false

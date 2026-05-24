@@ -15,6 +15,13 @@
       "when": 1779543931889,
       "tag": "0001_grey_odin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1779628626266,
+      "tag": "0002_pretty_sunset_bain",
+      "breakpoints": true
     }
   ]
 }

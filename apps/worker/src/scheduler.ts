@@ -20,7 +20,7 @@ import { runBatch } from './runner'
 import type { WorkerRuntime } from './runtime'
 
 export type SchedulerHandles = {
-    activeTask: ScheduledTask
+    reload(): void
     stop(): void
 }
 
@@ -31,18 +31,38 @@ export type StartSchedulerInput = {
 }
 
 export function startScheduler(input: StartSchedulerInput): SchedulerHandles {
-    const schedule: Schedule = (getConfigValue<Schedule>(input.db, CONFIG_KEYS.schedule)) || DEFAULT_SCHEDULE
-    const cronExpr = intervalHoursToCron(schedule.intervalHours, schedule.startHour)
-    // Interpret startHour in the configured IANA timezone. Unset => node-cron uses the worker's
-    // system timezone (the pre-existing behaviour).
-    const cronOptions = schedule.timezone ? { timezone: schedule.timezone } : undefined
-    const activeTask = cron.schedule(cronExpr, function runActiveSweep() {
-        const work = sweepActiveProjects(input).catch(logSweepError.bind(null, 'active'))
-        input.runtime.track(work)
-        return work
-    }, cronOptions)
+    let activeTask: ScheduledTask
+    let currentExpr: string
+    let currentTz: string | undefined
+
+    function buildAndStart(schedule: Schedule): void {
+        currentExpr = intervalHoursToCron(schedule.intervalHours, schedule.startHour)
+        currentTz = schedule.timezone
+        const cronOptions = currentTz && { timezone: currentTz } || undefined
+        activeTask = cron.schedule(currentExpr, function runActiveSweep() {
+            const work = sweepActiveProjects(input).catch(logSweepError.bind(null, 'active'))
+            input.runtime.track(work)
+            return work
+        }, cronOptions)
+    }
+
+    const initialSchedule: Schedule = (getConfigValue<Schedule>(input.db, CONFIG_KEYS.schedule)) || DEFAULT_SCHEDULE
+    buildAndStart(initialSchedule)
+
+    function reload(): void {
+        const next: Schedule = (getConfigValue<Schedule>(input.db, CONFIG_KEYS.schedule)) || DEFAULT_SCHEDULE
+        const nextExpr = intervalHoursToCron(next.intervalHours, next.startHour)
+        const nextTz = next.timezone
+        if (nextExpr === currentExpr && nextTz === currentTz) return
+        const oldExpr = currentExpr
+        const oldTz = currentTz
+        activeTask.stop()
+        buildAndStart(next)
+        console.log('[scheduler] schedule reloaded: ' + oldExpr + ' @ ' + (oldTz || 'system') + ' → ' + nextExpr + ' @ ' + (nextTz || 'system'))
+    }
+
     return {
-        activeTask,
+        reload,
         stop() {
             activeTask.stop()
         }

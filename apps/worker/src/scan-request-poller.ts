@@ -1,5 +1,6 @@
 import {
     claimNextPendingRequest,
+    claimPendingSignals,
     getConfigValue,
     getProjectById,
     getRootById,
@@ -10,7 +11,8 @@ import {
     listProjects,
     listProjectsByRoot,
     type DrizzleDb,
-    type SqliteDb
+    type SqliteDb,
+    type WorkerSignal
 } from '@sentinello/db'
 import { npmAuditPlugin } from '@sentinello/scanners'
 import {
@@ -21,6 +23,7 @@ import {
 import { discoverProjects } from './discovery'
 import { runBatch } from './runner'
 import type { WorkerRuntime } from './runtime'
+import type { SchedulerHandles } from './scheduler'
 
 const POLL_INTERVAL_MS = 5_000
 const HEARTBEAT_INTERVAL_MS = 5_000
@@ -33,6 +36,7 @@ export type StartPollerInput = {
     db: DrizzleDb
     sqlite: SqliteDb
     runtime: WorkerRuntime
+    scheduler: SchedulerHandles
     intervalMs?: number
 }
 
@@ -57,6 +61,9 @@ export function startScanRequestPoller(input: StartPollerInput): PollerHandles {
 }
 
 export async function pollOnce(input: StartPollerInput): Promise<void> {
+    // Drain control-plane signals (e.g. reload-schedule) before claiming scan work so a config
+    // change made mid-scan still propagates within one poll interval, not whenever the scan finishes.
+    drainWorkerSignals(input)
     const claimedAt = Date.now()
     const claimed = claimNextPendingRequest(input.db, claimedAt)
     if (!claimed) return
@@ -158,6 +165,35 @@ async function runRootSweep(input: StartPollerInput, rootId: string, requestId: 
         abortSignal: input.runtime.abortController.signal
     })
     console.log('[scan-request-poller] root sweep finished (request=' + requestId + ', root=' + rootId + ', ' + projects.length + ' project' + (projects.length === 1 ? '' : 's') + ', ' + formatDurationMs(Date.now() - startedAt) + ')')
+}
+
+function drainWorkerSignals(input: StartPollerInput): void {
+    let claimed: WorkerSignal[]
+    try {
+        claimed = claimPendingSignals(input.db, Date.now())
+    } catch (err) {
+        const message = err instanceof Error && err.message || String(err)
+        console.error('[scan-request-poller] signal claim failed: ' + message)
+        return
+    }
+    for (const signal of claimed) {
+        try {
+            dispatchWorkerSignal(input, signal)
+        } catch (err) {
+            const message = err instanceof Error && err.message || String(err)
+            console.error('[scan-request-poller] signal dispatch failed (kind=' + signal.kind + ', id=' + signal.id + '): ' + message)
+        }
+    }
+}
+
+// Dispatch by kind. Unknown kinds are logged and skipped so a forward-compatible web app can
+// enqueue signal types this worker version does not know about without crashing the poller.
+function dispatchWorkerSignal(input: StartPollerInput, signal: WorkerSignal): void {
+    if (signal.kind === 'reload-schedule') {
+        input.scheduler.reload()
+        return
+    }
+    console.warn('[scan-request-poller] unknown signal kind: ' + signal.kind + ' (id=' + signal.id + ')')
 }
 
 function formatDurationMs(ms: number): string {

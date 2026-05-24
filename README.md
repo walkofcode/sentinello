@@ -145,7 +145,8 @@ URLs and secrets may be literals or `env:NAME` references resolved from the cont
 **Settings → Schedule** sets the sweep cadence (1h / 3h / 6h / 12h / 24h). For any interval other
 than 1h you can also pick a **start hour** (0–23) plus a **timezone** the start hour is interpreted
 in (defaults to the server's timezone), so the cadence is anchored to a chosen time of day — e.g. 6h
-starting at 02:00 in `Europe/Madrid` runs at 02:00, 08:00, 14:00, 20:00 Madrid time.
+starting at 02:00 in `Europe/Madrid` runs at 02:00, 08:00, 14:00, 20:00 Madrid time. Changes take
+effect within ~5s — no container restart required.
 
 ### Volumes
 
