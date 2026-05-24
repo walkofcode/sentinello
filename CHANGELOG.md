@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/walkofcode/sentinello/compare/v1.1.2...v1.2.0) (2026-05-24)
+
+
+### Features
+
+* **web:** split home into separate Projects and Libraries pages ([50c4ec9](https://github.com/walkofcode/sentinello/commit/50c4ec9e4f86ff75e92960f67fd20d245e61501c))
+
 ## [1.1.2](https://github.com/walkofcode/sentinello/compare/v1.1.1...v1.1.2) (2026-05-24)
 
 
