@@ -5,61 +5,65 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { ChevronLeft, FolderGit2, LayoutDashboard, Library, Menu, Settings, X, type LucideIcon } from 'lucide-react'
+import { ChevronLeft, FolderGit2, Library, Menu, Settings, X, type LucideIcon } from 'lucide-react'
 import { SettingsTabs } from '@/components/settings/settings-tabs'
-import { useScrollSpy, type ScrollSpySection } from './scroll-spy-context'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
-import { recallHomeUrl } from '@/lib/home-url-memory'
+import { recallLibrariesUrl, recallProjectsUrl } from '@/lib/home-url-memory'
 import { NavMenu } from './nav-menu'
 
-// label comes from the 'Nav' namespace keyed by id (Nav.overview, Nav.projects, Nav.libraries).
-type NavItem = {
-    id: ScrollSpySection
+export type NavSection = 'projects' | 'libraries'
+
+// label comes from the 'Nav' namespace keyed by id (Nav.projects, Nav.libraries).
+export type NavItem = {
+    id: NavSection
     Icon: LucideIcon
+    href: string
 }
 
 const NAV_ITEMS: NavItem[] = [
-    { id: 'overview', Icon: LayoutDashboard },
-    { id: 'projects', Icon: FolderGit2 },
-    { id: 'libraries', Icon: Library }
+    { id: 'projects', Icon: FolderGit2, href: '/' },
+    { id: 'libraries', Icon: Library, href: '/libraries' }
 ]
 
-// labelKey resolves against the 'Nav' namespace (Nav.overview / Nav.projects / Nav.libraries) and
-// names the section the back link returns to. Pages with a back context drop the logo + nav and
-// show only this link, mirroring how project/library details already behaved.
 type BackContext = {
-    labelKey: 'overview' | 'projects' | 'libraries'
+    labelKey: NavSection
     href: string
 }
 
 function backContext(pathname: string): BackContext | null {
-    const projectMatch = pathname.match(/^\/projects\/[^/]+/)
-    if (projectMatch) return { labelKey: 'projects', href: '/#projects' }
-    const libraryMatch = pathname.match(/^\/libraries\/[^/]+/)
-    if (libraryMatch) return { labelKey: 'libraries', href: '/#libraries' }
-    if (pathname.startsWith('/settings')) return { labelKey: 'overview', href: '/#overview' }
+    if (pathname.match(/^\/projects\/[^/]+/)) return { labelKey: 'projects', href: '/' }
+    if (pathname.match(/^\/libraries\/[^/]+/)) return { labelKey: 'libraries', href: '/libraries' }
+    if (pathname.startsWith('/settings')) return { labelKey: 'projects', href: '/' }
+    return null
+}
+
+function currentSectionFor(pathname: string): NavSection | null {
+    if (pathname === '/') return 'projects'
+    if (pathname === '/libraries' || pathname.startsWith('/libraries/')) return 'libraries'
     return null
 }
 
 export function TopNav() {
     const pathname = usePathname()
     const t = useTranslations('Nav')
-    const { activeSection } = useScrollSpy()
-    const onHome = pathname === '/'
     const onSettings = pathname.startsWith('/settings')
     const back = backContext(pathname)
-    const currentSection: ScrollSpySection | null = (onHome && (activeSection || 'overview')) || null
-    const [rememberedHomeUrl, setRememberedHomeUrl] = useState<string | null>(null)
+    const currentSection = currentSectionFor(pathname)
+    const [rememberedUrl, setRememberedUrl] = useState<string | null>(null)
     const [menuOpen, setMenuOpen] = useState<boolean>(false)
     const headerRef = useRef<HTMLElement>(null)
-    // Re-read on pathname change so the back link reflects the most recent
-    // homepage filter URL the user produced before navigating in.
+    // Re-read on pathname change so the back link reflects the most recent filter URL the user
+    // produced for the page they're returning to.
     useEffect(function readRemembered() {
-        setRememberedHomeUrl(recallHomeUrl())
-    }, [pathname])
-    // Close the mobile menu whenever the route changes — pathname-only since hash
-    // links don't trigger this; the link handlers below also call closeMenu().
+        if (!back) {
+            setRememberedUrl(null)
+            return
+        }
+        const remembered = back.labelKey === 'libraries' ? recallLibrariesUrl() : recallProjectsUrl()
+        setRememberedUrl(remembered)
+    }, [pathname, back])
+    // Close the mobile menu whenever the route changes.
     useEffect(function closeOnNav() {
         setMenuOpen(false)
     }, [pathname])
@@ -82,8 +86,8 @@ export function TopNav() {
             document.removeEventListener('mousedown', onClick)
         }
     }, [menuOpen])
-    const backHref = (back && composeBackHref(rememberedHomeUrl, back.href)) || ''
-    const mobileLabel = computeMobileLabel({ onHome, currentSection, t })
+    const backHref = (back && (rememberedUrl || back.href)) || ''
+    const mobileLabel = (currentSection && t(currentSection)) || ''
     function closeMenu() {
         setMenuOpen(false)
     }
@@ -117,7 +121,6 @@ export function TopNav() {
                         <nav className="hidden items-center gap-1 text-xs md:flex">
                             {NAV_ITEMS.map(function navItem(item) {
                                 const isActive = item.id === currentSection
-                                const href = (onHome && '#' + item.id) || '/#' + item.id
                                 const className = cn(
                                     'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 font-semibold uppercase tracking-wider transition-colors',
                                     isActive
@@ -125,7 +128,7 @@ export function TopNav() {
                                         : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                                 )
                                 return (
-                                    <Link key={item.id} href={href} className={className}>
+                                    <Link key={item.id} href={item.href} className={className}>
                                         <item.Icon className="h-4 w-4" />
                                         {t(item.id)}
                                     </Link>
@@ -165,7 +168,6 @@ export function TopNav() {
                     {menuOpen ? (
                         <NavMenu
                             navItems={NAV_ITEMS}
-                            onHome={onHome}
                             onSettings={onSettings}
                             currentSection={currentSection}
                             onNavigate={closeMenu}
@@ -175,30 +177,4 @@ export function TopNav() {
             </div>
         </header>
     )
-}
-
-// Picks the short "you are here" label shown in the mobile bar next to the hamburger. Only on home,
-// where it follows scroll-spy so the label changes as the user scrolls between sections. Back-context
-// pages (project/library details, settings) show the back link in the bar instead, so no chip.
-function computeMobileLabel(args: {
-    onHome: boolean
-    currentSection: ScrollSpySection | null
-    t: (key: string) => string
-}): string {
-    if (!args.onHome) return ''
-    const match = NAV_ITEMS.find(function find(i) { return i.id === args.currentSection })
-    return (match && args.t(match.id)) || args.t('overview')
-}
-
-// Glue the remembered homepage URL's pathname + search to the section hash this
-// back button represents. The remembered hash may point at a different section
-// (e.g. user scrolled across sections before clicking in), so we always force
-// the section we know is correct from the current pathname.
-function composeBackHref(rememberedHomeUrl: string | null, fallback: string): string {
-    if (!rememberedHomeUrl) return fallback
-    const fallbackHashIdx = fallback.indexOf('#')
-    const targetHash = (fallbackHashIdx >= 0 && fallback.slice(fallbackHashIdx)) || ''
-    const hashIdx = rememberedHomeUrl.indexOf('#')
-    const base = (hashIdx >= 0 && rememberedHomeUrl.slice(0, hashIdx)) || rememberedHomeUrl
-    return base + targetHash
 }

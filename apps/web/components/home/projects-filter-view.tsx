@@ -2,8 +2,9 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
+import { ShieldCheck } from 'lucide-react'
 import { reasonCodeLabel, type DepTypeFilter, type Locale, type ReasonCode, type Severity } from '@sentinello/core'
 import type { ProjectCatalogRow } from '@sentinello/db'
 import { Badge } from '@/components/ui/badge'
@@ -14,7 +15,7 @@ import { SeverityPill } from '@/components/ui/severity-pill'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { EmptyState } from '@/components/ui/empty-state'
 import { parseJsonArray } from '@/lib/format'
-import { rememberHomeUrl } from '@/lib/home-url-memory'
+import { rememberProjectsUrl } from '@/lib/home-url-memory'
 
 type SortKey = 'name' | 'severity'
 
@@ -48,9 +49,10 @@ type Props = {
     rows: ProjectCatalogRow[]
     depType: DepTypeFilter
     defaultDepType: DepTypeFilter
+    belowFiltersSlot?: ReactNode
 }
 
-export function ProjectsFilterView({ rows, depType, defaultDepType }: Props) {
+export function ProjectsFilterView({ rows, depType, defaultDepType, belowFiltersSlot }: Props) {
     const t = useTranslations('Home')
     const locale = useLocale() as Locale
     const router = useRouter()
@@ -87,7 +89,7 @@ export function ProjectsFilterView({ rows, depType, defaultDepType }: Props) {
         const search = params.toString()
         const next = window.location.pathname + (search && '?' + search) + window.location.hash
         window.history.replaceState(window.history.state, '', next)
-        rememberHomeUrl(next)
+        rememberProjectsUrl(next)
     }, [query, root, tag, minSeverity, showHealthy, showMuted, sort])
 
     const rootOptions = useMemo(function buildRoots() {
@@ -106,8 +108,11 @@ export function ProjectsFilterView({ rows, depType, defaultDepType }: Props) {
                 const tags = parseJsonArray(row.tagsJson)
                 if (!tags.includes(tag)) return false
             }
-            if (!showHealthy && isHealthy(row)) return false
-            if (!showMuted && row.muted) return false
+            if (row.muted) {
+                if (!showMuted) return false
+            } else if (!showHealthy && isHealthy(row)) {
+                return false
+            }
             if (q) {
                 const haystack = (row.name + ' ' + (row.alias || '')).toLowerCase()
                 if (!haystack.includes(q)) return false
@@ -150,11 +155,22 @@ export function ProjectsFilterView({ rows, depType, defaultDepType }: Props) {
                 onSortChange={setSort}
                 onDepTypeChange={onDepTypeChange}
             />
+            {belowFiltersSlot}
             {filtered.length === 0 ? (
-                <EmptyState
-                    title={t('projectsEmptyTitle')}
-                    description={t('projectsEmptyDescription')}
-                />
+                rows.length === 0 ? (
+                    <EmptyState
+                        title={t('projectsNoneConfiguredTitle')}
+                        description={t('projectsNoneConfiguredDescription')}
+                    />
+                ) : (
+                    <div className="flex flex-col items-center justify-center rounded-(--radius-card) border border-dashed border-emerald-500/30 bg-emerald-500/5 px-6 py-16 text-center">
+                        <ShieldCheck className="h-10 w-10 text-emerald-500" aria-hidden="true" />
+                        <p className="mt-3 text-base font-medium">{t('projectsAllClearTitle')}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            {t('projectsAllClearDescription')}
+                        </p>
+                    </div>
+                )
             ) : (
                 <>
                     <div className="space-y-2 md:hidden">

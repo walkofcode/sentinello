@@ -3,7 +3,6 @@
         "description": "Centralized dependency-vulnerability monitoring across your portfolio."
     },
     "Nav": {
-        "overview": "Overview",
         "projects": "Projects",
         "libraries": "Libraries",
         "settings": "Settings",
@@ -95,16 +94,13 @@
         }
     },
     "Home": {
-        "metaTitle": "Overview",
-        "overviewTitle": "Overview",
         "projectsTitle": "Projects",
         "librariesTitle": "Libraries",
         "projectsWithFindings": "Projects with findings",
         "vulnerableLibraries": "Vulnerable libraries",
-        "pendingFindings": "Pending findings to fix",
+        "pendingFindings": "Pending",
         "lastScan": "Last scan",
         "severityBreakdown": "Severity breakdown",
-        "severityBreakdownNote": "Counts exclude muted findings and projects whose source root no longer exists.",
         "scanNow": "Scan now",
         "scanQueueing": "Queueing…",
         "scanScanning": "Scanning…",
@@ -133,8 +129,10 @@
         "sortMostAdvisories": "Sort: most advisories",
         "showHealthy": "Show healthy",
         "showMuted": "Show muted",
-        "projectsEmptyTitle": "No projects to show",
-        "projectsEmptyDescription": "Adjust filters above, or add a root in Settings → Roots and let the worker discover projects on its next sweep.",
+        "projectsAllClearTitle": "All clear — great job!",
+        "projectsAllClearDescription": "No projects need attention right now. Toggle “Show healthy” above to browse the full list.",
+        "projectsNoneConfiguredTitle": "No projects yet",
+        "projectsNoneConfiguredDescription": "Add a root in Settings → Roots and let the worker discover projects on its next sweep.",
         "librariesEmptyTitle": "No libraries to show",
         "librariesEmptyDescription": "Adjust filters above, or wait for the next scan to populate findings.",
         "colName": "Name",

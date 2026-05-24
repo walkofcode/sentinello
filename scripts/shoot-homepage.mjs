@@ -52,13 +52,15 @@ async function main() {
     const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 2 })
     const page = await context.newPage()
 
-    // Discover the project + library targets from the live dashboard so we never hardcode the hashed
-    // project IDs or the demo package names.
+    // Discover the project + library targets from the live pages so we never hardcode the hashed
+    // project IDs or the demo package names. After the Projects/Libraries split, projects live on /
+    // and libraries on /libraries — each page is its own scrape source.
     await page.goto(BASE_URL + '/', { waitUntil: 'networkidle' })
     const projectHref = await firstHref(page, 'a[href^="/projects/"]')
+    await page.goto(BASE_URL + '/libraries', { waitUntil: 'networkidle' })
     const libraryHref = await firstHref(page, 'a[href^="/libraries/"]')
     if (!projectHref || !libraryHref) {
-        throw new Error('Dashboard has no project/library links — is the portal running at ' + BASE_URL + ' and seeded with the demo-projects?')
+        throw new Error('Pages have no project/library links — is the portal running at ' + BASE_URL + ' and seeded with the demo-projects?')
     }
 
     const screens = [

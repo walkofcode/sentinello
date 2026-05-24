@@ -3,7 +3,6 @@
         "description": "포트폴리오 전반의 의존성 취약점을 중앙에서 모니터링합니다."
     },
     "Nav": {
-        "overview": "개요",
         "projects": "프로젝트",
         "libraries": "라이브러리",
         "settings": "설정",
@@ -95,16 +94,13 @@
         }
     },
     "Home": {
-        "metaTitle": "개요",
-        "overviewTitle": "개요",
         "projectsTitle": "프로젝트",
         "librariesTitle": "라이브러리",
         "projectsWithFindings": "발견 항목이 있는 프로젝트",
         "vulnerableLibraries": "취약한 라이브러리",
-        "pendingFindings": "수정 대기 중인 발견 항목",
+        "pendingFindings": "대기 중",
         "lastScan": "마지막 스캔",
         "severityBreakdown": "심각도 분포",
-        "severityBreakdownNote": "음소거된 발견 항목과 소스 루트가 더 이상 존재하지 않는 프로젝트는 집계에서 제외됩니다.",
         "scanNow": "지금 스캔",
         "scanQueueing": "대기열 추가 중…",
         "scanScanning": "스캔 중…",
@@ -133,8 +129,10 @@
         "sortMostAdvisories": "정렬: 권고 많은 순",
         "showHealthy": "정상 항목 표시",
         "showMuted": "음소거 항목 표시",
-        "projectsEmptyTitle": "표시할 프로젝트가 없습니다",
-        "projectsEmptyDescription": "위의 필터를 조정하거나, 설정 → 루트에서 루트를 추가하고 워커가 다음 스윕에서 프로젝트를 발견하도록 두세요.",
+        "projectsAllClearTitle": "모두 정상 — 훌륭합니다!",
+        "projectsAllClearDescription": "지금은 주의가 필요한 프로젝트가 없습니다. 위의 “정상 항목 표시”를 켜면 전체 목록을 확인할 수 있습니다.",
+        "projectsNoneConfiguredTitle": "아직 프로젝트가 없습니다",
+        "projectsNoneConfiguredDescription": "설정 → 루트에서 루트를 추가하고 워커가 다음 스윕에서 프로젝트를 발견하도록 두세요.",
         "librariesEmptyTitle": "표시할 라이브러리가 없습니다",
         "librariesEmptyDescription": "위의 필터를 조정하거나, 다음 스캔이 발견 항목을 채울 때까지 기다리세요.",
         "colName": "이름",

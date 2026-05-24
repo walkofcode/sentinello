@@ -3,7 +3,6 @@
         "description": "Zentralisierte Überwachung von Abhängigkeits-Schwachstellen über Ihr gesamtes Portfolio."
     },
     "Nav": {
-        "overview": "Übersicht",
         "projects": "Projekte",
         "libraries": "Bibliotheken",
         "settings": "Einstellungen",
@@ -95,16 +94,13 @@
         }
     },
     "Home": {
-        "metaTitle": "Übersicht",
-        "overviewTitle": "Übersicht",
         "projectsTitle": "Projekte",
         "librariesTitle": "Bibliotheken",
         "projectsWithFindings": "Projekte mit Funden",
         "vulnerableLibraries": "Verwundbare Bibliotheken",
-        "pendingFindings": "Ausstehende zu behebende Funde",
+        "pendingFindings": "Ausstehend",
         "lastScan": "Letzter Scan",
         "severityBreakdown": "Aufschlüsselung nach Schweregrad",
-        "severityBreakdownNote": "Die Zählungen schließen stummgeschaltete Funde und Projekte aus, deren Quell-Wurzel nicht mehr existiert.",
         "scanNow": "Jetzt scannen",
         "scanQueueing": "Wird eingereiht…",
         "scanScanning": "Wird gescannt…",
@@ -133,8 +129,10 @@
         "sortMostAdvisories": "Sortierung: meiste Advisories",
         "showHealthy": "Unbedenkliche anzeigen",
         "showMuted": "Stummgeschaltete anzeigen",
-        "projectsEmptyTitle": "Keine Projekte anzuzeigen",
-        "projectsEmptyDescription": "Passen Sie die Filter oben an oder fügen Sie unter Einstellungen → Wurzeln eine Wurzel hinzu und lassen Sie den Worker beim nächsten Durchlauf Projekte entdecken.",
+        "projectsAllClearTitle": "Alles in Ordnung — gute Arbeit!",
+        "projectsAllClearDescription": "Aktuell brauchen keine Projekte Aufmerksamkeit. Aktiviere oben „Unbedenkliche anzeigen“, um die vollständige Liste zu durchsuchen.",
+        "projectsNoneConfiguredTitle": "Noch keine Projekte",
+        "projectsNoneConfiguredDescription": "Füge unter Einstellungen → Wurzeln eine Wurzel hinzu und lass den Worker beim nächsten Durchlauf Projekte entdecken.",
         "librariesEmptyTitle": "Keine Bibliotheken anzuzeigen",
         "librariesEmptyDescription": "Passen Sie die Filter oben an oder warten Sie auf den nächsten Scan, um Funde zu füllen.",
         "colName": "Name",

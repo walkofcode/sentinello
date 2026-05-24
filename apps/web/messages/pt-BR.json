@@ -3,7 +3,6 @@
         "description": "Monitoramento centralizado de vulnerabilidades de dependências em todo o seu portfólio."
     },
     "Nav": {
-        "overview": "Visão geral",
         "projects": "Projetos",
         "libraries": "Bibliotecas",
         "settings": "Configurações",
@@ -95,16 +94,13 @@
         }
     },
     "Home": {
-        "metaTitle": "Visão geral",
-        "overviewTitle": "Visão geral",
         "projectsTitle": "Projetos",
         "librariesTitle": "Bibliotecas",
         "projectsWithFindings": "Projetos com ocorrências",
         "vulnerableLibraries": "Bibliotecas vulneráveis",
-        "pendingFindings": "Ocorrências pendentes para corrigir",
+        "pendingFindings": "Pendentes",
         "lastScan": "Última varredura",
         "severityBreakdown": "Detalhamento por severidade",
-        "severityBreakdownNote": "As contagens excluem ocorrências silenciadas e projetos cuja raiz de origem não existe mais.",
         "scanNow": "Varrer agora",
         "scanQueueing": "Enfileirando…",
         "scanScanning": "Varrendo…",
@@ -133,8 +129,10 @@
         "sortMostAdvisories": "Ordenar: mais alertas",
         "showHealthy": "Mostrar saudáveis",
         "showMuted": "Mostrar silenciados",
-        "projectsEmptyTitle": "Nenhum projeto para exibir",
-        "projectsEmptyDescription": "Ajuste os filtros acima ou adicione uma raiz em Configurações → Raízes e deixe o worker descobrir projetos na próxima varredura.",
+        "projectsAllClearTitle": "Tudo certo — ótimo trabalho!",
+        "projectsAllClearDescription": "Nenhum projeto precisa de atenção no momento. Ative “Mostrar saudáveis” acima para ver a lista completa.",
+        "projectsNoneConfiguredTitle": "Ainda não há projetos",
+        "projectsNoneConfiguredDescription": "Adicione uma raiz em Configurações → Raízes e deixe o worker descobrir projetos na próxima varredura.",
         "librariesEmptyTitle": "Nenhuma biblioteca para exibir",
         "librariesEmptyDescription": "Ajuste os filtros acima ou aguarde a próxima varredura preencher as ocorrências.",
         "colName": "Nome",

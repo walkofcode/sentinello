@@ -1,19 +1,36 @@
-export const HOME_URL_KEY = 'sentinello:home-url'
+const PROJECTS_URL_KEY = 'sentinello:home-url:projects'
+const LIBRARIES_URL_KEY = 'sentinello:home-url:libraries'
 
-export function rememberHomeUrl(url: string): void {
+function write(key: string, url: string): void {
     if (typeof window === 'undefined') return
     try {
-        window.sessionStorage.setItem(HOME_URL_KEY, url)
+        window.sessionStorage.setItem(key, url)
     } catch {
         // sessionStorage can throw in privacy mode / quota; swallow silently
     }
 }
 
-export function recallHomeUrl(): string | null {
+function read(key: string): string | null {
     if (typeof window === 'undefined') return null
     try {
-        return window.sessionStorage.getItem(HOME_URL_KEY)
+        return window.sessionStorage.getItem(key)
     } catch {
         return null
     }
+}
+
+export function rememberProjectsUrl(url: string): void {
+    write(PROJECTS_URL_KEY, url)
+}
+
+export function recallProjectsUrl(): string | null {
+    return read(PROJECTS_URL_KEY)
+}
+
+export function rememberLibrariesUrl(url: string): void {
+    write(LIBRARIES_URL_KEY, url)
+}
+
+export function recallLibrariesUrl(): string | null {
+    return read(LIBRARIES_URL_KEY)
 }

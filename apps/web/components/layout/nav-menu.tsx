@@ -12,25 +12,18 @@ import {
     Languages,
     Moon,
     Settings,
-    Sun,
-    type LucideIcon
+    Sun
 } from 'lucide-react'
 import { useFontSize, type FontSize } from './font-size-provider'
 import { cn } from '@/lib/cn'
 import { locales, LOCALE_LABELS, type Locale } from '@/i18n/config'
 import { setLocale } from '@/i18n/set-locale'
-import type { ScrollSpySection } from './scroll-spy-context'
-
-type NavItem = {
-    id: ScrollSpySection
-    Icon: LucideIcon
-}
+import type { NavItem, NavSection } from './top-nav'
 
 type Props = {
     navItems: NavItem[]
-    onHome: boolean
     onSettings: boolean
-    currentSection: ScrollSpySection | null
+    currentSection: NavSection | null
     onNavigate: () => void
 }
 
@@ -45,7 +38,7 @@ const FONT_SIZE_OPTIONS: { value: FontSize; labelKey: string }[] = [
 
 const ROW_BASE = 'flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-sm transition-colors'
 
-export function NavMenu({ navItems, onHome, onSettings, currentSection, onNavigate }: Props) {
+export function NavMenu({ navItems, onSettings, currentSection, onNavigate }: Props) {
     const t = useTranslations('Nav')
     const [submenu, setSubmenu] = useState<Submenu>(null)
     function toggleSubmenu(next: Exclude<Submenu, null>) {
@@ -59,11 +52,10 @@ export function NavMenu({ navItems, onHome, onSettings, currentSection, onNaviga
             <div className="space-y-0.5 md:hidden">
                 {navItems.map(function navItem(item) {
                     const isActive = item.id === currentSection
-                    const href = (onHome && '#' + item.id) || '/#' + item.id
                     return (
                         <Link
                             key={item.id}
-                            href={href}
+                            href={item.href}
                             onClick={onNavigate}
                             role="menuitem"
                             className={cn(

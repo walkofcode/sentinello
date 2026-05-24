@@ -5,7 +5,6 @@ import { getLocale, getMessages, getTranslations } from 'next-intl/server'
 import { ThemeProvider } from '@/components/layout/theme-provider'
 import { FontSizeProvider } from '@/components/layout/font-size-provider'
 import { TopNav } from '@/components/layout/top-nav'
-import { ScrollSpyProvider } from '@/components/layout/scroll-spy-context'
 import { SiteFooter } from '@/components/layout/site-footer'
 import { UpdateBanner } from '@/components/layout/update-banner'
 import './globals.css'
@@ -40,14 +39,12 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                 <NextIntlClientProvider locale={locale} messages={messages}>
                     <ThemeProvider>
                         <FontSizeProvider>
-                            <ScrollSpyProvider>
-                                <div className="flex min-h-screen flex-col">
-                                    <TopNav />
-                                    <UpdateBanner />
-                                    <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">{children}</main>
-                                    <SiteFooter />
-                                </div>
-                            </ScrollSpyProvider>
+                            <div className="flex min-h-screen flex-col">
+                                <TopNav />
+                                <UpdateBanner />
+                                <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">{children}</main>
+                                <SiteFooter />
+                            </div>
                         </FontSizeProvider>
                     </ThemeProvider>
                 </NextIntlClientProvider>

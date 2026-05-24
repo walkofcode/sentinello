@@ -3,7 +3,6 @@
         "description": "Monitoraggio centralizzato delle vulnerabilità delle dipendenze in tutto il tuo portfolio."
     },
     "Nav": {
-        "overview": "Panoramica",
         "projects": "Progetti",
         "libraries": "Librerie",
         "settings": "Impostazioni",
@@ -95,16 +94,13 @@
         }
     },
     "Home": {
-        "metaTitle": "Panoramica",
-        "overviewTitle": "Panoramica",
         "projectsTitle": "Progetti",
         "librariesTitle": "Librerie",
         "projectsWithFindings": "Progetti con risultati",
         "vulnerableLibraries": "Librerie vulnerabili",
-        "pendingFindings": "Risultati in attesa di correzione",
+        "pendingFindings": "In sospeso",
         "lastScan": "Ultima scansione",
         "severityBreakdown": "Ripartizione per gravità",
-        "severityBreakdownNote": "I conteggi escludono i risultati silenziati e i progetti la cui radice di origine non esiste più.",
         "scanNow": "Scansiona ora",
         "scanQueueing": "In coda…",
         "scanScanning": "Scansione in corso…",
@@ -133,8 +129,10 @@
         "sortMostAdvisories": "Ordina: più advisory",
         "showHealthy": "Mostra integri",
         "showMuted": "Mostra silenziati",
-        "projectsEmptyTitle": "Nessun progetto da mostrare",
-        "projectsEmptyDescription": "Modifica i filtri sopra, oppure aggiungi una radice in Impostazioni → Radici e lascia che il worker scopra i progetti alla sua prossima scansione.",
+        "projectsAllClearTitle": "Tutto a posto — ottimo lavoro!",
+        "projectsAllClearDescription": "Nessun progetto richiede attenzione in questo momento. Attiva “Mostra integri” sopra per sfogliare l'elenco completo.",
+        "projectsNoneConfiguredTitle": "Ancora nessun progetto",
+        "projectsNoneConfiguredDescription": "Aggiungi una radice in Impostazioni → Radici e lascia che il worker scopra i progetti alla sua prossima scansione.",
         "librariesEmptyTitle": "Nessuna libreria da mostrare",
         "librariesEmptyDescription": "Modifica i filtri sopra, oppure attendi la prossima scansione per popolare i risultati.",
         "colName": "Nome",

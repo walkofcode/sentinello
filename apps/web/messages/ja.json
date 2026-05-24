@@ -3,7 +3,6 @@
         "description": "ポートフォリオ全体の依存関係の脆弱性を一元的に監視します。"
     },
     "Nav": {
-        "overview": "概要",
         "projects": "プロジェクト",
         "libraries": "ライブラリ",
         "settings": "設定",
@@ -95,16 +94,13 @@
         }
     },
     "Home": {
-        "metaTitle": "概要",
-        "overviewTitle": "概要",
         "projectsTitle": "プロジェクト",
         "librariesTitle": "ライブラリ",
         "projectsWithFindings": "検出のあるプロジェクト",
         "vulnerableLibraries": "脆弱なライブラリ",
-        "pendingFindings": "未修正の検出",
+        "pendingFindings": "未修正",
         "lastScan": "最終スキャン",
         "severityBreakdown": "深刻度の内訳",
-        "severityBreakdownNote": "件数にはミュートされた検出、およびソースルートが存在しなくなったプロジェクトは含まれません。",
         "scanNow": "今すぐスキャン",
         "scanQueueing": "キュー登録中…",
         "scanScanning": "スキャン中…",
@@ -133,8 +129,10 @@
         "sortMostAdvisories": "並べ替え: アドバイザリ数の多い順",
         "showHealthy": "正常なものを表示",
         "showMuted": "ミュート済みを表示",
-        "projectsEmptyTitle": "表示するプロジェクトがありません",
-        "projectsEmptyDescription": "上のフィルターを調整するか、設定 → ルートでルートを追加して、ワーカーが次回のスイープでプロジェクトを検出できるようにしてください。",
+        "projectsAllClearTitle": "問題なし — 素晴らしい！",
+        "projectsAllClearDescription": "現在、注意が必要なプロジェクトはありません。上の「正常なものを表示」をオンにすると、全てのリストを確認できます。",
+        "projectsNoneConfiguredTitle": "プロジェクトはまだありません",
+        "projectsNoneConfiguredDescription": "設定 → ルートでルートを追加して、ワーカーが次回のスイープでプロジェクトを検出できるようにしてください。",
         "librariesEmptyTitle": "表示するライブラリがありません",
         "librariesEmptyDescription": "上のフィルターを調整するか、次回のスキャンで検出が反映されるのを待ってください。",
         "colName": "名前",

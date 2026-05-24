@@ -3,7 +3,6 @@
         "description": "Surveillance centralisée des vulnérabilités de dépendances sur l'ensemble de votre portefeuille."
     },
     "Nav": {
-        "overview": "Vue d'ensemble",
         "projects": "Projets",
         "libraries": "Bibliothèques",
         "settings": "Paramètres",
@@ -95,16 +94,13 @@
         }
     },
     "Home": {
-        "metaTitle": "Vue d'ensemble",
-        "overviewTitle": "Vue d'ensemble",
         "projectsTitle": "Projets",
         "librariesTitle": "Bibliothèques",
         "projectsWithFindings": "Projets avec résultats",
         "vulnerableLibraries": "Bibliothèques vulnérables",
-        "pendingFindings": "Résultats en attente de correction",
+        "pendingFindings": "En attente",
         "lastScan": "Dernière analyse",
         "severityBreakdown": "Répartition par gravité",
-        "severityBreakdownNote": "Les comptes excluent les résultats masqués et les projets dont la racine source n'existe plus.",
         "scanNow": "Analyser maintenant",
         "scanQueueing": "Mise en file…",
         "scanScanning": "Analyse en cours…",
@@ -133,8 +129,10 @@
         "sortMostAdvisories": "Tri : le plus d'avis",
         "showHealthy": "Afficher les sains",
         "showMuted": "Afficher les masqués",
-        "projectsEmptyTitle": "Aucun projet à afficher",
-        "projectsEmptyDescription": "Ajustez les filtres ci-dessus, ou ajoutez une racine dans Paramètres → Racines et laissez le worker découvrir les projets lors de son prochain balayage.",
+        "projectsAllClearTitle": "Tout est en ordre — beau travail !",
+        "projectsAllClearDescription": "Aucun projet ne nécessite votre attention pour le moment. Activez « Afficher les sains » ci-dessus pour parcourir la liste complète.",
+        "projectsNoneConfiguredTitle": "Aucun projet pour le moment",
+        "projectsNoneConfiguredDescription": "Ajoutez une racine dans Paramètres → Racines et laissez le worker découvrir les projets lors de son prochain balayage.",
         "librariesEmptyTitle": "Aucune bibliothèque à afficher",
         "librariesEmptyDescription": "Ajustez les filtres ci-dessus, ou attendez la prochaine analyse pour remplir les résultats.",
         "colName": "Nom",

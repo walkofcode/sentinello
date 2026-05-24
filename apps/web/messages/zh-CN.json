@@ -3,7 +3,6 @@
         "description": "集中监控你所有项目组合中的依赖漏洞。"
     },
     "Nav": {
-        "overview": "概览",
         "projects": "项目",
         "libraries": "依赖库",
         "settings": "设置",
@@ -95,16 +94,13 @@
         }
     },
     "Home": {
-        "metaTitle": "概览",
-        "overviewTitle": "概览",
         "projectsTitle": "项目",
         "librariesTitle": "依赖库",
         "projectsWithFindings": "存在发现的项目",
         "vulnerableLibraries": "存在漏洞的依赖库",
-        "pendingFindings": "待修复的发现",
+        "pendingFindings": "待修复",
         "lastScan": "上次扫描",
         "severityBreakdown": "严重程度分布",
-        "severityBreakdownNote": "统计不包含已静默的发现，以及源根目录已不存在的项目。",
         "scanNow": "立即扫描",
         "scanQueueing": "排队中…",
         "scanScanning": "扫描中…",
@@ -133,8 +129,10 @@
         "sortMostAdvisories": "排序：通告最多",
         "showHealthy": "显示无问题项",
         "showMuted": "显示已静默项",
-        "projectsEmptyTitle": "没有可显示的项目",
-        "projectsEmptyDescription": "请调整上方筛选条件，或在“设置 → 根目录”中添加一个根目录，让工作进程在下次巡检时发现项目。",
+        "projectsAllClearTitle": "一切正常——干得漂亮！",
+        "projectsAllClearDescription": "目前没有需要关注的项目。打开上方的“显示无问题项”即可浏览完整列表。",
+        "projectsNoneConfiguredTitle": "暂无项目",
+        "projectsNoneConfiguredDescription": "请在“设置 → 根目录”中添加一个根目录，让工作进程在下次巡检时发现项目。",
         "librariesEmptyTitle": "没有可显示的依赖库",
         "librariesEmptyDescription": "请调整上方筛选条件，或等待下次扫描生成发现。",
         "colName": "名称",

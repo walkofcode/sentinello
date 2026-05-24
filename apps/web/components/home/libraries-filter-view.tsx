@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
-import { rememberHomeUrl } from '@/lib/home-url-memory'
+import { rememberLibrariesUrl } from '@/lib/home-url-memory'
 
 type SortKey = 'severity' | 'name' | 'projects' | 'advisories'
 
@@ -88,7 +88,7 @@ export function LibrariesFilterView({ libraries, depType, defaultDepType }: Prop
         const search = params.toString()
         const next = window.location.pathname + (search && '?' + search) + window.location.hash
         window.history.replaceState(window.history.state, '', next)
-        rememberHomeUrl(next)
+        rememberLibrariesUrl(next)
     }, [query, minSeverity, sort])
 
     const filtered = useMemo(function applyFilters() {

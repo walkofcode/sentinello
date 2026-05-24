@@ -3,7 +3,6 @@
         "description": "Monitoreo centralizado de vulnerabilidades en dependencias de todo tu portafolio."
     },
     "Nav": {
-        "overview": "Resumen",
         "projects": "Proyectos",
         "libraries": "Librerías",
         "settings": "Configuración",
@@ -95,16 +94,13 @@
         }
     },
     "Home": {
-        "metaTitle": "Resumen",
-        "overviewTitle": "Resumen",
         "projectsTitle": "Proyectos",
         "librariesTitle": "Librerías",
         "projectsWithFindings": "Proyectos con hallazgos",
         "vulnerableLibraries": "Librerías vulnerables",
-        "pendingFindings": "Hallazgos pendientes de corregir",
+        "pendingFindings": "Pendientes",
         "lastScan": "Último escaneo",
         "severityBreakdown": "Desglose por severidad",
-        "severityBreakdownNote": "Los conteos excluyen hallazgos silenciados y proyectos cuya raíz de origen ya no existe.",
         "scanNow": "Escanear ahora",
         "scanQueueing": "Encolando…",
         "scanScanning": "Escaneando…",
@@ -133,8 +129,10 @@
         "sortMostAdvisories": "Orden: más avisos",
         "showHealthy": "Mostrar sanos",
         "showMuted": "Mostrar silenciados",
-        "projectsEmptyTitle": "No hay proyectos para mostrar",
-        "projectsEmptyDescription": "Ajusta los filtros de arriba, o agrega una raíz en Configuración → Raíces y deja que el worker descubra proyectos en su próximo barrido.",
+        "projectsAllClearTitle": "Todo en orden — ¡buen trabajo!",
+        "projectsAllClearDescription": "Ningún proyecto requiere atención ahora mismo. Activa “Mostrar sanos” arriba para explorar la lista completa.",
+        "projectsNoneConfiguredTitle": "Aún no hay proyectos",
+        "projectsNoneConfiguredDescription": "Agrega una raíz en Configuración → Raíces y deja que el worker descubra proyectos en su próximo barrido.",
         "librariesEmptyTitle": "No hay librerías para mostrar",
         "librariesEmptyDescription": "Ajusta los filtros de arriba, o espera al próximo escaneo para poblar los hallazgos.",
         "colName": "Nombre",
