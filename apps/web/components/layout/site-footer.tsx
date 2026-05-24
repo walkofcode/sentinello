@@ -37,19 +37,6 @@ export async function SiteFooter() {
                     {t('about')}
                 </Link>
             </div>
-            <div className="mx-auto mt-1 max-w-7xl text-center text-[11px] text-muted-foreground/70">
-                {t.rich('legalNotice', {
-                    terms: function terms(chunks) {
-                        return <Link href="/legal/terms" className="underline hover:text-foreground">{chunks}</Link>
-                    },
-                    privacy: function privacy(chunks) {
-                        return <Link href="/legal/privacy" className="underline hover:text-foreground">{chunks}</Link>
-                    },
-                    disclaimer: function disclaimer(chunks) {
-                        return <Link href="/legal/disclaimer" className="underline hover:text-foreground">{chunks}</Link>
-                    }
-                })}
-            </div>
         </footer>
     )
 }

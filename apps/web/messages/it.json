@@ -56,8 +56,7 @@
     "Footer": {
         "version": "Sentinello v{version}",
         "madeBy": "Realizzato da",
-        "about": "Informazioni",
-        "legalNotice": "Utilizzando Sentinello accetti i <terms>Termini</terms>, l'<privacy>Informativa sulla privacy</privacy> e il <disclaimer>Disclaimer</disclaimer>."
+        "about": "Informazioni"
     },
     "UpdateBanner": {
         "title": "Sentinello v{version} è disponibile.",

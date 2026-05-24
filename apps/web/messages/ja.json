@@ -56,8 +56,7 @@
     "Footer": {
         "version": "Sentinello v{version}",
         "madeBy": "制作",
-        "about": "概要",
-        "legalNotice": "Sentinello を使用することで、<terms>利用規約</terms>、<privacy>プライバシーポリシー</privacy>、および<disclaimer>免責事項</disclaimer>に同意したものとみなされます。"
+        "about": "概要"
     },
     "UpdateBanner": {
         "title": "Sentinello v{version} が利用可能になりました。",

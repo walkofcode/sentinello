@@ -56,8 +56,7 @@
     "Footer": {
         "version": "Sentinello v{version}",
         "madeBy": "Создано",
-        "about": "О программе",
-        "legalNotice": "Используя Sentinello, вы принимаете <terms>Условия</terms>, <privacy>Политику конфиденциальности</privacy> и <disclaimer>Отказ от ответственности</disclaimer>."
+        "about": "О программе"
     },
     "UpdateBanner": {
         "title": "Доступна Sentinello v{version}.",

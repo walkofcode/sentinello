@@ -233,3 +233,11 @@ pnpm dev
 
 Requires Node >= 24.14.0 and pnpm >= 10.33.0. See [`CONTRIBUTING.md`](CONTRIBUTING.md)
 for development setup, contribution conventions, and the release process.
+
+## Legal
+
+By using Sentinello you accept the **Terms and Conditions**, **Privacy Policy**, and **Disclaimer**.
+The software is released under the **MIT License** (see [`LICENSE`](LICENSE)).
+
+The full legal documents are served by the portal at `/legal/terms`, `/legal/privacy`, and
+`/legal/disclaimer`, and are linked from the in-app **About** page.
