@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/walkofcode/sentinello/compare/v1.1.1...v1.1.2) (2026-05-24)
+
+
+### Bug Fixes
+
+* **worker:** live-reload schedule when portal saves changes ([cc4234a](https://github.com/walkofcode/sentinello/commit/cc4234afa50e3b4d5b79d04318fbf60a0d0b2b28))
+
 ## [1.1.1](https://github.com/walkofcode/sentinello/compare/v1.1.0...v1.1.1) (2026-05-23)
 
 
