@@ -1,6 +1,7 @@
-import { sql, type SQL } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 import type { DepTypeFilter } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
+import { depTypeClause } from './dep-type'
 
 // The library pivot is a SQL aggregation over findings, restricted to the same blast-radius the
 // rest of the portal honors: open lifecycle episodes only (resolved_at IS NULL), no missing
@@ -8,12 +9,6 @@ import type { DrizzleDb } from '../client'
 // expires_at semantics). Without these restrictions the pivot would show a vulnerability that has
 // been fixed in a subsequent scan, muted by the operator, or belongs to a missing project — the
 // opposite of what the operator needs from a triage view.
-
-function depTypeClause(depType: DepTypeFilter): SQL {
-    if (depType === 'prod') return sql.raw('AND f.is_prod = 1')
-    if (depType === 'dev') return sql.raw('AND f.is_dev = 1 AND f.is_prod = 0')
-    return sql.raw('')
-}
 
 export type LibrarySummary = {
     packageName: string

@@ -1,22 +1,10 @@
-import { sql, type SQL } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 import { SCAN_HEARTBEAT_STALE_MS, type DepTypeFilter } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
+import { depTypeClause } from './dep-type'
 
 // Aggregate queries that power the Dashboard. Each is a single SQL statement returning a small
 // fixed-shape row so the dashboard renders with one DB hit per tile (no N+1).
-
-// Append-only filter clause that narrows a findings row to the requested dep-type bucket. Kept
-// as a single SQL fragment so each query interpolates it without restructuring its WHERE clause.
-// Aliased to `f` because every query that uses it already references `f.is_prod` / `f.is_dev`.
-function depTypeClause(depType: DepTypeFilter, alias: string = 'f'): SQL {
-    if (depType === 'prod') {
-        return sql.raw(`AND ${alias}.is_prod = 1`)
-    }
-    if (depType === 'dev') {
-        return sql.raw(`AND ${alias}.is_dev = 1 AND ${alias}.is_prod = 0`)
-    }
-    return sql.raw('')
-}
 
 export type SeverityCounts = {
     critical: number
