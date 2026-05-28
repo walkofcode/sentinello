@@ -22,6 +22,7 @@
             "export": "公告",
             "advanced": "高级",
             "mcp": "MCP",
+            "whatsNew": "新功能",
             "about": "关于"
         }
     },
@@ -148,6 +149,24 @@
         "nodeAmbient": "环境默认",
         "badgeMuted": "已静默",
         "badgeMissing": "缺失"
+    },
+    "WhatsNew": {
+        "pillLabel": "新功能",
+        "popoverHeading": "v{version} 的新功能",
+        "seeFullHistory": "查看完整历史",
+        "dismiss": "关闭",
+        "pageTitle": "新功能",
+        "pageIntro": "Sentinello 每个版本带来内容的摘要。",
+        "releases": {
+            "1.4.0": {
+                "title": "MCP 集成与新功能",
+                "items": [
+                    "面向 Claude Desktop、Cursor 等客户端的 /api/mcp MCP 服务器",
+                    "全新的“设置 → MCP”板块，提供服务器 URL 和令牌管理",
+                    "此新功能标记，以及“设置 → 新功能”历史记录"
+                ]
+            }
+        }
     },
     "Settings": {
         "roots": {
@@ -328,6 +347,9 @@
         },
         "mcp": {
             "metaTitle": "MCP · 设置"
+        },
+        "whatsNew": {
+            "metaTitle": "新功能 · 设置"
         },
         "about": {
             "metaTitle": "关于"

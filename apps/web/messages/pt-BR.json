@@ -22,6 +22,7 @@
             "export": "Aviso",
             "advanced": "Avançado",
             "mcp": "MCP",
+            "whatsNew": "Novidades",
             "about": "Sobre"
         }
     },
@@ -148,6 +149,24 @@
         "nodeAmbient": "ambiente",
         "badgeMuted": "silenciado",
         "badgeMissing": "ausente"
+    },
+    "WhatsNew": {
+        "pillLabel": "Novidades",
+        "popoverHeading": "Novidades na v{version}",
+        "seeFullHistory": "Ver histórico completo",
+        "dismiss": "Dispensar",
+        "pageTitle": "Novidades",
+        "pageIntro": "Um resumo do que cada versão do Sentinello trouxe.",
+        "releases": {
+            "1.4.0": {
+                "title": "Integração MCP e novidades",
+                "items": [
+                    "Servidor MCP em /api/mcp para Claude Desktop, Cursor e outros clientes",
+                    "Nova seção Configurações → MCP com URL do servidor e gerenciamento de tokens",
+                    "Esta etiqueta de novidades e um histórico em Configurações → Novidades"
+                ]
+            }
+        }
     },
     "Settings": {
         "roots": {
@@ -328,6 +347,9 @@
         },
         "mcp": {
             "metaTitle": "MCP · Configurações"
+        },
+        "whatsNew": {
+            "metaTitle": "Novidades · Configurações"
         },
         "about": {
             "metaTitle": "Sobre"

@@ -22,6 +22,7 @@
             "export": "Бюллетень",
             "advanced": "Дополнительно",
             "mcp": "MCP",
+            "whatsNew": "Что нового",
             "about": "О программе"
         }
     },
@@ -148,6 +149,24 @@
         "nodeAmbient": "окружение",
         "badgeMuted": "заглушено",
         "badgeMissing": "отсутствует"
+    },
+    "WhatsNew": {
+        "pillLabel": "Что нового",
+        "popoverHeading": "Что нового в v{version}",
+        "seeFullHistory": "Посмотреть всю историю",
+        "dismiss": "Закрыть",
+        "pageTitle": "Что нового",
+        "pageIntro": "Сводка того, что появилось в каждой версии Sentinello.",
+        "releases": {
+            "1.4.0": {
+                "title": "Интеграция MCP и новинки",
+                "items": [
+                    "MCP-сервер по адресу /api/mcp для Claude Desktop, Cursor и других клиентов",
+                    "Новый раздел «Настройки → MCP» с URL сервера и управлением токенами",
+                    "Этот значок «Что нового» и история в разделе «Настройки → Что нового»"
+                ]
+            }
+        }
     },
     "Settings": {
         "roots": {
@@ -328,6 +347,9 @@
         },
         "mcp": {
             "metaTitle": "MCP · Настройки"
+        },
+        "whatsNew": {
+            "metaTitle": "Что нового · Настройки"
         },
         "about": {
             "metaTitle": "О программе"
