@@ -3,7 +3,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import { ChevronLeft, FolderGit2, Library, Menu, Settings, X, type LucideIcon } from 'lucide-react'
 import { SettingsTabs } from '@/components/settings/settings-tabs'
@@ -44,7 +44,7 @@ function currentSectionFor(pathname: string): NavSection | null {
     return null
 }
 
-export function TopNav() {
+export function TopNav({ whatsNew }: { whatsNew?: ReactNode }) {
     const pathname = usePathname()
     const t = useTranslations('Nav')
     const onSettings = pathname.startsWith('/settings')
@@ -155,6 +155,7 @@ export function TopNav() {
                             {mobileLabel}
                         </span>
                     ) : null}
+                    {whatsNew}
                     <Button
                         variant="ghost"
                         size="icon"

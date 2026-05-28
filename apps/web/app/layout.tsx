@@ -7,6 +7,7 @@ import { FontSizeProvider } from '@/components/layout/font-size-provider'
 import { TopNav } from '@/components/layout/top-nav'
 import { SiteFooter } from '@/components/layout/site-footer'
 import { UpdateBanner } from '@/components/layout/update-banner'
+import { WhatsNewPill } from '@/components/layout/whats-new-pill'
 import './globals.css'
 
 // Pre-hydration script: applies the user's stored font-size choice to <html>
@@ -40,7 +41,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                     <ThemeProvider>
                         <FontSizeProvider>
                             <div className="flex min-h-screen flex-col">
-                                <TopNav />
+                                <TopNav whatsNew={<WhatsNewPill />} />
                                 <UpdateBanner />
                                 <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">{children}</main>
                                 <SiteFooter />
