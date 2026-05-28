@@ -7,10 +7,10 @@ import {
     listCurrentFindingsForProject,
     listLibraries,
     listProjectCatalog,
-    listProjectsByRoot,
     listRoots,
     listScansForProject
 } from '@sentinello/db'
+import { SEVERITY_RANK, severityRank } from '@sentinello/core'
 import { getDb } from '@/lib/db'
 
 const depTypeSchema = z.enum(['all', 'prod', 'dev']).optional()
@@ -41,7 +41,7 @@ export function registerReadTools(server: McpServer): void {
         {
             title: 'Get root',
             description: 'Fetches a single root by id.',
-            inputSchema: { id: z.string().describe('Root id (sha256 of the path)') }
+            inputSchema: { id: z.string().min(1).describe('Root id (sha256 of the path)') }
         },
         async function handler({ id }) {
             const row = getRootById(getDb(), id)
@@ -64,31 +64,23 @@ export function registerReadTools(server: McpServer): void {
             title: 'List projects',
             description: 'Lists projects discovered under all (or one) root, with severity counts and last-scan status.',
             inputSchema: {
-                rootId: z.string().optional().describe('Limit to one root by id'),
+                rootId: z.string().min(1).optional().describe('Limit to one root by id'),
                 depType: depTypeSchema.describe('Filter findings by dependency type (default: all)')
             }
         },
         async function handler({ rootId, depType }) {
             const db = getDb()
+            // Always return the rich ProjectCatalogRow shape (severity counts + last-scan status) so
+            // the schema is identical whether or not rootId is passed. ProjectCatalogRow carries
+            // rootPath but not rootId, so resolve the root and filter by path in-memory.
+            let rows = listProjectCatalog(db, Date.now(), depType || 'all')
             if (rootId) {
-                const projects = listProjectsByRoot(db, rootId)
-                const rows = projects.map(function toOut(p) {
-                    return {
-                        id: p.id,
-                        name: p.name,
-                        alias: p.alias,
-                        rootId: p.rootId,
-                        relPath: p.relPath,
-                        packageManager: p.packageManager,
-                        tags: p.tags
-                    }
-                })
-                return {
-                    content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
-                    structuredContent: { projects: rows }
+                const root = getRootById(db, rootId)
+                if (!root) {
+                    return { isError: true, content: [{ type: 'text', text: 'Root not found: ' + rootId }] }
                 }
+                rows = rows.filter(function inRoot(r) { return r.rootPath === root.path })
             }
-            const rows = listProjectCatalog(db, Date.now(), depType || 'all')
             return {
                 content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
                 structuredContent: { projects: rows }
@@ -101,7 +93,7 @@ export function registerReadTools(server: McpServer): void {
         {
             title: 'Get project',
             description: 'Fetches a single project by id.',
-            inputSchema: { id: z.string() }
+            inputSchema: { id: z.string().min(1) }
         },
         async function handler({ id }) {
             const row = getProjectById(getDb(), id)
@@ -121,7 +113,7 @@ export function registerReadTools(server: McpServer): void {
             title: 'List current findings for a project',
             description: 'Returns the active (unresolved) vulnerability findings for one project, ordered by severity. Optionally filter by minimum severity.',
             inputSchema: {
-                projectId: z.string(),
+                projectId: z.string().min(1),
                 minSeverity: z.enum(['critical', 'high', 'moderate', 'low', 'info']).optional(),
                 depType: depTypeSchema,
                 includeMuted: z.boolean().optional().describe('Include muted findings (default false)')
@@ -129,11 +121,14 @@ export function registerReadTools(server: McpServer): void {
         },
         async function handler({ projectId, minSeverity, depType, includeMuted }) {
             const all = listCurrentFindingsForProject(getDb(), projectId, Date.now(), depType || 'all')
-            const rank: Record<string, number> = { critical: 0, high: 1, moderate: 2, low: 3, info: 4 }
-            const cutoff = minSeverity && rank[minSeverity] || 4
+            // Lower rank = more severe. Keep findings at or above the requested floor. Note: must NOT
+            // use `&&`/`||` here — `critical` ranks 0, and a falsy-zero would silently drop criticals
+            // and invert `minSeverity: 'critical'`. severityRank() always returns a valid number.
+            let cutoff = 4
+            if (minSeverity) cutoff = SEVERITY_RANK[minSeverity]
             const filtered = all.filter(function keep(f) {
                 if (!includeMuted && f.isMuted) return false
-                return (rank[f.severity] || 99) <= cutoff
+                return severityRank(f.severity) <= cutoff
             })
             return {
                 content: [{ type: 'text', text: JSON.stringify(filtered, null, 2) }],
@@ -148,7 +143,7 @@ export function registerReadTools(server: McpServer): void {
             title: 'List recent scans for a project',
             description: 'Returns the most recent scan rows for a project.',
             inputSchema: {
-                projectId: z.string(),
+                projectId: z.string().min(1),
                 limit: z.number().int().min(1).max(200).optional()
             }
         },

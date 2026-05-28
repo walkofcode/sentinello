@@ -26,8 +26,8 @@ export function registerActionTools(server: McpServer): void {
             title: 'Request a scan',
             description: 'Enqueues a scan request. Exactly one of projectId or rootId may be set; with neither, requests a full sweep. Dedupes against in-flight scans (returns skipped: true in that case).',
             inputSchema: {
-                projectId: z.string().optional(),
-                rootId: z.string().optional()
+                projectId: z.string().min(1).optional(),
+                rootId: z.string().min(1).optional()
             }
         },
         async function handler({ projectId, rootId }) {
@@ -87,10 +87,10 @@ export function registerActionTools(server: McpServer): void {
             description: 'Creates a mute. Use scope=project to mute every finding for a project; scope=finding requires scanner, advisoryId, and packageName.',
             inputSchema: {
                 scope: z.enum(['project', 'finding']),
-                projectId: z.string().nullable().optional(),
-                scanner: z.string().nullable().optional(),
-                advisoryId: z.string().nullable().optional(),
-                packageName: z.string().nullable().optional(),
+                projectId: z.string().min(1).nullable().optional(),
+                scanner: z.string().min(1).nullable().optional(),
+                advisoryId: z.string().min(1).nullable().optional(),
+                packageName: z.string().min(1).nullable().optional(),
                 reason: z.string().min(1),
                 expiresAt: z.number().int().nullable().optional().describe('Unix ms timestamp when the mute expires; null = permanent')
             }
@@ -125,7 +125,7 @@ export function registerActionTools(server: McpServer): void {
         {
             title: 'Remove a mute',
             description: 'Deletes a mute by id.',
-            inputSchema: { muteId: z.string() }
+            inputSchema: { muteId: z.string().min(1) }
         },
         async function handler({ muteId }) {
             deleteMute(getDb(), muteId)
@@ -142,7 +142,7 @@ export function registerActionTools(server: McpServer): void {
             title: 'Set project alias',
             description: 'Sets a human-friendly alias for a project (overrides the auto-derived name). Empty string clears the alias.',
             inputSchema: {
-                projectId: z.string(),
+                projectId: z.string().min(1),
                 alias: z.string()
             }
         },
@@ -167,7 +167,7 @@ export function registerActionTools(server: McpServer): void {
             title: 'Set project tags',
             description: 'Replaces the project tag set with the given list.',
             inputSchema: {
-                projectId: z.string(),
+                projectId: z.string().min(1),
                 tags: z.array(z.string())
             }
         },
