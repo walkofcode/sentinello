@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/walkofcode/sentinello/compare/v1.3.0...v1.3.1) (2026-05-28)
+
+
+### Bug Fixes
+
+* **web:** strip 'v' prefix from SENTINELLO_VERSION so footer renders cleanly ([ace676e](https://github.com/walkofcode/sentinello/commit/ace676ed44eb4738ee8b1e713de895c97bdc4677))
+
 ## [1.3.0](https://github.com/walkofcode/sentinello/compare/v1.2.0...v1.3.0) (2026-05-28)
 
 
