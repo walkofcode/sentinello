@@ -18,8 +18,8 @@ export async function OverviewSection({ summary, librariesCount, now, anyInFligh
     const c = summary.severityCounts
     const pendingTotal = c.critical + c.high + c.moderate + c.low + c.info
     return (
-        <div className={'grid grid-cols-1 gap-4 ' + (pendingTotal > 0 ? 'lg:grid-cols-3' : 'sm:grid-cols-2')}>
-            <Card>
+        <div className={'grid grid-cols-1 gap-4 ' + (pendingTotal > 0 ? 'lg:grid-cols-5' : 'sm:grid-cols-2')}>
+            <Card className={pendingTotal > 0 ? 'lg:col-span-2' : undefined}>
                 <CardContent className="flex h-full flex-wrap items-center gap-x-8 gap-y-3 pt-5">
                     <div>
                         <CardValue>
@@ -41,7 +41,7 @@ export async function OverviewSection({ summary, librariesCount, now, anyInFligh
                 </CardContent>
             </Card>
             {pendingTotal > 0 ? (
-                <Card>
+                <Card className="lg:col-span-2">
                     <CardHeader>
                         <CardTitle>{t('severityBreakdown')}</CardTitle>
                     </CardHeader>
@@ -60,8 +60,8 @@ export async function OverviewSection({ summary, librariesCount, now, anyInFligh
                 <CardHeader>
                     <CardTitle>{t('lastScan')}</CardTitle>
                 </CardHeader>
-                <CardContent className="flex items-center justify-between gap-3">
-                    <CardValue className="text-2xl">{formatRelativeTime(summary.lastScanFinishedAt, tTime, now)}</CardValue>
+                <CardContent className="flex flex-wrap items-center justify-between gap-3">
+                    <CardValue className="text-xl">{formatRelativeTime(summary.lastScanFinishedAt, tTime, now)}</CardValue>
                     <ScanAllButton scanning={anyInFlight} />
                 </CardContent>
             </Card>
