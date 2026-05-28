@@ -18,10 +18,6 @@ export function getAllHighlights(): ReleaseHighlightMeta[] {
     return RELEASE_HIGHLIGHTS
 }
 
-export function getLatestHighlight(): ReleaseHighlightMeta | null {
-    return RELEASE_HIGHLIGHTS[0] || null
-}
-
 export function getHighlightFor(version: string): ReleaseHighlightMeta | null {
     const bare = stripVPrefix(version)
     return RELEASE_HIGHLIGHTS.find(function match(entry) {
