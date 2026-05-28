@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.0](https://github.com/walkofcode/sentinello/compare/v1.2.0...v1.3.0) (2026-05-28)
+
+
+### Features
+
+* **notifications:** env filter, simpler edit form, duplicate action ([bd4b4ee](https://github.com/walkofcode/sentinello/commit/bd4b4eec0d8c54a7294f4faf1291bbde30cb8746))
+
+
+### Refactor
+
+* **db:** extract shared depTypeClause helper ([f9e69a8](https://github.com/walkofcode/sentinello/commit/f9e69a8fe08260d15bd99274d3ee57cf5945b7da))
+
 ## [1.2.0](https://github.com/walkofcode/sentinello/compare/v1.1.2...v1.2.0) (2026-05-24)
 
 
