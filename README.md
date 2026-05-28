@@ -86,6 +86,8 @@ A ready-to-use `docker-compose.yml` ships in the repo root.
 | `ME_NAME`                    | `anonymous`                   | Display name / owner label                    |
 | `SENTINELLO_VERSION`         | `dev`                         | Version label in the footer / `/api/health`; baked into the image at build time |
 | `SENTINELLO_UPDATE_FEED_URL` | GitHub Releases API           | Update-check feed; set to `off` to disable update checks |
+| `SENTINELLO_MCP_ENABLED`     | `true`                        | Set to `false` to hide the `/api/mcp` endpoint entirely (404) |
+| `SENTINELLO_MCP_API_TOKEN`   | _(unset)_                     | Bearer token for the MCP endpoint; overrides the one set in **Settings → Advanced** |
 
 ### Language
 
@@ -139,6 +141,32 @@ URLs and secrets may be literals or `env:NAME` references resolved from the cont
 
 > A webhook POSTs to whatever host you point it at. On a shared network, don't aim a target at an
 > internal-only service you don't trust to receive scan payloads.
+
+### MCP integration
+
+Sentinello exposes a [Model Context Protocol](https://modelcontextprotocol.io) server at
+`POST /api/mcp` so Claude Desktop, Cursor, and other MCP-aware clients can query roots, projects,
+findings, scans, and libraries — and trigger scans, mute findings, or rename projects — without
+leaving the chat.
+
+1. Generate a bearer token from **Settings → Advanced → MCP API token** (or set
+   `SENTINELLO_MCP_API_TOKEN` in the container environment; env wins over the UI value).
+2. Add Sentinello to your MCP client config. Example for Claude Desktop
+   (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+   ```json
+   {
+       "mcpServers": {
+           "sentinello": {
+               "url": "http://localhost:3870/api/mcp",
+               "headers": { "Authorization": "Bearer <your-token>" }
+           }
+       }
+   }
+   ```
+
+The route is enabled by default. Set `SENTINELLO_MCP_ENABLED=false` to disable it entirely (the
+endpoint then returns 404). Requests without a valid bearer token return 401.
 
 ### Scan schedule
 

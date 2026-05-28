@@ -74,6 +74,8 @@ volumes:
 | `ME_NAME`                    | `anonymous`                   | Display name / owner label                    |
 | `SENTINELLO_VERSION`         | `dev`                         | Version label in the footer / `/api/health`; baked into the image at build time |
 | `SENTINELLO_UPDATE_FEED_URL` | GitHub Releases API           | Update-check feed; set to `off` to disable update checks |
+| `SENTINELLO_MCP_ENABLED`     | `true`                        | Set to `false` to hide the `/api/mcp` endpoint entirely (404) |
+| `SENTINELLO_MCP_API_TOKEN`   | _(unset)_                     | Bearer token for the MCP endpoint; overrides the one set in **Settings → Advanced** |
 
 ### Language
 
@@ -96,6 +98,14 @@ same advisory export the portal produces, ready to feed an LLM). URLs/secrets ma
 
 > A webhook POSTs to whatever host you point it at. On a shared network, don't aim a target at an
 > internal-only service you don't trust to receive scan payloads.
+
+### MCP integration
+
+Sentinello hosts an MCP server at `POST /api/mcp` for Claude Desktop, Cursor, and other MCP
+clients. Generate a bearer token under **Settings → Advanced → MCP API token** (or set
+`SENTINELLO_MCP_API_TOKEN` to inject it via the container environment), then point your client
+at `http://localhost:3870/api/mcp` with `Authorization: Bearer <token>`. Set
+`SENTINELLO_MCP_ENABLED=false` to disable the endpoint.
 
 ### Scan schedule
 
