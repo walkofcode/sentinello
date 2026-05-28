@@ -18,7 +18,7 @@ export async function OverviewSection({ summary, librariesCount, now, anyInFligh
     const c = summary.severityCounts
     const pendingTotal = c.critical + c.high + c.moderate + c.low + c.info
     return (
-        <div className={'grid grid-cols-1 gap-4 ' + (pendingTotal > 0 ? 'lg:grid-cols-4' : 'sm:grid-cols-2')}>
+        <div className={'grid grid-cols-1 gap-4 ' + (pendingTotal > 0 ? 'lg:grid-cols-3' : 'sm:grid-cols-2')}>
             <Card>
                 <CardContent className="flex h-full flex-wrap items-center gap-x-8 gap-y-3 pt-5">
                     <div>
@@ -41,7 +41,7 @@ export async function OverviewSection({ summary, librariesCount, now, anyInFligh
                 </CardContent>
             </Card>
             {pendingTotal > 0 ? (
-                <Card className="lg:col-span-2">
+                <Card>
                     <CardHeader>
                         <CardTitle>{t('severityBreakdown')}</CardTitle>
                     </CardHeader>
