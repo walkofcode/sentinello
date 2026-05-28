@@ -78,11 +78,14 @@ export function getCurrentVersion(): string {
     if (cachedVersion) return cachedVersion
     const fromEnv = process.env.SENTINELLO_VERSION
     if (fromEnv && fromEnv.trim()) {
-        cachedVersion = fromEnv.trim()
+        // Strip leading 'v' because the publish-image workflow's docker/metadata-action
+        // emits the full tag ref (e.g. "v1.3.0") into SENTINELLO_VERSION. The Footer
+        // i18n template is "Sentinello v{version}" — without this strip we'd render "vv1.3.0".
+        cachedVersion = stripVPrefix(fromEnv.trim())
         return cachedVersion
     }
     const fromPkg = findRootPackageVersion()
-    cachedVersion = fromPkg || 'dev'
+    cachedVersion = fromPkg && stripVPrefix(fromPkg) || 'dev'
     return cachedVersion
 }
 
