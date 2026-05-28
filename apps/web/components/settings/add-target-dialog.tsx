@@ -8,6 +8,7 @@ import { Dialog } from '@/components/ui/dialog'
 import { Input, Label } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import type {
+    DepTypeFilter,
     NotificationTargetConfig,
     NotificationTargetKind,
     Project,
@@ -18,6 +19,7 @@ import type {
 import { upsertNotificationTargetAction } from '@/lib/actions/settings'
 import { RootScopeField, type RootScopeMode } from '@/components/settings/root-scope-field'
 import { SeverityFilterPills } from '@/components/settings/severity-filter-pills'
+import { EnvFilterField } from '@/components/settings/env-filter-field'
 
 type Props = {
     open: boolean
@@ -37,6 +39,7 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
     const [webhookFlavor, setWebhookFlavor] = useState<WebhookFlavor>('json')
     const [enabled, setEnabled] = useState(true)
     const [filter, setFilter] = useState<Severity[]>(['critical', 'high'])
+    const [envFilter, setEnvFilter] = useState<DepTypeFilter>('all')
     // Default to "everything" so new targets keep the historical app-wide behaviour unless the
     // operator explicitly narrows scope. This also means existing operators don't have to learn
     // a new field to add a new target.
@@ -59,6 +62,7 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
         setWebhookFlavor('json')
         setEnabled(true)
         setFilter(['critical', 'high'])
+        setEnvFilter('all')
         setScopeMode('all')
         setSelectedRootIds([])
         setSelectedProjectIds([])
@@ -80,6 +84,7 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
                 kind,
                 config,
                 severityFilter: filter,
+                envFilter,
                 enabled,
                 rootIds,
                 projectIds
@@ -97,6 +102,15 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
         >
             <form onSubmit={submit} className="flex flex-1 flex-col overflow-hidden">
                 <div className="space-y-4 overflow-y-auto px-6 py-4">
+                    <label className="flex items-center gap-2 text-sm">
+                        <input
+                            type="checkbox"
+                            checked={enabled}
+                            onChange={function onChange(e) { setEnabled(e.target.checked) }}
+                            className="h-4 w-4"
+                        />
+                        {t('notifications.enabled')}
+                    </label>
                     <div className="flex flex-col gap-1 sm:w-64">
                         <Label htmlFor="kind">{t('notifications.kind')}</Label>
                         <Select
@@ -175,6 +189,7 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
                         <Label>{t('notifications.severityFilter')}</Label>
                         <SeverityFilterPills value={filter} onToggle={toggleSeverity} disabled={pending} />
                     </div>
+                    <EnvFilterField value={envFilter} onChange={setEnvFilter} disabled={pending} />
                     <RootScopeField
                         id="add-target"
                         roots={roots}
@@ -187,15 +202,6 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
                         onSelectedProjectsChange={setSelectedProjectIds}
                         disabled={pending}
                     />
-                    <label className="flex items-center gap-2 text-sm">
-                        <input
-                            type="checkbox"
-                            checked={enabled}
-                            onChange={function onChange(e) { setEnabled(e.target.checked) }}
-                            className="h-4 w-4"
-                        />
-                        {t('notifications.enabled')}
-                    </label>
                 </div>
                 <div className="flex items-center justify-end gap-2 border-t bg-muted/30 px-6 py-4">
                     <Button type="button" variant="ghost" onClick={onClose} disabled={pending}>

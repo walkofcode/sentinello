@@ -237,6 +237,12 @@ export type NotificationTarget = {
     kind: NotificationTargetKind
     config: NotificationTargetConfig
     severityFilter: Severity[]
+    // Environment scope, mirrors DepTypeFilter:
+    //   - 'all'  : fire for every finding regardless of prod/dev
+    //   - 'prod' : fire only for findings on a production dependency
+    //   - 'dev'  : fire only for findings reachable solely from devDependencies
+    // scan_failure events bypass this filter (operational signals always pass).
+    envFilter: DepTypeFilter
     enabled: boolean
     createdAt: number
     // Per-target scope. Empty rootIds AND empty projectIds = "everything" (zero scope rows). When

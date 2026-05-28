@@ -1,6 +1,6 @@
 import { and, eq, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import { ulid } from 'ulid'
-import type { NotificationDelivery, NotificationEvent, NotificationTarget } from '@sentinello/core'
+import type { DepTypeFilter, NotificationDelivery, NotificationEvent, NotificationTarget } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { mutes, notificationDeliveries, notificationEvents, notificationTargets } from '../schema'
 import { listTargetRootIds } from './notification-target-roots'
@@ -76,6 +76,27 @@ export function selectDispatchablePairs(db: DrizzleDb, projectId: string, at: nu
                     SELECT 1 FROM json_each(${notificationTargets.severityFilterJson})
                     WHERE json_each.value = ${notificationEvents.severity}
                 ))`,
+                // Environment filter (target.env_filter ∈ {'all','prod','dev'}). Scan-failure events
+                // always bypass — they have no underlying finding row to classify. For finding events
+                // we EXISTS-join the findings table on the (project_id, scanner, advisory_id,
+                // package_name) identity tuple: a finding matches the target's env when ANY of its
+                // rows for that identity has is_prod=1 (target 'prod') or is_dev=1 AND is_prod=0
+                // (target 'dev'). Same prod/dev semantics as packages/db/src/queries/dep-type.ts.
+                sql`(
+                    ${notificationEvents.eventType} = 'scan_failure'
+                    OR ${notificationTargets.envFilter} = 'all'
+                    OR EXISTS (
+                        SELECT 1 FROM findings f
+                        WHERE f.project_id = ${notificationEvents.projectId}
+                          AND f.scanner = ${notificationEvents.scanner}
+                          AND f.advisory_id = ${notificationEvents.advisoryId}
+                          AND f.package_name = ${notificationEvents.packageName}
+                          AND (
+                              (${notificationTargets.envFilter} = 'prod' AND f.is_prod = 1)
+                              OR (${notificationTargets.envFilter} = 'dev' AND f.is_dev = 1 AND f.is_prod = 0)
+                          )
+                    )
+                )`,
                 // Per-target scope. Zero rows in BOTH notification_target_roots and
                 // notification_target_projects means "everything" (the default). Otherwise the
                 // event passes if its project belongs to a root the operator assigned (root scope,
@@ -256,6 +277,21 @@ export function backfillForNewTarget(db: DrizzleDb, targetId: string, at: number
                 WHERE json_each.value = e.severity
             )
         )
+        AND (
+            e.event_type = 'scan_failure'
+            OR t.env_filter = 'all'
+            OR EXISTS (
+                SELECT 1 FROM findings f
+                WHERE f.project_id = e.project_id
+                  AND f.scanner = e.scanner
+                  AND f.advisory_id = e.advisory_id
+                  AND f.package_name = e.package_name
+                  AND (
+                      (t.env_filter = 'prod' AND f.is_prod = 1)
+                      OR (t.env_filter = 'dev' AND f.is_dev = 1 AND f.is_prod = 0)
+                  )
+            )
+        )
         AND NOT EXISTS (
             SELECT 1 FROM mutes m
             WHERE (m.expires_at IS NULL OR m.expires_at > ${at})
@@ -328,11 +364,17 @@ function targetRowToTarget(row: NotificationTargetRow, rootIds: string[], projec
         kind: row.kind,
         config: JSON.parse(row.configJson),
         severityFilter: parseSeverityFilter(row.severityFilterJson),
+        envFilter: parseEnvFilter(row.envFilter),
         enabled: row.enabled,
         createdAt: row.createdAt,
         rootIds,
         projectIds
     }
+}
+
+function parseEnvFilter(raw: string): DepTypeFilter {
+    if (raw === 'prod' || raw === 'dev') return raw
+    return 'all'
 }
 
 function parseSeverityFilter(json: string): NotificationTarget['severityFilter'] {

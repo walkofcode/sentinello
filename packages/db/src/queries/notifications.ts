@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import type { NotificationTarget, NotificationTargetConfig } from '@sentinello/core'
+import type { DepTypeFilter, NotificationTarget, NotificationTargetConfig } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { notificationTargets } from '../schema'
 import {
@@ -40,6 +40,7 @@ export function insertNotificationTarget(db: DrizzleDb, target: NotificationTarg
             kind: target.kind,
             configJson: JSON.stringify(target.config),
             severityFilterJson: JSON.stringify(target.severityFilter),
+            envFilter: target.envFilter,
             enabled: target.enabled,
             createdAt: target.createdAt
         })
@@ -73,6 +74,7 @@ export type UpdateNotificationTargetInput = {
     id: string
     config?: NotificationTargetConfig
     severityFilter?: NotificationTarget['severityFilter']
+    envFilter?: DepTypeFilter
     enabled?: boolean
 }
 
@@ -80,6 +82,7 @@ export function updateNotificationTarget(db: DrizzleDb, input: UpdateNotificatio
     const patch: Record<string, unknown> = {}
     if (input.config !== undefined) patch.configJson = JSON.stringify(input.config)
     if (input.severityFilter !== undefined) patch.severityFilterJson = JSON.stringify(input.severityFilter)
+    if (input.envFilter !== undefined) patch.envFilter = input.envFilter
     if (input.enabled !== undefined) patch.enabled = input.enabled
     if (Object.keys(patch).length === 0) return
     db.update(notificationTargets).set(patch).where(eq(notificationTargets.id, input.id)).run()
@@ -103,11 +106,17 @@ function rowToTarget(row: NotificationTargetRow, rootIds: string[], projectIds: 
         kind: row.kind,
         config,
         severityFilter,
+        envFilter: parseEnvFilter(row.envFilter),
         enabled: row.enabled,
         createdAt: row.createdAt,
         rootIds,
         projectIds
     }
+}
+
+function parseEnvFilter(raw: string): DepTypeFilter {
+    if (raw === 'prod' || raw === 'dev') return raw
+    return 'all'
 }
 
 function parseSeverityFilter(json: string): NotificationTarget['severityFilter'] {

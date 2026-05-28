@@ -224,16 +224,28 @@
             "testTitle": "ライブテスト — 短いメッセージを POST して通知先が機能するか確認します",
             "historyAria": "この通知先に過去のイベントを送信",
             "historyTitle": "既存のすべてのイベントを次回のティックでこの通知先へ配信するためにキューに登録します",
+            "duplicateAria": "通知先を複製",
+            "duplicateTitle": "この通知先のコピーを作成します — 認証情報はそのまま引き継がれるので、フィルタ / 範囲だけ調整できます",
             "removeAria": "通知先を削除",
             "testDelivered": "テスト送信を配信しました。",
             "testFailed": "テスト送信に失敗しました: {error}",
             "unknownError": "不明なエラー",
             "historyQueued": "{count, plural, one {# 件の過去のイベント} other {# 件の過去のイベント}}をバックフィル用にキューに登録しました。ワーカーは次回のティックで配信します。",
-            "replaceSecret": "保存済みのシークレットを置き換える",
-            "replaceSecretHelp": "現在のシークレットは上にマスク表示されています。新しい値で上書きするにはこれをオンにします。",
-            "newSlackUrl": "新しい Slack の Incoming Webhook URL",
-            "newBotToken": "新しいボットトークン",
-            "newWebhookUrl": "新しい Webhook URL",
+            "envFilter": "環境",
+            "envFilterOption": {
+                "prod": {
+                    "label": "本番のみ",
+                    "description": "本番依存関係上の検出に対してのみ通知します。"
+                },
+                "all": {
+                    "label": "両方",
+                    "description": "由来に関係なく、すべての検出に対して通知します。"
+                },
+                "dev": {
+                    "label": "開発のみ",
+                    "description": "devDependencies からのみ到達可能な検出に対してのみ通知します。"
+                }
+            },
             "saveChanges": "変更を保存",
             "dialog": {
                 "title": "通知先を追加",

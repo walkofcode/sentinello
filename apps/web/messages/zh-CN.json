@@ -224,16 +224,28 @@
             "testTitle": "实时测试 — 发送一条简短消息以验证目标是否正常工作",
             "historyAria": "向此目标发送历史事件",
             "historyTitle": "将每个现有事件加入队列，在下个周期分发到此目标",
+            "duplicateAria": "复制目标",
+            "duplicateTitle": "为此目标创建副本 — 凭据会一并复制，仅需调整过滤器 / 范围",
             "removeAria": "移除目标",
             "testDelivered": "测试消息已发送。",
             "testFailed": "测试发送失败：{error}",
             "unknownError": "未知错误",
             "historyQueued": "已将 {count, plural, one {# 个历史事件} other {# 个历史事件}} 加入回填队列。工作进程将在下个周期分发。",
-            "replaceSecret": "替换已保存的密钥",
-            "replaceSecretHelp": "当前密钥在上方以掩码显示。勾选此项以使用新值覆盖它。",
-            "newSlackUrl": "新的 Slack 传入 webhook URL",
-            "newBotToken": "新的机器人令牌",
-            "newWebhookUrl": "新的 webhook URL",
+            "envFilter": "环境",
+            "envFilterOption": {
+                "prod": {
+                    "label": "仅生产",
+                    "description": "仅对生产依赖项中的发现触发。"
+                },
+                "all": {
+                    "label": "两者",
+                    "description": "无论来源如何，对每个发现都触发。"
+                },
+                "dev": {
+                    "label": "仅开发",
+                    "description": "仅对只能从 devDependencies 到达的发现触发。"
+                }
+            },
             "saveChanges": "保存更改",
             "dialog": {
                 "title": "添加通知目标",

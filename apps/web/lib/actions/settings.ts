@@ -28,6 +28,7 @@ import {
     upsertRoot
 } from '@sentinello/db'
 import type {
+    DepTypeFilter,
     NotificationTarget,
     NotificationTargetConfig,
     NotificationTargetKind,
@@ -177,6 +178,7 @@ const targetConfigSchemas: Record<NotificationTargetKind, z.ZodTypeAny> = {
 
 const rootIdsSchema = z.array(z.string().min(1)).default([])
 const projectIdsSchema = z.array(z.string().min(1)).default([])
+const envFilterSchema = z.enum(['all', 'prod', 'dev'])
 
 // Guards that every id refers to a real root. Empty list is fine (= "all roots"). Throws on the
 // first unknown id rather than silently dropping it — operators should see a clear error if the UI
@@ -202,6 +204,7 @@ export async function upsertNotificationTargetAction(input: {
     kind: NotificationTargetKind
     config: NotificationTargetConfig
     severityFilter: Severity[]
+    envFilter: DepTypeFilter
     enabled: boolean
     rootIds: string[]
     projectIds: string[]
@@ -209,6 +212,7 @@ export async function upsertNotificationTargetAction(input: {
     const schema = targetConfigSchemas[input.kind]
     schema.parse(input.config)
     const severityFilter = severityFilterSchema.parse(input.severityFilter)
+    const envFilter = envFilterSchema.parse(input.envFilter)
     const rootIds = rootIdsSchema.parse(input.rootIds)
     const projectIds = projectIdsSchema.parse(input.projectIds)
     const db = getDb()
@@ -219,6 +223,7 @@ export async function upsertNotificationTargetAction(input: {
         kind: input.kind,
         config: input.config,
         severityFilter,
+        envFilter,
         enabled: input.enabled,
         createdAt: Date.now(),
         rootIds,
@@ -242,16 +247,16 @@ export async function deleteNotificationTargetAction(id: string): Promise<void> 
     revalidatePath('/settings/notifications')
 }
 
-// Update an existing target. `replaceConfig` is null when the operator does NOT want to change the
-// saved secret payload — only the severity filter and enabled flag are persisted in that case. When
-// the operator clicks "Replace secret" in the UI, the new full config is sent and overwrites the
-// stored one. The kind cannot change because the config shape is kind-specific.
+// Update an existing target's non-credential fields. The stored config (Slack URL / Telegram
+// botToken+chatId / webhook URL+flavor) is intentionally immutable here — to rotate or change
+// credentials the operator deletes and recreates the target. This keeps the edit form small and
+// removes the "Replace secret" gate that used to live in the UI.
 export async function updateNotificationTargetAction(input: {
     id: string
-    replaceConfig: NotificationTargetConfig | null
     severityFilter: Severity[]
+    envFilter: DepTypeFilter
     enabled: boolean
-    // Optional so callers that only want to touch the severity/enabled/secret fields can omit them.
+    // Optional so callers that only want to touch the severity/enabled/env fields can omit them.
     // When provided, scope is replaced wholesale: empty arrays = "everything".
     rootIds?: string[]
     projectIds?: string[]
@@ -260,22 +265,13 @@ export async function updateNotificationTargetAction(input: {
     const existing = getNotificationTargetById(db, input.id)
     if (!existing) throw new Error('notification target not found: ' + input.id)
     const severityFilter = severityFilterSchema.parse(input.severityFilter)
-    if (input.replaceConfig !== null) {
-        const schema = targetConfigSchemas[existing.kind]
-        schema.parse(input.replaceConfig)
-        updateNotificationTarget(db, {
-            id: input.id,
-            config: input.replaceConfig,
-            severityFilter,
-            enabled: input.enabled
-        })
-    } else {
-        updateNotificationTarget(db, {
-            id: input.id,
-            severityFilter,
-            enabled: input.enabled
-        })
-    }
+    const envFilter = envFilterSchema.parse(input.envFilter)
+    updateNotificationTarget(db, {
+        id: input.id,
+        severityFilter,
+        envFilter,
+        enabled: input.enabled
+    })
     if (input.rootIds !== undefined) {
         const rootIds = rootIdsSchema.parse(input.rootIds)
         validateRootIds(db, rootIds)
@@ -287,6 +283,33 @@ export async function updateNotificationTargetAction(input: {
         setTargetProjects(db, input.id, projectIds)
     }
     revalidatePath('/settings/notifications')
+}
+
+// Server-side clone of a notification target. Copies the source row's kind, config (including the
+// stored secret — same blast radius as the source), severity filter, env filter, enabled flag, and
+// the scope rows (roots + projects). A new id and createdAt are generated. To change the credentials
+// of the duplicate, the operator deletes and recreates instead — mirroring the no-edit-secret rule
+// in updateNotificationTargetAction.
+export async function duplicateNotificationTargetAction(id: string): Promise<{ id: string }> {
+    const db = getDb()
+    const source = getNotificationTargetById(db, id)
+    if (!source) throw new Error('notification target not found: ' + id)
+    const clone: NotificationTarget = {
+        id: ulid(),
+        kind: source.kind,
+        config: source.config,
+        severityFilter: source.severityFilter,
+        envFilter: source.envFilter,
+        enabled: source.enabled,
+        createdAt: Date.now(),
+        rootIds: source.rootIds,
+        projectIds: source.projectIds
+    }
+    insertNotificationTarget(db, clone)
+    setTargetRoots(db, clone.id, clone.rootIds)
+    setTargetProjects(db, clone.id, clone.projectIds)
+    revalidatePath('/settings/notifications')
+    return { id: clone.id }
 }
 
 // Operator-triggered live POST. This is the ONLY notification action that fires a real outbound

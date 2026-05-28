@@ -224,16 +224,28 @@
             "testTitle": "Live test — POSTs a short message to verify the target works",
             "historyAria": "Send historical events to this target",
             "historyTitle": "Queue every existing event for dispatch to this target on the next tick",
+            "duplicateAria": "Duplicate target",
+            "duplicateTitle": "Create a copy of this target — credentials carry over so you only tweak filters / scope",
             "removeAria": "Remove target",
             "testDelivered": "Test send delivered.",
             "testFailed": "Test send failed: {error}",
             "unknownError": "unknown error",
             "historyQueued": "Queued {count, plural, one {# historical event} other {# historical events}} for backfill. The worker will dispatch on its next tick.",
-            "replaceSecret": "Replace saved secret",
-            "replaceSecretHelp": "The current secret is shown masked above. Tick this to overwrite it with a new value.",
-            "newSlackUrl": "New Slack incoming webhook URL",
-            "newBotToken": "New bot token",
-            "newWebhookUrl": "New webhook URL",
+            "envFilter": "Environment",
+            "envFilterOption": {
+                "prod": {
+                    "label": "Production only",
+                    "description": "Fire only for findings on a production dependency."
+                },
+                "all": {
+                    "label": "Both",
+                    "description": "Fire for every finding regardless of where it was pulled in from."
+                },
+                "dev": {
+                    "label": "Development only",
+                    "description": "Fire only for findings reachable solely from devDependencies."
+                }
+            },
             "saveChanges": "Save changes",
             "dialog": {
                 "title": "Add notification target",

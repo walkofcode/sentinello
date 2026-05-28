@@ -224,16 +224,28 @@
             "testTitle": "실시간 테스트 — 대상이 정상 작동하는지 확인하기 위해 짧은 메시지를 POST합니다",
             "historyAria": "이 대상으로 과거 이벤트 전송",
             "historyTitle": "기존의 모든 이벤트를 다음 틱에 이 대상으로 전송하도록 대기열에 추가합니다",
+            "duplicateAria": "대상 복제",
+            "duplicateTitle": "이 대상의 사본을 만듭니다 — 자격 증명은 그대로 유지되며 필터 / 범위만 조정합니다",
             "removeAria": "대상 제거",
             "testDelivered": "테스트 전송이 전달되었습니다.",
             "testFailed": "테스트 전송 실패: {error}",
             "unknownError": "알 수 없는 오류",
             "historyQueued": "백필을 위해 {count, plural, one {# 개 과거 이벤트} other {# 개 과거 이벤트}}를 대기열에 추가했습니다. 워커가 다음 틱에 전송합니다.",
-            "replaceSecret": "저장된 비밀 교체",
-            "replaceSecretHelp": "현재 비밀은 위에 마스킹되어 표시됩니다. 새 값으로 덮어쓰려면 이 항목을 선택하세요.",
-            "newSlackUrl": "새 Slack 수신 웹훅 URL",
-            "newBotToken": "새 봇 토큰",
-            "newWebhookUrl": "새 웹훅 URL",
+            "envFilter": "환경",
+            "envFilterOption": {
+                "prod": {
+                    "label": "프로덕션만",
+                    "description": "프로덕션 의존성에 대한 발견만 알립니다."
+                },
+                "all": {
+                    "label": "둘 다",
+                    "description": "출처와 관계없이 모든 발견을 알립니다."
+                },
+                "dev": {
+                    "label": "개발만",
+                    "description": "devDependencies에서만 도달 가능한 발견만 알립니다."
+                }
+            },
             "saveChanges": "변경 사항 저장",
             "dialog": {
                 "title": "알림 대상 추가",

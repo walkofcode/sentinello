@@ -2,10 +2,10 @@
 
 import { useState, useTransition } from 'react'
 import { useTranslations } from 'next-intl'
-import { Plus, Trash2, Power, Pencil, Send, History } from 'lucide-react'
+import { Plus, Trash2, Power, Pencil, Send, History, Copy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { Input, Label } from '@/components/ui/input'
+import { Label } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { SeverityPill } from '@/components/ui/severity-pill'
 import { Card } from '@/components/ui/card'
@@ -13,10 +13,11 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { AddTargetDialog } from '@/components/settings/add-target-dialog'
 import { RootScopeField, modeFromScope, type RootScopeMode } from '@/components/settings/root-scope-field'
 import { SeverityFilterPills } from '@/components/settings/severity-filter-pills'
-import { Select } from '@/components/ui/select'
-import type { NotificationTarget, NotificationTargetConfig, Project, Root, Severity, WebhookFlavor } from '@sentinello/core'
+import { EnvFilterField } from '@/components/settings/env-filter-field'
+import type { DepTypeFilter, NotificationTarget, Project, Root, Severity } from '@sentinello/core'
 import {
     deleteNotificationTargetAction,
+    duplicateNotificationTargetAction,
     sendHistoricalToTargetAction,
     setNotificationTargetEnabledAction,
     testSendNotificationTargetAction,
@@ -91,6 +92,12 @@ export function NotificationTargetList({ targets, roots, projects }: Props) {
             })
         })
     }
+    function duplicate(id: string) {
+        setFeedback(null)
+        startTransition(async function clone() {
+            await duplicateNotificationTargetAction(id)
+        })
+    }
     return (
         <div className="space-y-4">
             {feedback ? (
@@ -136,6 +143,7 @@ export function NotificationTargetList({ targets, roots, projects }: Props) {
                                     onRemove={function onRemove() { requestDelete(t.id) }}
                                     onTest={function onTest() { testSend(t.id) }}
                                     onHistory={function onHistory() { sendHistory(t.id) }}
+                                    onDuplicate={function onDuplicate() { duplicate(t.id) }}
                                     onEdit={function onEdit() {
                                         setFeedback(null)
                                         setEditingId(isEditing ? null : t.id)
@@ -172,6 +180,7 @@ export function NotificationTargetList({ targets, roots, projects }: Props) {
                                             onRemove={function onRemove() { requestDelete(t.id) }}
                                             onTest={function onTest() { testSend(t.id) }}
                                             onHistory={function onHistory() { sendHistory(t.id) }}
+                                            onDuplicate={function onDuplicate() { duplicate(t.id) }}
                                             onEdit={function onEdit() {
                                                 setFeedback(null)
                                                 setEditingId(isEditing ? null : t.id)
@@ -211,6 +220,7 @@ function TargetRow(props: {
     onRemove: () => void
     onTest: () => void
     onHistory: () => void
+    onDuplicate: () => void
     onEdit: () => void
     onSaved: () => void
 }) {
@@ -276,6 +286,16 @@ function TargetRow(props: {
                         <Button
                             variant="ghost"
                             size="icon"
+                            onClick={props.onDuplicate}
+                            disabled={props.pending}
+                            aria-label={tr('notifications.duplicateAria')}
+                            title={tr('notifications.duplicateTitle')}
+                        >
+                            <Copy className="h-4 w-4" />
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
                             onClick={props.onRemove}
                             disabled={props.pending}
                             aria-label={tr('notifications.removeAria')}
@@ -306,6 +326,7 @@ function TargetCard(props: {
     onRemove: () => void
     onTest: () => void
     onHistory: () => void
+    onDuplicate: () => void
     onEdit: () => void
     onSaved: () => void
 }) {
@@ -375,6 +396,16 @@ function TargetCard(props: {
                 <Button
                     variant="ghost"
                     size="icon"
+                    onClick={props.onDuplicate}
+                    disabled={props.pending}
+                    aria-label={tr('notifications.duplicateAria')}
+                    title={tr('notifications.duplicateTitle')}
+                >
+                    <Copy className="h-4 w-4" />
+                </Button>
+                <Button
+                    variant="ghost"
+                    size="icon"
                     onClick={props.onRemove}
                     disabled={props.pending}
                     aria-label={tr('notifications.removeAria')}
@@ -419,16 +450,7 @@ function EditTargetForm({ target, roots, projects, onSaved }: { target: Notifica
     const tc = useTranslations('Common')
     const [enabled, setEnabled] = useState(target.enabled)
     const [filter, setFilter] = useState<Severity[]>(target.severityFilter)
-    const [replaceSecret, setReplaceSecret] = useState(false)
-    const [slackUrl, setSlackUrl] = useState('')
-    const [botToken, setBotToken] = useState('')
-    const [chatId, setChatId] = useState(
-        target.kind === 'telegram' ? (target.config as { chatId: string }).chatId : ''
-    )
-    const [webhookUrl, setWebhookUrl] = useState('')
-    const [webhookFlavor, setWebhookFlavor] = useState<WebhookFlavor>(
-        target.kind === 'webhook' ? ((target.config as { flavor?: WebhookFlavor }).flavor || 'json') : 'json'
-    )
+    const [envFilter, setEnvFilter] = useState<DepTypeFilter>(target.envFilter)
     const [scopeMode, setScopeMode] = useState<RootScopeMode>(modeFromScope(target.rootIds, target.projectIds))
     const [selectedRootIds, setSelectedRootIds] = useState<string[]>(target.rootIds)
     const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>(target.projectIds)
@@ -444,33 +466,12 @@ function EditTargetForm({ target, roots, projects, onSaved }: { target: Notifica
         e.preventDefault()
         if (scopeInvalid) return
         startTransition(async function persist() {
-            let replaceConfig: NotificationTargetConfig | null = null
-            if (replaceSecret) {
-                if (target.kind === 'slack') replaceConfig = { webhookUrl: slackUrl }
-                else if (target.kind === 'telegram') replaceConfig = { botToken, chatId }
-                else replaceConfig = { url: webhookUrl, flavor: webhookFlavor }
-            } else if (target.kind === 'telegram') {
-                // Telegram lets the operator edit the chat id without re-entering the bot token, since
-                // chatId is not a secret. We piggy-back on the config field but keep the existing token.
-                const existing = target.config as { botToken: string; chatId: string }
-                if (chatId !== existing.chatId) {
-                    replaceConfig = { botToken: existing.botToken, chatId }
-                }
-            } else if (target.kind === 'webhook') {
-                // Flavor is not a secret, so let the operator change it without re-entering the URL.
-                // The stored config (incl. the url, possibly an env: reference) is already on the
-                // client, so we rebuild it preserving the url and applying the new flavor.
-                const existing = target.config as { url: string; flavor?: WebhookFlavor }
-                if (webhookFlavor !== (existing.flavor || 'json')) {
-                    replaceConfig = { url: existing.url, flavor: webhookFlavor }
-                }
-            }
             const rootIds = scopeMode === 'all' ? [] : selectedRootIds
             const projectIds = scopeMode === 'all' ? [] : selectedProjectIds
             await updateNotificationTargetAction({
                 id: target.id,
-                replaceConfig,
                 severityFilter: filter,
+                envFilter,
                 enabled,
                 rootIds,
                 projectIds
@@ -480,23 +481,20 @@ function EditTargetForm({ target, roots, projects, onSaved }: { target: Notifica
     }
     return (
         <form onSubmit={submit} className="space-y-4">
+            <label className="flex items-center gap-2 text-sm">
+                <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={function onChange(e) { setEnabled(e.target.checked) }}
+                    className="h-4 w-4"
+                />
+                {t('notifications.enabled')}
+            </label>
             <div className="flex flex-col gap-2">
                 <Label>{t('notifications.severityFilter')}</Label>
                 <SeverityFilterPills value={filter} onToggle={toggleSeverity} disabled={pending} />
             </div>
-            {target.kind === 'webhook' ? (
-                <div className="flex flex-col gap-1 sm:w-64">
-                    <Label htmlFor={'webhook-flavor-' + target.id}>{t('notifications.webhookFlavor')}</Label>
-                    <Select
-                        id={'webhook-flavor-' + target.id}
-                        value={webhookFlavor}
-                        onChange={function onChange(e) { setWebhookFlavor(e.target.value as WebhookFlavor) }}
-                    >
-                        <option value="json">{t('notifications.webhookFlavorJson')}</option>
-                        <option value="text">{t('notifications.webhookFlavorText')}</option>
-                    </Select>
-                </div>
-            ) : null}
+            <EnvFilterField value={envFilter} onChange={setEnvFilter} disabled={pending} />
             <RootScopeField
                 id={'edit-target-' + target.id}
                 roots={roots}
@@ -509,75 +507,6 @@ function EditTargetForm({ target, roots, projects, onSaved }: { target: Notifica
                 onSelectedProjectsChange={setSelectedProjectIds}
                 disabled={pending}
             />
-            <label className="flex items-center gap-2 text-sm">
-                <input
-                    type="checkbox"
-                    checked={enabled}
-                    onChange={function onChange(e) { setEnabled(e.target.checked) }}
-                    className="h-4 w-4"
-                />
-                {t('notifications.enabled')}
-            </label>
-            {target.kind === 'telegram' ? (
-                <div className="flex flex-col gap-1 sm:w-72">
-                    <Label htmlFor={'chat-id-' + target.id}>{t('notifications.chatId')}</Label>
-                    <Input
-                        id={'chat-id-' + target.id}
-                        value={chatId}
-                        onChange={function onChange(e) { setChatId(e.target.value) }}
-                    />
-                </div>
-            ) : null}
-            <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm font-medium">
-                    <input
-                        type="checkbox"
-                        checked={replaceSecret}
-                        onChange={function onChange(e) { setReplaceSecret(e.target.checked) }}
-                        className="h-4 w-4"
-                    />
-                    {t('notifications.replaceSecret')}
-                </label>
-                <p className="text-xs text-muted-foreground">
-                    {t('notifications.replaceSecretHelp')}
-                </p>
-                {replaceSecret && target.kind === 'slack' ? (
-                    <div className="flex flex-col gap-1">
-                        <Label htmlFor={'slack-url-edit-' + target.id}>{t('notifications.newSlackUrl')}</Label>
-                        <Input
-                            id={'slack-url-edit-' + target.id}
-                            value={slackUrl}
-                            onChange={function onChange(e) { setSlackUrl(e.target.value) }}
-                            placeholder="https://hooks.slack.com/services/T00/B00/abcd  (or env:SLACK_URL)"
-                            required
-                        />
-                    </div>
-                ) : null}
-                {replaceSecret && target.kind === 'telegram' ? (
-                    <div className="flex flex-col gap-1">
-                        <Label htmlFor={'bot-token-edit-' + target.id}>{t('notifications.newBotToken')}</Label>
-                        <Input
-                            id={'bot-token-edit-' + target.id}
-                            value={botToken}
-                            onChange={function onChange(e) { setBotToken(e.target.value) }}
-                            placeholder="123456:AAFqB...   (or env:TG_BOT)"
-                            required
-                        />
-                    </div>
-                ) : null}
-                {replaceSecret && target.kind === 'webhook' ? (
-                    <div className="flex flex-col gap-1">
-                        <Label htmlFor={'webhook-url-edit-' + target.id}>{t('notifications.newWebhookUrl')}</Label>
-                        <Input
-                            id={'webhook-url-edit-' + target.id}
-                            value={webhookUrl}
-                            onChange={function onChange(e) { setWebhookUrl(e.target.value) }}
-                            placeholder="https://example.com/hook  (or env:HOOK_URL)"
-                            required
-                        />
-                    </div>
-                ) : null}
-            </div>
             <div className="flex justify-end gap-2">
                 <Button type="submit" disabled={pending || scopeInvalid}>
                     {pending ? tc('saving') : t('notifications.saveChanges')}

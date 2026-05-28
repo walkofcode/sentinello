@@ -204,6 +204,10 @@ export const notificationTargets = sqliteTable(
         kind: text('kind', { enum: ['slack', 'telegram', 'webhook'] }).notNull(),
         configJson: text('config_json').notNull(),
         severityFilterJson: text('severity_filter_json').notNull().default('[]'),
+        // Environment scope: 'all' fires for every finding; 'prod' fires only for findings on a prod
+        // dependency; 'dev' fires only for findings reachable solely from devDependencies. Mirrors the
+        // DepTypeFilter union from @sentinello/core. Constrained at the app layer (SQLite has no enum).
+        envFilter: text('env_filter').notNull().default('all'),
         enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
         createdAt: integer('created_at').notNull()
     },

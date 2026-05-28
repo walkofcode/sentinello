@@ -224,16 +224,28 @@
             "testTitle": "Live-Test — sendet eine kurze Nachricht per POST, um zu prüfen, ob das Ziel funktioniert",
             "historyAria": "Historische Ereignisse an dieses Ziel senden",
             "historyTitle": "Jedes vorhandene Ereignis für den Versand an dieses Ziel beim nächsten Tick einreihen",
+            "duplicateAria": "Ziel duplizieren",
+            "duplicateTitle": "Kopie dieses Ziels erstellen — Zugangsdaten werden übernommen, nur Filter / Bereich anpassen",
             "removeAria": "Ziel entfernen",
             "testDelivered": "Testversand zugestellt.",
             "testFailed": "Testversand fehlgeschlagen: {error}",
             "unknownError": "unbekannter Fehler",
             "historyQueued": "{count, plural, one {# historisches Ereignis} other {# historische Ereignisse}} zum Nachfüllen eingereiht. Der Worker stellt beim nächsten Tick zu.",
-            "replaceSecret": "Gespeichertes Geheimnis ersetzen",
-            "replaceSecretHelp": "Das aktuelle Geheimnis wird oben maskiert angezeigt. Aktivieren Sie dies, um es durch einen neuen Wert zu überschreiben.",
-            "newSlackUrl": "Neue Slack Incoming-Webhook-URL",
-            "newBotToken": "Neuer Bot-Token",
-            "newWebhookUrl": "Neue Webhook-URL",
+            "envFilter": "Umgebung",
+            "envFilterOption": {
+                "prod": {
+                    "label": "Nur Produktion",
+                    "description": "Nur bei Findings auf einer Produktionsabhängigkeit auslösen."
+                },
+                "all": {
+                    "label": "Beide",
+                    "description": "Bei jedem Finding auslösen, unabhängig von der Herkunft."
+                },
+                "dev": {
+                    "label": "Nur Entwicklung",
+                    "description": "Nur bei Findings auslösen, die ausschließlich über devDependencies erreichbar sind."
+                }
+            },
             "saveChanges": "Änderungen speichern",
             "dialog": {
                 "title": "Benachrichtigungsziel hinzufügen",

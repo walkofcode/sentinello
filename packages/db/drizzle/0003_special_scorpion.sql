@@ -1,0 +1,1 @@
+ALTER TABLE `notification_targets` ADD `env_filter` text DEFAULT 'all' NOT NULL;

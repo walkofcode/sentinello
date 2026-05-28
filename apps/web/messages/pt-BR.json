@@ -224,16 +224,28 @@
             "testTitle": "Teste ao vivo — envia um POST com uma mensagem curta para verificar se o destino funciona",
             "historyAria": "Enviar eventos históricos para este destino",
             "historyTitle": "Enfileira todos os eventos existentes para envio a este destino no próximo ciclo",
+            "duplicateAria": "Duplicar destino",
+            "duplicateTitle": "Criar uma cópia deste destino — as credenciais são mantidas, você só ajusta filtros / escopo",
             "removeAria": "Remover destino",
             "testDelivered": "Envio de teste entregue.",
             "testFailed": "Falha no envio de teste: {error}",
             "unknownError": "erro desconhecido",
             "historyQueued": "Enfileirados {count, plural, one {# evento histórico} other {# eventos históricos}} para reprocessamento. O worker fará o envio no próximo ciclo.",
-            "replaceSecret": "Substituir segredo salvo",
-            "replaceSecretHelp": "O segredo atual é exibido mascarado acima. Marque esta opção para substituí-lo por um novo valor.",
-            "newSlackUrl": "Nova URL do webhook de entrada do Slack",
-            "newBotToken": "Novo token do bot",
-            "newWebhookUrl": "Nova URL do webhook",
+            "envFilter": "Ambiente",
+            "envFilterOption": {
+                "prod": {
+                    "label": "Somente produção",
+                    "description": "Disparar somente para descobertas em uma dependência de produção."
+                },
+                "all": {
+                    "label": "Ambos",
+                    "description": "Disparar para qualquer descoberta, independentemente da origem."
+                },
+                "dev": {
+                    "label": "Somente desenvolvimento",
+                    "description": "Disparar somente para descobertas acessíveis apenas a partir de devDependencies."
+                }
+            },
             "saveChanges": "Salvar alterações",
             "dialog": {
                 "title": "Adicionar destino de notificação",

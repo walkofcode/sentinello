@@ -224,16 +224,28 @@
             "testTitle": "Test en direct — envoie un court message en POST pour vérifier que la cible fonctionne",
             "historyAria": "Envoyer les événements historiques vers cette cible",
             "historyTitle": "Mettre en file chaque événement existant pour distribution vers cette cible au prochain tick",
+            "duplicateAria": "Dupliquer la cible",
+            "duplicateTitle": "Créer une copie de cette cible — les identifiants sont conservés, vous n'ajustez que les filtres / la portée",
             "removeAria": "Retirer la cible",
             "testDelivered": "Envoi de test distribué.",
             "testFailed": "Échec de l'envoi de test : {error}",
             "unknownError": "erreur inconnue",
             "historyQueued": "{count, plural, one {# événement historique mis en file} other {# événements historiques mis en file}} pour rattrapage. Le worker effectuera la distribution à son prochain tick.",
-            "replaceSecret": "Remplacer le secret enregistré",
-            "replaceSecretHelp": "Le secret actuel est affiché masqué ci-dessus. Cochez ceci pour l'écraser avec une nouvelle valeur.",
-            "newSlackUrl": "Nouvelle URL du webhook entrant Slack",
-            "newBotToken": "Nouveau jeton du bot",
-            "newWebhookUrl": "Nouvelle URL du webhook",
+            "envFilter": "Environnement",
+            "envFilterOption": {
+                "prod": {
+                    "label": "Production uniquement",
+                    "description": "Déclencher uniquement pour les findings sur une dépendance de production."
+                },
+                "all": {
+                    "label": "Les deux",
+                    "description": "Déclencher pour chaque finding, quelle que soit son origine."
+                },
+                "dev": {
+                    "label": "Développement uniquement",
+                    "description": "Déclencher uniquement pour les findings accessibles uniquement via devDependencies."
+                }
+            },
             "saveChanges": "Enregistrer les modifications",
             "dialog": {
                 "title": "Ajouter une cible de notification",
