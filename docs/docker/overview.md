@@ -75,7 +75,7 @@ volumes:
 | `SENTINELLO_VERSION`         | `dev`                         | Version label in the footer / `/api/health`; baked into the image at build time |
 | `SENTINELLO_UPDATE_FEED_URL` | GitHub Releases API           | Update-check feed; set to `off` to disable update checks |
 | `SENTINELLO_MCP_ENABLED`     | `true`                        | Set to `false` to hide the `/api/mcp` endpoint entirely (404) |
-| `SENTINELLO_MCP_API_TOKEN`   | _(unset)_                     | Bearer token for the MCP endpoint; overrides the one set in **Settings → Advanced** |
+| `SENTINELLO_MCP_API_TOKEN`   | _(unset)_                     | Bearer token for the MCP endpoint; overrides the one set in **Settings → MCP** |
 
 ### Language
 
@@ -102,9 +102,10 @@ same advisory export the portal produces, ready to feed an LLM). URLs/secrets ma
 ### MCP integration
 
 Sentinello hosts an MCP server at `POST /api/mcp` for Claude Desktop, Cursor, and other MCP
-clients. Generate a bearer token under **Settings → Advanced → MCP API token** (or set
-`SENTINELLO_MCP_API_TOKEN` to inject it via the container environment), then point your client
-at `http://localhost:3870/api/mcp` with `Authorization: Bearer <token>`. Set
+clients. Generate a bearer token under **Settings → MCP** (which also shows the server URL to
+paste into your client) — or set `SENTINELLO_MCP_API_TOKEN` to inject it via the container
+environment — then point your client at `http://localhost:3870/api/mcp` with
+`Authorization: Bearer <token>`. Set
 `SENTINELLO_MCP_ENABLED=false` to disable the endpoint.
 
 ### Scan schedule

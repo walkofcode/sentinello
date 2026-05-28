@@ -21,6 +21,7 @@
             "defaults": "Valeurs par défaut",
             "export": "Avis",
             "advanced": "Avancé",
+            "mcp": "MCP",
             "about": "À propos"
         }
     },
@@ -324,6 +325,9 @@
             "saveButton": "Enregistrer les paramètres avancés",
             "notificationLanguage": "Langue des notifications",
             "notificationLanguageHelp": "Langue utilisée pour les notifications d’échec d’analyse (Slack, Telegram, webhooks)."
+        },
+        "mcp": {
+            "metaTitle": "MCP · Paramètres"
         },
         "about": {
             "metaTitle": "À propos"

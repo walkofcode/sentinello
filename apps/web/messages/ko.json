@@ -21,6 +21,7 @@
             "defaults": "기본값",
             "export": "권고",
             "advanced": "고급",
+            "mcp": "MCP",
             "about": "정보"
         }
     },
@@ -324,6 +325,9 @@
             "saveButton": "고급 설정 저장",
             "notificationLanguage": "알림 언어",
             "notificationLanguageHelp": "스캔 실패 알림(Slack, Telegram, 웹훅)에 사용되는 언어입니다."
+        },
+        "mcp": {
+            "metaTitle": "MCP · 설정"
         },
         "about": {
             "metaTitle": "정보"

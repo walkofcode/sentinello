@@ -21,6 +21,7 @@
             "defaults": "默认设置",
             "export": "公告",
             "advanced": "高级",
+            "mcp": "MCP",
             "about": "关于"
         }
     },
@@ -324,6 +325,9 @@
             "saveButton": "保存高级设置",
             "notificationLanguage": "通知语言",
             "notificationLanguageHelp": "用于扫描失败通知（Slack、Telegram、Webhook）的语言。"
+        },
+        "mcp": {
+            "metaTitle": "MCP · 设置"
         },
         "about": {
             "metaTitle": "关于"

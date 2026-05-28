@@ -21,6 +21,7 @@
             "defaults": "デフォルト",
             "export": "アドバイザリー",
             "advanced": "詳細設定",
+            "mcp": "MCP",
             "about": "概要"
         }
     },
@@ -324,6 +325,9 @@
             "saveButton": "詳細設定を保存",
             "notificationLanguage": "通知の言語",
             "notificationLanguageHelp": "スキャン失敗の通知（Slack、Telegram、Webhook）に使用する言語。"
+        },
+        "mcp": {
+            "metaTitle": "MCP · 設定"
         },
         "about": {
             "metaTitle": "概要"

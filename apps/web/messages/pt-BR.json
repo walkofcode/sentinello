@@ -21,6 +21,7 @@
             "defaults": "Padrões",
             "export": "Aviso",
             "advanced": "Avançado",
+            "mcp": "MCP",
             "about": "Sobre"
         }
     },
@@ -324,6 +325,9 @@
             "saveButton": "Salvar configurações avançadas",
             "notificationLanguage": "Idioma das notificações",
             "notificationLanguageHelp": "Idioma usado nas notificações de falha de varredura (Slack, Telegram, webhooks)."
+        },
+        "mcp": {
+            "metaTitle": "MCP · Configurações"
         },
         "about": {
             "metaTitle": "Sobre"

@@ -21,6 +21,7 @@
             "defaults": "Standardwerte",
             "export": "Hinweis",
             "advanced": "Erweitert",
+            "mcp": "MCP",
             "about": "Über"
         }
     },
@@ -324,6 +325,9 @@
             "saveButton": "Erweiterte Einstellungen speichern",
             "notificationLanguage": "Benachrichtigungssprache",
             "notificationLanguageHelp": "Sprache für Benachrichtigungen über fehlgeschlagene Scans (Slack, Telegram, Webhooks)."
+        },
+        "mcp": {
+            "metaTitle": "MCP · Einstellungen"
         },
         "about": {
             "metaTitle": "Über"

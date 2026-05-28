@@ -11,6 +11,7 @@ const TABS = [
     { href: '/settings/defaults', key: 'defaults' },
     { href: '/settings/export', key: 'export' },
     { href: '/settings/advanced', key: 'advanced' },
+    { href: '/settings/mcp', key: 'mcp' },
     { href: '/settings/about', key: 'about' }
 ]
 

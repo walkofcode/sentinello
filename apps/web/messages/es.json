@@ -21,6 +21,7 @@
             "defaults": "Predeterminados",
             "export": "Aviso",
             "advanced": "Avanzado",
+            "mcp": "MCP",
             "about": "Acerca de"
         }
     },
@@ -324,6 +325,9 @@
             "saveButton": "Guardar configuración avanzada",
             "notificationLanguage": "Idioma de las notificaciones",
             "notificationLanguageHelp": "Idioma usado en las notificaciones de fallos de escaneo (Slack, Telegram, webhooks)."
+        },
+        "mcp": {
+            "metaTitle": "MCP · Configuración"
         },
         "about": {
             "metaTitle": "Acerca de"

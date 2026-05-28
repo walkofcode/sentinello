@@ -21,6 +21,7 @@
             "defaults": "По умолчанию",
             "export": "Бюллетень",
             "advanced": "Дополнительно",
+            "mcp": "MCP",
             "about": "О программе"
         }
     },
@@ -324,6 +325,9 @@
             "saveButton": "Сохранить дополнительные настройки",
             "notificationLanguage": "Язык уведомлений",
             "notificationLanguageHelp": "Язык уведомлений о неудачных проверках (Slack, Telegram, веб-хуки)."
+        },
+        "mcp": {
+            "metaTitle": "MCP · Настройки"
         },
         "about": {
             "metaTitle": "О программе"

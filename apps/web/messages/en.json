@@ -21,6 +21,7 @@
             "defaults": "Defaults",
             "export": "Advisory",
             "advanced": "Advanced",
+            "mcp": "MCP",
             "about": "About"
         }
     },
@@ -324,6 +325,9 @@
             "saveButton": "Save advanced settings",
             "notificationLanguage": "Notification language",
             "notificationLanguageHelp": "Language used for scan-failure notifications (Slack, Telegram, webhooks)."
+        },
+        "mcp": {
+            "metaTitle": "MCP · Settings"
         },
         "about": {
             "metaTitle": "About"
