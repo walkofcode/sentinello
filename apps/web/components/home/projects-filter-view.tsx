@@ -386,6 +386,8 @@ function uniqueRoots(rows: ProjectCatalogRow[]): RootOption[] {
     }
     return Array.from(seen.entries()).map(function entry([path, label]) {
         return { path, label }
+    }).sort(function byLabel(a, b) {
+        return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
     })
 }
 

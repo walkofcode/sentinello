@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import type { DrizzleDb } from '../client'
 import { appConfig, notificationTargetRoots, projects, roots, scanRequests } from '../schema'
 import { cascadeDeleteProjects } from './projects'
@@ -29,7 +29,7 @@ export function listConfig(db: DrizzleDb): Record<string, unknown> {
 }
 
 export function listRoots(db: DrizzleDb): Root[] {
-    return db.select().from(roots).all()
+    return db.select().from(roots).orderBy(sql`lower(coalesce(${roots.label}, ${roots.path}))`).all()
 }
 
 export function getRootById(db: DrizzleDb, id: string): Root | null {
