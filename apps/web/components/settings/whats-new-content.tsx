@@ -2,6 +2,7 @@ import { getLocale, getTranslations } from 'next-intl/server'
 import { getAllHighlights } from '@/lib/release-highlights'
 
 type ReleaseCopy = {
+    version: string
     title: string
     items: string[]
 }
@@ -9,9 +10,9 @@ type ReleaseCopy = {
 export async function WhatsNewContent() {
     const t = await getTranslations('WhatsNew')
     const locale = await getLocale()
-    // The version keys contain dots ("1.4.0"), which next-intl would treat as a nested
-    // path — so read the whole `releases` object once and index it by version in JS.
-    const releases = t.raw('releases') as Record<string, ReleaseCopy>
+    // releases is an array keyed by a `version` field — next-intl forbids '.' in message
+    // keys, so the version can't be an object key. Match each highlight by value below.
+    const releases = t.raw('releases') as ReleaseCopy[]
     const highlights = getAllHighlights()
     return (
         <div className="content mx-auto max-w-3xl space-y-8">
@@ -20,7 +21,9 @@ export async function WhatsNewContent() {
                 <p className="text-muted-foreground">{t('pageIntro')}</p>
             </header>
             {highlights.map(function renderRelease(meta) {
-                const copy = releases[meta.version]
+                const copy = releases.find(function byVersion(entry) {
+                    return entry.version === meta.version
+                })
                 if (!copy) return null
                 const date = new Date(meta.date + 'T00:00:00Z').toLocaleDateString(locale, {
                     dateStyle: 'medium',

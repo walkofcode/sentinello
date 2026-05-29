@@ -157,8 +157,9 @@
         "dismiss": "닫기",
         "pageTitle": "새로운 기능",
         "pageIntro": "각 Sentinello 릴리스가 제공한 내용의 요약입니다.",
-        "releases": {
-            "1.4.0": {
+        "releases": [
+            {
+                "version": "1.4.0",
                 "title": "MCP 연동 및 새로운 기능",
                 "items": [
                     "Claude Desktop, Cursor 등 클라이언트를 위한 /api/mcp MCP 서버",
@@ -166,7 +167,7 @@
                     "이 새로운 기능 배지와 설정 → 새로운 기능 기록"
                 ]
             }
-        }
+        ]
     },
     "Settings": {
         "roots": {

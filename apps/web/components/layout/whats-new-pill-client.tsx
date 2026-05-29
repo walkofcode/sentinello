@@ -10,6 +10,7 @@ import { Sparkles, X } from 'lucide-react'
 const STORAGE_KEY = 'sentinello-whatsnew-seen-version'
 
 type ReleaseCopy = {
+    version: string
     title: string
     items: string[]
 }
@@ -75,9 +76,12 @@ export function WhatsNewPillClient({ version }: Props) {
 
     if (!show) return null
 
-    // Version keys contain dots; read the whole releases object and index by version.
-    const releases = t.raw('releases') as Record<string, ReleaseCopy>
-    const copy = releases[version]
+    // releases is an array keyed by a `version` field — next-intl forbids '.' in message
+    // keys, so the version can't be an object key. Match the running version by value.
+    const releases = t.raw('releases') as ReleaseCopy[]
+    const copy = releases.find(function byVersion(entry) {
+        return entry.version === version
+    })
     if (!copy) return null
 
     return (
