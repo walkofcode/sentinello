@@ -22,7 +22,6 @@
             "export": "권고",
             "advanced": "고급",
             "mcp": "MCP",
-            "whatsNew": "새로운 기능",
             "about": "정보"
         }
     },
@@ -155,8 +154,8 @@
         "popoverHeading": "v{version}의 새로운 기능",
         "seeFullHistory": "전체 기록 보기",
         "dismiss": "닫기",
-        "pageTitle": "새로운 기능",
-        "pageIntro": "각 Sentinello 릴리스가 제공한 내용의 요약입니다.",
+        "historyTitle": "릴리스 노트",
+        "historyIntro": "각 Sentinello 릴리스가 제공한 내용의 요약입니다.",
         "releases": [
             {
                 "version": "1.4.0",
@@ -348,9 +347,6 @@
         },
         "mcp": {
             "metaTitle": "MCP · 설정"
-        },
-        "whatsNew": {
-            "metaTitle": "새로운 기능 · 설정"
         },
         "about": {
             "metaTitle": "정보"

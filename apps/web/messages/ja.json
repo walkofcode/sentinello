@@ -22,7 +22,6 @@
             "export": "アドバイザリー",
             "advanced": "詳細設定",
             "mcp": "MCP",
-            "whatsNew": "新着情報",
             "about": "概要"
         }
     },
@@ -155,8 +154,8 @@
         "popoverHeading": "v{version} の新着情報",
         "seeFullHistory": "全履歴を見る",
         "dismiss": "閉じる",
-        "pageTitle": "新着情報",
-        "pageIntro": "Sentinello の各バージョンで追加された内容の概要です。",
+        "historyTitle": "リリースノート",
+        "historyIntro": "Sentinello の各バージョンで追加された内容の概要です。",
         "releases": [
             {
                 "version": "1.4.0",
@@ -348,9 +347,6 @@
         },
         "mcp": {
             "metaTitle": "MCP · 設定"
-        },
-        "whatsNew": {
-            "metaTitle": "新着情報 · 設定"
         },
         "about": {
             "metaTitle": "概要"

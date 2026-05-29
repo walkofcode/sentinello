@@ -22,7 +22,6 @@
             "export": "公告",
             "advanced": "高级",
             "mcp": "MCP",
-            "whatsNew": "新功能",
             "about": "关于"
         }
     },
@@ -155,8 +154,8 @@
         "popoverHeading": "v{version} 的新功能",
         "seeFullHistory": "查看完整历史",
         "dismiss": "关闭",
-        "pageTitle": "新功能",
-        "pageIntro": "Sentinello 每个版本带来内容的摘要。",
+        "historyTitle": "发行说明",
+        "historyIntro": "Sentinello 每个版本带来内容的摘要。",
         "releases": [
             {
                 "version": "1.4.0",
@@ -348,9 +347,6 @@
         },
         "mcp": {
             "metaTitle": "MCP · 设置"
-        },
-        "whatsNew": {
-            "metaTitle": "新功能 · 设置"
         },
         "about": {
             "metaTitle": "关于"

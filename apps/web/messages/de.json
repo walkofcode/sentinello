@@ -22,7 +22,6 @@
             "export": "Hinweis",
             "advanced": "Erweitert",
             "mcp": "MCP",
-            "whatsNew": "Neuigkeiten",
             "about": "Über"
         }
     },
@@ -155,8 +154,8 @@
         "popoverHeading": "Neu in v{version}",
         "seeFullHistory": "Vollständige Historie ansehen",
         "dismiss": "Schließen",
-        "pageTitle": "Neuigkeiten",
-        "pageIntro": "Eine Zusammenfassung dessen, was jede Sentinello-Version gebracht hat.",
+        "historyTitle": "Versionshinweise",
+        "historyIntro": "Eine Zusammenfassung dessen, was jede Sentinello-Version gebracht hat.",
         "releases": [
             {
                 "version": "1.4.0",
@@ -348,9 +347,6 @@
         },
         "mcp": {
             "metaTitle": "MCP · Einstellungen"
-        },
-        "whatsNew": {
-            "metaTitle": "Neuigkeiten · Einstellungen"
         },
         "about": {
             "metaTitle": "Über"

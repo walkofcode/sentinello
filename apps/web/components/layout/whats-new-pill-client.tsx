@@ -123,7 +123,7 @@ export function WhatsNewPillClient({ version }: Props) {
                         })}
                     </ul>
                     <Link
-                        href="/settings/whats-new"
+                        href="/settings/about#whats-new"
                         onClick={closePopover}
                         className="mt-3 inline-block text-sm font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-300"
                     >

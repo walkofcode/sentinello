@@ -22,7 +22,6 @@
             "export": "Бюллетень",
             "advanced": "Дополнительно",
             "mcp": "MCP",
-            "whatsNew": "Что нового",
             "about": "О программе"
         }
     },
@@ -155,8 +154,8 @@
         "popoverHeading": "Что нового в v{version}",
         "seeFullHistory": "Посмотреть всю историю",
         "dismiss": "Закрыть",
-        "pageTitle": "Что нового",
-        "pageIntro": "Сводка того, что появилось в каждой версии Sentinello.",
+        "historyTitle": "Примечания к выпуску",
+        "historyIntro": "Сводка того, что появилось в каждой версии Sentinello.",
         "releases": [
             {
                 "version": "1.4.0",
@@ -348,9 +347,6 @@
         },
         "mcp": {
             "metaTitle": "MCP · Настройки"
-        },
-        "whatsNew": {
-            "metaTitle": "Что нового · Настройки"
         },
         "about": {
             "metaTitle": "О программе"

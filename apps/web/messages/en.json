@@ -22,7 +22,6 @@
             "export": "Advisory",
             "advanced": "Advanced",
             "mcp": "MCP",
-            "whatsNew": "What's new",
             "about": "About"
         }
     },
@@ -155,8 +154,8 @@
         "popoverHeading": "What's new in v{version}",
         "seeFullHistory": "See full history",
         "dismiss": "Dismiss",
-        "pageTitle": "What's new",
-        "pageIntro": "A summary of what each Sentinello release delivered.",
+        "historyTitle": "Release notes",
+        "historyIntro": "A summary of what each Sentinello release delivered.",
         "releases": [
             {
                 "version": "1.4.0",
@@ -348,9 +347,6 @@
         },
         "mcp": {
             "metaTitle": "MCP · Settings"
-        },
-        "whatsNew": {
-            "metaTitle": "What's new · Settings"
         },
         "about": {
             "metaTitle": "About"

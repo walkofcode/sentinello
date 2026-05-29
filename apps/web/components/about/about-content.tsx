@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { getTranslations } from 'next-intl/server'
 import { getVersionInfo } from '@/lib/version'
 import { NetworkActivityTable } from './network-activity-table'
+import { WhatsNewHistory } from './whats-new-history'
 
 const BUILT_WITH = [
     'Next.js',
@@ -135,6 +136,8 @@ export async function AboutContent() {
                     )}
                 </p>
             </section>
+
+            <WhatsNewHistory />
 
             <section className="space-y-2 border-t pt-6 text-sm text-muted-foreground">
                 <p>
