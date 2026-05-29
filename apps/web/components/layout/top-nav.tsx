@@ -141,6 +141,7 @@ export function TopNav({ whatsNew }: { whatsNew?: ReactNode }) {
                                 <Settings className="h-4 w-4" />
                                 {t('settings')}
                             </Link>
+                            {whatsNew}
                         </nav>
                     </>
                 )}
@@ -155,7 +156,6 @@ export function TopNav({ whatsNew }: { whatsNew?: ReactNode }) {
                             {mobileLabel}
                         </span>
                     ) : null}
-                    {whatsNew}
                     <Button
                         variant="ghost"
                         size="icon"
