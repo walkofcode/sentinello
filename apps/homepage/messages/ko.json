@@ -84,7 +84,9 @@
         "nodeVersionsTitle": "프로젝트별 Node",
         "nodeVersionsBody": "각 프로젝트의 .nvmrc를 존중하여, 고정된 Node 버전을 한 번만 설치하고 캐시합니다.",
         "languagesTitle": "10개 언어",
-        "languagesBody": "포털 UI, 스캔 사유 코드, 상태가 10개 언어로 현지화되어 있습니다."
+        "languagesBody": "포털 UI, 스캔 사유 코드, 상태가 10개 언어로 현지화되어 있습니다.",
+        "mcpTitle": "MCP 서버",
+        "mcpBody": "Claude Desktop, Cursor 등 MCP 클라이언트를 연결해 채팅을 떠나지 않고 발견 항목, 프로젝트, 라이브러리를 조회하고 스캔을 실행하세요."
     },
     "SelfHost": {
         "title": "자체 호스팅",
@@ -148,5 +150,9 @@
         "textBody": "포털에 표시되는 것과 동일한 권고문 내보내기를 텍스트로 — LLM에 바로 넣어 분류하고 수정하세요.",
         "scopeTitle": "루트 또는 프로젝트 단위",
         "scopeBody": "모든 것을 한 곳으로 보내거나, 특정 루트 — 또는 단일 프로젝트 — 를 전용 채널이나 웹훅에 연결하세요."
+    },
+    "ReleaseNotes": {
+        "title": "릴리스 노트",
+        "subtitle": "Sentinello는 자주 업데이트됩니다 — 각 릴리스가 제공한 내용입니다."
     }
 }

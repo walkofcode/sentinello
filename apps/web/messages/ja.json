@@ -155,18 +155,7 @@
         "seeFullHistory": "全履歴を見る",
         "dismiss": "閉じる",
         "historyTitle": "リリースノート",
-        "historyIntro": "Sentinello の各バージョンで追加された内容の概要です。",
-        "releases": [
-            {
-                "version": "1.4.0",
-                "title": "MCP 連携と新着情報",
-                "items": [
-                    "Claude Desktop、Cursor などのクライアント向けの /api/mcp の MCP サーバー",
-                    "サーバー URL とトークン管理を備えた新しい「設定 → MCP」セクション",
-                    "この新着情報バッジと「設定 → 新着情報」の履歴"
-                ]
-            }
-        ]
+        "historyIntro": "Sentinello の各バージョンで追加された内容の概要です。"
     },
     "Settings": {
         "roots": {

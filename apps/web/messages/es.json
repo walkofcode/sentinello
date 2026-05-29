@@ -155,18 +155,7 @@
         "seeFullHistory": "Ver historial completo",
         "dismiss": "Descartar",
         "historyTitle": "Notas de la versión",
-        "historyIntro": "Un resumen de lo que aportó cada versión de Sentinello.",
-        "releases": [
-            {
-                "version": "1.4.0",
-                "title": "Integración MCP y novedades",
-                "items": [
-                    "Servidor MCP en /api/mcp para Claude Desktop, Cursor y otros clientes",
-                    "Nueva sección Configuración → MCP con URL del servidor y gestión de tokens",
-                    "Esta píldora de novedades y un historial en Configuración → Novedades"
-                ]
-            }
-        ]
+        "historyIntro": "Un resumen de lo que aportó cada versión de Sentinello."
     },
     "Settings": {
         "roots": {

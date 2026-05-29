@@ -84,7 +84,9 @@
         "nodeVersionsTitle": "Node per progetto",
         "nodeVersionsBody": "Rispetta il .nvmrc di ogni progetto, installando e mettendo in cache una sola volta la versione di Node che fissa.",
         "languagesTitle": "10 lingue",
-        "languagesBody": "L'interfaccia del portale, i codici motivo di scansione e gli stati sono tradotti in 10 lingue."
+        "languagesBody": "L'interfaccia del portale, i codici motivo di scansione e gli stati sono tradotti in 10 lingue.",
+        "mcpTitle": "Server MCP",
+        "mcpBody": "Collega Claude Desktop, Cursor e altri client MCP per interrogare risultati, progetti e librerie — e avviare scansioni — senza lasciare la chat."
     },
     "SelfHost": {
         "title": "Self-hosting",
@@ -148,5 +150,9 @@
         "textBody": "La stessa esportazione degli avvisi del portale, come testo — da passare direttamente a un LLM per il triage e la correzione.",
         "scopeTitle": "Per root o per progetto",
         "scopeBody": "Invia tutto in un unico posto, oppure collega una root specifica — o un singolo progetto — al proprio canale o webhook."
+    },
+    "ReleaseNotes": {
+        "title": "Note di rilascio",
+        "subtitle": "Sentinello viene aggiornato spesso: ecco cosa ha portato ogni versione."
     }
 }

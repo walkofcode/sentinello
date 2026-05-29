@@ -84,7 +84,9 @@
         "nodeVersionsTitle": "プロジェクトごとのNode",
         "nodeVersionsBody": "各プロジェクトの .nvmrc を尊重し、固定されたNodeのバージョンを一度だけインストール・キャッシュします。",
         "languagesTitle": "10言語",
-        "languagesBody": "ポータルのUI、スキャンの理由コード、ステータスは10言語にローカライズされています。"
+        "languagesBody": "ポータルのUI、スキャンの理由コード、ステータスは10言語にローカライズされています。",
+        "mcpTitle": "MCP サーバー",
+        "mcpBody": "Claude Desktop や Cursor などの MCP クライアントを接続し、チャットを離れずに検出結果・プロジェクト・ライブラリを照会し、スキャンを実行できます。"
     },
     "SelfHost": {
         "title": "セルフホスト",
@@ -148,5 +150,9 @@
         "textBody": "ポータルに表示されるアドバイザリのエクスポートをテキストで送信。LLM にそのまま渡してトリアージ・修正できます。",
         "scopeTitle": "ルートまたはプロジェクト単位",
         "scopeBody": "すべてを 1 か所に送ることも、特定のルート — または単一のプロジェクト — を専用のチャンネルや Webhook に割り当てることもできます。"
+    },
+    "ReleaseNotes": {
+        "title": "リリースノート",
+        "subtitle": "Sentinello は頻繁に更新されています。各リリースの内容をご紹介します。"
     }
 }

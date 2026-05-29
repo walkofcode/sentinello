@@ -84,7 +84,9 @@
         "nodeVersionsTitle": "Node par projet",
         "nodeVersionsBody": "Respecte le .nvmrc de chaque projet, en installant et en mettant en cache une seule fois la version de Node qu'il fixe.",
         "languagesTitle": "10 langues",
-        "languagesBody": "L'interface du portail, les codes de motif d'analyse et les statuts sont traduits en 10 langues."
+        "languagesBody": "L'interface du portail, les codes de motif d'analyse et les statuts sont traduits en 10 langues.",
+        "mcpTitle": "Serveur MCP",
+        "mcpBody": "Connectez Claude Desktop, Cursor et d'autres clients MCP pour interroger les résultats, projets et bibliothèques — et lancer des analyses — sans quitter le chat."
     },
     "SelfHost": {
         "title": "Auto-héberger",
@@ -148,5 +150,9 @@
         "textBody": "Le même export d'avis que dans le portail, en texte — à donner directement à un LLM pour trier et corriger.",
         "scopeTitle": "Par racine ou par projet",
         "scopeBody": "Envoyez tout au même endroit, ou reliez une racine précise — ou un seul projet — à son propre canal ou webhook."
+    },
+    "ReleaseNotes": {
+        "title": "Notes de version",
+        "subtitle": "Sentinello évolue régulièrement — voici ce qu'a apporté chaque version."
     }
 }

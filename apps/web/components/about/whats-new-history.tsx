@@ -1,19 +1,12 @@
 import { getLocale, getTranslations } from 'next-intl/server'
-import { getAllHighlights } from '@/lib/release-highlights'
-
-type ReleaseCopy = {
-    version: string
-    title: string
-    items: string[]
-}
+import { getReleaseCopy, getReleases, type Locale } from '@sentinello/core'
 
 export async function WhatsNewHistory() {
     const t = await getTranslations('WhatsNew')
-    const locale = await getLocale()
-    // releases is an array keyed by a `version` field — next-intl forbids '.' in message
-    // keys, so the version can't be an object key. Match each highlight by value below.
-    const releases = t.raw('releases') as ReleaseCopy[]
-    const highlights = getAllHighlights()
+    const locale = (await getLocale()) as Locale
+    // Highlights come from the shared @sentinello/core data (single source of truth across the
+    // portal and the homepage); only the section chrome below is localized via next-intl.
+    const highlights = getReleases()
     return (
         <section id="whats-new" className="scroll-mt-20 space-y-4">
             <div className="space-y-2">
@@ -21,9 +14,7 @@ export async function WhatsNewHistory() {
                 <p className="text-muted-foreground">{t('historyIntro')}</p>
             </div>
             {highlights.map(function renderRelease(meta) {
-                const copy = releases.find(function byVersion(entry) {
-                    return entry.version === meta.version
-                })
+                const copy = getReleaseCopy(locale, meta.version)
                 if (!copy) return null
                 const date = new Date(meta.date + 'T00:00:00Z').toLocaleDateString(locale, {
                     dateStyle: 'medium',

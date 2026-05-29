@@ -84,7 +84,9 @@
         "nodeVersionsTitle": "Per-project Node",
         "nodeVersionsBody": "Respects each project's .nvmrc, installing and caching the Node version it pins, once.",
         "languagesTitle": "10 languages",
-        "languagesBody": "The portal UI, scan reason codes, and statuses are localized to 10 languages."
+        "languagesBody": "The portal UI, scan reason codes, and statuses are localized to 10 languages.",
+        "mcpTitle": "MCP server",
+        "mcpBody": "Connect Claude Desktop, Cursor, and other MCP clients to query findings, projects, and libraries — and trigger scans — without leaving the chat."
     },
     "SelfHost": {
         "title": "Self-host",
@@ -148,5 +150,9 @@
         "textBody": "The same advisory export shown in the portal, as text — drop it straight into an LLM to triage and fix.",
         "scopeTitle": "Scoped by root or project",
         "scopeBody": "Send everything to one place, or wire a specific root — or a single project — to its own channel or webhook."
+    },
+    "ReleaseNotes": {
+        "title": "Release notes",
+        "subtitle": "Sentinello ships regularly — here's what each release delivered."
     }
 }

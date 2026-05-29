@@ -84,7 +84,9 @@
         "nodeVersionsTitle": "按项目区分的 Node",
         "nodeVersionsBody": "遵循每个项目的 .nvmrc，将其固定的 Node 版本安装并缓存一次。",
         "languagesTitle": "10 种语言",
-        "languagesBody": "门户界面、扫描原因代码和状态均已本地化为 10 种语言。"
+        "languagesBody": "门户界面、扫描原因代码和状态均已本地化为 10 种语言。",
+        "mcpTitle": "MCP 服务器",
+        "mcpBody": "连接 Claude Desktop、Cursor 等 MCP 客户端，无需离开聊天即可查询发现、项目和库，并触发扫描。"
     },
     "SelfHost": {
         "title": "自托管",
@@ -148,5 +150,9 @@
         "textBody": "与门户中相同的公告导出内容，以文本形式呈现——可直接交给 LLM 进行分诊和修复。",
         "scopeTitle": "按根目录或项目划分",
         "scopeBody": "将所有内容发送到一处，或将某个特定根目录——或单个项目——连接到它自己的频道或 Webhook。"
+    },
+    "ReleaseNotes": {
+        "title": "发行说明",
+        "subtitle": "Sentinello 持续更新——以下是每个版本带来的内容。"
     }
 }

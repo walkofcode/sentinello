@@ -84,7 +84,9 @@
         "nodeVersionsTitle": "Node por proyecto",
         "nodeVersionsBody": "Respeta el .nvmrc de cada proyecto, instalando y cacheando una sola vez la versión de Node que fija.",
         "languagesTitle": "10 idiomas",
-        "languagesBody": "La interfaz del portal, los códigos de motivo de escaneo y los estados están traducidos a 10 idiomas."
+        "languagesBody": "La interfaz del portal, los códigos de motivo de escaneo y los estados están traducidos a 10 idiomas.",
+        "mcpTitle": "Servidor MCP",
+        "mcpBody": "Conecta Claude Desktop, Cursor y otros clientes MCP para consultar hallazgos, proyectos y bibliotecas, y lanzar escaneos, sin salir del chat."
     },
     "SelfHost": {
         "title": "Autoalojar",
@@ -148,5 +150,9 @@
         "textBody": "La misma exportación de avisos del portal, como texto — pásala directo a un LLM para triar y corregir.",
         "scopeTitle": "Por raíz o por proyecto",
         "scopeBody": "Envía todo a un solo lugar, o conecta una raíz específica — o un único proyecto — a su propio canal o webhook."
+    },
+    "ReleaseNotes": {
+        "title": "Notas de la versión",
+        "subtitle": "Sentinello se actualiza con frecuencia: esto es lo que aportó cada versión."
     }
 }

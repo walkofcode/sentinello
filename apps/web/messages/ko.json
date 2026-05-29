@@ -155,18 +155,7 @@
         "seeFullHistory": "전체 기록 보기",
         "dismiss": "닫기",
         "historyTitle": "릴리스 노트",
-        "historyIntro": "각 Sentinello 릴리스가 제공한 내용의 요약입니다.",
-        "releases": [
-            {
-                "version": "1.4.0",
-                "title": "MCP 연동 및 새로운 기능",
-                "items": [
-                    "Claude Desktop, Cursor 등 클라이언트를 위한 /api/mcp MCP 서버",
-                    "서버 URL과 토큰 관리를 갖춘 새로운 설정 → MCP 섹션",
-                    "이 새로운 기능 배지와 설정 → 새로운 기능 기록"
-                ]
-            }
-        ]
+        "historyIntro": "각 Sentinello 릴리스가 제공한 내용의 요약입니다."
     },
     "Settings": {
         "roots": {

@@ -2,18 +2,13 @@
 
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { Sparkles, X } from 'lucide-react'
+import { getReleaseCopy, type Locale } from '@sentinello/core'
 
 // Per-version dismissal: storing the seen version means the pill reappears automatically
 // when a newer curated version ships. Mirrors UpdateBannerClient's storage approach.
 const STORAGE_KEY = 'sentinello-whatsnew-seen-version'
-
-type ReleaseCopy = {
-    version: string
-    title: string
-    items: string[]
-}
 
 type Props = {
     version: string
@@ -21,6 +16,7 @@ type Props = {
 
 export function WhatsNewPillClient({ version }: Props) {
     const t = useTranslations('WhatsNew')
+    const locale = useLocale() as Locale
     // Start hidden so SSR + first client render emit nothing — no flash for users who
     // already dismissed this version.
     const [show, setShow] = useState(false)
@@ -76,12 +72,9 @@ export function WhatsNewPillClient({ version }: Props) {
 
     if (!show) return null
 
-    // releases is an array keyed by a `version` field — next-intl forbids '.' in message
-    // keys, so the version can't be an object key. Match the running version by value.
-    const releases = t.raw('releases') as ReleaseCopy[]
-    const copy = releases.find(function byVersion(entry) {
-        return entry.version === version
-    })
+    // Highlights come from the shared @sentinello/core data (single source of truth across the
+    // portal and the homepage); only the surrounding chrome below is localized via next-intl.
+    const copy = getReleaseCopy(locale, version)
     if (!copy) return null
 
     return (
