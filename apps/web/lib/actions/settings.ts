@@ -34,6 +34,7 @@ import type {
     NotificationTargetKind,
     Severity
 } from '@sentinello/core'
+import { SOURCE_CONFIG_KEYS } from '@sentinello/core'
 import { senderFor } from '@sentinello/notifications'
 import { getDb } from '@/lib/db'
 
@@ -375,6 +376,27 @@ export async function updateAdvancedSettingsAction(input: AdvancedSettingsInput)
         setConfigValue(db, 'notificationLocale', parsed.notificationLocale)
     }
     revalidatePath('/settings/advanced')
+}
+
+// --- Sources ---
+
+// Toggles the OSV vulnerability source. Off by default; enabling it makes the worker download the OSV
+// npm export (~196 MB seed, then ~daily deltas) into osv.db and run the OSV scanner alongside npm audit.
+// The 'reload-sources' signal makes the running worker start/stop the OSV runtime within ~5s.
+export async function updateSourcesAction(input: { osvEnabled: boolean }): Promise<void> {
+    const parsed = z.object({ osvEnabled: z.boolean() }).parse(input)
+    const db = getDb()
+    setConfigValue(db, SOURCE_CONFIG_KEYS.osvEnabled, parsed.osvEnabled)
+    enqueueWorkerSignal(db, 'reload-sources', Date.now())
+    revalidatePath('/settings/sources')
+}
+
+// "Refresh now" — asks the worker to run an OSV sync (seed-or-incremental) immediately rather than
+// waiting for the daily cron. No-op on the worker side if the source is disabled.
+export async function refreshOsvAction(): Promise<void> {
+    const db = getDb()
+    enqueueWorkerSignal(db, 'refresh-osv', Date.now())
+    revalidatePath('/settings/sources')
 }
 
 // --- Filter defaults ---

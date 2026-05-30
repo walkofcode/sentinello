@@ -29,6 +29,10 @@ export type IncomingFinding = {
 
 export type MergeFindingsInput = {
     projectId: string
+    // The scanner this scan belongs to. The merge is scoped to (projectId, scanner): it only ever
+    // refreshes / resolves episodes whose scanner matches, so running multiple scanners against the
+    // same project is independent — an 'osv' scan never resolves 'npm-audit' findings, and vice versa.
+    scanner: string
     scanId: string
     scanFinishedAt: number
     incoming: IncomingFinding[]
@@ -55,7 +59,13 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
     const openRows = db
         .select()
         .from(findings)
-        .where(and(eq(findings.projectId, input.projectId), isNull(findings.resolvedAt)))
+        .where(
+            and(
+                eq(findings.projectId, input.projectId),
+                eq(findings.scanner, input.scanner),
+                isNull(findings.resolvedAt)
+            )
+        )
         .all()
     const openByIdentity = new Map<string, FindingRow>()
     for (const row of openRows) {

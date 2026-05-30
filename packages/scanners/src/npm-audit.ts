@@ -303,7 +303,7 @@ async function fileExists(p: string): Promise<boolean> {
     }
 }
 
-async function detectLockfile(projectPath: string): Promise<DetectedLockfile | null> {
+export async function detectLockfile(projectPath: string): Promise<DetectedLockfile | null> {
     const candidates: Array<{ kind: LockfileKind; packageManager: 'pnpm' | 'npm' | 'yarn' }> = [
         { kind: 'pnpm-lock.yaml', packageManager: 'pnpm' },
         { kind: 'package-lock.json', packageManager: 'npm' },

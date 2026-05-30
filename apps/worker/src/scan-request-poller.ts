@@ -20,6 +20,7 @@ import {
     DEFAULT_GLOBAL_IGNORE,
     DEFAULT_PARALLELISM
 } from './config-loader'
+import { selectScanners, type OsvController } from './osv-runtime'
 import { discoverProjects } from './discovery'
 import { runBatch } from './runner'
 import type { WorkerRuntime } from './runtime'
@@ -38,6 +39,9 @@ export type StartPollerInput = {
     runtime: WorkerRuntime
     scheduler: SchedulerHandles
     intervalMs?: number
+    // Controller for the OSV source. Read per-batch via getScanner() so on-demand scans honor the
+    // current Sources setting; reload() is invoked on the 'reload-sources' worker signal.
+    osvController?: OsvController | null
 }
 
 export function startScanRequestPoller(input: StartPollerInput): PollerHandles {
@@ -108,7 +112,7 @@ async function runSingleProject(input: StartPollerInput, projectId: string, requ
     await runBatch({
         db: input.db,
         sqlite: input.sqlite,
-        scanner: npmAuditPlugin,
+        scanners: selectScanners(input.db, npmAuditPlugin, input.osvController?.getScanner() ?? null),
         projects: [project],
         parallelism,
         abortSignal: input.runtime.abortController.signal
@@ -132,7 +136,7 @@ async function runFullSweep(input: StartPollerInput, requestId: string): Promise
     await runBatch({
         db: input.db,
         sqlite: input.sqlite,
-        scanner: npmAuditPlugin,
+        scanners: selectScanners(input.db, npmAuditPlugin, input.osvController?.getScanner() ?? null),
         projects,
         parallelism,
         abortSignal: input.runtime.abortController.signal
@@ -159,7 +163,7 @@ async function runRootSweep(input: StartPollerInput, rootId: string, requestId: 
     await runBatch({
         db: input.db,
         sqlite: input.sqlite,
-        scanner: npmAuditPlugin,
+        scanners: selectScanners(input.db, npmAuditPlugin, input.osvController?.getScanner() ?? null),
         projects,
         parallelism,
         abortSignal: input.runtime.abortController.signal
@@ -191,6 +195,23 @@ function drainWorkerSignals(input: StartPollerInput): void {
 function dispatchWorkerSignal(input: StartPollerInput, signal: WorkerSignal): void {
     if (signal.kind === 'reload-schedule') {
         input.scheduler.reload()
+        return
+    }
+    if (signal.kind === 'reload-sources') {
+        // Operator toggled a source in Settings → Sources. Start or stop the OSV runtime to match the
+        // live config flag; the next batch's selectScanners() then includes/excludes OSV accordingly.
+        if (input.osvController) input.osvController.reload()
+        return
+    }
+    if (signal.kind === 'refresh-osv') {
+        // "Refresh now" from Settings → Sources. Kick a sync (seed-or-incremental) in the background;
+        // tracked so a shutdown waits for it, and the status snapshot updates the portal when done.
+        if (input.osvController) {
+            const work = input.osvController.refresh().catch(function onErr(err: unknown) {
+                console.error('[scan-request-poller] OSV refresh failed: ' + ((err instanceof Error && err.message) || String(err)))
+            })
+            input.runtime.track(work)
+        }
         return
     }
     console.warn('[scan-request-poller] unknown signal kind: ' + signal.kind + ' (id=' + signal.id + ')')

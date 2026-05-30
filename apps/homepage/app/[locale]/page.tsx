@@ -6,6 +6,7 @@ import { Features } from '@/components/sections/features'
 import { Notifications } from '@/components/sections/notifications'
 import { Screenshots } from '@/components/sections/screenshots'
 import { SelfHost } from '@/components/sections/self-host'
+import { Comparison } from '@/components/sections/comparison'
 import { ReleaseNotes } from '@/components/sections/release-notes'
 import { Roadmap } from '@/components/sections/roadmap'
 import { WhoItsFor } from '@/components/sections/who-its-for'
@@ -26,6 +27,7 @@ export default async function HomePage({ params }: PageProps) {
             <Screenshots />
             <SelfHost />
             <Why />
+            <Comparison />
             <ReleaseNotes />
             <Roadmap />
             <WhoItsFor />

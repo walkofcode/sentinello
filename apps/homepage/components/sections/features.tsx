@@ -1,5 +1,5 @@
 import { useTranslations } from 'next-intl'
-import { Bell, Bot, Boxes, Container, FileDown, Filter, FolderGit2, Inbox, Languages, Package, RefreshCw, ServerCog, type LucideIcon } from 'lucide-react'
+import { Bell, Bot, Boxes, Container, FileDown, Filter, FolderGit2, Inbox, Languages, Package, RefreshCw, ServerCog, ShieldAlert, type LucideIcon } from 'lucide-react'
 import { Section } from './section'
 
 const FEATURES: { key: string; Icon: LucideIcon }[] = [
@@ -7,6 +7,7 @@ const FEATURES: { key: string; Icon: LucideIcon }[] = [
     { key: 'byProject', Icon: FolderGit2 },
     { key: 'byLibrary', Icon: Package },
     { key: 'scanning', Icon: RefreshCw },
+    { key: 'sources', Icon: ShieldAlert },
     { key: 'severity', Icon: Filter },
     { key: 'notifications', Icon: Bell },
     { key: 'mcp', Icon: Bot },

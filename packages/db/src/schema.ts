@@ -75,6 +75,8 @@ export const scans = sqliteTable(
                 'nvm_install_failed',
                 'bash_missing',
                 'audit_unknown_failure',
+                'osv_db_not_seeded',
+                'osv_db_unavailable',
                 'timeout'
             ]
         }),

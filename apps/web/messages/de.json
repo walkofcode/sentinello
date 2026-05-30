@@ -18,6 +18,7 @@
             "roots": "Wurzeln",
             "schedule": "Zeitplan",
             "notifications": "Benachrichtigungen",
+            "sources": "Quellen",
             "defaults": "Standardwerte",
             "export": "Hinweis",
             "advanced": "Erweitert",
@@ -271,6 +272,28 @@
             "webhookFlavorText": "Klartext-Advisory",
             "webhookFlavorHelp": "JSON sendet Root, Projekt und Schwachstellen für einen Auto-Fix-Agenten. Klartext sendet den Advisory-Export, bereit für ein LLM."
         },
+        "sources": {
+            "metaTitle": "Quellen · Einstellungen",
+            "title": "Schwachstellenquellen",
+            "description": "npm audit läuft immer. Aktivieren Sie zusätzliche Quellen, um die Abdeckung zu erweitern.",
+            "npmAuditLabel": "npm audit",
+            "alwaysOn": "immer aktiv",
+            "npmAuditHelp": "Die integrierte Quelle. Führt npm/pnpm/yarn audit gegen die Lockfile jedes Projekts aus.",
+            "osvLabel": "OSV (Open Source Vulnerabilities)",
+            "osvHelp": "Gleicht das npm-Ökosystem direkt mit der OSV-Datenbank ab. Ergänzt CVEs, die npm audit übersieht, und markiert bekannte bösartige Pakete.",
+            "enabled": "Aktiviert",
+            "disabled": "Deaktiviert",
+            "downloadDisclosure": "Das Aktivieren von OSV lädt den OSV-npm-Export (~196 MB) in das Datenvolume, danach ~tägliche Updates. Der Cache ist neu aufbaubar und wird getrennt von Ihren Funden gespeichert.",
+            "freeSpace": "Etwa {gib} GB frei auf dem Datenvolume.",
+            "syncStatus": "Synchronisierungsstatus",
+            "seeded": "Aktuell",
+            "seeding": "Wird heruntergeladen…",
+            "recordCount": "{n} Hinweise im Cache",
+            "lastRefreshed": "Zuletzt aktualisiert",
+            "lastError": "Letzter Fehler",
+            "refreshNow": "Jetzt aktualisieren",
+            "refreshQueued": "Aktualisierung angefordert — sie läuft im Hintergrund."
+        },
         "defaults": {
             "metaTitle": "Standardwerte · Einstellungen",
             "depViewTitle": "Standard-Abhängigkeitsansicht",
@@ -393,7 +416,8 @@
         "advisoriesCount": "{count, plural, one {# Advisory} other {# Advisories}}",
         "projectsAffected": "{count, plural, one {# Projekt betroffen} other {# Projekte betroffen}}",
         "detectedLabel": "Erkannt:",
-        "rangeLabel": "Bereich:"
+        "rangeLabel": "Bereich:",
+        "malicious": "bösartig"
     },
     "Triage": {
         "alias": {

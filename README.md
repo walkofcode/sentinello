@@ -88,6 +88,8 @@ A ready-to-use `docker-compose.yml` ships in the repo root.
 | `SENTINELLO_UPDATE_FEED_URL` | GitHub Releases API           | Update-check feed; set to `off` to disable update checks |
 | `SENTINELLO_MCP_ENABLED`     | `true`                        | Set to `false` to hide the `/api/mcp` endpoint entirely (404) |
 | `SENTINELLO_MCP_API_TOKEN`   | _(unset)_                     | Bearer token for the MCP endpoint; overrides the one set in **Settings → MCP** |
+| `SENTINELLO_OSV_FEED_URL`    | OSV GCS bucket                | OSV advisory export base URL (only used when the **OSV source** is enabled); set to `off` to disable all OSV network access |
+| `SENTINELLO_OSV_DB_PATH`     | `<data dir>/osv.db`           | Location of the rebuildable OSV advisory cache (defaults next to the main DB) |
 
 ### Language
 
@@ -95,6 +97,31 @@ The portal UI — including scan **reason codes** and **scan status** — is loc
 picked in the top-menu language switcher (10 languages). The language of **failure notifications**
 (Slack / Telegram / webhook messages) is configured separately in **Settings → Advanced →
 Notification language** (default English), since a notification has no per-viewer locale.
+
+### Vulnerability sources
+
+Out of the box Sentinello scans with **npm audit** (npm / pnpm / yarn audit against each project's
+lockfile) — the GitHub Advisory feed those tools carry. That source is always on and needs no setup.
+
+**OSV** is an optional second source you enable in **Settings → Sources** (off by default). When on,
+the worker downloads the [OSV](https://osv.dev) npm export and matches your resolved lockfile versions
+against it directly. It adds two things npm audit alone doesn't give you:
+
+- **CVEs npm audit misses** — OSV aggregates more feeds than the npm/GitHub advisory set.
+- **Known-malicious packages** — OSV's `MAL-` records flag packages published with malware
+  (typosquats, install-script payloads, registry-pollution campaigns). These surface as **critical**
+  findings with a distinct "malicious" badge.
+
+OSV findings that duplicate an npm-audit advisory (same GHSA/CVE on the same package) are suppressed,
+so enabling OSV only **adds** net-new findings to the same triage queue.
+
+**Provisioning.** Enabling OSV downloads the npm export (**~196 MB**) into the data volume on first
+sync, then pulls ~daily incremental updates. The normalized cache (`osv.db`) is smaller (~40–80 MB)
+and fully **rebuildable** — it's stored separately from `sentinello.sqlite`, so deleting it never
+touches your findings, and it's excluded from a lean DB backup. The Settings panel shows the last
+refresh, the cached-advisory count, and a free-space hint, and runs a free-space pre-flight before the
+first download. For a fully air-gapped install, leave the source off (or set `SENTINELLO_OSV_FEED_URL=off`)
+and Sentinello makes no OSV network calls at all.
 
 ### Notifications & webhooks
 
@@ -180,7 +207,9 @@ effect within ~5s — no container restart required.
 ### Volumes
 
 - `/app/data` — the SQLite DB plus its WAL/SHM siblings and the worker lock.
-  Mount this to persist state across restarts.
+  Mount this to persist state across restarts. When the **OSV source** is enabled
+  this also holds the rebuildable `osv.db` advisory cache (~40–80 MB); size the
+  volume with that in mind (the initial OSV download is ~196 MB).
 - `/root/.nvm` — Node versions installed on demand by `nvm` for projects that
   pin one via `.nvmrc`. Persist it so each version downloads only once (the
   image's baked-in Node 24.14.0 is seeded into the volume on first create).

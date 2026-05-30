@@ -18,6 +18,7 @@
             "roots": "根目录",
             "schedule": "计划任务",
             "notifications": "通知",
+            "sources": "来源",
             "defaults": "默认设置",
             "export": "公告",
             "advanced": "高级",
@@ -271,6 +272,28 @@
             "webhookFlavorText": "纯文本公告",
             "webhookFlavorHelp": "JSON 会发送根目录、项目和漏洞，供自动修复代理使用。纯文本会发送公告导出内容，可直接交给 LLM。"
         },
+        "sources": {
+            "metaTitle": "来源 · 设置",
+            "title": "漏洞来源",
+            "description": "npm audit 始终运行。启用其他来源以扩大覆盖范围。",
+            "npmAuditLabel": "npm audit",
+            "alwaysOn": "始终开启",
+            "npmAuditHelp": "内置来源。对每个项目的锁文件运行 npm/pnpm/yarn audit。",
+            "osvLabel": "OSV (Open Source Vulnerabilities)",
+            "osvHelp": "直接将 npm 生态系统与 OSV 数据库进行匹配。补充 npm audit 遗漏的 CVE，并标记已知的恶意软件包。",
+            "enabled": "已启用",
+            "disabled": "已禁用",
+            "downloadDisclosure": "启用 OSV 会将 OSV 的 npm 导出（约 196 MB）下载到数据卷，之后约每日更新。缓存可重建，并与你的发现分开存储。",
+            "freeSpace": "数据卷剩余约 {gib} GB。",
+            "syncStatus": "同步状态",
+            "seeded": "已是最新",
+            "seeding": "下载中…",
+            "recordCount": "已缓存 {n} 条公告",
+            "lastRefreshed": "上次刷新",
+            "lastError": "上次错误",
+            "refreshNow": "立即刷新",
+            "refreshQueued": "已请求刷新 — 在后台运行。"
+        },
         "defaults": {
             "metaTitle": "默认设置 · 设置",
             "depViewTitle": "默认依赖视图",
@@ -393,7 +416,8 @@
         "advisoriesCount": "{count, plural, one {# 条通告} other {# 条通告}}",
         "projectsAffected": "{count, plural, one {# 个项目受影响} other {# 个项目受影响}}",
         "detectedLabel": "检测到：",
-        "rangeLabel": "范围："
+        "rangeLabel": "范围：",
+        "malicious": "恶意"
     },
     "Triage": {
         "alias": {

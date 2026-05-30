@@ -8,6 +8,7 @@ const TABS = [
     { href: '/settings/roots', key: 'roots' },
     { href: '/settings/schedule', key: 'schedule' },
     { href: '/settings/notifications', key: 'notifications' },
+    { href: '/settings/sources', key: 'sources' },
     { href: '/settings/defaults', key: 'defaults' },
     { href: '/settings/export', key: 'export' },
     { href: '/settings/advanced', key: 'advanced' },

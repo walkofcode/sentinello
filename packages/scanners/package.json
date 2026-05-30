@@ -23,10 +23,12 @@
     },
     "dependencies": {
         "@sentinello/core": "workspace:*",
+        "js-yaml": "4.1.1",
         "semver": "7.7.4",
         "zod": "4.4.1"
     },
     "devDependencies": {
+        "@types/js-yaml": "4.0.9",
         "@types/node": "25.6.0",
         "@types/semver": "7.7.1"
     }

@@ -18,6 +18,7 @@
             "roots": "Raízes",
             "schedule": "Agendamento",
             "notifications": "Notificações",
+            "sources": "Fontes",
             "defaults": "Padrões",
             "export": "Aviso",
             "advanced": "Avançado",
@@ -271,6 +272,28 @@
             "webhookFlavorText": "Aviso em texto simples",
             "webhookFlavorHelp": "JSON envia raiz, projeto e vulnerabilidades para um agente de correção automática. Texto simples envia a exportação de avisos, pronta para um LLM."
         },
+        "sources": {
+            "metaTitle": "Fontes · Configurações",
+            "title": "Fontes de vulnerabilidades",
+            "description": "O npm audit sempre roda. Ative fontes adicionais para ampliar a cobertura.",
+            "npmAuditLabel": "npm audit",
+            "alwaysOn": "sempre ativo",
+            "npmAuditHelp": "A fonte integrada. Executa npm/pnpm/yarn audit no lockfile de cada projeto.",
+            "osvLabel": "OSV (Open Source Vulnerabilities)",
+            "osvHelp": "Compara o ecossistema npm diretamente com o banco de dados OSV. Adiciona CVEs que o npm audit não detecta e sinaliza pacotes maliciosos conhecidos.",
+            "enabled": "Ativado",
+            "disabled": "Desativado",
+            "downloadDisclosure": "Ativar o OSV baixa o export npm do OSV (~196 MB) no volume de dados, depois atualizações ~diárias. O cache é reconstruível e armazenado separadamente dos seus achados.",
+            "freeSpace": "Cerca de {gib} GB livres no volume de dados.",
+            "syncStatus": "Status de sincronização",
+            "seeded": "Atualizado",
+            "seeding": "Baixando…",
+            "recordCount": "{n} avisos em cache",
+            "lastRefreshed": "Última atualização",
+            "lastError": "Último erro",
+            "refreshNow": "Atualizar agora",
+            "refreshQueued": "Atualização solicitada — roda em segundo plano."
+        },
         "defaults": {
             "metaTitle": "Padrões · Configurações",
             "depViewTitle": "Visão padrão de dependências",
@@ -393,7 +416,8 @@
         "advisoriesCount": "{count, plural, one {# alerta} other {# alertas}}",
         "projectsAffected": "{count, plural, one {# projeto afetado} other {# projetos afetados}}",
         "detectedLabel": "Detectado:",
-        "rangeLabel": "Faixa:"
+        "rangeLabel": "Faixa:",
+        "malicious": "malicioso"
     },
     "Triage": {
         "alias": {

@@ -24,7 +24,8 @@
     "scripts": {
         "lint": "eslint src",
         "typecheck": "tsc -p tsconfig.json --noEmit",
-        "db:generate": "drizzle-kit generate"
+        "db:generate": "drizzle-kit generate",
+        "db:generate:osv": "drizzle-kit generate --config drizzle-osv.config.ts"
     },
     "dependencies": {
         "@sentinello/core": "workspace:*",

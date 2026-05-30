@@ -5,6 +5,7 @@ import { backfillFindingsLifecycle, getConfigValue, getLastScanFinishedAt, listR
 import { CONFIG_KEYS, DEFAULT_SCHEDULE, discoverDockerRoots, loadConfigFile, pruneDockerRoots, seedFromConfig, type IntervalHours } from './config-loader'
 import { startScheduler, sweepActiveProjects } from './scheduler'
 import { startScanRequestPoller } from './scan-request-poller'
+import { createOsvController, type OsvController } from './osv-runtime'
 import { startLockfileWatcher, type WatcherHandle } from './watcher'
 import { startMuteExpirySweep, type MuteExpiryHandle } from './mute-expiry'
 import { createWorkerRuntime, waitForInFlight, type WorkerRuntime } from './runtime'
@@ -69,8 +70,13 @@ async function main(): Promise<void> {
         console.log('[worker] pruned ' + pruned.removed + ' stale root' + (pruned.removed === 1 ? '' : 's') + ' from /roots')
     }
     const runtime = createWorkerRuntime()
-    const scheduler = startScheduler({ db, sqlite, runtime })
-    const poller = startScanRequestPoller({ db, sqlite, runtime, scheduler })
+    // OSV source controller. Starts the runtime now if the operator already enabled the source (default
+    // is off, so by default this opens nothing and touches no network), and reacts to later Settings
+    // toggles via the 'reload-sources' worker signal. The scheduler + poller read its getScanner() per
+    // batch so selectScanners() reflects the live flag without a worker restart.
+    const osvController: OsvController = createOsvController(db, runtime)
+    const scheduler = startScheduler({ db, sqlite, runtime, osvController })
+    const poller = startScanRequestPoller({ db, sqlite, runtime, scheduler, osvController })
     const muteExpiry = startMuteExpirySweep({ db, runtime })
     let watcher: WatcherHandle | null = null
     const watcherEnabled = getConfigValue<boolean>(db, CONFIG_KEYS.watcherEnabled) || false
@@ -92,6 +98,7 @@ async function main(): Promise<void> {
     const shutdown = makeShutdown({
         scheduler,
         poller,
+        osvController,
         muteExpiry,
         watcher,
         sqlite,
@@ -116,7 +123,7 @@ async function main(): Promise<void> {
     if (overdue) {
         const reason = lastFinishedAt === null ? 'no prior scans' : 'last scan ' + formatAgo(elapsedMs as number) + ' ago, interval is ' + schedule.intervalHours + 'h'
         console.log('[worker] initial active sweep starting (' + reason + ')')
-        const initialSweep = sweepActiveProjects({ db, sqlite, runtime }).catch(function onInitialSweepError(err: unknown) {
+        const initialSweep = sweepActiveProjects({ db, sqlite, runtime, osvController }).catch(function onInitialSweepError(err: unknown) {
             const message = err instanceof Error && err.message || String(err)
             console.error('[worker] initial sweep failed: ' + message)
         })
@@ -147,6 +154,7 @@ function ensureLockFileExists(lockPath: string): void {
 type ShutdownDeps = {
     scheduler: { stop(): void }
     poller: { stop(): void }
+    osvController: OsvController
     muteExpiry: MuteExpiryHandle
     watcher: WatcherHandle | null
     sqlite: { close(): void }
@@ -164,6 +172,7 @@ function makeShutdown(deps: ShutdownDeps): (signal: string) => void {
         deps.scheduler.stop()
         deps.poller.stop()
         deps.muteExpiry.stop()
+        deps.osvController.stop()
         if (deps.watcher) {
             deps.watcher.stop().catch(function onWatcherStopError(err: unknown) {
                 const message = err instanceof Error && err.message || String(err)

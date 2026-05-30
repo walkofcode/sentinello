@@ -32,12 +32,13 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                     const findingMute = findMatchingMute(mutes, projectId, f)
                     return (
                         <Card key={f.id} className={cn('p-4', f.isMuted && 'opacity-60')}>
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                                 <SeverityPill variant={f.severity as Severity} size="sm" />
                                 <span className="min-w-0 flex-1 truncate font-medium text-sm">
                                     {f.packageName}
                                 </span>
                                 {f.isDev && !f.isProd ? <Badge variant="dev">{t('dev')}</Badge> : null}
+                                <SourceBadges scanner={f.scanner} advisoryId={f.advisoryId} t={t} />
                             </div>
                             <dl className="mt-3 grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-2 text-xs">
                                 <dt className="uppercase tracking-wide text-muted-foreground">{t('columns.version')}</dt>
@@ -111,6 +112,7 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                                         {f.isDev && !f.isProd ? (
                                             <Badge variant="dev" className="ml-2">{t('dev')}</Badge>
                                         ) : null}
+                                        <SourceBadges scanner={f.scanner} advisoryId={f.advisoryId} t={t} className="ml-2" />
                                     </TableCell>
                                     <TableCell>
                                         <VersionChain
@@ -159,6 +161,33 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                     </TableBody>
                 </Table>
             </div>
+        </>
+    )
+}
+
+type SourceBadgesProps = {
+    scanner: string
+    advisoryId: string
+    t: (key: string) => string
+    className?: string
+}
+
+// Renders the provenance of a finding: a "malicious package" emphasis badge for OSV MAL- records (a
+// distinct threat class), plus a small source badge (OSV vs npm) so operators can tell where a finding
+// came from once multiple sources are enabled. Malicious is detected by the MAL- advisory-id prefix —
+// no extra column needed since the OSV scanner stores those ids verbatim.
+function SourceBadges({ scanner, advisoryId, t, className }: SourceBadgesProps) {
+    const isMalicious = advisoryId.startsWith('MAL-')
+    const isOsv = scanner === 'osv'
+    if (!isMalicious && !isOsv) return null
+    return (
+        <>
+            {isMalicious ? (
+                <Badge variant="malicious" className={className}>{t('malicious')}</Badge>
+            ) : null}
+            {isOsv ? (
+                <Badge variant="osv" className={className}>OSV</Badge>
+            ) : null}
         </>
     )
 }

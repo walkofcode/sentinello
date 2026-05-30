@@ -15,6 +15,7 @@ const SECTIONS: { id: string; titleKey: string }[] = [
     { id: 'screenshots', titleKey: 'Screenshots.title' },
     { id: 'selfHost', titleKey: 'SelfHost.title' },
     { id: 'why', titleKey: 'Why.title' },
+    { id: 'comparison', titleKey: 'Comparison.title' },
     { id: 'releaseNotes', titleKey: 'ReleaseNotes.title' },
     { id: 'roadmap', titleKey: 'Roadmap.title' },
     { id: 'whoFor', titleKey: 'WhoFor.title' }

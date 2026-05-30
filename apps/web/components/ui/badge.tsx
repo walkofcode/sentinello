@@ -15,7 +15,12 @@ const badgeVariants = cva(
                 low: 'bg-[color:var(--color-sev-low)]/15 text-[color:var(--color-sev-low)] ring-[color:var(--color-sev-low)]/30',
                 info: 'bg-[color:var(--color-sev-info)]/15 text-[color:var(--color-sev-info)] ring-[color:var(--color-sev-info)]/30',
                 muted: 'bg-muted text-muted-foreground ring-border',
-                dev: 'bg-slate-100 text-slate-700 ring-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600'
+                dev: 'bg-slate-100 text-slate-700 ring-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600',
+                // Finding-source provenance badges. osv = the OSV source; npm = the built-in npm audit.
+                osv: 'bg-indigo-100 text-indigo-700 ring-indigo-300 dark:bg-indigo-950 dark:text-indigo-300 dark:ring-indigo-800',
+                npm: 'bg-amber-100 text-amber-800 ring-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:ring-amber-800',
+                // Malicious-package emphasis — a distinct threat class from CVE findings.
+                malicious: 'bg-[color:var(--color-sev-critical)] text-white ring-[color:var(--color-sev-critical)]'
             }
         },
         defaultVariants: {

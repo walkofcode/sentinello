@@ -31,6 +31,8 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         nvm_install_failed: 'nvm: Node version install failed',
         bash_missing: 'bash not on PATH',
         audit_unknown_failure: 'Audit failed (unknown)',
+        osv_db_not_seeded: 'OSV database not downloaded yet',
+        osv_db_unavailable: 'OSV database unavailable',
         timeout: 'Timeout'
     },
     'es': {
@@ -54,6 +56,8 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         nvm_install_failed: 'nvm: falló la instalación de la versión de Node',
         bash_missing: 'bash no está en PATH',
         audit_unknown_failure: 'audit falló (desconocido)',
+        osv_db_not_seeded: 'Base de datos OSV aún no descargada',
+        osv_db_unavailable: 'Base de datos OSV no disponible',
         timeout: 'Tiempo de espera agotado'
     },
     'fr': {
@@ -77,6 +81,8 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         nvm_install_failed: 'nvm : échec de l’installation de la version de Node',
         bash_missing: 'bash absent du PATH',
         audit_unknown_failure: 'Échec d’audit (inconnu)',
+        osv_db_not_seeded: 'Base de données OSV pas encore téléchargée',
+        osv_db_unavailable: 'Base de données OSV indisponible',
         timeout: 'Délai dépassé'
     },
     'de': {
@@ -100,6 +106,8 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         nvm_install_failed: 'nvm: Installation der Node-Version fehlgeschlagen',
         bash_missing: 'bash nicht im PATH',
         audit_unknown_failure: 'audit fehlgeschlagen (unbekannt)',
+        osv_db_not_seeded: 'OSV-Datenbank noch nicht heruntergeladen',
+        osv_db_unavailable: 'OSV-Datenbank nicht verfügbar',
         timeout: 'Zeitüberschreitung'
     },
     'pt-BR': {
@@ -123,6 +131,8 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         nvm_install_failed: 'nvm: falha ao instalar a versão do Node',
         bash_missing: 'bash fora do PATH',
         audit_unknown_failure: 'Falha no audit (desconhecida)',
+        osv_db_not_seeded: 'Banco de dados OSV ainda não baixado',
+        osv_db_unavailable: 'Banco de dados OSV indisponível',
         timeout: 'Tempo esgotado'
     },
     'it': {
@@ -146,6 +156,8 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         nvm_install_failed: 'nvm: installazione della versione di Node non riuscita',
         bash_missing: 'bash non nel PATH',
         audit_unknown_failure: 'audit non riuscito (sconosciuto)',
+        osv_db_not_seeded: 'Database OSV non ancora scaricato',
+        osv_db_unavailable: 'Database OSV non disponibile',
         timeout: 'Timeout scaduto'
     },
     'ja': {
@@ -169,6 +181,8 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         nvm_install_failed: 'nvm: Node バージョンのインストールに失敗',
         bash_missing: 'bash が PATH にありません',
         audit_unknown_failure: 'audit が失敗しました（不明）',
+        osv_db_not_seeded: 'OSV データベースは未ダウンロード',
+        osv_db_unavailable: 'OSV データベースを利用できません',
         timeout: 'タイムアウト'
     },
     'zh-CN': {
@@ -192,6 +206,8 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         nvm_install_failed: 'nvm：Node 版本安装失败',
         bash_missing: 'bash 不在 PATH 中',
         audit_unknown_failure: 'audit 失败（未知）',
+        osv_db_not_seeded: 'OSV 数据库尚未下载',
+        osv_db_unavailable: 'OSV 数据库不可用',
         timeout: '超时'
     },
     'ko': {
@@ -215,6 +231,8 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         nvm_install_failed: 'nvm: Node 버전 설치 실패',
         bash_missing: 'bash가 PATH에 없음',
         audit_unknown_failure: 'audit 실패 (알 수 없음)',
+        osv_db_not_seeded: 'OSV 데이터베이스가 아직 다운로드되지 않음',
+        osv_db_unavailable: 'OSV 데이터베이스를 사용할 수 없음',
         timeout: '시간 초과'
     },
     'ru': {
@@ -238,6 +256,8 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         nvm_install_failed: 'nvm: не удалось установить версию Node',
         bash_missing: 'bash не в PATH',
         audit_unknown_failure: 'Сбой audit (неизвестно)',
+        osv_db_not_seeded: 'База данных OSV ещё не загружена',
+        osv_db_unavailable: 'База данных OSV недоступна',
         timeout: 'Тайм-аут'
     }
 }

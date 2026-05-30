@@ -18,6 +18,7 @@
             "roots": "ルート",
             "schedule": "スケジュール",
             "notifications": "通知",
+            "sources": "ソース",
             "defaults": "デフォルト",
             "export": "アドバイザリー",
             "advanced": "詳細設定",
@@ -271,6 +272,28 @@
             "webhookFlavorText": "プレーンテキストのアドバイザリ",
             "webhookFlavorHelp": "JSON はルート・プロジェクト・脆弱性を自動修正エージェント向けに送信します。プレーンテキストは LLM にそのまま渡せるアドバイザリのエクスポートを送信します。"
         },
+        "sources": {
+            "metaTitle": "ソース · 設定",
+            "title": "脆弱性ソース",
+            "description": "npm audit は常に実行されます。追加のソースを有効にしてカバレッジを広げます。",
+            "npmAuditLabel": "npm audit",
+            "alwaysOn": "常時オン",
+            "npmAuditHelp": "組み込みのソース。各プロジェクトのロックファイルに対して npm/pnpm/yarn audit を実行します。",
+            "osvLabel": "OSV (Open Source Vulnerabilities)",
+            "osvHelp": "npm エコシステムを OSV データベースと直接照合します。npm audit が見逃す CVE を追加し、既知の悪意あるパッケージを検出します。",
+            "enabled": "有効",
+            "disabled": "無効",
+            "downloadDisclosure": "OSV を有効にすると OSV の npm エクスポート（約 196 MB）をデータボリュームにダウンロードし、その後ほぼ毎日更新します。キャッシュは再構築可能で、検出結果とは別に保存されます。",
+            "freeSpace": "データボリュームの空き容量は約 {gib} GB です。",
+            "syncStatus": "同期状態",
+            "seeded": "最新",
+            "seeding": "ダウンロード中…",
+            "recordCount": "{n} 件のアドバイザリをキャッシュ",
+            "lastRefreshed": "最終更新",
+            "lastError": "最後のエラー",
+            "refreshNow": "今すぐ更新",
+            "refreshQueued": "更新を要求しました — バックグラウンドで実行されます。"
+        },
         "defaults": {
             "metaTitle": "デフォルト · 設定",
             "depViewTitle": "デフォルトの依存関係ビュー",
@@ -393,7 +416,8 @@
         "advisoriesCount": "{count, plural, one {# 件のアドバイザリ} other {# 件のアドバイザリ}}",
         "projectsAffected": "{count, plural, one {# 件のプロジェクトに影響} other {# 件のプロジェクトに影響}}",
         "detectedLabel": "検出日時:",
-        "rangeLabel": "範囲:"
+        "rangeLabel": "範囲:",
+        "malicious": "悪意あり"
     },
     "Triage": {
         "alias": {

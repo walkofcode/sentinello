@@ -20,7 +20,11 @@ const SCANNER_TIMEOUT_MS = 90_000
 export type RunBatchInput = {
     db: DrizzleDb
     sqlite: SqliteDb
-    scanner: ScannerPlugin
+    // Scanners to run against each project, IN ORDER. Each scanner writes its own scan row + lifecycle
+    // merge, scoped to its own `name` so they never resolve each other's findings. Order matters for
+    // dedup: a later scanner's findings are suppressed when an earlier scanner already reported the
+    // same advisory (by id or alias) for the same package — so put the authoritative source first.
+    scanners: ScannerPlugin[]
     projects: Project[]
     parallelism: number
     abortSignal?: AbortSignal
@@ -54,33 +58,51 @@ async function workerLoop(
         const project = queue.shift()
         if (!project) return
         if (input.abortSignal && input.abortSignal.aborted) return
-        const outcome = await runOneProject(input, project)
-        outcomes.push(outcome)
+        const projectOutcomes = await runProjectScanners(input, project)
+        for (const outcome of projectOutcomes) outcomes.push(outcome)
     }
 }
 
-async function runOneProject(
-    input: RunBatchInput,
-    project: Project
-): Promise<ProjectScanOutcome> {
+// Runs every scanner against one project, in order, and returns one outcome per scanner. The dedup set
+// accumulates the (package → advisory keys) reported by earlier scanners so a later scanner (OSV) drops
+// findings the authoritative scanner (npm-audit) already surfaced.
+async function runProjectScanners(input: RunBatchInput, project: Project): Promise<ProjectScanOutcome[]> {
     const root = getRootById(input.db, project.rootId)
     if (!root) {
         const outcome = makeErrorOutcome(project, 'project root not found in DB')
         insertScan(input.db, outcome.scan)
-        return outcome
+        return [outcome]
     }
     const projectPath = resolve(root.path, project.relPath)
+    const outcomes: ProjectScanOutcome[] = []
+    // package name → set of advisory keys (lower-cased ids + aliases) already reported this run.
+    const reportedByPackage = new Map<string, Set<string>>()
+    for (const scanner of input.scanners) {
+        if (input.abortSignal && input.abortSignal.aborted) break
+        const outcome = await runOneScanner(input, project, projectPath, scanner, reportedByPackage)
+        outcomes.push(outcome)
+    }
+    return outcomes
+}
+
+async function runOneScanner(
+    input: RunBatchInput,
+    project: Project,
+    projectPath: string,
+    scanner: ScannerPlugin,
+    reportedByPackage: Map<string, Set<string>>
+): Promise<ProjectScanOutcome> {
     const startedAt = Date.now()
     let scanResult
     try {
-        scanResult = await input.scanner.scan(projectPath, {
+        scanResult = await scanner.scan(projectPath, {
             timeoutMs: SCANNER_TIMEOUT_MS,
             useNvm: project.nvmrcVersion !== null,
             abortSignal: input.abortSignal
         })
     } catch (err) {
         const message = err instanceof Error && err.message || String(err)
-        const outcome = makeErrorOutcome(project, 'scanner threw: ' + message, startedAt)
+        const outcome = makeErrorOutcome(project, 'scanner threw: ' + message, startedAt, scanner.name)
         insertScan(input.db, outcome.scan)
         return outcome
     }
@@ -90,17 +112,18 @@ async function runOneProject(
         projectId: project.id,
         startedAt,
         finishedAt,
-        scanner: input.scanner.name,
+        scanner: scanner.name,
         status: scanResult.status,
         reasonCode: scanResult.reasonCode,
         durationMs: scanResult.durationMs,
         errorText: scanResult.errorText,
         rawJson: scanResult.rawJson
     }
-    const incoming: IncomingFinding[] = scanResult.findings.map(function toIncoming(raw: RawFinding): IncomingFinding {
+    const deduped = suppressDuplicates(scanResult.findings, reportedByPackage)
+    const incoming: IncomingFinding[] = deduped.map(function toIncoming(raw: RawFinding): IncomingFinding {
         return {
             projectId: project.id,
-            scanner: input.scanner.name,
+            scanner: scanner.name,
             advisoryId: raw.advisoryId,
             advisoryTitle: raw.advisoryTitle,
             advisoryUrl: raw.advisoryUrl,
@@ -117,14 +140,16 @@ async function runOneProject(
     })
     // Lifecycle merge: on a successful scan, upsert each finding by identity, refreshing the open
     // episode's last_seen_at + mutable fields, opening new episodes for previously-unseen
-    // identities, and closing (resolved_at) episodes that have disappeared. For
-    // error/timeout/unauditable scans we record the scan row but leave findings alone so the UI
-    // keeps its last-known view and a transient failure never mass-resolves an entire project.
+    // identities, and closing (resolved_at) episodes that have disappeared. Scoped to this scanner so
+    // a second scanner's pass never resolves the first scanner's findings. For error/timeout/unauditable
+    // scans we record the scan row but leave findings alone so the UI keeps its last-known view and a
+    // transient failure never mass-resolves an entire project.
     const merged = input.db.transaction(function mergeLifecycle(tx): Finding[] {
         insertScan(tx, scan)
         if (scan.status !== 'ok') return []
         const result = mergeFindingsForScan(tx, {
             projectId: project.id,
+            scanner: scanner.name,
             scanId: scan.id,
             scanFinishedAt: scan.finishedAt,
             incoming
@@ -142,7 +167,37 @@ async function runOneProject(
     return outcome
 }
 
-function makeErrorOutcome(project: Project, errorText: string, startedAt?: number): ProjectScanOutcome {
+// Drops findings whose advisory is already represented (by id or any alias) for the same package by an
+// earlier scanner in this run, then records the surviving findings' keys so subsequent scanners dedup
+// against them too. npm-audit and OSV both carry GHSA ids, so without this every shared advisory would
+// appear twice — once per scanner. Keys are lower-cased so GHSA/CVE casing never defeats the match.
+function suppressDuplicates(
+    findings: RawFinding[],
+    reportedByPackage: Map<string, Set<string>>
+): RawFinding[] {
+    const kept: RawFinding[] = []
+    for (const finding of findings) {
+        const existing = reportedByPackage.get(finding.packageName)
+        const keys = advisoryKeys(finding)
+        const isDup = existing ? keys.some(function seen(k) { return existing.has(k) }) : false
+        if (isDup) continue
+        kept.push(finding)
+        const set = existing || new Set<string>()
+        for (const k of keys) set.add(k)
+        reportedByPackage.set(finding.packageName, set)
+    }
+    return kept
+}
+
+function advisoryKeys(finding: RawFinding): string[] {
+    const keys = [finding.advisoryId.toLowerCase()]
+    if (finding.aliases) {
+        for (const alias of finding.aliases) keys.push(alias.toLowerCase())
+    }
+    return keys
+}
+
+function makeErrorOutcome(project: Project, errorText: string, startedAt?: number, scanner = 'npm-audit'): ProjectScanOutcome {
     const at = Date.now()
     const start = startedAt || at
     const scan: Scan = {
@@ -150,7 +205,7 @@ function makeErrorOutcome(project: Project, errorText: string, startedAt?: numbe
         projectId: project.id,
         startedAt: start,
         finishedAt: at,
-        scanner: 'npm-audit',
+        scanner,
         status: 'error',
         reasonCode: 'audit_unknown_failure',
         durationMs: at - start,

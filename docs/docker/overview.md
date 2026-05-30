@@ -76,6 +76,17 @@ volumes:
 | `SENTINELLO_UPDATE_FEED_URL` | GitHub Releases API           | Update-check feed; set to `off` to disable update checks |
 | `SENTINELLO_MCP_ENABLED`     | `true`                        | Set to `false` to hide the `/api/mcp` endpoint entirely (404) |
 | `SENTINELLO_MCP_API_TOKEN`   | _(unset)_                     | Bearer token for the MCP endpoint; overrides the one set in **Settings → MCP** |
+| `SENTINELLO_OSV_FEED_URL`    | OSV GCS bucket                | OSV advisory export base URL (only used when the **OSV source** is enabled); set to `off` to disable all OSV network access |
+| `SENTINELLO_OSV_DB_PATH`     | `<data dir>/osv.db`           | Location of the rebuildable OSV advisory cache (defaults next to the main DB) |
+
+### Vulnerability sources
+
+**npm audit** is always on. **OSV** is an optional second source, enabled in **Settings → Sources**
+(off by default): it matches your lockfiles against the [OSV](https://osv.dev) database, adding CVEs
+npm audit misses and flagging **known-malicious** packages (`MAL-` records) as critical findings.
+Enabling it downloads the OSV npm export (**~196 MB**) into the data volume, then ~daily incremental
+updates; the normalized `osv.db` cache (~40–80 MB) is rebuildable and stored separately from your
+findings. Leave it off (or set `SENTINELLO_OSV_FEED_URL=off`) for a fully air-gapped install.
 
 ### Language
 
@@ -118,7 +129,8 @@ required.
 ### Volumes
 
 - `/app/data` — the SQLite DB plus its WAL/SHM siblings and the worker lock.
-  Mount this to persist state across restarts.
+  Mount this to persist state across restarts. With the **OSV source** enabled
+  it also holds the rebuildable `osv.db` cache (~40–80 MB; initial download ~196 MB).
 - `/root/.nvm` — Node versions installed on demand by `nvm` for projects that
   pin one via `.nvmrc`. Persist it so each version downloads only once (the
   image's baked-in Node 24.14.0 is seeded into the volume on first create).

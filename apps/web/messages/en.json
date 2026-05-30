@@ -18,6 +18,7 @@
             "roots": "Roots",
             "schedule": "Schedule",
             "notifications": "Notifications",
+            "sources": "Sources",
             "defaults": "Defaults",
             "export": "Advisory",
             "advanced": "Advanced",
@@ -271,6 +272,28 @@
             "webhookFlavorText": "Plain-text advisory",
             "webhookFlavorHelp": "JSON sends root, project and vulnerabilities for an auto-fix agent. Plain-text sends the advisory export, ready to feed an LLM."
         },
+        "sources": {
+            "metaTitle": "Sources · Settings",
+            "title": "Vulnerability sources",
+            "description": "npm audit always runs. Enable additional sources to widen coverage.",
+            "npmAuditLabel": "npm audit",
+            "alwaysOn": "always on",
+            "npmAuditHelp": "The built-in source. Runs npm/pnpm/yarn audit against each project lockfile.",
+            "osvLabel": "OSV (Open Source Vulnerabilities)",
+            "osvHelp": "Match the npm ecosystem against the OSV database directly. Adds CVEs npm audit misses and flags known-malicious packages.",
+            "enabled": "Enabled",
+            "disabled": "Disabled",
+            "downloadDisclosure": "Enabling OSV downloads the OSV npm export (~196 MB) into the data volume, then ~daily updates. The cache is rebuildable and stored separately from your findings.",
+            "freeSpace": "About {gib} GB free on the data volume.",
+            "syncStatus": "Sync status",
+            "seeded": "Up to date",
+            "seeding": "Downloading…",
+            "recordCount": "{n} advisories cached",
+            "lastRefreshed": "Last refreshed",
+            "lastError": "Last error",
+            "refreshNow": "Refresh now",
+            "refreshQueued": "Refresh requested — it runs in the background."
+        },
         "defaults": {
             "metaTitle": "Defaults · Settings",
             "depViewTitle": "Default dependency view",
@@ -393,7 +416,8 @@
         "advisoriesCount": "{count, plural, one {# advisory} other {# advisories}}",
         "projectsAffected": "{count, plural, one {# project affected} other {# projects affected}}",
         "detectedLabel": "Detected:",
-        "rangeLabel": "Range:"
+        "rangeLabel": "Range:",
+        "malicious": "malicious"
     },
     "Triage": {
         "alias": {

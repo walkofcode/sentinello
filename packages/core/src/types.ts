@@ -71,6 +71,9 @@ export type ReasonCode =
     | 'nvm_install_failed'
     | 'bash_missing'
     | 'audit_unknown_failure'
+    // osv — the OSV scanner could not run against its local cache
+    | 'osv_db_not_seeded'
+    | 'osv_db_unavailable'
     // timeout
     | 'timeout'
 
@@ -94,6 +97,8 @@ export const REASON_CODE_VALUES: ReasonCode[] = [
     'nvm_install_failed',
     'bash_missing',
     'audit_unknown_failure',
+    'osv_db_not_seeded',
+    'osv_db_unavailable',
     'timeout'
 ]
 

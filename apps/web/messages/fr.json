@@ -18,6 +18,7 @@
             "roots": "Racines",
             "schedule": "Planification",
             "notifications": "Notifications",
+            "sources": "Sources",
             "defaults": "Valeurs par défaut",
             "export": "Avis",
             "advanced": "Avancé",
@@ -271,6 +272,28 @@
             "webhookFlavorText": "Avis en texte brut",
             "webhookFlavorHelp": "JSON envoie la racine, le projet et les vulnérabilités pour un agent d'auto-correction. Le texte brut envoie l'export d'avis, prêt pour un LLM."
         },
+        "sources": {
+            "metaTitle": "Sources · Paramètres",
+            "title": "Sources de vulnérabilités",
+            "description": "npm audit s’exécute toujours. Activez des sources supplémentaires pour élargir la couverture.",
+            "npmAuditLabel": "npm audit",
+            "alwaysOn": "toujours actif",
+            "npmAuditHelp": "La source intégrée. Exécute npm/pnpm/yarn audit sur le lockfile de chaque projet.",
+            "osvLabel": "OSV (Open Source Vulnerabilities)",
+            "osvHelp": "Compare l’écosystème npm directement à la base OSV. Ajoute des CVE que npm audit manque et signale les paquets malveillants connus.",
+            "enabled": "Activé",
+            "disabled": "Désactivé",
+            "downloadDisclosure": "Activer OSV télécharge l’export npm d’OSV (~196 Mo) dans le volume de données, puis des mises à jour ~quotidiennes. Le cache est reconstructible et stocké séparément de vos résultats.",
+            "freeSpace": "Environ {gib} Go libres sur le volume de données.",
+            "syncStatus": "État de synchronisation",
+            "seeded": "À jour",
+            "seeding": "Téléchargement…",
+            "recordCount": "{n} avis en cache",
+            "lastRefreshed": "Dernière mise à jour",
+            "lastError": "Dernière erreur",
+            "refreshNow": "Actualiser",
+            "refreshQueued": "Actualisation demandée — elle s’exécute en arrière-plan."
+        },
         "defaults": {
             "metaTitle": "Valeurs par défaut · Paramètres",
             "depViewTitle": "Vue de dépendances par défaut",
@@ -393,7 +416,8 @@
         "advisoriesCount": "{count, plural, one {# avis} other {# avis}}",
         "projectsAffected": "{count, plural, one {# projet affecté} other {# projets affectés}}",
         "detectedLabel": "Détecté :",
-        "rangeLabel": "Plage :"
+        "rangeLabel": "Plage :",
+        "malicious": "malveillant"
     },
     "Triage": {
         "alias": {

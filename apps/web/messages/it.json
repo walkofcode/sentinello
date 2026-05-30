@@ -18,6 +18,7 @@
             "roots": "Radici",
             "schedule": "Pianificazione",
             "notifications": "Notifiche",
+            "sources": "Fonti",
             "defaults": "Predefiniti",
             "export": "Avviso",
             "advanced": "Avanzate",
@@ -271,6 +272,28 @@
             "webhookFlavorText": "Avviso in testo semplice",
             "webhookFlavorHelp": "JSON invia root, progetto e vulnerabilità per un agente di auto-correzione. Il testo semplice invia l'esportazione degli avvisi, pronta per un LLM."
         },
+        "sources": {
+            "metaTitle": "Fonti · Impostazioni",
+            "title": "Fonti di vulnerabilità",
+            "description": "npm audit viene sempre eseguito. Abilita fonti aggiuntive per ampliare la copertura.",
+            "npmAuditLabel": "npm audit",
+            "alwaysOn": "sempre attivo",
+            "npmAuditHelp": "La fonte integrata. Esegue npm/pnpm/yarn audit sul lockfile di ogni progetto.",
+            "osvLabel": "OSV (Open Source Vulnerabilities)",
+            "osvHelp": "Confronta l’ecosistema npm direttamente con il database OSV. Aggiunge CVE che npm audit non rileva e segnala i pacchetti dannosi noti.",
+            "enabled": "Abilitato",
+            "disabled": "Disabilitato",
+            "downloadDisclosure": "Abilitare OSV scarica l’export npm di OSV (~196 MB) nel volume dati, poi aggiornamenti ~giornalieri. La cache è ricostruibile e archiviata separatamente dai tuoi risultati.",
+            "freeSpace": "Circa {gib} GB liberi sul volume dati.",
+            "syncStatus": "Stato sincronizzazione",
+            "seeded": "Aggiornato",
+            "seeding": "Download in corso…",
+            "recordCount": "{n} avvisi in cache",
+            "lastRefreshed": "Ultimo aggiornamento",
+            "lastError": "Ultimo errore",
+            "refreshNow": "Aggiorna ora",
+            "refreshQueued": "Aggiornamento richiesto — viene eseguito in background."
+        },
         "defaults": {
             "metaTitle": "Predefiniti · Impostazioni",
             "depViewTitle": "Vista predefinita delle dipendenze",
@@ -393,7 +416,8 @@
         "advisoriesCount": "{count, plural, one {# advisory} other {# advisory}}",
         "projectsAffected": "{count, plural, one {# progetto interessato} other {# progetti interessati}}",
         "detectedLabel": "Rilevato:",
-        "rangeLabel": "Intervallo:"
+        "rangeLabel": "Intervallo:",
+        "malicious": "dannoso"
     },
     "Triage": {
         "alias": {

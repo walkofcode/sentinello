@@ -18,6 +18,7 @@
             "roots": "루트",
             "schedule": "일정",
             "notifications": "알림",
+            "sources": "소스",
             "defaults": "기본값",
             "export": "권고",
             "advanced": "고급",
@@ -271,6 +272,28 @@
             "webhookFlavorText": "일반 텍스트 권고문",
             "webhookFlavorHelp": "JSON은 루트, 프로젝트, 취약점을 자동 수정 에이전트로 보냅니다. 일반 텍스트는 LLM에 바로 넣을 수 있는 권고문 내보내기를 보냅니다."
         },
+        "sources": {
+            "metaTitle": "소스 · 설정",
+            "title": "취약점 소스",
+            "description": "npm audit는 항상 실행됩니다. 추가 소스를 활성화하여 범위를 넓히세요.",
+            "npmAuditLabel": "npm audit",
+            "alwaysOn": "항상 켜짐",
+            "npmAuditHelp": "기본 제공 소스. 각 프로젝트의 잠금 파일에 대해 npm/pnpm/yarn audit를 실행합니다.",
+            "osvLabel": "OSV (Open Source Vulnerabilities)",
+            "osvHelp": "npm 생태계를 OSV 데이터베이스와 직접 대조합니다. npm audit가 놓치는 CVE를 추가하고 알려진 악성 패키지를 표시합니다.",
+            "enabled": "활성화됨",
+            "disabled": "비활성화됨",
+            "downloadDisclosure": "OSV를 활성화하면 OSV npm 내보내기(~196 MB)를 데이터 볼륨에 다운로드하고 이후 거의 매일 업데이트합니다. 캐시는 재구축 가능하며 발견 항목과 별도로 저장됩니다.",
+            "freeSpace": "데이터 볼륨에 약 {gib} GB 여유 공간이 있습니다.",
+            "syncStatus": "동기화 상태",
+            "seeded": "최신",
+            "seeding": "다운로드 중…",
+            "recordCount": "{n}개 권고 캐시됨",
+            "lastRefreshed": "마지막 새로 고침",
+            "lastError": "마지막 오류",
+            "refreshNow": "지금 새로 고침",
+            "refreshQueued": "새로 고침 요청됨 — 백그라운드에서 실행됩니다."
+        },
         "defaults": {
             "metaTitle": "기본값 · 설정",
             "depViewTitle": "기본 의존성 보기",
@@ -393,7 +416,8 @@
         "advisoriesCount": "{count, plural, one {# 건 권고} other {# 건 권고}}",
         "projectsAffected": "{count, plural, one {# 개 프로젝트 영향받음} other {# 개 프로젝트 영향받음}}",
         "detectedLabel": "감지됨:",
-        "rangeLabel": "범위:"
+        "rangeLabel": "범위:",
+        "malicious": "악성"
     },
     "Triage": {
         "alias": {

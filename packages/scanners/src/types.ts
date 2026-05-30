@@ -13,6 +13,10 @@ export type RawFinding = {
     depPath: string[]
     isProd: boolean
     isDev: boolean
+    // Cross-reference ids (e.g. ["CVE-2024-48913"]) for advisories that carry them. Populated by the
+    // OSV scanner so the worker can suppress an OSV finding that npm-audit already reported under the
+    // same GHSA/CVE for the same package. Undefined for scanners that don't track aliases (npm-audit).
+    aliases?: string[]
 }
 
 export type ScanResult = {
