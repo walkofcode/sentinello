@@ -4,15 +4,28 @@
 
 # Sentinello
 
-**Centralized dependency-vulnerability monitoring for your entire code portfolio.**
+**An early-warning system for the dependencies you stopped watching.**
+
+In the AI age you ship more Node.js projects than you can maintain — the marketing
+site, the client dashboard, the side project that quietly went to production. They
+keep running long after anyone last looked at them, and a single forgotten
+dependency with a critical CVE is all it takes to turn the simplest site into the
+way in.
 
 Sentinello is a self-hosted portal that continuously scans the repositories you
-point it at, surfaces known CVEs in their dependencies, and gives you one triage
-queue across every project — instead of `npm audit` output scattered across a
-dozen checkouts.
+point it at, surfaces known CVEs in their dependencies, and gives you **one triage
+queue across every project** — instead of `npm audit` output scattered across a
+dozen checkouts, or finding out about a CVE from a headline days too late.
+
+"Why not just use Snyk or Dependabot?" Those live inside the CI pipeline you wired
+up — and the long tail never got one. Sentinello is for everything else: point it at
+a folder and it watches every project you forgot. It's not trying to replace
+enterprise SCA on a mature pipeline; it's here for the rest of your portfolio that
+nobody is watching.
 
 Single image, single SQLite file, no external services. The web portal and the
-background scan worker run together under `pm2-runtime`.
+background scan worker run together under `pm2-runtime`. No account, no SaaS, no
+telemetry — your code and your findings never leave your machine.
 
 - **Website:** https://sentinello.org
 - **Issues:** https://github.com/walkofcode/sentinello/issues
@@ -35,19 +48,30 @@ docker run -d \
   ghcr.io/walkofcode/sentinello:latest
 ```
 
-Open http://localhost:3870. Anything mounted under `/roots/<name>` is
-**auto-registered as a root on startup** (the directory name becomes its label),
-so discovery and scanning begin on their own — no manual setup. Mounting under
-`/roots` is optional: you can also add roots from **Settings → Roots**.
-
-The `sentinello-nvm` volume persists Node versions that `nvm` installs when a
-project pins one via `.nvmrc`, so each version is downloaded only once.
+Open http://localhost:3870 — that's the whole install. Sentinello runs on
+`linux/amd64` and `linux/arm64`; the correct architecture is pulled automatically.
+The image is mirrored on Docker Hub, so swap `ghcr.io/walkofcode/sentinello` for
+`walkofcode/sentinello` if you prefer pulling from there.
 
 Only mount code roots you trust. Sentinello runs package-manager audit commands
 inside mounted projects, so treat roots like code you would run locally.
 
-The image is mirrored on Docker Hub — swap `ghcr.io/walkofcode/sentinello` for
-`walkofcode/sentinello` if you prefer pulling from there.
+## How it works
+
+Three steps — no agents to install in your projects, no accounts to create:
+
+1. **Point it at your code.** Anything mounted under `/roots/<name>` is
+   **auto-registered as a root on startup** (the directory name becomes its label),
+   so discovery and scanning begin on their own — no manual setup. Mounting under
+   `/roots` is optional: you can also add roots from **Settings → Roots**.
+2. **It scans continuously.** A background worker checks your dependencies against
+   known CVEs on a schedule, installing the Node version each project pins via
+   `.nvmrc` when it needs to (the `sentinello-nvm` volume persists those so each
+   version downloads only once).
+3. **Triage in one queue.** Every finding across every project lands in a single
+   queue you can filter by severity — browse by project or by library, export a
+   remediation-ready advisory, and get optional alerts in Slack, Telegram, or a
+   webhook.
 
 ## docker compose
 
@@ -98,7 +122,7 @@ picked in the top-menu language switcher (10 languages). The language of **failu
 (Slack / Telegram / webhook messages) is configured separately in **Settings → Advanced →
 Notification language** (default English), since a notification has no per-viewer locale.
 
-### Vulnerability sources
+## Vulnerability sources
 
 Out of the box Sentinello scans with **npm audit** (npm / pnpm / yarn audit against each project's
 lockfile) — the GitHub Advisory feed those tools carry. That source is always on and needs no setup.
@@ -123,7 +147,7 @@ refresh, the cached-advisory count, and a free-space hint, and runs a free-space
 first download. For a fully air-gapped install, leave the source off (or set `SENTINELLO_OSV_FEED_URL=off`)
 and Sentinello makes no OSV network calls at all.
 
-### Notifications & webhooks
+## Notifications & webhooks
 
 Configure delivery targets in **Settings → Notifications**. Three channel kinds are supported —
 **Slack** (incoming webhook), **Telegram** (bot token + chat id), and a generic **webhook**.
@@ -169,7 +193,7 @@ URLs and secrets may be literals or `env:NAME` references resolved from the cont
 > A webhook POSTs to whatever host you point it at. On a shared network, don't aim a target at an
 > internal-only service you don't trust to receive scan payloads.
 
-### MCP integration
+## MCP integration
 
 Sentinello exposes a [Model Context Protocol](https://modelcontextprotocol.io) server at
 `POST /api/mcp` so Claude Desktop, Cursor, and other MCP-aware clients can query roots, projects,
@@ -196,7 +220,7 @@ leaving the chat.
 The route is enabled by default. Set `SENTINELLO_MCP_ENABLED=false` to disable it entirely (the
 endpoint then returns 404). Requests without a valid bearer token return 401.
 
-### Scan schedule
+## Scan schedule
 
 **Settings → Schedule** sets the sweep cadence (1h / 3h / 6h / 12h / 24h). For any interval other
 than 1h you can also pick a **start hour** (0–23) plus a **timezone** the start hour is interpreted
@@ -204,7 +228,7 @@ in (defaults to the server's timezone), so the cadence is anchored to a chosen t
 starting at 02:00 in `Europe/Madrid` runs at 02:00, 08:00, 14:00, 20:00 Madrid time. Changes take
 effect within ~5s — no container restart required.
 
-### Volumes
+## Volumes
 
 - `/app/data` — the SQLite DB plus its WAL/SHM siblings and the worker lock.
   Mount this to persist state across restarts. When the **OSV source** is enabled
@@ -230,17 +254,19 @@ effect within ~5s — no container restart required.
 > unmounted manual root is skipped, not reconciled, so its projects survive the outage and
 > reappear on the next sweep once the mount is back.
 
-## Health
+## Operating
+
+### Health
 
 The container exposes `GET /api/health` (runs a `SELECT 1` against SQLite) and
 ships a `HEALTHCHECK`, so compose / k8s / Portainer can detect a wedged process.
 
-## Platforms
+### Platforms
 
 `linux/amd64` and `linux/arm64` (multi-arch manifest — the correct architecture
 is pulled automatically).
 
-## Image tags
+### Image tags
 
 | Tag                | Points at                       | Use it when                              |
 | ------------------ | ------------------------------- | ---------------------------------------- |
