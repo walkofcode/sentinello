@@ -40,16 +40,17 @@
         "title": "Un sistema di allerta precoce per le dipendenze che hai smesso di sorvegliare.",
         "subtitle": "Nell'era dell'IA pubblichi più progetti Node.js di quanti tu possa mantenerne. Sentinello sorveglia ognuno e rivela i CVE noti nelle loro dipendenze npm — così un progetto dimenticato non diventa mai un incidente.",
         "commandCaption": "Avvialo con un solo comando:",
-        "ctaPrimary": "Fai self-hosting ora",
+        "ctaPrimary": "Leggi la guida rapida",
         "ctaSecondary": "Metti una stella su GitHub",
-        "trust": "Nessun account. Nessun SaaS. Nessuna telemetria. Un'immagine Docker e un file SQLite — il tuo codice e i tuoi risultati non lasciano mai la tua macchina."
+        "trust": "Nessun account. Nessun SaaS. Nessuna telemetria. Un'immagine Docker e un file SQLite — il tuo codice e i tuoi risultati non lasciano mai la tua macchina.",
+        "multiArch": "Funziona su linux/amd64 e arm64"
     },
     "Why": {
         "title": "Perché l'abbiamo creato",
         "lead": "Nell'era dell'IA, pubblichi più di quanto tu possa mantenere.",
-        "body1": "Oggi una singola persona che sviluppa avvia, consegna e abbandona una dozzina di progetti all'anno. Il sito vetrina, la dashboard del cliente, il progetto personale finito in produzione in sordina: continuano a girare molto tempo dopo che qualcuno li ha guardati l'ultima volta.",
-        "callout": "Basta una sola dipendenza dimenticata con una falla critica di esecuzione di codice remoto. Il sito più semplice può diventare la via d'accesso.",
-        "body2": "Sentinello è il sistema di allerta precoce per questa coda lunga. Sorveglia ogni progetto a cui lo punti, così un nuovo CVE in qualcosa che hai pubblicato mesi fa compare in un solo posto — prima che diventi un disastro."
+        "body1": "Oggi chi sviluppa da solo avvia, consegna e si lascia alle spalle una dozzina di progetti all'anno — il sito vetrina, la dashboard del cliente, il progetto personale finito in produzione in sordina. Un tempo, tenerli al sicuro significava collegarsi in SSH a ogni checkout per lanciare npm audit a mano, oppure scoprire un CVE di Next.js da un titolo di giornale giorni dopo che era uscito. Nessuno tiene quel ritmo su una dozzina di repository, quindi alla fine non lo fa proprio nessuno.",
+        "callout": "Basta una sola dipendenza dimenticata con una falla critica di esecuzione di codice remoto. Il sito più semplice che hai smesso di sorvegliare diventa la via d'accesso.",
+        "body2": "«Perché non usare semplicemente Snyk o Dependabot?» Quelli vivono dentro la pipeline CI che hai cablato — e la coda lunga non ne ha mai avuta una. Sentinello è il sistema di allerta precoce per tutto il resto: puntalo a una cartella e sorveglia ogni progetto che hai dimenticato, facendo emergere ogni nuovo CVE in un'unica coda prima che diventi un incidente."
     },
     "Comparison": {
         "title": "Come si confronta",
@@ -68,7 +69,8 @@
         "row_aiNative": "Nativo per l’IA (MCP + export)",
         "row_polyglot": "Poliglotta (Python, Go, …)",
         "row_enterprisePolicy": "Policy aziendale / VEX",
-        "footnote": "Dependency-Track vede solo i progetti che qualcuno ha strumentato con una pipeline SBOM. Sentinello trova quelli che hai dimenticato. Sono più forti su copertura poliglotta e policy aziendale — se li usi già su una pipeline matura, tienili. Sentinello è per il resto del tuo portfolio che nessuno sta osservando."
+        "planned": "Pianificato",
+        "footnote": "Dependency-Track vede solo i progetti che qualcuno ha strumentato con una pipeline SBOM. Sentinello trova quelli che hai dimenticato. Sono più forti sulla policy aziendale, e la copertura poliglotta è nella roadmap di Sentinello — se li usi già su una pipeline matura, tienili. Sentinello è per il resto del tuo portafoglio che nessuno sta osservando."
     },
     "How": {
         "title": "Come funziona",
@@ -85,20 +87,16 @@
         "subtitle": "Tutto in un portale self-hosted — nessun servizio esterno, nessun dato che lascia la tua rete.",
         "queueTitle": "Coda di triage unica",
         "queueBody": "Vedi e fai il triage dei CVE di tutto il tuo portafoglio in un solo posto — invece di npm audit sparso su una dozzina di copie.",
-        "byProjectTitle": "Sfoglia per progetto",
-        "byProjectBody": "Entra in qualsiasi repository per vederne i risultati attuali, le versioni di correzione, la cronologia delle scansioni e i silenziamenti.",
-        "byLibraryTitle": "Sfoglia per libreria",
-        "byLibraryBody": "Passa a un pacchetto vulnerabile e vedi ogni progetto interessato — poi silenzialo ovunque in una volta sola.",
+        "browseTitle": "Sfoglia per progetto o libreria",
+        "browseBody": "Entra in qualsiasi repository per vederne i risultati, le versioni di correzione e la cronologia — oppure passa a un pacchetto vulnerabile per vedere ogni progetto interessato e silenziarlo ovunque in una volta sola.",
         "exportTitle": "Esportazione avvisi",
         "exportBody": "Esporta i risultati di un progetto o di una libreria come Markdown, con un prompt di remediation personalizzabile per il tuo team o un LLM.",
         "scanningTitle": "Scansione continua",
         "scanningBody": "Un processo in background riscansiona secondo una pianificazione, così i nuovi avvisi compaiono senza che tu debba ricordarti di controllare.",
         "sourcesTitle": "Più fonti",
         "sourcesBody": "Oltre a npm audit: confronto con il database OSV per una copertura CVE più ampia e il rilevamento di pacchetti dannosi noti.",
-        "severityTitle": "Filtro per gravità",
-        "severityBody": "Ordina e filtra i risultati per gravità per gestire prima i critici e il rumore dopo.",
-        "notificationsTitle": "Notifiche",
-        "notificationsBody": "Ricevi avvisi di errori e risultati via Slack, Telegram o un semplice webhook — nella lingua che scegli.",
+        "notificationsTitle": "Notifiche e webhook",
+        "notificationsBody": "Ricevi avvisi di errori e risultati via Slack, Telegram o un semplice webhook — definiti per root o per progetto, nella lingua che scegli. Payload JSON o in testo semplice per un agente di auto-correzione.",
         "selfContainedTitle": "Un'immagine, un file",
         "selfContainedBody": "Un'immagine Docker e un file SQLite. Nessun server di database, nessuna coda di messaggi, nessuna dipendenza dal cloud.",
         "autoRootsTitle": "Roots auto-registrati",
@@ -109,17 +107,6 @@
         "languagesBody": "L'interfaccia del portale, i codici motivo di scansione e gli stati sono tradotti in 10 lingue.",
         "mcpTitle": "Server MCP",
         "mcpBody": "Collega Claude Desktop, Cursor e altri client MCP per interrogare risultati, progetti e librerie — e avviare scansioni — senza lasciare la chat."
-    },
-    "SelfHost": {
-        "title": "Self-hosting",
-        "subtitle": "Fai self-hosting in pochi minuti. Copia, incolla, apri localhost. Fissa un tag di versione per la produzione.",
-        "runTab": "docker run",
-        "composeTab": "docker compose",
-        "pm2Tab": "pm2",
-        "rootsNote": "Tutto ciò che è montato sotto /roots viene registrato automaticamente all'avvio — il nome della directory diventa la sua etichetta — quindi individuazione e scansione partono da sole. Montare è facoltativo; puoi anche aggiungere roots dal portale.",
-        "multiArch": "Funziona su linux/amd64 e arm64",
-        "docsLink": "Leggi la guida rapida",
-        "githubLink": "Vedi su GitHub"
     },
     "Screenshots": {
         "title": "Screenshot",
@@ -156,24 +143,6 @@
         "point2": "Vuoi una vista sull'intero portafoglio senza cablare la CI in ogni repository.",
         "point3": "Preferisci il self-hosting piuttosto che affidare l'inventario del tuo codice a un SaaS.",
         "honest": "Se sei una grande organizzazione con Snyk o Dependabot già integrati in una pipeline matura, tienili — Sentinello non cerca di sostituire lo SCA enterprise. È qui per il resto del tuo portafoglio che nessuno sorveglia. È open source e con licenza MIT, così puoi leggere esattamente cosa fa."
-    },
-    "Notifications": {
-        "title": "Notifiche e Webhook",
-        "subtitle": "Scopri nel momento in cui un progetto rileva una vulnerabilità — e attiva la tua automazione per correggerla.",
-        "slackTitle": "Slack",
-        "slackBody": "Pubblica i risultati in qualsiasi canale tramite un webhook in entrata, con grassetto ed elenchi nativi.",
-        "telegramTitle": "Telegram",
-        "telegramBody": "Invia avvisi a una chat o a un gruppo tramite un bot — con formattazione corretta, non markup grezzo.",
-        "webhookTitle": "Webhook",
-        "webhookBody": "Fai POST verso qualsiasi endpoint per instradare gli avvisi dove il tuo team già lavora.",
-        "flavorsTitle": "Due formati di webhook",
-        "flavorsSubtitle": "Scegli il payload adatto a ciò che stai costruendo.",
-        "jsonTitle": "JSON strutturato",
-        "jsonBody": "Root, progetto e un elenco di vulnerabilità — ciascuna con libreria, versione, versione consigliata e avviso. Pronto per un agente di auto-correzione.",
-        "textTitle": "Avviso in testo semplice",
-        "textBody": "La stessa esportazione degli avvisi del portale, come testo — da passare direttamente a un LLM per il triage e la correzione.",
-        "scopeTitle": "Per root o per progetto",
-        "scopeBody": "Invia tutto in un unico posto, oppure collega una root specifica — o un singolo progetto — al proprio canale o webhook."
     },
     "ReleaseNotes": {
         "title": "Note di rilascio",

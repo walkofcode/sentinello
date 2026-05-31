@@ -1,13 +1,13 @@
 import { useTranslations } from 'next-intl'
-import { ArrowRight } from 'lucide-react'
-import { DOCKER_RUN_COMMAND } from '@/lib/links'
+import { ArrowRight, BookOpen, Cpu } from 'lucide-react'
+import { DOCKER_RUN_COMMAND, GITHUB_URL } from '@/lib/links'
 import { CopyBlock } from '@/components/ui/copy-block'
 import { GitHubStars } from '@/components/ui/github-stars'
 
 export function Hero() {
     const t = useTranslations('Hero')
     return (
-        <section className="border-b">
+        <section>
             <div className="mx-auto w-full max-w-6xl px-4 py-20 sm:py-28">
                 <h1 className="max-w-3xl text-4xl font-bold tracking-tight text-balance sm:text-5xl">
                     {t('title')}
@@ -19,14 +19,20 @@ export function Hero() {
                         {t('commandCaption')}
                     </p>
                     <CopyBlock code={DOCKER_RUN_COMMAND} />
+                    <p className="mt-3 inline-flex items-center gap-2 text-sm text-muted-foreground">
+                        <Cpu className="h-4 w-4" />
+                        {t('multiArch')}
+                    </p>
                 </div>
                 <div className="mt-6 flex flex-wrap items-center gap-3">
                     <a
-                        href="#selfHost"
+                        href={GITHUB_URL + '#quick-start'}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-primary px-7 text-base font-medium text-primary-foreground transition-opacity hover:opacity-90"
                     >
+                        <BookOpen className="h-4 w-4" />
                         {t('ctaPrimary')}
-                        <ArrowRight className="h-4 w-4" />
                     </a>
                     <GitHubStars label={t('ctaSecondary')} />
                 </div>

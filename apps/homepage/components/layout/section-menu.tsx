@@ -9,16 +9,12 @@ import { cn } from '@/lib/cn'
 // Section ids in page order. The label for each is the section's own heading key, so the bar and the
 // menu always read exactly what's printed on the page (single source of truth).
 const SECTIONS: { id: string; titleKey: string }[] = [
-    { id: 'how', titleKey: 'How.title' },
     { id: 'features', titleKey: 'Features.title' },
-    { id: 'notifications', titleKey: 'Notifications.title' },
     { id: 'screenshots', titleKey: 'Screenshots.title' },
-    { id: 'selfHost', titleKey: 'SelfHost.title' },
-    { id: 'why', titleKey: 'Why.title' },
     { id: 'comparison', titleKey: 'Comparison.title' },
+    { id: 'why', titleKey: 'Why.title' },
     { id: 'releaseNotes', titleKey: 'ReleaseNotes.title' },
-    { id: 'roadmap', titleKey: 'Roadmap.title' },
-    { id: 'whoFor', titleKey: 'WhoFor.title' }
+    { id: 'roadmap', titleKey: 'Roadmap.title' }
 ]
 
 // A section is "active" once its top scrolls above this line (just below the 56px sticky header).

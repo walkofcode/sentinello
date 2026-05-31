@@ -40,16 +40,17 @@
         "title": "An early-warning system for the dependencies you stopped watching.",
         "subtitle": "In the AI age you ship more Node.js projects than you can maintain. Sentinello watches every one and surfaces known CVEs in their npm dependencies — so a forgotten project never becomes an incident.",
         "commandCaption": "Run it in one command:",
-        "ctaPrimary": "Self-host now",
+        "ctaPrimary": "Read the quick start",
         "ctaSecondary": "Star on GitHub",
+        "multiArch": "Runs on linux/amd64 and arm64",
         "trust": "No account. No SaaS. No telemetry. One Docker image and one SQLite file — your code and your findings never leave your machine."
     },
     "Why": {
         "title": "Why we built this",
         "lead": "In the AI age, you ship more than you can maintain.",
-        "body1": "A single developer now spins up, delivers, and moves on from a dozen projects a year. The marketing site, the client dashboard, the side project that quietly went to production — they keep running long after anyone last looked at them.",
-        "callout": "A single forgotten dependency with a critical remote-code-execution flaw is all it takes. The simplest site can become the way in.",
-        "body2": "Sentinello is the early-warning system for that long tail. It watches every project you point it at, so a new CVE in something you shipped months ago surfaces in one place — before it becomes a disaster."
+        "body1": "A solo dev now spins up, delivers, and moves on from a dozen projects a year — the marketing site, the client dashboard, the side project that quietly went to production. Keeping them safe used to mean SSHing into each checkout to run npm audit by hand, or finding out about a Next.js CVE from a headline days after it dropped. Nobody keeps that up across a dozen repos, so it doesn't happen at all.",
+        "callout": "A single forgotten dependency with a critical remote-code-execution flaw is all it takes. The simplest site you stopped watching becomes the way in.",
+        "body2": "“Why not just use Snyk or Dependabot?” Those live inside the CI pipeline you wired up — and the long tail never got one. Sentinello is the early-warning system for everything else: point it at a folder and it watches every project you forgot, surfacing each new CVE in one queue before it becomes an incident."
     },
     "Comparison": {
         "title": "How it compares",
@@ -68,7 +69,8 @@
         "row_aiNative": "AI-native (MCP + export)",
         "row_polyglot": "Polyglot (Python, Go, …)",
         "row_enterprisePolicy": "Enterprise policy / VEX",
-        "footnote": "Dependency-Track only sees the projects someone instrumented with an SBOM pipeline. Sentinello finds the ones you forgot. They’re stronger on polyglot coverage and enterprise policy — if you already run them on a mature pipeline, keep them. Sentinello is for the rest of your portfolio that nobody is watching."
+        "planned": "Planned",
+        "footnote": "Dependency-Track only sees the projects someone instrumented with an SBOM pipeline. Sentinello finds the ones you forgot. They’re stronger on enterprise policy, and polyglot coverage is on Sentinello’s roadmap — if you already run them on a mature pipeline, keep them. Sentinello is for the rest of your portfolio that nobody is watching."
     },
     "How": {
         "title": "How it works",
@@ -85,20 +87,16 @@
         "subtitle": "Everything in one self-hosted portal — no external services, no data leaving your network.",
         "queueTitle": "Single triage queue",
         "queueBody": "See and triage CVEs across your whole portfolio in one place — instead of npm audit scattered across a dozen checkouts.",
-        "byProjectTitle": "Browse by project",
-        "byProjectBody": "Drill into any repository to see its current findings, fix versions, scan history, and mutes.",
-        "byLibraryTitle": "Browse by library",
-        "byLibraryBody": "Pivot to a vulnerable package and see every project it affects — then mute it everywhere at once.",
+        "browseTitle": "Browse by project or library",
+        "browseBody": "Drill into any repository for its findings, fix versions, and history — or pivot to a vulnerable package to see every project it affects and mute it everywhere at once.",
         "exportTitle": "Advisory export",
         "exportBody": "Export findings for a project or library as Markdown, with a customizable remediation prompt for your team or an LLM.",
         "scanningTitle": "Continuous scanning",
         "scanningBody": "A background worker rescans on a schedule, so new advisories show up without you remembering to check.",
         "sourcesTitle": "Multiple sources",
         "sourcesBody": "Beyond npm audit: match against the OSV database for broader CVE coverage and known-malicious package detection.",
-        "severityTitle": "Severity filtering",
-        "severityBody": "Sort and filter findings by severity to handle the criticals first and the noise later.",
-        "notificationsTitle": "Notifications",
-        "notificationsBody": "Get failure and finding alerts via Slack, Telegram, or a plain webhook — in the language you choose.",
+        "notificationsTitle": "Notifications & webhooks",
+        "notificationsBody": "Get failure and finding alerts via Slack, Telegram, or a plain webhook — scoped per root or project, in the language you choose. JSON or plain-text payloads for an auto-fix agent.",
         "selfContainedTitle": "Single image, single file",
         "selfContainedBody": "One Docker image and one SQLite file. No database server, no message queue, no cloud dependency.",
         "autoRootsTitle": "Auto-registered roots",
@@ -109,17 +107,6 @@
         "languagesBody": "The portal UI, scan reason codes, and statuses are localized to 10 languages.",
         "mcpTitle": "MCP server",
         "mcpBody": "Connect Claude Desktop, Cursor, and other MCP clients to query findings, projects, and libraries — and trigger scans — without leaving the chat."
-    },
-    "SelfHost": {
-        "title": "Self-host",
-        "subtitle": "Self-host in minutes — copy, paste, open localhost. Pin a version tag for production.",
-        "runTab": "docker run",
-        "composeTab": "docker compose",
-        "pm2Tab": "pm2",
-        "rootsNote": "Anything mounted under /roots is auto-registered on startup — the directory name becomes its label — so discovery and scanning begin on their own. Mounting is optional; you can also add roots from the portal.",
-        "multiArch": "Runs on linux/amd64 and arm64",
-        "docsLink": "Read the quick start",
-        "githubLink": "View on GitHub"
     },
     "Screenshots": {
         "title": "Screenshots",
@@ -156,24 +143,6 @@
         "point2": "You want a portfolio-wide view without wiring CI into every repository.",
         "point3": "You'd rather self-host than hand your code inventory to a SaaS.",
         "honest": "If you're a large org with Snyk or Dependabot already wired into a mature pipeline, keep them — Sentinello isn't trying to replace enterprise SCA. It's here for the rest of your portfolio that nobody is watching. It's open source and MIT-licensed, so you can read exactly what it does."
-    },
-    "Notifications": {
-        "title": "Notifications & Webhooks",
-        "subtitle": "Get told the moment a project picks up a vulnerability — and trigger your own automation to fix it.",
-        "slackTitle": "Slack",
-        "slackBody": "Post findings to any channel via an incoming webhook, with native bold and bullet formatting.",
-        "telegramTitle": "Telegram",
-        "telegramBody": "Send alerts to a chat or group through a bot — rendered with proper formatting, not raw markup.",
-        "webhookTitle": "Webhook",
-        "webhookBody": "POST to any endpoint so you can route alerts wherever your team already works.",
-        "flavorsTitle": "Two webhook flavors",
-        "flavorsSubtitle": "Pick the payload that fits what you're building.",
-        "jsonTitle": "Structured JSON",
-        "jsonBody": "Root, project and a vulnerabilities list — each with library, version, recommended version and advisory. Ready for an auto-fix agent to act on.",
-        "textTitle": "Plain-text advisory",
-        "textBody": "The same advisory export shown in the portal, as text — drop it straight into an LLM to triage and fix.",
-        "scopeTitle": "Scoped by root or project",
-        "scopeBody": "Send everything to one place, or wire a specific root — or a single project — to its own channel or webhook."
     },
     "ReleaseNotes": {
         "title": "Release notes",

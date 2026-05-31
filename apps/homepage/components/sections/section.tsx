@@ -5,12 +5,11 @@ type Props = {
     id?: string
     children: ReactNode
     className?: string
-    muted?: boolean
 }
 
-export function Section({ id, children, className, muted }: Props) {
+export function Section({ id, children, className }: Props) {
     return (
-        <section id={id} className={cn('scroll-mt-16 border-b', muted && 'bg-muted/40')}>
+        <section id={id} className="scroll-mt-16">
             <div className={cn('mx-auto w-full max-w-6xl px-4 py-16 sm:py-20', className)}>{children}</div>
         </section>
     )

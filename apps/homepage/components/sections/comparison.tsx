@@ -5,7 +5,7 @@ import { Section } from './section'
 // Rows are the axes Sentinello is compared on; the three competitor columns plus Sentinello. Each cell
 // is one of 'yes' | 'no' | 'partial', rendered as an icon + a short localized note. The data is static
 // (positioning, not a live feature matrix) so it lives inline; copy comes from the Comparison catalog.
-type Cell = 'yes' | 'no' | 'partial'
+type Cell = 'yes' | 'no' | 'partial' | 'planned'
 
 const COLUMNS = ['sentinello', 'depTrack', 'snyk', 'dependabot'] as const
 type Column = (typeof COLUMNS)[number]
@@ -18,14 +18,14 @@ const ROWS: { key: string; cells: Record<Column, Cell> }[] = [
     { key: 'selfHosted', cells: { sentinello: 'yes', depTrack: 'yes', snyk: 'no', dependabot: 'no' } },
     { key: 'singleBinary', cells: { sentinello: 'yes', depTrack: 'no', snyk: 'no', dependabot: 'no' } },
     { key: 'aiNative', cells: { sentinello: 'yes', depTrack: 'no', snyk: 'partial', dependabot: 'no' } },
-    { key: 'polyglot', cells: { sentinello: 'no', depTrack: 'yes', snyk: 'yes', dependabot: 'yes' } },
+    { key: 'polyglot', cells: { sentinello: 'planned', depTrack: 'yes', snyk: 'yes', dependabot: 'yes' } },
     { key: 'enterprisePolicy', cells: { sentinello: 'partial', depTrack: 'yes', snyk: 'yes', dependabot: 'partial' } }
 ]
 
 export function Comparison() {
     const t = useTranslations('Comparison')
     return (
-        <Section id="comparison" muted>
+        <Section id="comparison">
             <h2 className="text-3xl font-bold tracking-tight">{t('title')}</h2>
             <p className="mt-4 max-w-2xl text-lg text-muted-foreground">{t('subtitle')}</p>
             <div className="mt-10 overflow-x-auto">
@@ -58,7 +58,7 @@ export function Comparison() {
                                         const isUs = col === 'sentinello'
                                         return (
                                             <td key={col} className={'px-3 py-3 text-center ' + (isUs ? 'bg-primary/5' : '')}>
-                                                <CellMark value={cells[col]} />
+                                                <CellMark value={cells[col]} plannedLabel={t('planned')} />
                                             </td>
                                         )
                                     })}
@@ -73,9 +73,16 @@ export function Comparison() {
     )
 }
 
-function CellMark({ value }: { value: Cell }) {
+function CellMark({ value, plannedLabel }: { value: Cell; plannedLabel: string }) {
     if (value === 'yes') {
         return <Check className="mx-auto h-4 w-4 text-success" aria-label="yes" />
+    }
+    if (value === 'planned') {
+        return (
+            <span className="inline-block rounded-full border border-primary/40 px-2 py-0.5 text-[0.65rem] font-medium uppercase tracking-wider text-primary">
+                {plannedLabel}
+            </span>
+        )
     }
     if (value === 'partial') {
         return <span className="text-xs font-medium text-muted-foreground" aria-label="partial">~</span>

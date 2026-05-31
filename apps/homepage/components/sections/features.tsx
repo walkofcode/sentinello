@@ -1,14 +1,12 @@
 import { useTranslations } from 'next-intl'
-import { Bell, Bot, Boxes, Container, FileDown, Filter, FolderGit2, Inbox, Languages, Package, RefreshCw, ServerCog, ShieldAlert, type LucideIcon } from 'lucide-react'
+import { Bell, Bot, Boxes, Container, FileDown, FolderGit2, Inbox, Languages, RefreshCw, ServerCog, ShieldAlert, type LucideIcon } from 'lucide-react'
 import { Section } from './section'
 
 const FEATURES: { key: string; Icon: LucideIcon }[] = [
     { key: 'queue', Icon: Inbox },
-    { key: 'byProject', Icon: FolderGit2 },
-    { key: 'byLibrary', Icon: Package },
+    { key: 'browse', Icon: FolderGit2 },
     { key: 'scanning', Icon: RefreshCw },
     { key: 'sources', Icon: ShieldAlert },
-    { key: 'severity', Icon: Filter },
     { key: 'notifications', Icon: Bell },
     { key: 'mcp', Icon: Bot },
     { key: 'export', Icon: FileDown },
@@ -21,7 +19,7 @@ const FEATURES: { key: string; Icon: LucideIcon }[] = [
 export function Features() {
     const t = useTranslations('Features')
     return (
-        <Section id="features" muted>
+        <Section id="features">
             <h2 className="text-3xl font-bold tracking-tight">{t('title')}</h2>
             <p className="mt-4 max-w-2xl text-lg text-muted-foreground">{t('subtitle')}</p>
             <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

@@ -40,16 +40,17 @@
         "title": "为那些你不再盯着看的依赖，提供一套早期预警系统。",
         "subtitle": "在 AI 时代，你发布的 Node.js 项目多过你能维护的数量。Sentinello 会盯住其中的每一个，揭示其 npm 依赖中已知的 CVE —— 让被遗忘的项目永远不会演变成事故。",
         "commandCaption": "一条命令即可运行：",
-        "ctaPrimary": "立即自托管",
+        "ctaPrimary": "阅读快速开始",
         "ctaSecondary": "在 GitHub 上加星",
+        "multiArch": "运行于 linux/amd64 和 arm64",
         "trust": "无需账号。没有 SaaS。没有遥测。一个 Docker 镜像和一个 SQLite 文件 —— 你的代码和结果绝不离开你的机器。"
     },
     "Why": {
         "title": "我们为何打造它",
         "lead": "在 AI 时代，你发布的多过你能维护的。",
-        "body1": "如今，一个人一年里就会启动、交付并放下十几个项目。营销站点、客户仪表盘、悄悄上线到生产环境的业余项目 —— 在最后一次有人查看它们之后，它们仍在长久地运行。",
-        "callout": "只需一个被遗忘、带有严重远程代码执行漏洞的依赖就足够了。最简单的站点也可能成为入侵的入口。",
-        "body2": "Sentinello 正是这条长尾的早期预警系统。它会盯住你指向它的每一个项目，让你几个月前发布的东西里出现的新 CVE 在一个地方浮现 —— 赶在它酿成灾难之前。"
+        "body1": "如今，一个独立开发者一年就会启动、交付、然后放下十几个项目 —— 营销站点、客户仪表盘、悄悄上了生产的业余项目。要让它们保持安全，过去意味着逐个 SSH 进每个检出目录手动跑 npm audit，或者在某个 Next.js CVE 爆出几天后才从新闻标题里得知。没人能对十几个仓库坚持这么做，所以这事根本就没人做。",
+        "callout": "只需一个被遗忘、带有严重远程代码执行漏洞的依赖就足够了。那个你不再盯着看的最简单的站点，会成为入侵的入口。",
+        "body2": "“为什么不直接用 Snyk 或 Dependabot？”那些工具活在你接好的 CI 流水线里 —— 而这条长尾从来就没有流水线。Sentinello 正是其余一切的早期预警系统：把它指向一个文件夹，它就会盯住你遗忘的每一个项目，在每个新 CVE 演变成事故之前，把它汇集到一个队列里浮现出来。"
     },
     "Comparison": {
         "title": "对比",
@@ -68,7 +69,8 @@
         "row_aiNative": "AI 原生（MCP + 导出）",
         "row_polyglot": "多语言（Python、Go……）",
         "row_enterprisePolicy": "企业策略 / VEX",
-        "footnote": "Dependency-Track 只能看到有人用 SBOM 流水线接入的项目。Sentinello 找出你遗忘的那些。它们在多语言覆盖和企业策略上更强——如果你已在成熟流水线中使用它们，继续用。Sentinello 面向你那些无人看管的其余项目。"
+        "planned": "计划中",
+        "footnote": "Dependency-Track 只能看到有人用 SBOM 流水线接入的项目。Sentinello 找出你遗忘的那些。它们在企业策略上更强，而多语言覆盖已在 Sentinello 的路线图上 —— 如果你已在成熟流水线中运行它们，继续用。Sentinello 面向你那部分无人看管的其余项目组合。"
     },
     "How": {
         "title": "工作原理",
@@ -85,20 +87,16 @@
         "subtitle": "尽在一个自托管门户 —— 没有外部服务，数据不会离开你的网络。",
         "queueTitle": "单一分诊队列",
         "queueBody": "在一个地方查看并分诊整个组合的 CVE —— 而不是散落在十几个检出目录里的 npm audit。",
-        "byProjectTitle": "按项目浏览",
-        "byProjectBody": "进入任意仓库，查看其当前发现、修复版本、扫描历史和静音设置。",
-        "byLibraryTitle": "按库浏览",
-        "byLibraryBody": "切换到某个易受攻击的包，查看它影响的每一个项目 —— 然后一次性在所有项目中将其静音。",
+        "browseTitle": "按项目或库浏览",
+        "browseBody": "深入任意仓库，查看它的发现、修复版本和历史 —— 或切换到某个易受攻击的包，看它影响的每一个项目，并一次性在所有项目中将其静音。",
         "exportTitle": "公告导出",
         "exportBody": "将项目或库的发现导出为 Markdown，并附带可为你的团队或 LLM 自定义的修复提示。",
         "scanningTitle": "持续扫描",
         "scanningBody": "后台工作进程按计划重新扫描，新的公告会自动出现，无需你记得去检查。",
         "sourcesTitle": "多种来源",
         "sourcesBody": "不止 npm audit：与 OSV 数据库匹配，获得更广的 CVE 覆盖并检测已知恶意软件包。",
-        "severityTitle": "按严重程度筛选",
-        "severityBody": "按严重程度排序和筛选结果，先处理严重项，再处理噪声。",
-        "notificationsTitle": "通知",
-        "notificationsBody": "通过 Slack、Telegram 或一个普通 Webhook 接收失败与发现的告警 —— 使用你选择的语言。",
+        "notificationsTitle": "通知与 Webhook",
+        "notificationsBody": "通过 Slack、Telegram 或一个普通 Webhook 接收失败与发现的告警 —— 可按 root 或项目划分范围，并使用你选择的语言。JSON 或纯文本负载，可直接交给自动修复代理。",
         "selfContainedTitle": "一个镜像，一个文件",
         "selfContainedBody": "一个 Docker 镜像和一个 SQLite 文件。没有数据库服务器，没有消息队列，没有云端依赖。",
         "autoRootsTitle": "自动注册的 Roots",
@@ -109,17 +107,6 @@
         "languagesBody": "门户界面、扫描原因代码和状态均已本地化为 10 种语言。",
         "mcpTitle": "MCP 服务器",
         "mcpBody": "连接 Claude Desktop、Cursor 等 MCP 客户端，无需离开聊天即可查询发现、项目和库，并触发扫描。"
-    },
-    "SelfHost": {
-        "title": "自托管",
-        "subtitle": "几分钟即可自托管。复制、粘贴、打开 localhost。生产环境请固定一个版本标签。",
-        "runTab": "docker run",
-        "composeTab": "docker compose",
-        "pm2Tab": "pm2",
-        "rootsNote": "挂载到 /roots 下的任何内容都会在启动时被自动注册 —— 目录名会成为它的标签 —— 因此发现和扫描会自行开始。挂载是可选的；你也可以从门户中添加 Roots。",
-        "multiArch": "运行于 linux/amd64 和 arm64",
-        "docsLink": "阅读快速开始",
-        "githubLink": "在 GitHub 上查看"
     },
     "Screenshots": {
         "title": "截图",
@@ -156,24 +143,6 @@
         "point2": "你想要覆盖整个组合的视图，而不必为每个仓库接入 CI。",
         "point3": "比起把代码清单交给 SaaS，你更愿意自托管。",
         "honest": "如果你是一家大型机构，已经在成熟的流水线中接入了 Snyk 或 Dependabot，那就继续用它们 —— Sentinello 并不想取代企业级 SCA。它面向的是你那部分无人盯防的代码组合。它是开源且采用 MIT 许可证的，因此你可以确切地读到它在做什么。"
-    },
-    "Notifications": {
-        "title": "通知与 Webhook",
-        "subtitle": "在项目出现漏洞的那一刻就收到提醒——并触发你自己的自动化来修复它。",
-        "slackTitle": "Slack",
-        "slackBody": "通过 incoming webhook 将发现结果发布到任意频道，原生支持加粗和项目符号。",
-        "telegramTitle": "Telegram",
-        "telegramBody": "通过机器人向聊天或群组发送告警——以正确的格式呈现，而非原始标记。",
-        "webhookTitle": "Webhook",
-        "webhookBody": "向任意端点发起 POST，把告警路由到团队已经在用的地方。",
-        "flavorsTitle": "两种 Webhook 形式",
-        "flavorsSubtitle": "选择适合你所构建内容的负载。",
-        "jsonTitle": "结构化 JSON",
-        "jsonBody": "根目录、项目以及漏洞列表——每项包含库、版本、推荐版本和公告。可供自动修复代理直接处理。",
-        "textTitle": "纯文本公告",
-        "textBody": "与门户中相同的公告导出内容，以文本形式呈现——可直接交给 LLM 进行分诊和修复。",
-        "scopeTitle": "按根目录或项目划分",
-        "scopeBody": "将所有内容发送到一处，或将某个特定根目录——或单个项目——连接到它自己的频道或 Webhook。"
     },
     "ReleaseNotes": {
         "title": "发行说明",
