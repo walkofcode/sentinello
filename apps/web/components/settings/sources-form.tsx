@@ -6,6 +6,7 @@ import { RefreshCw, ShieldAlert } from 'lucide-react'
 import type { OsvSourceStatus } from '@sentinello/core'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { formatRelativeTime } from '@/lib/format'
 import { refreshOsvAction, updateSourcesAction } from '@/lib/actions/settings'
 
@@ -67,19 +68,21 @@ export function SourcesForm({ osvEnabled, status }: Props) {
                             <div className="flex items-center gap-2">
                                 <span className="text-sm font-medium">{t('sources.osvLabel')}</span>
                                 <Badge variant="osv">OSV</Badge>
+                                <Badge variant="muted">{t('sources.optional')}</Badge>
                             </div>
                             <p className="mt-1 text-xs text-muted-foreground">{t('sources.osvHelp')}</p>
                         </div>
-                        <label className="flex shrink-0 items-center gap-2 text-sm">
-                            <input
-                                type="checkbox"
+                        <div className="flex shrink-0 items-center gap-2.5 text-sm">
+                            <span className="text-muted-foreground">
+                                {enabled ? t('sources.enabled') : t('sources.disabled')}
+                            </span>
+                            <Switch
                                 checked={enabled}
                                 disabled={pending}
-                                onChange={function onChange(e) { toggle(e.target.checked) }}
-                                className="h-4 w-4"
+                                onCheckedChange={toggle}
+                                aria-label={t('sources.osvLabel')}
                             />
-                            {enabled ? t('sources.enabled') : t('sources.disabled')}
-                        </label>
+                        </div>
                     </div>
 
                     {/* Provisioning disclosure — shown whenever the source is off OR not yet seeded. */}
