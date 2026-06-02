@@ -2,6 +2,8 @@ import { sql } from 'drizzle-orm'
 import type { DepTypeFilter } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { depTypeClause } from './dep-type'
+import { activeScannerClause } from './sources'
+import { advisoryIdentitySql } from './advisory-identity'
 
 // The library pivot is a SQL aggregation over findings, restricted to the same blast-radius the
 // rest of the portal honors: open lifecycle episodes only (resolved_at IS NULL), no missing
@@ -35,6 +37,7 @@ export type LibraryProjectUsage = {
 
 export function listLibraries(db: DrizzleDb, at: number, depType: DepTypeFilter = 'all'): LibrarySummary[] {
     const depFilter = depTypeClause(depType)
+    const sourceFilter = activeScannerClause(db)
     const rows = db
         .all<{
             package_name: string
@@ -45,13 +48,14 @@ export function listLibraries(db: DrizzleDb, at: number, depType: DepTypeFilter 
             sql`
             SELECT
                 f.package_name AS package_name,
-                COUNT(DISTINCT f.advisory_id) AS distinct_advisories,
+                COUNT(DISTINCT ${advisoryIdentitySql('f')}) AS distinct_advisories,
                 COUNT(DISTINCT f.project_id) AS distinct_projects,
                 GROUP_CONCAT(DISTINCT f.severity) AS severities
             FROM findings f
             INNER JOIN projects p ON p.id = f.project_id
             WHERE f.resolved_at IS NULL
               ${depFilter}
+              ${sourceFilter}
               AND NOT EXISTS (
                 SELECT 1 FROM mutes m
                 WHERE (m.expires_at IS NULL OR m.expires_at > ${at})
@@ -87,6 +91,7 @@ export function listLibraryUsage(
     depType: DepTypeFilter = 'all'
 ): LibraryProjectUsage[] {
     const depFilter = depTypeClause(depType)
+    const sourceFilter = activeScannerClause(db)
     const rows = db.all<{
         project_id: string
         project_name: string
@@ -121,6 +126,7 @@ export function listLibraryUsage(
         WHERE f.package_name = ${packageName}
           AND f.resolved_at IS NULL
           ${depFilter}
+          ${sourceFilter}
           AND NOT EXISTS (
             SELECT 1 FROM mutes m
             WHERE (m.expires_at IS NULL OR m.expires_at > ${at})

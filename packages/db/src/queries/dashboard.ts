@@ -2,6 +2,8 @@ import { sql } from 'drizzle-orm'
 import { SCAN_HEARTBEAT_STALE_MS, type DepTypeFilter } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { depTypeClause } from './dep-type'
+import { activeScannerClause } from './sources'
+import { advisoryIdentitySql, severityRankSql, findingMuteExclusionSql } from './advisory-identity'
 
 // Aggregate queries that power the Dashboard. Each is a single SQL statement returning a small
 // fixed-shape row so the dashboard renders with one DB hit per tile (no N+1).
@@ -26,6 +28,7 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeFilter = 'all'): DashboardSummary {
     const depFilter = depTypeClause(depType)
+    const sourceFilter = activeScannerClause(db)
     const total = db
         .get<{ n: number }>(sql`
             SELECT COUNT(*) AS n
@@ -38,6 +41,7 @@ export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeF
             INNER JOIN findings f ON f.project_id = p.id
             WHERE f.resolved_at IS NULL
               ${depFilter}
+              ${sourceFilter}
               AND NOT EXISTS (
                 SELECT 1 FROM mutes m
                 WHERE (m.expires_at IS NULL OR m.expires_at > ${at})
@@ -61,30 +65,22 @@ export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeF
             low: number
             info: number
         }>(sql`
+            WITH deduped AS (
+                SELECT MAX(${severityRankSql('f')}) AS sev_rank
+                FROM findings f
+                WHERE f.resolved_at IS NULL
+                  ${depFilter}
+                  ${sourceFilter}
+                  ${findingMuteExclusionSql(at, 'f')}
+                GROUP BY f.project_id, f.package_name, ${advisoryIdentitySql('f')}
+            )
             SELECT
-                SUM(CASE WHEN f.severity = 'critical' THEN 1 ELSE 0 END) AS critical,
-                SUM(CASE WHEN f.severity = 'high' THEN 1 ELSE 0 END) AS high,
-                SUM(CASE WHEN f.severity = 'moderate' THEN 1 ELSE 0 END) AS moderate,
-                SUM(CASE WHEN f.severity = 'low' THEN 1 ELSE 0 END) AS low,
-                SUM(CASE WHEN f.severity = 'info' THEN 1 ELSE 0 END) AS info
-            FROM findings f
-            INNER JOIN projects p ON p.id = f.project_id
-            WHERE f.resolved_at IS NULL
-              ${depFilter}
-              AND NOT EXISTS (
-                SELECT 1 FROM mutes m
-                WHERE (m.expires_at IS NULL OR m.expires_at > ${at})
-                  AND (
-                    (m.scope = 'project' AND m.project_id = p.id)
-                    OR (
-                      m.scope = 'finding'
-                      AND (m.project_id IS NULL OR m.project_id = p.id)
-                      AND m.scanner = f.scanner
-                      AND m.advisory_id = f.advisory_id
-                      AND m.package_name = f.package_name
-                    )
-                  )
-              )
+                SUM(CASE WHEN sev_rank = 5 THEN 1 ELSE 0 END) AS critical,
+                SUM(CASE WHEN sev_rank = 4 THEN 1 ELSE 0 END) AS high,
+                SUM(CASE WHEN sev_rank = 3 THEN 1 ELSE 0 END) AS moderate,
+                SUM(CASE WHEN sev_rank = 2 THEN 1 ELSE 0 END) AS low,
+                SUM(CASE WHEN sev_rank = 1 THEN 1 ELSE 0 END) AS info
+            FROM deduped
         `)
     const cutoff = at - DAY_MS
     const last24 = db
@@ -161,6 +157,7 @@ export type ProjectCatalogRow = {
 
 export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFilter = 'all'): ProjectCatalogRow[] {
     const depFilter = depTypeClause(depType)
+    const sourceFilter = activeScannerClause(db)
     const rows = db.all<{
         id: string
         name: string
@@ -195,6 +192,25 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
                 ORDER BY s2.finished_at DESC
                 LIMIT 1
             )
+        ),
+        deduped AS (
+            SELECT f.project_id AS project_id, MAX(${severityRankSql('f')}) AS sev_rank
+            FROM findings f
+            WHERE f.resolved_at IS NULL
+              ${depFilter}
+              ${sourceFilter}
+              ${findingMuteExclusionSql(at, 'f')}
+            GROUP BY f.project_id, f.package_name, ${advisoryIdentitySql('f')}
+        ),
+        project_sev AS (
+            SELECT project_id,
+                SUM(CASE WHEN sev_rank = 5 THEN 1 ELSE 0 END) AS critical,
+                SUM(CASE WHEN sev_rank = 4 THEN 1 ELSE 0 END) AS high,
+                SUM(CASE WHEN sev_rank = 3 THEN 1 ELSE 0 END) AS moderate,
+                SUM(CASE WHEN sev_rank = 2 THEN 1 ELSE 0 END) AS low,
+                SUM(CASE WHEN sev_rank = 1 THEN 1 ELSE 0 END) AS info
+            FROM deduped
+            GROUP BY project_id
         )
         SELECT
             p.id AS id,
@@ -218,32 +234,15 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             ls.status AS last_scan_status,
             ls.reason_code AS last_scan_reason_code,
             ls.error_text AS last_scan_error_text,
-            COALESCE(SUM(CASE WHEN f.severity = 'critical' AND mu.muted IS NULL THEN 1 ELSE 0 END), 0) AS critical,
-            COALESCE(SUM(CASE WHEN f.severity = 'high' AND mu.muted IS NULL THEN 1 ELSE 0 END), 0) AS high,
-            COALESCE(SUM(CASE WHEN f.severity = 'moderate' AND mu.muted IS NULL THEN 1 ELSE 0 END), 0) AS moderate,
-            COALESCE(SUM(CASE WHEN f.severity = 'low' AND mu.muted IS NULL THEN 1 ELSE 0 END), 0) AS low,
-            COALESCE(SUM(CASE WHEN f.severity = 'info' AND mu.muted IS NULL THEN 1 ELSE 0 END), 0) AS info
+            COALESCE(ps.critical, 0) AS critical,
+            COALESCE(ps.high, 0) AS high,
+            COALESCE(ps.moderate, 0) AS moderate,
+            COALESCE(ps.low, 0) AS low,
+            COALESCE(ps.info, 0) AS info
         FROM projects p
         INNER JOIN roots r ON r.id = p.root_id
         LEFT JOIN latest_scan ls ON ls.project_id = p.id
-        LEFT JOIN findings f ON f.project_id = p.id AND f.resolved_at IS NULL ${depFilter}
-        LEFT JOIN (
-            SELECT f2.id AS finding_id, 1 AS muted
-            FROM findings f2
-            INNER JOIN mutes m ON
-                (m.expires_at IS NULL OR m.expires_at > ${at})
-                AND (
-                    (m.scope = 'project' AND m.project_id = f2.project_id)
-                    OR (
-                        m.scope = 'finding'
-                        AND (m.project_id IS NULL OR m.project_id = f2.project_id)
-                        AND m.scanner = f2.scanner
-                        AND m.advisory_id = f2.advisory_id
-                        AND m.package_name = f2.package_name
-                    )
-                )
-        ) mu ON mu.finding_id = f.id
-        GROUP BY p.id, r.id, ls.scan_id
+        LEFT JOIN project_sev ps ON ps.project_id = p.id
         ORDER BY p.name ASC
     `)
     return rows.map(function toRow(row): ProjectCatalogRow {
@@ -301,6 +300,7 @@ export function listCurrentFindingsForProject(
     depType: DepTypeFilter = 'all'
 ): CurrentFindingRow[] {
     const depFilter = depTypeClause(depType)
+    const sourceFilter = activeScannerClause(db)
     const rows = db.all<{
         id: string
         scan_id: string
@@ -345,6 +345,7 @@ export function listCurrentFindingsForProject(
         WHERE f.project_id = ${projectId}
           AND f.resolved_at IS NULL
           ${depFilter}
+          ${sourceFilter}
         ORDER BY
             CASE f.severity
                 WHEN 'critical' THEN 0
