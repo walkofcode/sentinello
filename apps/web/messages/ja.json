@@ -16,6 +16,7 @@
         "language": "言語",
         "tabs": {
             "roots": "ルート",
+            "profile": "プロフィール",
             "schedule": "スケジュール",
             "notifications": "通知",
             "sources": "ソース",
@@ -196,6 +197,13 @@
                 "description": "{path} を完全に削除しますか? {projectCount, plural, =0 {このルートに紐づくプロジェクトはありません。} one {このルート配下の # 件のプロジェクトと、そのスキャン・検出結果・通知履歴もすべて削除されます。} other {このルート配下の # 件のプロジェクトと、それらのスキャン・検出結果・通知履歴もすべて削除されます。}} この操作は取り消せません。",
                 "confirm": "ルートを削除"
             }
+        },
+        "profile": {
+            "metaTitle": "プロフィール · 設定",
+            "title": "プロフィール",
+            "theme": "テーマ",
+            "language": "言語",
+            "fontSize": "フォントサイズ"
         },
         "schedule": {
             "metaTitle": "スケジュール · 設定",

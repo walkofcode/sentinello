@@ -16,6 +16,7 @@
         "language": "Sprache",
         "tabs": {
             "roots": "Wurzeln",
+            "profile": "Profil",
             "schedule": "Zeitplan",
             "notifications": "Benachrichtigungen",
             "sources": "Quellen",
@@ -196,6 +197,13 @@
                 "description": "{path} dauerhaft entfernen? {projectCount, plural, =0 {Diesem Stammverzeichnis sind keine Projekte zugeordnet.} one {# darunter liegendes Projekt wird ebenfalls gelöscht, einschließlich seiner Scans, Findings und Benachrichtigungen.} other {# darunter liegende Projekte werden ebenfalls gelöscht, einschließlich ihrer Scans, Findings und Benachrichtigungen.}} Dies kann nicht rückgängig gemacht werden.",
                 "confirm": "Stammverzeichnis entfernen"
             }
+        },
+        "profile": {
+            "metaTitle": "Profil · Einstellungen",
+            "title": "Profil",
+            "theme": "Design",
+            "language": "Sprache",
+            "fontSize": "Schriftgröße"
         },
         "schedule": {
             "metaTitle": "Zeitplan · Einstellungen",

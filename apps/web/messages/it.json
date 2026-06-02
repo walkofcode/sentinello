@@ -16,6 +16,7 @@
         "language": "Lingua",
         "tabs": {
             "roots": "Radici",
+            "profile": "Profilo",
             "schedule": "Pianificazione",
             "notifications": "Notifiche",
             "sources": "Fonti",
@@ -196,6 +197,13 @@
                 "description": "Rimuovere definitivamente {path}? {projectCount, plural, =0 {Nessun progetto è collegato a questa radice.} one {Verrà eliminato anche # progetto sotto questa radice, insieme alle sue scansioni, ai suoi findings e alle sue notifiche.} other {Verranno eliminati anche # progetti sotto questa radice, insieme alle loro scansioni, ai loro findings e alle loro notifiche.}} Questa operazione non può essere annullata.",
                 "confirm": "Rimuovi radice"
             }
+        },
+        "profile": {
+            "metaTitle": "Profilo · Impostazioni",
+            "title": "Profilo",
+            "theme": "Tema",
+            "language": "Lingua",
+            "fontSize": "Dimensione del testo"
         },
         "schedule": {
             "metaTitle": "Pianificazione · Impostazioni",

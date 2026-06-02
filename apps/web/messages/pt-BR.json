@@ -16,6 +16,7 @@
         "language": "Idioma",
         "tabs": {
             "roots": "Raízes",
+            "profile": "Perfil",
             "schedule": "Agendamento",
             "notifications": "Notificações",
             "sources": "Fontes",
@@ -196,6 +197,13 @@
                 "description": "Remover permanentemente {path}? {projectCount, plural, =0 {Não há projetos vinculados a esta raiz.} one {# projeto sob ela também será excluído, junto com suas varreduras, descobertas e notificações.} other {# projetos sob ela também serão excluídos, junto com suas varreduras, descobertas e notificações.}} Esta ação não pode ser desfeita.",
                 "confirm": "Remover raiz"
             }
+        },
+        "profile": {
+            "metaTitle": "Perfil · Configurações",
+            "title": "Perfil",
+            "theme": "Tema",
+            "language": "Idioma",
+            "fontSize": "Tamanho da fonte"
         },
         "schedule": {
             "metaTitle": "Agendamento · Configurações",

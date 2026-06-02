@@ -6,7 +6,7 @@ import { Check, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { EmptyState } from '@/components/ui/empty-state'
 import { AddRootDialog } from '@/components/settings/add-root-dialog'
 import { ScanAutoRefresh } from '@/components/scan-auto-refresh'
@@ -29,6 +29,7 @@ type Props = {
 export function RootList({ roots, anyInFlight }: Props) {
     const t = useTranslations('Settings')
     const tc = useTranslations('Common')
+    const tTabs = useTranslations('Nav.tabs')
     const [pending, startTransition] = useTransition()
     const [open, setOpen] = useState(false)
     // Single-row label edit at a time, mirroring NotificationTargetList's editingId pattern.
@@ -78,34 +79,33 @@ export function RootList({ roots, anyInFlight }: Props) {
     return (
         <div className="space-y-4">
             <ScanAutoRefresh active={anyInFlight} />
-            {roots.length === 0 ? (
-                <EmptyState
-                    title={t('roots.emptyTitle')}
-                    description={t('roots.emptyDescription')}
-                >
-                    <Button onClick={function openAdd() { setOpen(true) }}>
+            <div className="rounded-(--radius-card) border bg-card">
+                <div className="flex items-center justify-between gap-4 border-b px-5 py-4">
+                    <h2 className="text-sm font-medium">{tTabs('roots')}</h2>
+                    <Button size="sm" onClick={function openAdd() { setOpen(true) }}>
                         <Plus className="h-4 w-4" />
                         {t('roots.addButton')}
                     </Button>
-                </EmptyState>
-            ) : (
-                <>
-                    <div className="flex justify-end">
-                        <Button onClick={function openAdd() { setOpen(true) }}>
-                            <Plus className="h-4 w-4" />
-                            {t('roots.addButton')}
-                        </Button>
+                </div>
+                {roots.length === 0 ? (
+                    <div className="px-5 py-12">
+                        <EmptyState
+                            title={t('roots.emptyTitle')}
+                            description={t('roots.emptyDescription')}
+                        />
                     </div>
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>{t('roots.colPath')}</TableHead>
-                                <TableHead>{t('roots.colLabel')}</TableHead>
-                                <TableHead>{t('roots.colProjects')}</TableHead>
-                                <TableHead className="text-right"></TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
+                ) : (
+                    <div className="w-full overflow-x-auto">
+                        <table className="w-full caption-bottom text-sm">
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>{t('roots.colPath')}</TableHead>
+                                    <TableHead>{t('roots.colLabel')}</TableHead>
+                                    <TableHead>{t('roots.colProjects')}</TableHead>
+                                    <TableHead className="text-right"></TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
                             {roots.map(function row(r) {
                                 const isEditing = editingId === r.id
                                 const busy = r.scanning || pending
@@ -194,10 +194,11 @@ export function RootList({ roots, anyInFlight }: Props) {
                                     </TableRow>
                                 )
                             })}
-                        </TableBody>
-                    </Table>
-                </>
-            )}
+                            </TableBody>
+                        </table>
+                    </div>
+                )}
+            </div>
             <AddRootDialog
                 open={open}
                 onClose={function close() { setOpen(false) }}

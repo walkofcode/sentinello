@@ -59,7 +59,7 @@ export function ScheduleForm({ initial }: Props) {
     // 1h fires every hour, so an anchor is meaningless there.
     const showStartHour = intervalHours !== 1
     return (
-        <div className="space-y-6 rounded-(--radius-card) border bg-card p-6">
+        <div className="space-y-4 rounded-(--radius-card) border bg-card p-6">
             <div className="flex flex-col gap-3">
                 <span className="text-sm font-medium">{t('schedule.scanEvery')}</span>
                 <div className="flex flex-wrap gap-2">

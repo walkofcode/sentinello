@@ -16,6 +16,7 @@
         "language": "Langue",
         "tabs": {
             "roots": "Racines",
+            "profile": "Profil",
             "schedule": "Planification",
             "notifications": "Notifications",
             "sources": "Sources",
@@ -196,6 +197,13 @@
                 "description": "Supprimer définitivement {path} ? {projectCount, plural, =0 {Aucun projet n'est lié à cette racine.} one {# projet sous celle-ci sera également supprimé, ainsi que ses analyses, ses détections et ses notifications.} other {# projets sous celle-ci seront également supprimés, ainsi que leurs analyses, leurs détections et leurs notifications.}} Cette action est irréversible.",
                 "confirm": "Supprimer la racine"
             }
+        },
+        "profile": {
+            "metaTitle": "Profil · Paramètres",
+            "title": "Profil",
+            "theme": "Thème",
+            "language": "Langue",
+            "fontSize": "Taille de police"
         },
         "schedule": {
             "metaTitle": "Planification · Paramètres",

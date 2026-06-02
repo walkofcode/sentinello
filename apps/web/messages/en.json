@@ -16,6 +16,7 @@
         "language": "Language",
         "tabs": {
             "roots": "Roots",
+            "profile": "Profile",
             "schedule": "Schedule",
             "notifications": "Notifications",
             "sources": "Sources",
@@ -196,6 +197,13 @@
                 "description": "Permanently remove {path}? {projectCount, plural, =0 {No projects are linked to this root.} one {# project under it will also be deleted, along with its scans, findings, and notifications.} other {# projects under it will also be deleted, along with their scans, findings, and notifications.}} This cannot be undone.",
                 "confirm": "Remove root"
             }
+        },
+        "profile": {
+            "metaTitle": "Profile · Settings",
+            "title": "Profile",
+            "theme": "Theme",
+            "language": "Language",
+            "fontSize": "Font size"
         },
         "schedule": {
             "metaTitle": "Schedule · Settings",

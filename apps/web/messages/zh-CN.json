@@ -16,6 +16,7 @@
         "language": "语言",
         "tabs": {
             "roots": "根目录",
+            "profile": "个人资料",
             "schedule": "计划任务",
             "notifications": "通知",
             "sources": "来源",
@@ -196,6 +197,13 @@
                 "description": "确定永久移除 {path}？{projectCount, plural, =0 {此根目录下没有关联的项目。} one {将一并删除其下的 # 个项目，以及对应的扫描、发现项和通知。} other {将一并删除其下的 # 个项目，以及对应的扫描、发现项和通知。}}此操作无法撤销。",
                 "confirm": "移除根目录"
             }
+        },
+        "profile": {
+            "metaTitle": "个人资料 · 设置",
+            "title": "个人资料",
+            "theme": "主题",
+            "language": "语言",
+            "fontSize": "字号"
         },
         "schedule": {
             "metaTitle": "计划任务 · 设置",

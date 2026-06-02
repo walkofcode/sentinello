@@ -18,7 +18,7 @@ export async function AboutContent() {
     const t = await getTranslations('About')
     const info = await getVersionInfo()
     return (
-        <div className="content mx-auto max-w-3xl space-y-10">
+        <div className="content space-y-10 rounded-(--radius-card) border bg-card p-6 md:p-8">
             <header className="space-y-2">
                 <h1 className="text-3xl font-bold tracking-tight">{t('title')}</h1>
                 <p className="text-muted-foreground">{t('intro')}</p>

@@ -16,6 +16,7 @@
         "language": "Idioma",
         "tabs": {
             "roots": "Raíces",
+            "profile": "Perfil",
             "schedule": "Programación",
             "notifications": "Notificaciones",
             "sources": "Fuentes",
@@ -196,6 +197,13 @@
                 "description": "¿Eliminar de forma permanente {path}? {projectCount, plural, =0 {No hay proyectos asociados a esta raíz.} one {Se eliminará también # proyecto bajo esta raíz, junto con sus escaneos, hallazgos y notificaciones.} other {Se eliminarán también # proyectos bajo esta raíz, junto con sus escaneos, hallazgos y notificaciones.}} Esta acción no se puede deshacer.",
                 "confirm": "Eliminar raíz"
             }
+        },
+        "profile": {
+            "metaTitle": "Perfil · Configuración",
+            "title": "Perfil",
+            "theme": "Tema",
+            "language": "Idioma",
+            "fontSize": "Tamaño de fuente"
         },
         "schedule": {
             "metaTitle": "Programación · Configuración",

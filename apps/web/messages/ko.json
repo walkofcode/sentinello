@@ -16,6 +16,7 @@
         "language": "언어",
         "tabs": {
             "roots": "루트",
+            "profile": "프로필",
             "schedule": "일정",
             "notifications": "알림",
             "sources": "소스",
@@ -196,6 +197,13 @@
                 "description": "{path}을(를) 영구적으로 삭제하시겠습니까? {projectCount, plural, =0 {이 루트에 연결된 프로젝트가 없습니다.} one {이 루트 아래의 # 개 프로젝트와 해당 스캔, 발견 항목, 알림 내역도 함께 삭제됩니다.} other {이 루트 아래의 # 개 프로젝트와 해당 스캔, 발견 항목, 알림 내역도 함께 삭제됩니다.}} 이 작업은 취소할 수 없습니다.",
                 "confirm": "루트 삭제"
             }
+        },
+        "profile": {
+            "metaTitle": "프로필 · 설정",
+            "title": "프로필",
+            "theme": "테마",
+            "language": "언어",
+            "fontSize": "글자 크기"
         },
         "schedule": {
             "metaTitle": "일정 · 설정",
