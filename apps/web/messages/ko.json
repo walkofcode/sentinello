@@ -510,14 +510,14 @@
     },
     "About": {
         "metaTitle": "정보",
-        "title": "Sentinello 정보",
+        "title": "Sentinello",
         "intro": "포트폴리오 전반의 의존성 취약점을 중앙에서 모니터링합니다 — 자체 인프라에서 셀프 호스팅됩니다.",
         "notDoTitle": "Sentinello가 하지 않는 일",
         "notDoBody": "Sentinello는 전적으로 사용자의 인프라에서 실행됩니다. 소스 코드를 읽지 않으며 — <code>package.json</code> 파일을 찾아 프로젝트만 발견합니다 — 어디에도 업로드되지 않고, 텔레메트리가 사용자의 머신을 떠나지 않으며, 중앙 계정이 없고, LLM이나 AI가 관여하지 않습니다. 순수한 <code>npm audit</code>입니다.",
         "whoTitle": "제작자",
         "whoBody": "<company>Walk of Code LLC</company>와 Sebastian Arena가 제작했습니다 (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "권고 데이터의 출처",
-        "advisoryBody": "취약점 데이터는 GitHub Advisory Database에서 비롯되며, <code>npm audit</code>를 통해 npm 레지스트리의 권고 엔드포인트로 접근합니다. 현재는 npm 생태계를 다루며, 추후 추가 출처가 더해질 수 있습니다.",
+        "advisoryBody": "취약점 데이터는 GitHub Advisory Database에서 비롯되며, <code>npm audit</code>를 통해 npm 레지스트리의 권고 엔드포인트로 접근합니다. 현재는 npm 생태계를 다루며, 추후 추가 출처가 더해질 수 있습니다. OSV(설정 → 소스, 기본값 꺼짐)를 활성화하면 npm 패키지를 공개 OSV 데이터베이스와도 대조하여 npm audit가 놓치는 권고를 찾아내고 알려진 악성 패키지를 표시할 수 있습니다.",
         "sendsTitle": "Sentinello가 외부로 보내는 것",
         "tableDestination": "대상",
         "tablePurpose": "목적",
@@ -528,6 +528,11 @@
                 "purpose": "npm audit를 통해 권고 데이터 가져오기",
                 "when": "각 스캔 중",
                 "disable": "핵심 기능 — 비활성화 불가"
+            },
+            "osv": {
+                "purpose": "npm용 공개 OSV 권고 데이터베이스 다운로드",
+                "when": "매일 및 수동 새로 고침 시 — OSV가 활성화된 경우에만",
+                "disable": "설정 → 소스(기본값 꺼짐), 또는 SENTINELLO_OSV_FEED_URL=off"
             },
             "github": {
                 "purpose": "페이지 상단 배너를 위한 업데이트 확인",

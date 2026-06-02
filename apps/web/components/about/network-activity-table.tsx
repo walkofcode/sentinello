@@ -15,6 +15,12 @@ const ROWS: Row[] = [
         disableKey: 'rows.npm.disable'
     },
     {
+        destination: 'osv-vulnerabilities.storage.googleapis.com',
+        purposeKey: 'rows.osv.purpose',
+        whenKey: 'rows.osv.when',
+        disableKey: 'rows.osv.disable'
+    },
+    {
         destination: 'api.github.com (releases)',
         purposeKey: 'rows.github.purpose',
         whenKey: 'rows.github.when',

@@ -510,14 +510,14 @@
     },
     "About": {
         "metaTitle": "About",
-        "title": "About Sentinello",
+        "title": "Sentinello",
         "intro": "Centralized dependency-vulnerability monitoring across your portfolio — self-hosted, on your own infrastructure.",
         "notDoTitle": "What Sentinello does not do",
         "notDoBody": "Sentinello runs entirely on your infrastructure. It does not read your source code — it discovers projects only by locating <code>package.json</code> files — nothing is uploaded anywhere, no telemetry leaves your machine, there is no central account, and no LLM or AI is involved. It is plain <code>npm audit</code>.",
         "whoTitle": "Who built it",
         "whoBody": "Built by <company>Walk of Code LLC</company> and Sebastian Arena (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "Where advisory data comes from",
-        "advisoryBody": "Vulnerability data originates from the GitHub Advisory Database, reached through the npm registry's advisory endpoint via <code>npm audit</code>. Today this covers the npm ecosystem; additional sources may be added later.",
+        "advisoryBody": "Vulnerability data originates from the GitHub Advisory Database, reached through the npm registry's advisory endpoint via <code>npm audit</code>. Today this covers the npm ecosystem; additional sources may be added later. You can also enable OSV (Settings → Sources), off by default, to additionally match npm packages against the public OSV database — catching advisories that npm audit misses and flagging known-malicious packages.",
         "sendsTitle": "What Sentinello sends out",
         "tableDestination": "Destination",
         "tablePurpose": "Purpose",
@@ -528,6 +528,11 @@
                 "purpose": "Fetch advisory data via npm audit",
                 "when": "During each scan",
                 "disable": "Core function — not disableable"
+            },
+            "osv": {
+                "purpose": "Download the public OSV advisory database for npm",
+                "when": "Daily, plus manual refresh — only when OSV is enabled",
+                "disable": "Settings → Sources (off by default), or SENTINELLO_OSV_FEED_URL=off"
             },
             "github": {
                 "purpose": "Update check for the top-of-page banner",

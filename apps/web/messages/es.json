@@ -510,14 +510,14 @@
     },
     "About": {
         "metaTitle": "Acerca de",
-        "title": "Acerca de Sentinello",
+        "title": "Sentinello",
         "intro": "Monitoreo centralizado de vulnerabilidades en dependencias de todo tu portafolio — autoalojado, en tu propia infraestructura.",
         "notDoTitle": "Lo que Sentinello no hace",
         "notDoBody": "Sentinello se ejecuta por completo en tu infraestructura. No lee tu código fuente — descubre proyectos únicamente localizando archivos <code>package.json</code> — no se sube nada a ningún lado, ninguna telemetría sale de tu máquina, no hay cuenta central y no interviene ningún LLM ni IA. Es simplemente <code>npm audit</code>.",
         "whoTitle": "Quién lo construyó",
         "whoBody": "Construido por <company>Walk of Code LLC</company> y Sebastian Arena (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "De dónde provienen los datos de avisos",
-        "advisoryBody": "Los datos de vulnerabilidades provienen de la GitHub Advisory Database, accedidos a través del endpoint de avisos del registro de npm mediante <code>npm audit</code>. Hoy esto cubre el ecosistema npm; se podrían agregar fuentes adicionales más adelante.",
+        "advisoryBody": "Los datos de vulnerabilidades provienen de la GitHub Advisory Database, accedidos a través del endpoint de avisos del registro de npm mediante <code>npm audit</code>. Hoy esto cubre el ecosistema npm; se podrían agregar fuentes adicionales más adelante. También puedes habilitar OSV (Configuración → Fuentes, desactivado por defecto) para cotejar además los paquetes de npm con la base de datos pública de OSV, detectando avisos que npm audit pasa por alto y marcando paquetes maliciosos conocidos.",
         "sendsTitle": "Lo que Sentinello envía hacia afuera",
         "tableDestination": "Destino",
         "tablePurpose": "Propósito",
@@ -528,6 +528,11 @@
                 "purpose": "Obtener datos de avisos vía npm audit",
                 "when": "Durante cada escaneo",
                 "disable": "Función central — no se puede deshabilitar"
+            },
+            "osv": {
+                "purpose": "Descargar la base de datos pública de avisos OSV para npm",
+                "when": "A diario, además de actualización manual: solo cuando OSV está habilitado",
+                "disable": "Configuración → Fuentes (desactivado por defecto), o SENTINELLO_OSV_FEED_URL=off"
             },
             "github": {
                 "purpose": "Verificación de actualizaciones para el banner superior",

@@ -510,14 +510,14 @@
     },
     "About": {
         "metaTitle": "À propos",
-        "title": "À propos de Sentinello",
+        "title": "Sentinello",
         "intro": "Surveillance centralisée des vulnérabilités de dépendances sur l'ensemble de votre portefeuille — auto-hébergée, sur votre propre infrastructure.",
         "notDoTitle": "Ce que Sentinello ne fait pas",
         "notDoBody": "Sentinello s'exécute entièrement sur votre infrastructure. Il ne lit pas votre code source — il découvre les projets uniquement en localisant les fichiers <code>package.json</code> — rien n'est téléversé où que ce soit, aucune télémétrie ne quitte votre machine, il n'y a pas de compte central, et aucun LLM ni IA n'est impliqué. C'est du simple <code>npm audit</code>.",
         "whoTitle": "Qui l'a créé",
         "whoBody": "Créé par <company>Walk of Code LLC</company> et Sebastian Arena (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "D'où proviennent les données d'avis",
-        "advisoryBody": "Les données de vulnérabilités proviennent de la GitHub Advisory Database, atteinte via le point de terminaison d'avis du registre npm grâce à <code>npm audit</code>. Aujourd'hui, cela couvre l'écosystème npm ; d'autres sources pourront être ajoutées ultérieurement.",
+        "advisoryBody": "Les données de vulnérabilités proviennent de la GitHub Advisory Database, atteinte via le point de terminaison d'avis du registre npm grâce à <code>npm audit</code>. Aujourd'hui, cela couvre l'écosystème npm ; d'autres sources pourront être ajoutées ultérieurement. Vous pouvez aussi activer OSV (Paramètres → Sources, désactivé par défaut) pour comparer en plus les paquets npm à la base de données publique OSV — détectant les avis que npm audit manque et signalant les paquets malveillants connus.",
         "sendsTitle": "Ce que Sentinello envoie à l'extérieur",
         "tableDestination": "Destination",
         "tablePurpose": "Objet",
@@ -528,6 +528,11 @@
                 "purpose": "Récupérer les données d'avis via npm audit",
                 "when": "Pendant chaque analyse",
                 "disable": "Fonction principale — non désactivable"
+            },
+            "osv": {
+                "purpose": "Télécharger la base de données publique d'avis OSV pour npm",
+                "when": "Quotidiennement, plus actualisation manuelle — uniquement lorsque OSV est activé",
+                "disable": "Paramètres → Sources (désactivé par défaut), ou SENTINELLO_OSV_FEED_URL=off"
             },
             "github": {
                 "purpose": "Vérification de mise à jour pour la bannière en haut de page",

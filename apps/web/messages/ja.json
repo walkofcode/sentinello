@@ -510,14 +510,14 @@
     },
     "About": {
         "metaTitle": "概要",
-        "title": "Sentinello について",
+        "title": "Sentinello",
         "intro": "ポートフォリオ全体の依存関係の脆弱性を一元的に監視します — 自前のインフラ上でセルフホストできます。",
         "notDoTitle": "Sentinello が行わないこと",
         "notDoBody": "Sentinello は完全にお客様のインフラ上で動作します。ソースコードを読み取ることはなく、<code>package.json</code> ファイルを見つけることでのみプロジェクトを検出します。どこにも何もアップロードされず、テレメトリがマシンから送信されることもなく、中央アカウントも存在せず、LLM や AI も一切関与しません。純粋な <code>npm audit</code> です。",
         "whoTitle": "開発者",
         "whoBody": "<company>Walk of Code LLC</company> および Sebastian Arena（<linkedin>LinkedIn</linkedin>）によって開発されました。",
         "advisoryTitle": "アドバイザリデータの出所",
-        "advisoryBody": "脆弱性データは GitHub Advisory Database に由来し、<code>npm audit</code> を介して npm レジストリのアドバイザリエンドポイント経由で取得されます。現在は npm エコシステムを対象としていますが、今後追加のソースが加わる可能性があります。",
+        "advisoryBody": "脆弱性データは GitHub Advisory Database に由来し、<code>npm audit</code> を介して npm レジストリのアドバイザリエンドポイント経由で取得されます。現在は npm エコシステムを対象としていますが、今後追加のソースが加わる可能性があります。 OSV（設定 → ソース、デフォルトはオフ）を有効にすると、npm パッケージを公開 OSV データベースとも照合し、npm audit が見落とすアドバイザリを検出して既知の悪意あるパッケージを警告できます。",
         "sendsTitle": "Sentinello が送信するもの",
         "tableDestination": "送信先",
         "tablePurpose": "目的",
@@ -528,6 +528,11 @@
                 "purpose": "npm audit でアドバイザリデータを取得",
                 "when": "各スキャン時",
                 "disable": "コア機能 — 無効化できません"
+            },
+            "osv": {
+                "purpose": "npm 向けの公開 OSV アドバイザリデータベースをダウンロード",
+                "when": "毎日、および手動更新時 — OSV が有効な場合のみ",
+                "disable": "設定 → ソース（デフォルトはオフ）、または SENTINELLO_OSV_FEED_URL=off"
             },
             "github": {
                 "purpose": "ページ上部のバナー用の更新チェック",

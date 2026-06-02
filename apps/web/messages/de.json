@@ -510,14 +510,14 @@
     },
     "About": {
         "metaTitle": "Über",
-        "title": "Über Sentinello",
+        "title": "Sentinello",
         "intro": "Zentralisierte Überwachung von Abhängigkeits-Schwachstellen über Ihr gesamtes Portfolio — selbst gehostet, auf Ihrer eigenen Infrastruktur.",
         "notDoTitle": "Was Sentinello nicht tut",
         "notDoBody": "Sentinello läuft vollständig auf Ihrer Infrastruktur. Es liest Ihren Quellcode nicht — es entdeckt Projekte nur durch das Auffinden von <code>package.json</code>-Dateien — nichts wird irgendwohin hochgeladen, keine Telemetrie verlässt Ihren Rechner, es gibt kein zentrales Konto, und es ist kein LLM oder KI beteiligt. Es ist schlichtes <code>npm audit</code>.",
         "whoTitle": "Wer es entwickelt hat",
         "whoBody": "Entwickelt von <company>Walk of Code LLC</company> und Sebastian Arena (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "Woher die Advisory-Daten stammen",
-        "advisoryBody": "Die Schwachstellendaten stammen aus der GitHub Advisory Database, erreicht über den Advisory-Endpunkt der npm-Registry via <code>npm audit</code>. Derzeit deckt dies das npm-Ökosystem ab; weitere Quellen können später hinzugefügt werden.",
+        "advisoryBody": "Die Schwachstellendaten stammen aus der GitHub Advisory Database, erreicht über den Advisory-Endpunkt der npm-Registry via <code>npm audit</code>. Derzeit deckt dies das npm-Ökosystem ab; weitere Quellen können später hinzugefügt werden. Sie können auch OSV aktivieren (Einstellungen → Quellen, standardmäßig aus), um npm-Pakete zusätzlich mit der öffentlichen OSV-Datenbank abzugleichen – so werden Advisories erkannt, die npm audit übersieht, und bekannte Schadpakete markiert.",
         "sendsTitle": "Was Sentinello nach außen sendet",
         "tableDestination": "Ziel",
         "tablePurpose": "Zweck",
@@ -528,6 +528,11 @@
                 "purpose": "Advisory-Daten via npm audit abrufen",
                 "when": "Während jedes Scans",
                 "disable": "Kernfunktion — nicht deaktivierbar"
+            },
+            "osv": {
+                "purpose": "Öffentliche OSV-Sicherheitsdatenbank für npm herunterladen",
+                "when": "Täglich, zusätzlich manuelle Aktualisierung – nur wenn OSV aktiviert ist",
+                "disable": "Einstellungen → Quellen (standardmäßig aus), oder SENTINELLO_OSV_FEED_URL=off"
             },
             "github": {
                 "purpose": "Update-Prüfung für das Banner am Seitenanfang",

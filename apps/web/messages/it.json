@@ -510,14 +510,14 @@
     },
     "About": {
         "metaTitle": "Informazioni",
-        "title": "Informazioni su Sentinello",
+        "title": "Sentinello",
         "intro": "Monitoraggio centralizzato delle vulnerabilità delle dipendenze in tutto il tuo portfolio — self-hosted, sulla tua infrastruttura.",
         "notDoTitle": "Cosa Sentinello non fa",
         "notDoBody": "Sentinello viene eseguito interamente sulla tua infrastruttura. Non legge il tuo codice sorgente — scopre i progetti solo individuando i file <code>package.json</code> — nulla viene caricato da nessuna parte, nessuna telemetria lascia la tua macchina, non c'è alcun account centrale e non è coinvolto alcun LLM o IA. È semplicemente <code>npm audit</code>.",
         "whoTitle": "Chi l'ha creato",
         "whoBody": "Creato da <company>Walk of Code LLC</company> e Sebastian Arena (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "Da dove provengono i dati degli advisory",
-        "advisoryBody": "I dati sulle vulnerabilità provengono dal GitHub Advisory Database, raggiunto tramite l'endpoint advisory del registro npm via <code>npm audit</code>. Oggi questo copre l'ecosistema npm; ulteriori fonti potrebbero essere aggiunte in seguito.",
+        "advisoryBody": "I dati sulle vulnerabilità provengono dal GitHub Advisory Database, raggiunto tramite l'endpoint advisory del registro npm via <code>npm audit</code>. Oggi questo copre l'ecosistema npm; ulteriori fonti potrebbero essere aggiunte in seguito. Puoi anche abilitare OSV (Impostazioni → Fonti, disattivato per impostazione predefinita) per confrontare i pacchetti npm anche con il database pubblico OSV, individuando avvisi che npm audit non rileva e segnalando pacchetti notoriamente dannosi.",
         "sendsTitle": "Cosa invia Sentinello all'esterno",
         "tableDestination": "Destinazione",
         "tablePurpose": "Scopo",
@@ -528,6 +528,11 @@
                 "purpose": "Recupera i dati degli advisory via npm audit",
                 "when": "Durante ogni scansione",
                 "disable": "Funzione principale — non disabilitabile"
+            },
+            "osv": {
+                "purpose": "Scaricare il database pubblico degli avvisi OSV per npm",
+                "when": "Ogni giorno, più aggiornamento manuale — solo quando OSV è abilitato",
+                "disable": "Impostazioni → Fonti (disattivato per impostazione predefinita), oppure SENTINELLO_OSV_FEED_URL=off"
             },
             "github": {
                 "purpose": "Controllo aggiornamenti per il banner in cima alla pagina",
