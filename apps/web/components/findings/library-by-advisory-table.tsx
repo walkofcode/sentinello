@@ -12,6 +12,7 @@ import { SeverityPill } from '@/components/ui/severity-pill'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { MuteDialog } from '@/components/triage/mute-dialog'
 import { cn } from '@/lib/cn'
+import { advisoryIdentity } from '@/lib/merge-findings'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 
 type Props = {
@@ -21,7 +22,12 @@ type Props = {
     now: number
 }
 
+// A group is one vulnerability across sources. npm-audit and OSV give the same CVE different advisory
+// ids but share the title, so we bucket by the cross-source identity (advisoryIdentity) — matching the
+// deduped counts. Each usage keeps its OWN scanner + advisoryId for mute targeting; the group only
+// carries representative display fields (worst severity, a row that has a URL for the link).
 type AdvisoryGroup = {
+    identityKey: string
     advisoryId: string
     advisoryTitle: string | null
     advisoryUrl: string | null
@@ -33,17 +39,24 @@ type AdvisoryGroup = {
 function groupByAdvisory(usages: LibraryProjectUsage[]): AdvisoryGroup[] {
     const byAdvisory = new Map<string, LibraryProjectUsage[]>()
     for (const u of usages) {
-        const bucket = byAdvisory.get(u.advisoryId) || []
+        const key = advisoryIdentity(u.advisoryTitle, u.advisoryId)
+        const bucket = byAdvisory.get(key) || []
         bucket.push(u)
-        byAdvisory.set(u.advisoryId, bucket)
+        byAdvisory.set(key, bucket)
     }
     const groups: AdvisoryGroup[] = []
-    byAdvisory.forEach(function build(rows, advisoryId) {
-        const head = rows[0]
+    byAdvisory.forEach(function build(rows, identityKey) {
+        // Worst severity wins (lower rank = more severe), so a critical from either source surfaces.
+        let head = rows[0]
+        for (const r of rows) {
+            if (severityRank(r.severity as Severity) < severityRank(head.severity as Severity)) head = r
+        }
+        const withUrl = rows.find(function hasUrl(r) { return Boolean(r.advisoryUrl) })
         groups.push({
-            advisoryId,
+            identityKey,
+            advisoryId: head.advisoryId,
             advisoryTitle: head.advisoryTitle,
-            advisoryUrl: head.advisoryUrl,
+            advisoryUrl: (withUrl || head).advisoryUrl,
             severity: head.severity as Severity,
             vulnerableRange: head.vulnerableRange,
             usages: rows
@@ -53,7 +66,7 @@ function groupByAdvisory(usages: LibraryProjectUsage[]): AdvisoryGroup[] {
         const ra = severityRank(a.severity)
         const rb = severityRank(b.severity)
         if (ra !== rb) return ra - rb
-        return a.advisoryId.localeCompare(b.advisoryId)
+        return a.identityKey.localeCompare(b.identityKey)
     })
     return groups
 }
@@ -62,12 +75,12 @@ export function LibraryByAdvisoryTable({ packageName, usages, activeMutes, now }
     const t = useTranslations('Findings')
     const groups = useMemo(function build() { return groupByAdvisory(usages) }, [usages])
     const [expanded, setExpanded] = useState<Set<string>>(new Set())
-    function toggle(advisoryId: string) {
+    function toggle(groupKey: string) {
         const next = new Set(expanded)
-        if (next.has(advisoryId)) {
-            next.delete(advisoryId)
+        if (next.has(groupKey)) {
+            next.delete(groupKey)
         } else {
-            next.add(advisoryId)
+            next.add(groupKey)
         }
         setExpanded(next)
     }
@@ -77,11 +90,11 @@ export function LibraryByAdvisoryTable({ packageName, usages, activeMutes, now }
                 {groups.map(function card(group) {
                     return (
                         <AdvisoryCard
-                            key={group.advisoryId}
+                            key={group.identityKey}
                             packageName={packageName}
                             group={group}
                             activeMutes={activeMutes}
-                            isOpen={expanded.has(group.advisoryId)}
+                            isOpen={expanded.has(group.identityKey)}
                             onToggle={toggle}
                             now={now}
                         />
@@ -101,10 +114,10 @@ export function LibraryByAdvisoryTable({ packageName, usages, activeMutes, now }
                     </TableHeader>
                     <TableBody>
                         {groups.map(function renderGroup(group) {
-                            const isOpen = expanded.has(group.advisoryId)
+                            const isOpen = expanded.has(group.identityKey)
                             return (
                                 <AdvisoryRows
-                                    key={group.advisoryId}
+                                    key={group.identityKey}
                                     packageName={packageName}
                                     group={group}
                                     activeMutes={activeMutes}
@@ -126,7 +139,7 @@ type RowProps = {
     group: AdvisoryGroup
     activeMutes: Mute[]
     isOpen: boolean
-    onToggle: (advisoryId: string) => void
+    onToggle: (groupKey: string) => void
     now: number
 }
 
@@ -134,13 +147,13 @@ function AdvisoryRows({ packageName, group, activeMutes, isOpen, onToggle, now }
     return (
         <>
             <TableRow className="cursor-pointer">
-                <TableCell onClick={function flip() { onToggle(group.advisoryId) }} className="w-8 text-muted-foreground">
+                <TableCell onClick={function flip() { onToggle(group.identityKey) }} className="w-8 text-muted-foreground">
                     {(isOpen && <ChevronDown className="h-4 w-4" />) || <ChevronRight className="h-4 w-4" />}
                 </TableCell>
-                <TableCell onClick={function flip() { onToggle(group.advisoryId) }}>
+                <TableCell onClick={function flip() { onToggle(group.identityKey) }}>
                     <SeverityPill variant={group.severity} size="sm" />
                 </TableCell>
-                <TableCell onClick={function flip() { onToggle(group.advisoryId) }} className="text-xs">
+                <TableCell onClick={function flip() { onToggle(group.identityKey) }} className="text-xs">
                     {(group.advisoryUrl && (
                         <Link
                             href={group.advisoryUrl}
@@ -153,10 +166,10 @@ function AdvisoryRows({ packageName, group, activeMutes, isOpen, onToggle, now }
                         </Link>
                     )) || <span>{group.advisoryTitle || group.advisoryId}</span>}
                 </TableCell>
-                <TableCell onClick={function flip() { onToggle(group.advisoryId) }} className="font-mono text-xs text-muted-foreground">
+                <TableCell onClick={function flip() { onToggle(group.identityKey) }} className="font-mono text-xs text-muted-foreground">
                     {group.vulnerableRange}
                 </TableCell>
-                <TableCell onClick={function flip() { onToggle(group.advisoryId) }} className="text-right text-xs font-mono">
+                <TableCell onClick={function flip() { onToggle(group.identityKey) }} className="text-right text-xs font-mono">
                     {group.usages.length}
                 </TableCell>
             </TableRow>
@@ -182,7 +195,7 @@ function AdvisoryCard({ packageName, group, activeMutes, isOpen, onToggle, now }
     return (
         <Card className="overflow-hidden p-0">
             <div
-                onClick={function flip() { onToggle(group.advisoryId) }}
+                onClick={function flip() { onToggle(group.identityKey) }}
                 className="flex cursor-pointer items-start gap-2 p-4"
             >
                 <span className="mt-0.5 text-muted-foreground">
@@ -219,13 +232,13 @@ function AdvisoryCard({ packageName, group, activeMutes, isOpen, onToggle, now }
                                 m.scope === 'finding' &&
                                 (m.projectId === null || m.projectId === u.projectId) &&
                                 m.scanner === u.scanner &&
-                                m.advisoryId === group.advisoryId &&
+                                m.advisoryId === u.advisoryId &&
                                 m.packageName === packageName
                             )
                         })
                         return (
                             <div
-                                key={u.projectId}
+                                key={u.projectId + '|' + u.scanner + '|' + u.advisoryId}
                                 className={cn(
                                     'rounded-md border bg-card p-3 text-xs',
                                     findingMute && 'opacity-60'
@@ -255,12 +268,12 @@ function AdvisoryCard({ packageName, group, activeMutes, isOpen, onToggle, now }
                                         <MuteDialog
                                             projectId={u.projectId}
                                             muteId={findingMute.id}
-                                            finding={{ scanner: u.scanner, advisoryId: group.advisoryId, packageName }}
+                                            finding={{ scanner: u.scanner, advisoryId: u.advisoryId, packageName }}
                                         />
                                     )) || (
                                         <MuteDialog
                                             projectId={u.projectId}
-                                            finding={{ scanner: u.scanner, advisoryId: group.advisoryId, packageName }}
+                                            finding={{ scanner: u.scanner, advisoryId: u.advisoryId, packageName }}
                                         />
                                     )}
                                 </div>
@@ -283,7 +296,6 @@ type ExpandedProps = {
 function ExpandedProjects({ packageName, group, activeMutes, now }: ExpandedProps) {
     const t = useTranslations('Findings')
     const tTime = useTranslations('Time')
-    const advisoryId = group.advisoryId
     const sortedUsages = useMemo(function sort() {
         const copy = group.usages.slice()
         copy.sort(function order(a, b) { return a.projectName.localeCompare(b.projectName) })
@@ -308,12 +320,12 @@ function ExpandedProjects({ packageName, group, activeMutes, now }: ExpandedProp
                                 m.scope === 'finding' &&
                                 (m.projectId === null || m.projectId === u.projectId) &&
                                 m.scanner === u.scanner &&
-                                m.advisoryId === advisoryId &&
+                                m.advisoryId === u.advisoryId &&
                                 m.packageName === packageName
                             )
                         })
                         return (
-                            <tr key={u.projectId + '|' + advisoryId} className={cn('border-b last:border-0', findingMute && 'opacity-60')}>
+                            <tr key={u.projectId + '|' + u.scanner + '|' + u.advisoryId} className={cn('border-b last:border-0', findingMute && 'opacity-60')}>
                                 <td className="px-2 py-1.5 align-middle">
                                     <Link href={'/projects/' + u.projectId} className="hover:opacity-80">
                                         {u.projectName}
@@ -333,13 +345,13 @@ function ExpandedProjects({ packageName, group, activeMutes, now }: ExpandedProp
                                         <MuteDialog
                                             projectId={u.projectId}
                                             muteId={findingMute.id}
-                                            finding={{ scanner: u.scanner, advisoryId, packageName }}
+                                            finding={{ scanner: u.scanner, advisoryId: u.advisoryId, packageName }}
                                             iconOnly
                                         />
                                     )) || (
                                         <MuteDialog
                                             projectId={u.projectId}
-                                            finding={{ scanner: u.scanner, advisoryId, packageName }}
+                                            finding={{ scanner: u.scanner, advisoryId: u.advisoryId, packageName }}
                                             iconOnly
                                         />
                                     )}

@@ -1,30 +1,42 @@
-import type { DashboardSummary } from '@sentinello/db'
-import { getTranslations } from 'next-intl/server'
+'use client'
+
+import { useTranslations } from 'next-intl'
+import type { SeverityCounts } from '@sentinello/db'
 import { Card, CardContent, CardHeader, CardTitle, CardValue } from '@/components/ui/card'
 import { SeverityPill } from '@/components/ui/severity-pill'
 import { formatRelativeTime } from '@/lib/format'
 import { ScanAllButton } from '@/components/home/scan-all-button'
 
+// The project/severity counts are computed client-side from the filtered project list (see
+// ProjectsFilterView) so the overview tracks the active filters. Truly-global bits (libraries count,
+// last-scan time) are passed straight through from the server.
+type OverviewCounts = {
+    projectsWithFindings: number
+    totalProjects: number
+    severityCounts: SeverityCounts
+}
+
 type Props = {
-    summary: DashboardSummary
+    counts: OverviewCounts
     librariesCount: number
+    lastScanFinishedAt: number | null
     now: number
     anyInFlight: boolean
 }
 
-export async function OverviewSection({ summary, librariesCount, now, anyInFlight }: Props) {
-    const t = await getTranslations('Home')
-    const tTime = await getTranslations('Time')
-    const c = summary.severityCounts
+export function OverviewSection({ counts, librariesCount, lastScanFinishedAt, now, anyInFlight }: Props) {
+    const t = useTranslations('Home')
+    const tTime = useTranslations('Time')
+    const c = counts.severityCounts
     const pendingTotal = c.critical + c.high + c.moderate + c.low + c.info
     return (
-        <div className={'grid grid-cols-1 gap-4 ' + (pendingTotal > 0 ? 'lg:grid-cols-5' : 'sm:grid-cols-2')}>
-            <Card className={pendingTotal > 0 ? 'lg:col-span-2' : undefined}>
+        <div className={'grid grid-cols-1 gap-4 ' + (pendingTotal > 0 ? 'lg:grid-cols-2' : '')}>
+            <Card>
                 <CardContent className="flex h-full flex-wrap items-center gap-x-8 gap-y-3 pt-5">
                     <div>
                         <CardValue>
-                            {summary.projectsWithFindings}
-                            <span className="text-muted-foreground"> / {summary.totalActiveProjects}</span>
+                            {counts.projectsWithFindings}
+                            <span className="text-muted-foreground"> / {counts.totalProjects}</span>
                         </CardValue>
                         <div className="mt-1 text-xs text-muted-foreground">{t('projectsTitle')}</div>
                     </div>
@@ -38,34 +50,32 @@ export async function OverviewSection({ summary, librariesCount, now, anyInFligh
                             <div className="mt-1 text-xs text-muted-foreground">{t('pendingFindings')}</div>
                         </div>
                     ) : null}
+                    {/* Last scan label on top, Scan-now button below — pushed to the right of the metrics card. */}
+                    <div className="ml-auto flex flex-col items-start gap-2">
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-xs text-muted-foreground">{t('lastScan')}</span>
+                            <span className="text-sm font-medium">{formatRelativeTime(lastScanFinishedAt, tTime, now)}</span>
+                        </div>
+                        <ScanAllButton scanning={anyInFlight} />
+                    </div>
                 </CardContent>
             </Card>
             {pendingTotal > 0 ? (
-                <Card className="lg:col-span-2">
+                <Card>
                     <CardHeader>
                         <CardTitle>{t('severityBreakdown')}</CardTitle>
                     </CardHeader>
                     <CardContent>
                         <div className="flex flex-wrap gap-2">
-                            <SeverityPill variant="critical" count={summary.severityCounts.critical} />
-                            <SeverityPill variant="high" count={summary.severityCounts.high} />
-                            <SeverityPill variant="moderate" count={summary.severityCounts.moderate} />
-                            <SeverityPill variant="low" count={summary.severityCounts.low} />
-                            <SeverityPill variant="info" count={summary.severityCounts.info} />
+                            <SeverityPill variant="critical" count={c.critical} />
+                            <SeverityPill variant="high" count={c.high} />
+                            <SeverityPill variant="moderate" count={c.moderate} />
+                            <SeverityPill variant="low" count={c.low} />
+                            <SeverityPill variant="info" count={c.info} />
                         </div>
                     </CardContent>
                 </Card>
             ) : null}
-            <Card>
-                <CardHeader>
-                    <CardTitle>{t('lastScan')}</CardTitle>
-                </CardHeader>
-                <CardContent className="flex flex-wrap items-center justify-between gap-3">
-                    <CardValue className="text-xl">{formatRelativeTime(summary.lastScanFinishedAt, tTime, now)}</CardValue>
-                    <ScanAllButton scanning={anyInFlight} />
-                </CardContent>
-            </Card>
         </div>
     )
 }
-

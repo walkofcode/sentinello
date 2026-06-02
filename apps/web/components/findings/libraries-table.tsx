@@ -16,6 +16,7 @@ import { cn } from '@/lib/cn'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { groupByLibrary, type LibraryGroup } from './group-by-library'
 import { VersionChain } from './version-chain'
+import { SourceTags } from './source-tags'
 
 type Props = {
     findings: CurrentFindingRow[]
@@ -209,6 +210,7 @@ function LibraryCard({ group, projectId, mutes, isOpen, onToggle, now }: RowProp
                             >
                                 <div className="flex items-center gap-2">
                                     <SeverityPill variant={f.severity as Severity} size="sm" />
+                                    <SourceTags scanners={[f.scanner]} />
                                     <div className="min-w-0 flex-1 break-words">
                                         {f.advisoryUrl ? (
                                             <Link href={f.advisoryUrl} target="_blank" className="hover:opacity-80">
@@ -270,6 +272,7 @@ function ExpandedAdvisories({ group, projectId, mutes, now }: { group: LibraryGr
                 <thead className="text-muted-foreground">
                     <tr className="border-b">
                         <th className="px-2 py-1.5 text-left font-medium uppercase tracking-wide">{t('columns.sev')}</th>
+                        <th className="px-2 py-1.5 text-left font-medium uppercase tracking-wide">{t('columns.source')}</th>
                         <th className="px-2 py-1.5 text-left font-medium uppercase tracking-wide">{t('columns.advisory')}</th>
                         <th className="px-2 py-1.5 text-left font-medium uppercase tracking-wide">{t('columns.version')}</th>
                         <th className="px-2 py-1.5 text-left font-medium uppercase tracking-wide">{t('columns.detected')}</th>
@@ -291,6 +294,9 @@ function ExpandedAdvisories({ group, projectId, mutes, now }: { group: LibraryGr
                             <tr key={f.id} className={cn('border-b last:border-0', f.isMuted && 'opacity-60')}>
                                 <td className="px-2 py-1.5 align-middle">
                                     <SeverityPill variant={f.severity as Severity} size="sm" />
+                                </td>
+                                <td className="px-2 py-1.5 align-middle">
+                                    <span className="flex flex-wrap gap-1"><SourceTags scanners={[f.scanner]} /></span>
                                 </td>
                                 <td className="px-2 py-1.5 align-middle">
                                     {f.advisoryUrl ? (

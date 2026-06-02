@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { getTranslations } from 'next-intl/server'
 import { listActiveMutes, listLibraryUsage, listMuteLiftsForLibrary, listResolvedFindingsForLibrary } from '@sentinello/db'
 import { type Severity } from '@sentinello/core'
+import { advisoryIdentity } from '@/lib/merge-findings'
 import { SeverityPill } from '@/components/ui/severity-pill'
 import { EmptyState } from '@/components/ui/empty-state'
 import { ScrollToTop } from '@/components/layout/scroll-to-top'
@@ -37,7 +38,7 @@ export default async function LibraryDetailPage({ params, searchParams }: PagePr
     const resolvedFindings = listResolvedFindingsForLibrary(db, packageName, 50)
     const activeMutes = listActiveMutes(db, now)
     const muteLifts = listMuteLiftsForLibrary(db, packageName, 20)
-    const distinctAdvisories = new Set(usages.map(function pickAdv(u) { return u.advisoryId })).size
+    const distinctAdvisories = new Set(usages.map(function pickAdv(u) { return advisoryIdentity(u.advisoryTitle, u.advisoryId) })).size
     const distinctProjects = new Set(usages.map(function pickProj(u) { return u.projectId })).size
     const severityOrder: Severity[] = ['critical', 'high', 'moderate', 'low', 'info']
     const presentSeverities = severityOrder.filter(function present(s) {

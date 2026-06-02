@@ -35,6 +35,7 @@ import { UrlPagination } from '@/components/ui/url-pagination'
 import { getDb } from '@/lib/db'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { getFilterDefaults, parseDepTypeParam } from '@/lib/filter-defaults'
+import { mergeFindings } from '@/lib/merge-findings'
 
 type PageProps = {
     params: Promise<{ id: string }>
@@ -75,6 +76,9 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     const depType = parseDepTypeParam(resolvedSearchParams.dep) || defaults.depType
     const root = getRootById(db, project.rootId)
     const findings = listCurrentFindingsForProject(db, project.id, now, depType)
+    // The header count matches the "by advisory" tab: distinct vulnerabilities after merging the
+    // per-dep-path and per-source duplicates, not raw finding rows.
+    const mergedFindingCount = mergeFindings(findings).length
 
     const resolvedTotal = countResolvedFindingsForProject(db, project.id)
     const resolvedTotalPages = Math.max(1, Math.ceil(resolvedTotal / RESOLVED_PAGE_SIZE))
@@ -183,7 +187,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                 ) : (
                     <>
                         <div className="flex flex-wrap items-baseline justify-between gap-2">
-                            <h2 className="text-lg font-semibold">{t('project.currentFindings', { count: findings.length })}</h2>
+                            <h2 className="text-lg font-semibold">{t('project.currentFindings', { count: mergedFindingCount })}</h2>
                             <DepTypeFilter value={depType} defaultValue={defaults.depType} />
                         </div>
                         <FindingsSection findings={findings} projectId={project.id} mutes={activeMutes} now={now} />

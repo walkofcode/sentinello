@@ -66,6 +66,15 @@ export function parseJsonArray(json: string): string[] {
     }
 }
 
+// Display label for a root: the operator's custom label when set, else the final folder of the base
+// path — mirroring how a project shows its alias or falls back to the folder name. filter(Boolean)
+// drops empty segments from a trailing slash; falls back to the full path for a bare '/'.
+export function rootDisplayLabel(label: string | null, path: string): string {
+    if (label) return label
+    const segments = path.split('/').filter(Boolean)
+    return segments.length > 0 ? segments[segments.length - 1] : path
+}
+
 export function pluralize(n: number, singular: string, plural?: string): string {
     if (n === 1) return n + ' ' + singular
     return n + ' ' + (plural || singular + 's')

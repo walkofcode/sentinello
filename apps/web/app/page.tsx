@@ -1,7 +1,6 @@
 import type { Metadata } from 'next'
 import { getTranslations } from 'next-intl/server'
 import { getDashboardSummary, isAnyScanInFlight, listLibraries, listProjectCatalog } from '@sentinello/db'
-import { OverviewSection } from '@/components/home/overview-section'
 import { ProjectsFilterView } from '@/components/home/projects-filter-view'
 import { ScanAutoRefresh } from '@/components/scan-auto-refresh'
 import { getDb } from '@/lib/db'
@@ -32,14 +31,10 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Sea
                 rows={projects}
                 depType={projDep}
                 defaultDepType={defaults.depType}
-                belowFiltersSlot={
-                    <OverviewSection
-                        summary={summary}
-                        librariesCount={libraries.length}
-                        now={now}
-                        anyInFlight={anyInFlight}
-                    />
-                }
+                librariesCount={libraries.length}
+                lastScanFinishedAt={summary.lastScanFinishedAt}
+                now={now}
+                anyInFlight={anyInFlight}
             />
         </div>
     )

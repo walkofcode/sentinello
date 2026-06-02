@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { ShieldCheck } from 'lucide-react'
 import { reasonCodeLabel, type DepTypeFilter, type Locale, type ReasonCode, type Severity } from '@sentinello/core'
@@ -14,8 +14,9 @@ import { Select } from '@/components/ui/select'
 import { SeverityPill } from '@/components/ui/severity-pill'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { EmptyState } from '@/components/ui/empty-state'
-import { parseJsonArray } from '@/lib/format'
+import { parseJsonArray, rootDisplayLabel } from '@/lib/format'
 import { rememberProjectsUrl } from '@/lib/home-url-memory'
+import { OverviewSection } from '@/components/home/overview-section'
 
 type SortKey = 'name' | 'severity'
 
@@ -49,10 +50,13 @@ type Props = {
     rows: ProjectCatalogRow[]
     depType: DepTypeFilter
     defaultDepType: DepTypeFilter
-    belowFiltersSlot?: ReactNode
+    librariesCount: number
+    lastScanFinishedAt: number | null
+    now: number
+    anyInFlight: boolean
 }
 
-export function ProjectsFilterView({ rows, depType, defaultDepType, belowFiltersSlot }: Props) {
+export function ProjectsFilterView({ rows, depType, defaultDepType, librariesCount, lastScanFinishedAt, now, anyInFlight }: Props) {
     const t = useTranslations('Home')
     const locale = useLocale() as Locale
     const router = useRouter()
@@ -123,6 +127,22 @@ export function ProjectsFilterView({ rows, depType, defaultDepType, belowFilters
         return sortRows(matched, sort)
     }, [rows, query, root, tag, minSeverity, showHealthy, showMuted, sort])
 
+    // Overview cards summarize exactly the rows shown below, so the counts track every filter.
+    const overviewCounts = useMemo(function buildOverview() {
+        const severityCounts = { critical: 0, high: 0, moderate: 0, low: 0, info: 0 }
+        let projectsWithFindings = 0
+        for (const row of filtered) {
+            const c = row.severityCounts
+            severityCounts.critical += c.critical
+            severityCounts.high += c.high
+            severityCounts.moderate += c.moderate
+            severityCounts.low += c.low
+            severityCounts.info += c.info
+            if (totalNonMutedFindings(row) > 0) projectsWithFindings++
+        }
+        return { projectsWithFindings, totalProjects: filtered.length, severityCounts }
+    }, [filtered])
+
     function onDepTypeChange(next: DepTypeFilter) {
         const params = new URLSearchParams(window.location.search)
         if (next === defaultDepType) params.delete('pdep')
@@ -155,7 +175,13 @@ export function ProjectsFilterView({ rows, depType, defaultDepType, belowFilters
                 onSortChange={setSort}
                 onDepTypeChange={onDepTypeChange}
             />
-            {belowFiltersSlot}
+            <OverviewSection
+                counts={overviewCounts}
+                librariesCount={librariesCount}
+                lastScanFinishedAt={lastScanFinishedAt}
+                now={now}
+                anyInFlight={anyInFlight}
+            />
             {filtered.length === 0 ? (
                 rows.length === 0 ? (
                     <EmptyState
@@ -382,7 +408,7 @@ function upsertParam(params: URLSearchParams, key: string, value: string | false
 function uniqueRoots(rows: ProjectCatalogRow[]): RootOption[] {
     const seen = new Map<string, string>()
     for (const row of rows) {
-        if (!seen.has(row.rootPath)) seen.set(row.rootPath, row.rootLabel || row.rootPath)
+        if (!seen.has(row.rootPath)) seen.set(row.rootPath, rootDisplayLabel(row.rootLabel, row.rootPath))
     }
     return Array.from(seen.entries()).map(function entry([path, label]) {
         return { path, label }

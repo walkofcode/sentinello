@@ -2,20 +2,21 @@
 
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
-import type { CurrentFindingRow } from '@sentinello/db'
 import type { Mute, Severity } from '@sentinello/core'
+import type { MergedFinding } from '@/lib/merge-findings'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { SeverityPill } from '@/components/ui/severity-pill'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { MuteDialog } from '@/components/triage/mute-dialog'
-import { formatAbsoluteTime, formatRelativeTime, parseJsonArray } from '@/lib/format'
+import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { VersionChain } from './version-chain'
-import { DepPathCell } from './dep-path-cell'
+import { DepPathPopover } from './dep-path-popover'
+import { SourceTags } from './source-tags'
 
 type Props = {
-    findings: CurrentFindingRow[]
+    findings: MergedFinding[]
     projectId: string
     mutes: Mute[]
     now: number
@@ -28,19 +29,22 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
         <>
             <div className="space-y-2 md:hidden">
                 {findings.map(function card(f) {
-                    const depPath = parseJsonArray(f.depPathJson)
-                    const findingMute = findMatchingMute(mutes, projectId, f)
+                    const matched = matchMutes(mutes, projectId, f)
+                    const fullyMuted = f.identities.length > 0 && matched.length === f.identities.length
                     return (
-                        <Card key={f.id} className={cn('p-4', f.isMuted && 'opacity-60')}>
-                            <div className="flex flex-wrap items-center gap-2">
+                        <Card key={f.key} className={cn('p-4', fullyMuted && 'opacity-60')}>
+                            <div className="flex flex-wrap items-center gap-1.5">
                                 <SeverityPill variant={f.severity as Severity} size="sm" />
-                                <span className="min-w-0 flex-1 truncate font-medium text-sm">
-                                    {f.packageName}
+                                {f.malicious ? <Badge variant="malicious" className="px-2 py-0.5 text-[0.625rem] font-semibold tracking-wider ring-0">{t('malicious')}</Badge> : null}
+                                <span className="flex min-w-0 flex-1 items-center gap-1">
+                                    <span className="truncate font-medium text-sm">{f.packageName}</span>
+                                    <DepPathPopover paths={f.depPaths} />
                                 </span>
                                 {f.isDev && !f.isProd ? <Badge variant="dev">{t('dev')}</Badge> : null}
-                                <SourceBadges scanner={f.scanner} advisoryId={f.advisoryId} t={t} />
                             </div>
                             <dl className="mt-3 grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-2 text-xs">
+                                <dt className="uppercase tracking-wide text-muted-foreground">{t('columns.source')}</dt>
+                                <dd className="flex flex-wrap gap-1"><SourceTags scanners={f.scanners} /></dd>
                                 <dt className="uppercase tracking-wide text-muted-foreground">{t('columns.version')}</dt>
                                 <dd>
                                     <VersionChain
@@ -58,28 +62,13 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                                         </Link>
                                     )) || <span>{f.advisoryTitle || f.advisoryId}</span>}
                                 </dd>
-                                <dt className="uppercase tracking-wide text-muted-foreground">{t('columns.depPath')}</dt>
-                                <dd className="min-w-0">
-                                    <DepPathCell path={depPath} />
-                                </dd>
                                 <dt className="uppercase tracking-wide text-muted-foreground">{t('columns.detected')}</dt>
                                 <dd className="font-mono" title={formatAbsoluteTime(f.firstDetectedAt)}>
                                     {formatRelativeTime(f.firstDetectedAt, tTime, now)}
                                 </dd>
                             </dl>
                             <div className="mt-3 flex justify-end border-t border-border/40 pt-3">
-                                {(findingMute && (
-                                    <MuteDialog
-                                        projectId={projectId}
-                                        muteId={findingMute.id}
-                                        finding={{ scanner: f.scanner, advisoryId: f.advisoryId, packageName: f.packageName }}
-                                    />
-                                )) || (
-                                    <MuteDialog
-                                        projectId={projectId}
-                                        finding={{ scanner: f.scanner, advisoryId: f.advisoryId, packageName: f.packageName }}
-                                    />
-                                )}
+                                <MuteDialog projectId={projectId} merged={mergedTarget(f, matched, fullyMuted)} />
                             </div>
                         </Card>
                     )
@@ -91,28 +80,36 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                         <TableRow>
                             <TableHead>{t('columns.sev')}</TableHead>
                             <TableHead>{t('columns.package')}</TableHead>
+                            <TableHead>{t('columns.source')}</TableHead>
                             <TableHead>{t('columns.version')}</TableHead>
                             <TableHead>{t('columns.advisory')}</TableHead>
-                            <TableHead>{t('columns.depPath')}</TableHead>
                             <TableHead>{t('columns.detected')}</TableHead>
                             <TableHead className="text-right">{t('columns.triage')}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {findings.map(function row(f) {
-                            const depPath = parseJsonArray(f.depPathJson)
-                            const findingMute = findMatchingMute(mutes, projectId, f)
+                            const matched = matchMutes(mutes, projectId, f)
+                            const fullyMuted = f.identities.length > 0 && matched.length === f.identities.length
                             return (
-                                <TableRow key={f.id} className={f.isMuted ? 'opacity-60' : ''}>
+                                <TableRow key={f.key} className={fullyMuted ? 'opacity-60' : ''}>
                                     <TableCell>
-                                        <SeverityPill variant={f.severity as Severity} size="sm" />
+                                        <div className="flex flex-wrap items-center gap-1">
+                                            <SeverityPill variant={f.severity as Severity} size="sm" />
+                                            {f.malicious ? <Badge variant="malicious" className="px-2 py-0.5 text-[0.625rem] font-semibold tracking-wider ring-0">{t('malicious')}</Badge> : null}
+                                        </div>
                                     </TableCell>
                                     <TableCell className="font-medium">
-                                        <span>{f.packageName}</span>
+                                        <span className="inline-flex items-center gap-1.5 align-middle">
+                                            <span>{f.packageName}</span>
+                                            <DepPathPopover paths={f.depPaths} />
+                                        </span>
                                         {f.isDev && !f.isProd ? (
                                             <Badge variant="dev" className="ml-2">{t('dev')}</Badge>
                                         ) : null}
-                                        <SourceBadges scanner={f.scanner} advisoryId={f.advisoryId} t={t} className="ml-2" />
+                                    </TableCell>
+                                    <TableCell>
+                                        <div className="flex flex-wrap gap-1"><SourceTags scanners={f.scanners} /></div>
                                     </TableCell>
                                     <TableCell>
                                         <VersionChain
@@ -131,29 +128,13 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                                             <span>{f.advisoryTitle || f.advisoryId}</span>
                                         )}
                                     </TableCell>
-                                    <TableCell>
-                                        <DepPathCell path={depPath} />
-                                    </TableCell>
                                     <TableCell className="font-mono text-xs">
                                         <span title={formatAbsoluteTime(f.firstDetectedAt)}>
                                             {formatRelativeTime(f.firstDetectedAt, tTime, now)}
                                         </span>
                                     </TableCell>
                                     <TableCell className="text-right">
-                                        {findingMute ? (
-                                            <MuteDialog
-                                                projectId={projectId}
-                                                muteId={findingMute.id}
-                                                finding={{ scanner: f.scanner, advisoryId: f.advisoryId, packageName: f.packageName }}
-                                                iconOnly
-                                            />
-                                        ) : (
-                                            <MuteDialog
-                                                projectId={projectId}
-                                                finding={{ scanner: f.scanner, advisoryId: f.advisoryId, packageName: f.packageName }}
-                                                iconOnly
-                                            />
-                                        )}
+                                        <MuteDialog projectId={projectId} merged={mergedTarget(f, matched, fullyMuted)} iconOnly />
                                     </TableCell>
                                 </TableRow>
                             )
@@ -165,41 +146,29 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
     )
 }
 
-type SourceBadgesProps = {
-    scanner: string
-    advisoryId: string
-    t: (key: string) => string
-    className?: string
+function mergedTarget(f: MergedFinding, matched: Mute[], fullyMuted: boolean) {
+    return {
+        packageName: f.packageName,
+        advisories: f.identities,
+        muteIds: fullyMuted ? matched.map(function id(m) { return m.id }) : []
+    }
 }
 
-// Renders the provenance of a finding: a "malicious package" emphasis badge for OSV MAL- records (a
-// distinct threat class), plus a small source badge (OSV vs npm) so operators can tell where a finding
-// came from once multiple sources are enabled. Malicious is detected by the MAL- advisory-id prefix —
-// no extra column needed since the OSV scanner stores those ids verbatim.
-function SourceBadges({ scanner, advisoryId, t, className }: SourceBadgesProps) {
-    const isMalicious = advisoryId.startsWith('MAL-')
-    const isOsv = scanner === 'osv'
-    if (!isMalicious && !isOsv) return null
-    return (
-        <>
-            {isMalicious ? (
-                <Badge variant="malicious" className={className}>{t('malicious')}</Badge>
-            ) : null}
-            {isOsv ? (
-                <Badge variant="osv" className={className}>OSV</Badge>
-            ) : null}
-        </>
-    )
-}
-
-function findMatchingMute(mutes: Mute[], projectId: string, f: CurrentFindingRow): Mute | undefined {
-    return mutes.find(function find(m): boolean {
-        return (
-            m.scope === 'finding' &&
-            (m.projectId === null || m.projectId === projectId) &&
-            m.scanner === f.scanner &&
-            m.advisoryId === f.advisoryId &&
-            m.packageName === f.packageName
-        )
-    })
+// A merged row is muted only when every one of its underlying (scanner, advisoryId) identities has an
+// active matching mute — a partial mute still reads as actionable so the remaining ones can be silenced.
+function matchMutes(mutes: Mute[], projectId: string, f: MergedFinding): Mute[] {
+    const out: Mute[] = []
+    for (const identity of f.identities) {
+        const hit = mutes.find(function find(m): boolean {
+            return (
+                m.scope === 'finding' &&
+                (m.projectId === null || m.projectId === projectId) &&
+                m.scanner === identity.scanner &&
+                m.advisoryId === identity.advisoryId &&
+                m.packageName === f.packageName
+            )
+        })
+        if (hit) out.push(hit)
+    }
+    return out
 }
