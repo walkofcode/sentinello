@@ -193,3 +193,14 @@ export async function unmuteAction(muteId: string, projectId: string | null): Pr
     revalidatePath('/projects')
     revalidatePath('/')
 }
+
+// Lifts several mutes at once — used to unmute a merged finding row, which stands in for one mute per
+// underlying (scanner, advisoryId) identity. Revalidates once at the end instead of per delete.
+export async function unmuteManyAction(muteIds: string[], projectId: string | null): Promise<void> {
+    if (muteIds.length === 0) return
+    const db = getDb()
+    for (const id of muteIds) deleteMute(db, id)
+    if (projectId) revalidatePath('/projects/' + projectId)
+    revalidatePath('/projects')
+    revalidatePath('/')
+}

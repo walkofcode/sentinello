@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl'
 import { Volume2, VolumeX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input, Label, Textarea } from '@/components/ui/input'
-import { muteAction, unmuteAction } from '@/lib/actions/mute'
+import { muteAction, muteLibraryAction, unmuteAction, unmuteManyAction } from '@/lib/actions/mute'
 
 type FindingIdentity = {
     scanner: string
@@ -13,47 +13,73 @@ type FindingIdentity = {
     packageName: string
 }
 
+// A merged finding row stands in for several underlying (scanner, advisoryId) identities on one
+// package. Muting it mutes all of them at once; muteIds is non-empty only when every identity is
+// already muted (i.e. the row reads as muted and the control flips to unmute).
+type MergedMuteTarget = {
+    packageName: string
+    advisories: { scanner: string; advisoryId: string }[]
+    muteIds: string[]
+}
+
 type Props = {
     projectId: string
     finding?: FindingIdentity
+    merged?: MergedMuteTarget
     label?: string
     muteId?: string
     iconOnly?: boolean
 }
 
-export function MuteDialog({ projectId, finding, label, muteId, iconOnly }: Props) {
+export function MuteDialog({ projectId, finding, merged, label, muteId, iconOnly }: Props) {
     const t = useTranslations('Triage')
     const tc = useTranslations('Common')
     const [open, setOpen] = useState(false)
     const [reason, setReason] = useState('')
     const [expiresInDays, setExpiresInDays] = useState('')
     const [pending, startTransition] = useTransition()
-    const isFindingScope = Boolean(finding)
+    const isMergedScope = Boolean(merged)
+    const isFindingScope = Boolean(finding) || isMergedScope
+    const showUnmute = isMergedScope ? Boolean(merged && merged.muteIds.length > 0) : Boolean(muteId)
+    const sources = merged ? [...new Set(merged.advisories.map(function pick(a) { return a.scanner }))].join(', ') : ''
     function submit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault()
         startTransition(async function save() {
             const expiresAt = expiresInDays ? Date.now() + Number(expiresInDays) * 24 * 60 * 60 * 1000 : null
-            await muteAction({
-                scope: isFindingScope ? 'finding' : 'project',
-                projectId,
-                scanner: finding?.scanner || null,
-                advisoryId: finding?.advisoryId || null,
-                packageName: finding?.packageName || null,
-                reason,
-                expiresAt
-            })
+            if (merged) {
+                await muteLibraryAction({
+                    projectId,
+                    packageName: merged.packageName,
+                    advisories: merged.advisories,
+                    reason,
+                    expiresAt
+                })
+            } else {
+                await muteAction({
+                    scope: finding ? 'finding' : 'project',
+                    projectId,
+                    scanner: finding?.scanner || null,
+                    advisoryId: finding?.advisoryId || null,
+                    packageName: finding?.packageName || null,
+                    reason,
+                    expiresAt
+                })
+            }
             setReason('')
             setExpiresInDays('')
             setOpen(false)
         })
     }
     function handleUnmute() {
-        if (!muteId) return
         startTransition(async function lift() {
-            await unmuteAction(muteId, projectId)
+            if (merged) {
+                await unmuteManyAction(merged.muteIds, projectId)
+            } else if (muteId) {
+                await unmuteAction(muteId, projectId)
+            }
         })
     }
-    if (muteId) {
+    if (showUnmute) {
         const unmuteLabel = label || (isFindingScope ? t('mute.unmuteFinding') : t('mute.unmuteProject'))
         if (iconOnly) {
             return (
@@ -116,7 +142,19 @@ export function MuteDialog({ projectId, finding, label, muteId, iconOnly }: Prop
                             : t('mute.projectDescription')}
                     </p>
                 </div>
-                {isFindingScope && finding ? (
+                {merged ? (
+                    <div className="rounded-md border bg-muted/30 p-3 text-xs">
+                        <div>
+                            <span className="text-muted-foreground">{t('mute.packageLabel')}</span> {merged.packageName}
+                        </div>
+                        <div>
+                            <span className="text-muted-foreground">{t('mute.scannerLabel')}</span> {sources}
+                        </div>
+                        <div>
+                            <span className="text-muted-foreground">{t('mute.advisoryLabel')}</span> {merged.advisories.length}
+                        </div>
+                    </div>
+                ) : finding ? (
                     <div className="rounded-md border bg-muted/30 p-3 text-xs">
                         <div>
                             <span className="text-muted-foreground">{t('mute.scannerLabel')}</span> {finding.scanner}
@@ -162,4 +200,3 @@ export function MuteDialog({ projectId, finding, label, muteId, iconOnly }: Prop
         </div>
     )
 }
-
