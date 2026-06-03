@@ -359,7 +359,9 @@ This release runs Sentinello as an unprivileged user (`uid 10001`) and moves the
    ```
 
    The worker fails fast with an explicit message if the data directory isn't writable by the new
-   user, so you'll know exactly when this is needed.
+   user — and `/api/health` now reports `"dataDir":"ro"` and returns HTTP 503 in that state (a
+   read-only DB still answers `SELECT 1`, so the probe writes a temp file to catch it), so an
+   orchestrator notices the half-up container too.
 
 ## Running with pm2 (without Docker)
 
