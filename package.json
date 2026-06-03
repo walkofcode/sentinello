@@ -25,11 +25,11 @@
         "typecheck": "turbo run typecheck",
         "clean": "turbo run clean && rm -rf node_modules",
         "docker:build": "docker build --build-arg SENTINELLO_VERSION=$(node -p \"require('./package.json').version\") -t walkofcode/sentinello:dev .",
-        "docker:run": "docker run --rm -it -p 3870:3000 -v sentinello-data:/app/data -v sentinello-nvm:/root/.nvm --name sentinello walkofcode/sentinello:dev",
+        "docker:run": "docker run --rm -it -p 3870:3000 -v sentinello-data:/app/data -v sentinello-nvm:/home/sentinello/.nvm --name sentinello walkofcode/sentinello:dev",
         "docker:up": "docker compose up -d",
         "docker:down": "docker compose down",
         "demo:gen": "node scripts/gen-demo-projects.mjs",
-        "demo:up": "pnpm docker:build && docker run --rm -it -p 3870:3000 -v sentinello-data:/app/data -v sentinello-nvm:/root/.nvm -v \"$(pwd)/demo-projects:/roots/demo:ro\" --name sentinello walkofcode/sentinello:dev",
+        "demo:up": "pnpm docker:build && docker run --rm -it -p 3870:3000 -v sentinello-data:/app/data -v sentinello-nvm:/home/sentinello/.nvm -v \"$(pwd)/demo-projects:/roots/demo:ro\" --name sentinello walkofcode/sentinello:dev",
         "shoot": "node scripts/shoot-homepage.mjs"
     },
     "devDependencies": {

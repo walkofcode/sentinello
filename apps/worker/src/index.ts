@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import lockfile from 'proper-lockfile'
 import { backfillFindingsLifecycle, getConfigValue, getLastScanFinishedAt, listRoots, openDb, resetOrphanedRunningRequests, resolveDbPath, resolveLockPath, runMigrations } from '@sentinello/db'
 import { CONFIG_KEYS, DEFAULT_SCHEDULE, discoverDockerRoots, loadConfigFile, pruneDockerRoots, seedFromConfig, type IntervalHours } from './config-loader'
@@ -20,6 +20,7 @@ main().catch(function onMainError(err: unknown) {
 
 async function main(): Promise<void> {
     const dbPath = resolveDbPath()
+    assertDataDirWritable(dbPath)
     const lockPath = resolveLockPath(dbPath)
     ensureLockFileExists(lockPath)
     let release: () => Promise<void>
@@ -149,6 +150,31 @@ function ensureLockFileExists(lockPath: string): void {
     if (!existsSync(lockPath)) {
         writeFileSync(lockPath, '')
     }
+}
+
+// Fail fast with an actionable message if the data directory is not writable. Sentinello runs as an
+// unprivileged user (uid 10001); the one case that lands here is an upgrade from an older root-era
+// image whose named volume is still owned by root. Without this, the first write (the lockfile)
+// throws a bare EACCES that reads like a bug rather than a permissions/migration issue.
+function assertDataDirWritable(dbPath: string): void {
+    const dir = dirname(dbPath)
+    try {
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+        const probe = join(dir, '.write-probe-' + process.pid)
+        writeFileSync(probe, '')
+        unlinkSync(probe)
+    } catch (err) {
+        const detail = err instanceof Error && err.message || String(err)
+        throw new Error(dataDirNotWritableMessage(dir, detail))
+    }
+}
+
+function dataDirNotWritableMessage(dir: string, detail: string): string {
+    const uid = typeof process.getuid === 'function' ? process.getuid() : -1
+    return 'data directory ' + dir + ' is not writable by uid ' + uid + '. ' +
+        'Sentinello now runs as a non-root user (uid 10001). If you are upgrading from an older ' +
+        'root-era image, the mounted volume is still owned by root — chown it to 10001:10001 ' +
+        '(see the README upgrade note) or recreate it. Original error: ' + detail
 }
 
 type ShutdownDeps = {

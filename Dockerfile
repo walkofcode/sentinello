@@ -10,7 +10,13 @@
 # user-mounted portfolio roots (apps/worker/src/discovery.ts, apps/worker/src/runner.ts). The
 # *runtime* Node version is pinned to 24.14.0 by the base image — nvm is only there so scans of
 # arbitrary `.nvmrc` files in mounted roots behave the same as on a PM2 host. `nvm install` pulls
-# any missing version on first scan; persist /root/.nvm (see docker-compose.yml) so it happens once.
+# any missing version on first scan; persist /home/sentinello/.nvm (see docker-compose.yml) so it
+# happens once.
+#
+# Runs non-root: the `runtime` stage creates an unprivileged `sentinello` user and installs nvm +
+# the baseline Node fresh into that user's home (nvm is only used at runtime — the build stages use
+# the image's pinned Node). The web server, worker, and every audit subprocess run as that user, so a
+# scan-runner compromise or container escape does not land as root.
 
 # ---------------------------------------------------------------------------
 # Stage 1: base — the foundation for both `deps` and `runtime`. Keep this lean.
@@ -19,11 +25,10 @@ FROM node:24.14.0-bookworm-slim AS base
 
 ENV PNPM_HOME="/root/.local/share/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-ENV NVM_DIR="/root/.nvm"
 
 # tini gives us correct SIGTERM/SIGINT propagation to pm2-runtime's child Node processes.
-# curl + ca-certificates are needed for nvm install and the HEALTHCHECK; git is required
-# by some pnpm git-protocol resolutions even at runtime if any dep ever uses one.
+# curl + ca-certificates are needed for the runtime-stage nvm install and the HEALTHCHECK; git is
+# required by some pnpm git-protocol resolutions even at runtime if any dep ever uses one.
 # libatomic1 is required to RUN newer Node majors (>= 25) that nvm installs for .nvmrc-aware scans —
 # their binaries link against libatomic.so.1, which the slim base image does not ship by default.
 RUN apt-get update \
@@ -31,16 +36,8 @@ RUN apt-get update \
         curl ca-certificates git tini libatomic1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install nvm (the worker shells out to `nvm install` for .nvmrc-aware scans).
-ARG NVM_VERSION=0.40.1
-ARG NVM_INSTALL_SHA256=abdb525ee9f5b48b34d8ed9fc67c6013fb0f659712e401ecd88ab989b3af8f53
-RUN curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh" -o /tmp/nvm-install.sh \
-    && echo "${NVM_INSTALL_SHA256}  /tmp/nvm-install.sh" | sha256sum -c - \
-    && bash /tmp/nvm-install.sh \
-    && rm /tmp/nvm-install.sh \
-    && bash -lc "source $NVM_DIR/nvm.sh && nvm install 24.14.0 && nvm alias default 24.14.0"
-
-# Install pnpm matching the version pinned in package.json.
+# Install pnpm matching the version pinned in package.json (build stages use it; the runtime stage
+# re-activates it for the sentinello user).
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 # ---------------------------------------------------------------------------
@@ -101,12 +98,45 @@ FROM base AS runtime
 # pm2-runtime is the foreground process supervisor inside the container.
 RUN npm install -g pm2@5.4.3
 
+# Unprivileged runtime user. Fixed uid so host bind mounts / named volumes have a stable owner to
+# match. Everything below runs as this user via the final USER instruction.
+RUN useradd --create-home --shell /bin/bash --uid 10001 sentinello
+
 WORKDIR /app
 
 # Copy /app wholesale from the build stage. This drops ~400MB of apt build-tools
 # vs the previous single-stage Dockerfile while keeping the worker's TS source
 # available (tsx executes it directly — there's no dist/ artifact to copy alone).
-COPY --from=build /app /app
+COPY --from=build --chown=sentinello:sentinello /app /app
+
+# Create the data dir up front so the named volume inherits sentinello ownership on first creation.
+RUN mkdir -p /app/data && chown sentinello:sentinello /app/data
+
+# Runtime user's home-based paths. The worker sources nvm via `~/.nvm/nvm.sh` and pm2 writes to
+# `~/.pm2`, so HOME must point at the sentinello home.
+ENV HOME=/home/sentinello
+ENV NVM_DIR=/home/sentinello/.nvm
+ENV PNPM_HOME=/home/sentinello/.local/share/pnpm
+ENV PATH=/home/sentinello/.local/share/pnpm:$PATH
+
+# Everything from here runs as the unprivileged user. tini still runs as PID 1 but immediately execs
+# pm2-runtime as sentinello, so the web server, worker, and audit subprocesses never run as root.
+USER sentinello
+
+# Activate the pinned pnpm (pm2 launches both apps via `pnpm --filter ... start`) and install nvm +
+# the baseline Node — all in the sentinello home so they are owned correctly with no root-owned files
+# to carry. nvm is only used at runtime, for `.nvmrc`-aware scans of mounted roots; `nvm install`
+# pulls any missing version on first scan and persists it in /home/sentinello/.nvm (see compose).
+# When bumping NVM_VERSION, refresh NVM_INSTALL_SHA256 or the sha256sum check below fails — see
+# https://github.com/nvm-sh/nvm/releases (hash: curl <install.sh URL> | sha256sum).
+ARG NVM_VERSION=0.40.1
+ARG NVM_INSTALL_SHA256=abdb525ee9f5b48b34d8ed9fc67c6013fb0f659712e401ecd88ab989b3af8f53
+RUN corepack prepare pnpm@10.33.0 --activate \
+    && curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh" -o /tmp/nvm-install.sh \
+    && echo "${NVM_INSTALL_SHA256}  /tmp/nvm-install.sh" | sha256sum -c - \
+    && bash /tmp/nvm-install.sh \
+    && rm /tmp/nvm-install.sh \
+    && bash -lc "source $NVM_DIR/nvm.sh && nvm install 24.14.0 && nvm alias default 24.14.0"
 
 # Version label baked in at build time. docker-publish.yml passes the resolved SemVer
 # from the triggering git tag. Local `pnpm docker:build` injects the root package.json
@@ -143,5 +173,14 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 
 # tini -> pm2-runtime keeps the container alive — exiting only when both apps exit,
 # and propagating SIGTERM cleanly so the worker can drain in-flight scans.
+#
+# Before starting, refuse to run if the nvm cache is misconfigured for the non-root switch, and stop
+# the whole container with an actionable message rather than limping along. Two cases:
+#   1. The old `sentinello-nvm:/root/.nvm` mount is still in the compose — detected via
+#      /proc/self/mountinfo (world-readable, so the non-root user sees the mount even though it can't
+#      traverse root-owned /root).
+#   2. The volume was remounted at the new path but is the SAME root-owned volume from a pre-non-root
+#      release — detected by NVM_DIR not being writable by the runtime user.
+# Either way the fix is: `docker volume rm sentinello-nvm` and remount at /home/sentinello/.nvm.
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["pm2-runtime", "start", "ecosystem.config.js"]
+CMD ["sh", "-c", "if grep -q ' /root/.nvm ' /proc/self/mountinfo 2>/dev/null; then echo '[sentinello] FATAL: the old sentinello-nvm:/root/.nvm volume is still mounted from a pre-non-root release. The nvm cache now lives at /home/sentinello/.nvm. Delete the volume (docker volume rm sentinello-nvm) and remount it at /home/sentinello/.nvm per the README upgrade note. Refusing to start.' >&2; exit 1; fi; if [ ! -w $NVM_DIR ]; then echo '[sentinello] FATAL: /home/sentinello/.nvm is not writable by the non-root user. The sentinello-nvm volume is root-owned from a pre-non-root release. Delete it (docker volume rm sentinello-nvm) so it is recreated fresh — it is a cache, nothing is lost. Refusing to start.' >&2; exit 1; fi; exec pm2-runtime start ecosystem.config.js"]
