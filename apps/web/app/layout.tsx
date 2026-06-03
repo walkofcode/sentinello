@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { type ReactNode } from 'react'
+import { headers } from 'next/headers'
 import { NextIntlClientProvider } from 'next-intl'
 import { getLocale, getMessages, getTranslations } from 'next-intl/server'
 import { ThemeProvider } from '@/components/layout/theme-provider'
@@ -31,6 +32,11 @@ export const revalidate = 0
 export default async function RootLayout({ children }: { children: ReactNode }) {
     const locale = await getLocale()
     const messages = await getMessages()
+    // The login page renders bare: no TopNav/UpdateBanner/footer. That chrome surfaces the running
+    // version (via WhatsNewPill), which must not leak to an unauthenticated visitor. The pathname
+    // arrives from middleware (x-sentinello-pathname).
+    const pathname = (await headers()).get('x-sentinello-pathname') || ''
+    const isBare = pathname === '/login' || pathname.startsWith('/login/')
     return (
         <html lang={locale} data-scroll-behavior="smooth" suppressHydrationWarning>
             <head>
@@ -40,12 +46,16 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                 <NextIntlClientProvider locale={locale} messages={messages}>
                     <ThemeProvider>
                         <FontSizeProvider>
-                            <div className="flex min-h-screen flex-col">
-                                <TopNav whatsNew={<WhatsNewPill />} />
-                                <UpdateBanner />
-                                <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">{children}</main>
-                                <SiteFooter />
-                            </div>
+                            {isBare ? (
+                                <div className="flex min-h-screen flex-col">{children}</div>
+                            ) : (
+                                <div className="flex min-h-screen flex-col">
+                                    <TopNav whatsNew={<WhatsNewPill />} />
+                                    <UpdateBanner />
+                                    <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">{children}</main>
+                                    <SiteFooter />
+                                </div>
+                            )}
                         </FontSizeProvider>
                     </ThemeProvider>
                 </NextIntlClientProvider>
