@@ -342,20 +342,25 @@ This release runs Sentinello as an unprivileged user (`uid 10001`) and moves the
 1. **Update the nvm volume mount path** to `sentinello-nvm:/home/sentinello/.nvm` (the compose and
    `docker run` examples above already use it).
 2. **Recreate the nvm cache volume** so it's owned by the new user — it's a pure cache, nothing is
-   lost:
+   lost. **Mind the volume name:** Docker Compose prefixes named volumes with the project name (the
+   compose directory's name), so yours is usually `<project>_sentinello-nvm`, *not* a bare
+   `sentinello-nvm`. Deleting the wrong one silently leaves the offending volume in place and you'll
+   hit the guard again — so look it up first:
 
    ```bash
    docker compose down
-   docker volume rm sentinello-nvm
+   docker volume ls | grep sentinello           # find your real volume name(s)
+   docker volume rm <project>_sentinello-nvm     # e.g. docker_sentinello-nvm
    docker compose up -d
    ```
 
    The container refuses to start (with a clear message) if it still sees the old `/root/.nvm` mount
    or a root-owned nvm volume, so you can't accidentally run misconfigured.
-3. **Fix ownership of the data volume** (your findings DB), which the old image created as root:
+3. **Fix ownership of the data volume** (your findings DB), which the old image created as root. Use
+   the same project-prefixed name here too:
 
    ```bash
-   docker run --rm -v sentinello-data:/d alpine chown -R 10001:10001 /d
+   docker run --rm -v <project>_sentinello-data:/d alpine chown -R 10001:10001 /d
    ```
 
    The worker fails fast with an explicit message if the data directory isn't writable by the new

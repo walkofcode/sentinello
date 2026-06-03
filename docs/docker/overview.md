@@ -150,9 +150,11 @@ required.
   projects that pin one via `.nvmrc`. Persist it so each version downloads only
   once (the image's baked-in Node 24.14.0 is seeded into the volume on first
   create). Moved from `/root/.nvm` in the non-root release: upgrading from an
-  older image, run `docker volume rm sentinello-nvm` so the cache is recreated
-  owned by the runtime user (it's a pure cache — nothing is lost). The container
-  refuses to start if it detects the old root-owned volume.
+  older image, delete the old cache volume so it is recreated owned by the runtime
+  user (it's a pure cache — nothing is lost). With Docker Compose the volume is
+  project-prefixed — `<project>_sentinello-nvm`, not a bare `sentinello-nvm` — so
+  run `docker volume ls | grep sentinello` to find the exact name first. The
+  container refuses to start if it detects the old root-owned volume.
 - `/roots/<name>` (read-only) — mount each code portfolio root you want
   scanned. Every subdirectory of `/roots` is auto-registered as a root on boot
   (the directory name becomes its label), so no **Settings → Roots** step is
