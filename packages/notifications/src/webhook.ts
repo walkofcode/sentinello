@@ -1,7 +1,7 @@
 import axios from 'axios'
 import type { NotificationTarget, WebhookTargetConfig } from '@sentinello/core'
 import { redactErrorText, redactTarget } from './redact'
-import { resolveSecret } from './resolve'
+import { validateWebhookUrl } from './ssrf'
 import type { NotificationSender, RenderedMessage, SendResult, WebhookPayloadContext } from './types'
 
 const REQUEST_TIMEOUT_MS = 10_000
@@ -12,20 +12,23 @@ export const sendWebhook: NotificationSender = async function sendWebhook(target
 
 async function doSendWebhook(target: NotificationTarget, message: RenderedMessage): Promise<SendResult> {
     const config = target.config as WebhookTargetConfig
-    const url = resolveSecret(config.url)
-    if (!url) {
+    if (!config.url) {
         return { ok: false, errorText: 'missing webhook URL for ' + redactTarget(target) }
+    }
+    const validated = await validateWebhookUrl(config.url)
+    if (!validated.ok) {
+        return { ok: false, errorText: 'webhook URL rejected (' + validated.reason + ') for ' + redactTarget(target) }
     }
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (config.headers) {
         for (const [k, v] of Object.entries(config.headers)) {
-            headers[k] = resolveSecret(v)
+            headers[k] = v
         }
     }
     const flavor = config.flavor || 'json'
     const body = buildBody(flavor, message)
     try {
-        await axios.post(url, body, { timeout: REQUEST_TIMEOUT_MS, headers })
+        await axios.post(validated.url, body, { timeout: REQUEST_TIMEOUT_MS, headers, maxRedirects: 0 })
         return { ok: true }
     } catch (err) {
         return { ok: false, errorText: redactErrorText(formatAxiosError(err)) }
@@ -81,12 +84,11 @@ function buildJsonBody(ctx: WebhookPayloadContext, portalUrl: string | null): un
 }
 
 function formatAxiosError(err: unknown): string {
+    // Deliberately omits the response body: reflecting an internal service's reply back into the
+    // persisted/displayed error would turn a blind SSRF into a readable one. Status + message only.
     if (axios.isAxiosError(err)) {
         const status = err.response && err.response.status || 'no-status'
-        const data = err.response && err.response.data
-        const dataText = typeof data === 'string' && data || data && JSON.stringify(data) || ''
-        const truncated = dataText.length > 200 && (dataText.slice(0, 200) + '…') || dataText
-        return 'webhook POST failed: ' + status + ' ' + (err.message || '') + (truncated && (' body=' + truncated) || '')
+        return 'webhook POST failed: ' + status + ' ' + (err.message || '')
     }
     if (err instanceof Error) return 'webhook POST failed: ' + err.message
     return 'webhook POST failed: ' + String(err)

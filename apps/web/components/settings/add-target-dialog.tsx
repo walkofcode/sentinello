@@ -167,7 +167,7 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
                                     id="webhook-url"
                                     value={webhookUrl}
                                     onChange={function onChange(e) { setWebhookUrl(e.target.value) }}
-                                    placeholder="https://example.com/hook  (or env:HOOK_URL)"
+                                    placeholder="https://example.com/hook"
                                     required
                                 />
                             </div>
