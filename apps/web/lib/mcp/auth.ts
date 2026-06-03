@@ -13,12 +13,14 @@ export function getConfiguredToken(): string | null {
     return null
 }
 
-// MCP is enabled by default. Operators can opt out by setting SENTINELLO_MCP_ENABLED to a falsy
-// string ('0', 'false', 'no', 'off'); the route then returns 404 as if the endpoint didn't exist.
+// MCP is disabled by default. Operators opt in by setting SENTINELLO_MCP_ENABLED to a truthy string
+// ('1', 'true', 'yes', 'on'); when unset or falsy the route returns 404 as if it didn't exist. Even
+// when enabled, the endpoint refuses every request until a token is configured (see verifyMcpAuth),
+// so enabling without a token is a no-op rather than an open door — instrumentation.ts warns about it.
 export function isMcpEnabled(): boolean {
     const raw = (process.env.SENTINELLO_MCP_ENABLED || '').trim().toLowerCase()
-    if (raw.length === 0) return true
-    return raw !== '0' && raw !== 'false' && raw !== 'no' && raw !== 'off'
+    if (raw.length === 0) return false
+    return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
 }
 
 function safeEqual(a: string, b: string): boolean {
