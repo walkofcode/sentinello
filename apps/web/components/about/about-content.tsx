@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { getTranslations } from 'next-intl/server'
 import { getVersionInfo } from '@/lib/version'
+import { ConfigTable } from './config-table'
 import { NetworkActivityTable } from './network-activity-table'
 import { WhatsNewHistory } from './whats-new-history'
 
@@ -82,6 +83,12 @@ export async function AboutContent() {
                         }
                     })}
                 </p>
+            </section>
+
+            <section className="space-y-3">
+                <h2 className="text-xl font-semibold">{t('configTitle')}</h2>
+                <p className="text-muted-foreground">{t('configBody')}</p>
+                <ConfigTable />
             </section>
 
             <section className="space-y-2">
