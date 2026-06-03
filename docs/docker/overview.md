@@ -18,15 +18,17 @@ background scan worker run together under `pm2-runtime`.
 
 ## Quick start
 
-> **Local/trusted-network only:** Sentinello does not include built-in authentication. If you run it
-> on a shared or public host, bind it to localhost or put it behind your VPN / reverse-proxy auth.
+> **Local/trusted-network only:** Sentinello has no built-in authentication by default. The command
+> below binds to `127.0.0.1` so it's reachable only from the host. For a real login, set
+> `SENTINELLO_PORTAL_TOKEN` and/or put it behind your VPN / reverse-proxy auth. The container runs as
+> an unprivileged user (`uid 10001`).
 
 ```bash
 docker run -d \
   --name sentinello \
-  -p 3870:3000 \
+  -p 127.0.0.1:3870:3000 \
   -v sentinello-data:/app/data \
-  -v sentinello-nvm:/root/.nvm \
+  -v sentinello-nvm:/home/sentinello/.nvm \
   -v /path/to/your/code:/roots/personal:ro \
   walkofcode/sentinello:latest
 ```
@@ -47,14 +49,21 @@ services:
         image: walkofcode/sentinello:latest
         container_name: sentinello
         restart: unless-stopped
+        security_opt:
+            - no-new-privileges:true
+        cap_drop:
+            - ALL
         ports:
-            - '3870:3000'
+            # Localhost-only by default; drop the 127.0.0.1 prefix to expose it (and add auth first).
+            - '127.0.0.1:3870:3000'
         environment:
             SENTINELLO_DB_PATH: /app/data/sentinello.sqlite
             SENTINELLO_PORTAL_BASE_URL: http://localhost:3870
+            # Optional login gate — set a long random string, then the portal prompts at /login:
+            # SENTINELLO_PORTAL_TOKEN: change-me-to-a-long-random-string
         volumes:
             - sentinello-data:/app/data
-            - sentinello-nvm:/root/.nvm
+            - sentinello-nvm:/home/sentinello/.nvm
             # One read-only mount per portfolio root you want scanned — each is
             # auto-registered on boot (the directory name becomes the label):
             - /Users/you/code:/roots/personal:ro
@@ -72,10 +81,12 @@ volumes:
 | `SENTINELLO_DB_PATH`         | `/app/data/sentinello.sqlite` | SQLite location (keep on the mounted volume)  |
 | `SENTINELLO_PORTAL_BASE_URL` | `http://localhost:3870`       | External URL used in notification links       |
 | `ME_NAME`                    | `anonymous`                   | Display name / owner label                    |
-| `SENTINELLO_VERSION`         | `dev`                         | Version label in the footer / `/api/health`; baked into the image at build time |
+| `SENTINELLO_PORTAL_TOKEN`    | _(unset)_                     | When set, requires login at `/login` with this token before any route (except the health check). Unset = no auth |
+| `SENTINELLO_VERSION`         | `dev`                         | Version label in the footer / `/api/version`; baked into the image at build time |
 | `SENTINELLO_UPDATE_FEED_URL` | GitHub Releases API           | Update-check feed; set to `off` to disable update checks |
-| `SENTINELLO_MCP_ENABLED`     | `true`                        | Set to `false` to hide the `/api/mcp` endpoint entirely (404) |
-| `SENTINELLO_MCP_API_TOKEN`   | _(unset)_                     | Bearer token for the MCP endpoint; overrides the one set in **Settings → MCP** |
+| `SENTINELLO_MCP_ENABLED`     | `false`                       | Set to `true` to enable `/api/mcp` (a token is then **mandatory**). Unset/`false` = 404 |
+| `SENTINELLO_MCP_API_TOKEN`   | _(unset)_                     | Bearer token for the MCP endpoint; overrides the one set in **Settings → MCP**. Endpoint refuses all requests until set |
+| `SENTINELLO_WEBHOOK_STRICT`  | _(unset)_                     | Set to `true` to reject private (RFC-1918) / loopback webhook targets and require `https`. Link-local / cloud-metadata is always rejected |
 | `SENTINELLO_OSV_FEED_URL`    | OSV GCS bucket                | OSV advisory export base URL (only used when the **OSV source** is enabled); set to `off` to disable all OSV network access |
 | `SENTINELLO_OSV_DB_PATH`     | `<data dir>/osv.db`           | Location of the rebuildable OSV advisory cache (defaults next to the main DB) |
 
@@ -104,20 +115,24 @@ and/or individual **projects**. One message is sent per project per scan.
 The generic webhook offers two **payload flavors**: **Structured JSON** (`{ root, project,
 vulnerabilities[] }`, each vulnerability carrying library, version, recommended version, severity and
 advisory — ready for an auto-fix agent), or **Plain-text advisory** (`{ "text": "<markdown>" }`, the
-same advisory export the portal produces, ready to feed an LLM). URLs/secrets may be literals or
-`env:NAME` references.
+same advisory export the portal produces, ready to feed an LLM). Slack/Telegram credentials may be
+literals or `env:NAME` references; **generic webhook URLs and headers are sent literally** (no `env:`
+resolution), so a webhook can't be used to read the container environment.
 
-> A webhook POSTs to whatever host you point it at. On a shared network, don't aim a target at an
-> internal-only service you don't trust to receive scan payloads.
+> A webhook POSTs to whatever host you point it at. Sentinello rejects non-`http(s)` schemes and
+> link-local / cloud-metadata addresses at dispatch and never follows redirects;
+> `SENTINELLO_WEBHOOK_STRICT=true` also blocks private (RFC-1918) targets. On a shared network, don't
+> aim a target at an internal-only service you don't trust to receive scan payloads.
 
 ### MCP integration
 
 Sentinello hosts an MCP server at `POST /api/mcp` for Claude Desktop, Cursor, and other MCP
-clients. Generate a bearer token under **Settings → MCP** (which also shows the server URL to
-paste into your client) — or set `SENTINELLO_MCP_API_TOKEN` to inject it via the container
-environment — then point your client at `http://localhost:3870/api/mcp` with
-`Authorization: Bearer <token>`. Set
-`SENTINELLO_MCP_ENABLED=false` to disable the endpoint.
+clients. It is **disabled by default** — set `SENTINELLO_MCP_ENABLED=true` to enable it, and a
+bearer token is then **mandatory** (set `SENTINELLO_MCP_API_TOKEN`, or generate one under
+**Settings → MCP**, which also shows the server URL); until a token is configured the endpoint
+refuses every request. Point your client at `http://localhost:3870/api/mcp` with
+`Authorization: Bearer <token>`. The token grants read **and** write tools, so treat it like an
+admin credential.
 
 ### Scan schedule
 
@@ -131,9 +146,13 @@ required.
 - `/app/data` — the SQLite DB plus its WAL/SHM siblings and the worker lock.
   Mount this to persist state across restarts. With the **OSV source** enabled
   it also holds the rebuildable `osv.db` cache (~40–80 MB; initial download ~196 MB).
-- `/root/.nvm` — Node versions installed on demand by `nvm` for projects that
-  pin one via `.nvmrc`. Persist it so each version downloads only once (the
-  image's baked-in Node 24.14.0 is seeded into the volume on first create).
+- `/home/sentinello/.nvm` — Node versions installed on demand by `nvm` for
+  projects that pin one via `.nvmrc`. Persist it so each version downloads only
+  once (the image's baked-in Node 24.14.0 is seeded into the volume on first
+  create). Moved from `/root/.nvm` in the non-root release: upgrading from an
+  older image, run `docker volume rm sentinello-nvm` so the cache is recreated
+  owned by the runtime user (it's a pure cache — nothing is lost). The container
+  refuses to start if it detects the old root-owned volume.
 - `/roots/<name>` (read-only) — mount each code portfolio root you want
   scanned. Every subdirectory of `/roots` is auto-registered as a root on boot
   (the directory name becomes its label), so no **Settings → Roots** step is
@@ -154,6 +173,8 @@ required.
 
 The container exposes `GET /api/health` (runs a `SELECT 1` against SQLite) and
 ships a `HEALTHCHECK`, so compose / k8s / Portainer can detect a wedged process.
+It returns only liveness + DB status — the running version is served separately at
+`GET /api/version` so the unauthenticated probe doesn't expose it.
 
 ## Platforms
 

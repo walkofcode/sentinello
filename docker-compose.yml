@@ -18,25 +18,50 @@ services:
         # Docker Hub alternative — swap the `image:` line above for this one if you prefer:
         # image: walkofcode/sentinello:latest
         #
+        # Production: pin an immutable release by digest so a re-pull can't silently swap the image
+        # out from under you (supply-chain safety). Copy the digest from the GitHub release page:
+        # image: ghcr.io/walkofcode/sentinello:v0.2.0@sha256:<digest-from-the-release>
+        #
         # Contributor / source-build mode — uncomment and comment out `image:` above:
         # build:
         #     context: .
         #     dockerfile: Dockerfile
         container_name: sentinello
         restart: unless-stopped
+        # Hardening: forbid privilege escalation and drop every Linux capability. The container runs
+        # as an unprivileged user and only binds a high port, so it needs none of them.
+        security_opt:
+            - no-new-privileges:true
+        cap_drop:
+            - ALL
+        # Bound to localhost by default so Sentinello is not exposed on every host interface — on a
+        # multi-homed server or cloud VM, '3870:3000' would serve it publicly. Drop the 127.0.0.1
+        # prefix only if you deliberately want it reachable from other hosts (and put auth in front).
         ports:
-            - '3870:3000'
+            - '127.0.0.1:3870:3000'
         environment:
             SENTINELLO_DB_PATH: /app/data/sentinello.sqlite
             SENTINELLO_PORTAL_BASE_URL: ${SENTINELLO_PORTAL_BASE_URL:-http://localhost:3870}
             ME_NAME: ${ME_NAME:-anonymous}
+            # Optional — require a login token to use the portal (off by default = no auth, as before).
+            # Set a long random string; the portal then prompts at /login. Still recommended to also
+            # sit behind a reverse proxy / VPN. See the README "Running it safely" section.
+            # SENTINELLO_PORTAL_TOKEN: ${SENTINELLO_PORTAL_TOKEN:-}
+            # Optional — MCP is OFF by default. To enable, set BOTH (a token is mandatory):
+            # SENTINELLO_MCP_ENABLED: 'true'
+            # SENTINELLO_MCP_API_TOKEN: ${SENTINELLO_MCP_API_TOKEN:-}
+            # Optional — reject webhook targets aimed at private/internal IPs (https-only).
+            # SENTINELLO_WEBHOOK_STRICT: 'true'
         volumes:
             # The DB + WAL + lock live here — survives container restarts.
             - sentinello-data:/app/data
             # nvm-installed Node versions live here. Persisting it means each .nvmrc version is
-            # downloaded once and reused across restarts (the base image's Node 24.14.0 is seeded
-            # into the volume on first create, so it is not masked).
-            - sentinello-nvm:/root/.nvm
+            # downloaded once and reused across restarts (the image's Node 24.14.0 is seeded into the
+            # volume on first create, so it is not masked). NOTE: the mount path moved to the non-root
+            # user's home this release. Upgrading from a pre-non-root image? Delete the old volume
+            # first (`docker volume rm sentinello-nvm`) so it is recreated owned by the runtime user —
+            # it is a pure cache, nothing is lost. The container refuses to start otherwise.
+            - sentinello-nvm:/home/sentinello/.nvm
             # Example read-only mount for one portfolio root. Add more as needed — each subdirectory
             # of /roots is auto-registered on boot (the dir name becomes the label).
             # - /Users/you/code:/roots/personal:ro
