@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
 import { getSqlite } from '@/lib/db'
-import { getCurrentVersion } from '@/lib/version'
 
 // Container HEALTHCHECK + orchestrator probe endpoint.
 // Probes the shared SQLite (asserts both `apps/web` can open the DB AND the worker has
-// migrated it — see apps/web/lib/db.ts) with a trivial SELECT 1. No auth: the surface
-// is identical to the portal it sits beside.
+// migrated it — see apps/web/lib/db.ts) with a trivial SELECT 1. Intentionally unauthenticated
+// (Docker's HEALTHCHECK runs it) and intentionally version-free: anyone who can reach the port
+// must not be able to fingerprint the running version here. Version lives behind /api/version.
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -14,7 +14,6 @@ type HealthBody = {
     ok: boolean
     db: 'up' | 'down'
     uptimeSec: number
-    version: string
     error?: string
 }
 
@@ -23,8 +22,7 @@ export async function GET() {
     const body: HealthBody = {
         ok: true,
         db: 'up',
-        uptimeSec: Math.round(process.uptime()),
-        version: getCurrentVersion()
+        uptimeSec: Math.round(process.uptime())
     }
     try {
         const sqlite = getSqlite()
