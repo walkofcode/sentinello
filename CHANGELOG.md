@@ -1,5 +1,45 @@
 # Changelog
 
+## [2.0.0](https://github.com/walkofcode/sentinello/compare/v1.4.0...v2.0.0) (2026-06-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* **merge:** the MCP endpoint is now disabled by default and requires a token, and the container runs as an unprivileged user. Existing self-hosters must set the MCP token (and re-enable MCP) to keep MCP integrations working, and may need to chown the data/nvm volumes after upgrade.
+
+### Features
+
+* **about:** document every env var in a Configuration table ([7c40e04](https://github.com/walkofcode/sentinello/commit/7c40e042ad6cdcc3744fda66b0b563575b3f047c))
+* **auth:** add an optional portal login gate ([fc0d11b](https://github.com/walkofcode/sentinello/commit/fc0d11b9e080af01e5680d1488cbd1a8232ffc9c))
+* **db:** dedupe findings by advisory identity and filter by active source ([9a87b31](https://github.com/walkofcode/sentinello/commit/9a87b316ef95cb6c3b60a81453c5c6459a67c9e8))
+* **docker:** run the container as an unprivileged user ([16f33ce](https://github.com/walkofcode/sentinello/commit/16f33cebe501d6b2b1aca7be86e9b869ca4be9a7))
+* **findings:** merge findings across sources with source tags, filter, and dep-path popover ([fe58ec9](https://github.com/walkofcode/sentinello/commit/fe58ec9bf4eff678376d7d32ffbdfa92e4e9452a))
+* **health:** fail the probe when the data directory is read-only ([19eda29](https://github.com/walkofcode/sentinello/commit/19eda29ace6c8f21f701ae1ae064fc053d4f1ee6))
+* **health:** stop exposing the running version on the health probe ([2eaa618](https://github.com/walkofcode/sentinello/commit/2eaa6180082603f0945bae191f1c74dd8f3a868d))
+* **homepage:** tighten landing — flat sections, merged narrative, self-host in hero ([c2d5756](https://github.com/walkofcode/sentinello/commit/c2d575610d104a4915bb61cc995a5e660670227f))
+* **mcp:** disable the endpoint by default and require a token ([3bef66e](https://github.com/walkofcode/sentinello/commit/3bef66e163b9fa837759ad70c8de1f144fc82aa8))
+* **notifications:** guard webhook dispatch against SSRF ([33a46c8](https://github.com/walkofcode/sentinello/commit/33a46c8b5f5e5aa4b3ef887b3adfdc3aab5779ed))
+* **scanners:** add OSV as an opt-in vulnerability source with malicious-package detection ([e6ffa55](https://github.com/walkofcode/sentinello/commit/e6ffa550001cad08730b345b90f4ea047d022632))
+* **settings:** make Settings a top-level section with a left sidebar and Profile page ([309bea2](https://github.com/walkofcode/sentinello/commit/309bea2623f94755c0b3a267c368c178ba45451f))
+* **settings:** replace the OSV checkbox with an accessible Switch toggle ([decdc58](https://github.com/walkofcode/sentinello/commit/decdc58fed48db718ad078dc9e7476cecf62a7da))
+* **triage:** mute and unmute merged finding rows across all identities ([10ee739](https://github.com/walkofcode/sentinello/commit/10ee739c9f9560c96bcee8e1aa209999da9bef89))
+
+
+### Bug Fixes
+
+* **about:** clarify the privacy note now that OSV is an optional source ([a27af5a](https://github.com/walkofcode/sentinello/commit/a27af5afcd1bb0d3725eaeadf9d1bc2867d83a19))
+* **merge:** store the source/advisory key separator as an escape, not a raw NUL byte ([1aa3806](https://github.com/walkofcode/sentinello/commit/1aa380603de698edd9af943fc5a8ec7793082f09))
+* **notifications:** bump axios to 1.16.1 (proxy/prototype-pollution advisories) ([ab44fa2](https://github.com/walkofcode/sentinello/commit/ab44fa2cfc270817cfab2464e7070dc5077decd9))
+
+
+### Documentation
+
+* **about:** reflect OSV source and rename title to Sentinello ([b28efb0](https://github.com/walkofcode/sentinello/commit/b28efb0041fa10ec30ca6d104c1725128ef246c2))
+* **docker:** clarify the compose-prefixed nvm/data volume names on upgrade ([22d8ca0](https://github.com/walkofcode/sentinello/commit/22d8ca067db9666e2b5fdafa351532b7596d8c43))
+* **readme:** restructure around the long-tail positioning ([653bc18](https://github.com/walkofcode/sentinello/commit/653bc18ce78789b876bad8f7002e576ea211e0b8))
+* **releases:** add the 2.0.0 what's-new entry ([2bc7bb5](https://github.com/walkofcode/sentinello/commit/2bc7bb594001720956f62686b81ec8c8cfaf52c2))
+* **security:** document the hardened self-hosting posture ([aa435d8](https://github.com/walkofcode/sentinello/commit/aa435d8162007a90608aee39e37fc0ffadbed181))
+
 ## [1.4.0](https://github.com/walkofcode/sentinello/compare/v1.3.1...v1.4.0) (2026-05-29)
 
 
