@@ -513,7 +513,7 @@
         "title": "Sentinello",
         "intro": "Monitoraggio centralizzato delle vulnerabilità delle dipendenze in tutto il tuo portfolio — self-hosted, sulla tua infrastruttura.",
         "notDoTitle": "Cosa Sentinello non fa",
-        "notDoBody": "Sentinello viene eseguito interamente sulla tua infrastruttura. Non legge il tuo codice sorgente — scopre i progetti solo individuando i file <code>package.json</code> — nulla viene caricato da nessuna parte, nessuna telemetria lascia la tua macchina, non c'è alcun account centrale e non è coinvolto alcun LLM o IA. È semplicemente <code>npm audit</code>.",
+        "notDoBody": "Sentinello viene eseguito interamente sulla tua infrastruttura. Non legge il tuo codice sorgente — scopre i progetti solo individuando i file <code>package.json</code> — nulla viene caricato da nessuna parte, nessuna telemetria lascia la tua macchina, non c'è alcun account centrale e non è coinvolto alcun LLM o IA. Per impostazione predefinita è semplicemente <code>npm audit</code>; la fonte opzionale OSV (Impostazioni → Fonti, disattivata per impostazione predefinita) è l'unica aggiunta, e anche in tal caso recupera solo dati pubblici di advisory tramite HTTPS.",
         "whoTitle": "Chi l'ha creato",
         "whoBody": "Creato da <company>Walk of Code LLC</company> e Sebastian Arena (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "Da dove provengono i dati degli advisory",

@@ -513,7 +513,7 @@
         "title": "Sentinello",
         "intro": "포트폴리오 전반의 의존성 취약점을 중앙에서 모니터링합니다 — 자체 인프라에서 셀프 호스팅됩니다.",
         "notDoTitle": "Sentinello가 하지 않는 일",
-        "notDoBody": "Sentinello는 전적으로 사용자의 인프라에서 실행됩니다. 소스 코드를 읽지 않으며 — <code>package.json</code> 파일을 찾아 프로젝트만 발견합니다 — 어디에도 업로드되지 않고, 텔레메트리가 사용자의 머신을 떠나지 않으며, 중앙 계정이 없고, LLM이나 AI가 관여하지 않습니다. 순수한 <code>npm audit</code>입니다.",
+        "notDoBody": "Sentinello는 전적으로 사용자의 인프라에서 실행됩니다. 소스 코드를 읽지 않으며 — <code>package.json</code> 파일을 찾아 프로젝트만 발견합니다 — 어디에도 업로드되지 않고, 텔레메트리가 사용자의 머신을 떠나지 않으며, 중앙 계정이 없고, LLM이나 AI가 관여하지 않습니다. 기본적으로 순수한 <code>npm audit</code>입니다. 유일한 추가 기능은 선택적 OSV 소스(설정 → 소스, 기본값 꺼짐)뿐이며, 그 경우에도 HTTPS를 통해 공개 권고 데이터만 가져옵니다.",
         "whoTitle": "제작자",
         "whoBody": "<company>Walk of Code LLC</company>와 Sebastian Arena가 제작했습니다 (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "권고 데이터의 출처",

@@ -513,7 +513,7 @@
         "title": "Sentinello",
         "intro": "ポートフォリオ全体の依存関係の脆弱性を一元的に監視します — 自前のインフラ上でセルフホストできます。",
         "notDoTitle": "Sentinello が行わないこと",
-        "notDoBody": "Sentinello は完全にお客様のインフラ上で動作します。ソースコードを読み取ることはなく、<code>package.json</code> ファイルを見つけることでのみプロジェクトを検出します。どこにも何もアップロードされず、テレメトリがマシンから送信されることもなく、中央アカウントも存在せず、LLM や AI も一切関与しません。純粋な <code>npm audit</code> です。",
+        "notDoBody": "Sentinello は完全にお客様のインフラ上で動作します。ソースコードを読み取ることはなく、<code>package.json</code> ファイルを見つけることでのみプロジェクトを検出します。どこにも何もアップロードされず、テレメトリがマシンから送信されることもなく、中央アカウントも存在せず、LLM や AI も一切関与しません。デフォルトでは純粋な <code>npm audit</code> です。唯一の追加はオプションの OSV ソース（設定 → ソース、デフォルトはオフ）のみで、それでも HTTPS 経由で公開アドバイザリデータを取得するだけです。",
         "whoTitle": "開発者",
         "whoBody": "<company>Walk of Code LLC</company> および Sebastian Arena（<linkedin>LinkedIn</linkedin>）によって開発されました。",
         "advisoryTitle": "アドバイザリデータの出所",
