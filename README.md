@@ -367,6 +367,11 @@ This release runs Sentinello as an unprivileged user (`uid 10001`) and moves the
    user — and `/api/health` now reports `"dataDir":"ro"` and returns HTTP 503 in that state (a
    read-only DB still answers `SELECT 1`, so the probe writes a temp file to catch it), so an
    orchestrator notices the half-up container too.
+4. **Check your port binding.** The compose and `docker run` examples now bind
+   `127.0.0.1:3870:3000` (localhost-only) instead of `3870:3000`. Pulling the image doesn't rewrite a
+   mapping you already have, but if you adopt the new examples and reach the portal from another host,
+   drop the `127.0.0.1:` prefix — and put auth (`SENTINELLO_PORTAL_TOKEN` or a reverse proxy) in
+   front first.
 
 ## Running with pm2 (without Docker)
 
