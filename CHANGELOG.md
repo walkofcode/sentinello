@@ -5,7 +5,9 @@
 
 ### ⚠ BREAKING CHANGES
 
-* **merge:** the MCP endpoint is now disabled by default and requires a token, and the container runs as an unprivileged user. Existing self-hosters must set the MCP token (and re-enable MCP) to keep MCP integrations working, and may need to chown the data/nvm volumes after upgrade.
+* **docker:** the container now runs as an **unprivileged user (`uid 10001`)**, and the nvm cache mount moved from `/root/.nvm` to `/home/sentinello/.nvm`. On upgrade the container **hard-fails by design** until you migrate the volumes: **delete and recreate** the nvm cache volume (it's a pure cache — do *not* `chown` it) and **`chown` the data volume** to `10001:10001`. Full steps: [README → Upgrading](https://github.com/walkofcode/sentinello/blob/main/README.md#upgrading).
+* **mcp:** the MCP endpoint is now **disabled by default and requires a token**. Set `SENTINELLO_MCP_ENABLED=true` and `SENTINELLO_MCP_API_TOKEN` to keep existing MCP integrations working.
+* **docker:** the compose / `docker run` examples now bind `127.0.0.1:` (**localhost-only**) and drop all Linux capabilities. To reach the portal from another host, drop the prefix and put auth in front. Prefer pinning a digest (`…:v2.0.0@sha256:<digest>`) over `:latest`.
 
 ### Features
 
