@@ -17,6 +17,7 @@ function stripVPrefix(value: string): string {
 // Newest first. The locale-independent version index. Adding a release = one entry here plus a
 // RELEASE_COPY entry in every locale below. See CLAUDE.md for the release-please version-sync flow.
 export const RELEASES: ReleaseEntry[] = [
+    { version: '2.0.0', date: '2026-06-04' },
     { version: '1.4.0', date: '2026-05-29' },
     { version: '1.3.1', date: '2026-05-28' },
     { version: '1.3.0', date: '2026-05-28' },
@@ -31,6 +32,7 @@ export const RELEASES: ReleaseEntry[] = [
 // this is plain TS data, not a next-intl message key (next-intl forbids '.' in keys).
 export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     en: {
+        '2.0.0': { title: 'Multi-source scanning and a hardened, secure-by-default install', items: ['OSV as an opt-in second source (Settings → Sources, off by default) with malicious-package detection, matched against the public OSV database in a local cache', 'Findings now merge across sources — one row per vulnerability, every source tagged, the best available fix, and the union of dependency paths, with a source filter and a dependency-path popover', 'Security hardening: the MCP endpoint is off by default and requires a token, webhook delivery is guarded against SSRF, an optional portal login gate, and the container runs as an unprivileged user', 'Settings is now a top-level section with a sidebar and a Profile page'] },
         '1.4.0': { title: 'MCP integration & what’s-new', items: ['MCP server at /api/mcp for Claude Desktop, Cursor, and other clients', 'New Settings → MCP section with server URL and token management', 'What’s-new pill plus a Release notes history'] },
         '1.3.1': { title: 'Footer version fix', items: ['The running version renders cleanly in the footer'] },
         '1.3.0': { title: 'Notification improvements', items: ['Filter notifications by environment', 'Simpler notification-target edit form', 'Duplicate an existing notification target'] },
@@ -41,6 +43,7 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Initial open-source release', items: ['The first public release of Sentinello'] }
     },
     es: {
+        '2.0.0': { title: 'Análisis multi-fuente y una instalación reforzada y segura por defecto', items: ['OSV como segunda fuente opcional (Configuración → Fuentes, desactivada por defecto) con detección de paquetes maliciosos, cotejada con la base de datos pública de OSV en una caché local', 'Los hallazgos ahora se combinan entre fuentes: una fila por vulnerabilidad, con cada fuente etiquetada, la mejor corrección disponible y la unión de las rutas de dependencia, con filtro por fuente y un popover de ruta de dependencia', 'Refuerzo de seguridad: el endpoint MCP está desactivado por defecto y requiere un token, la entrega de webhooks está protegida contra SSRF, una puerta de inicio de sesión opcional del portal, y el contenedor se ejecuta como usuario sin privilegios', 'Configuración ahora es una sección de nivel superior con barra lateral y una página de Perfil'] },
         '1.4.0': { title: 'Integración MCP y novedades', items: ['Servidor MCP en /api/mcp para Claude Desktop, Cursor y otros clientes', 'Nueva sección Configuración → MCP con URL del servidor y gestión de tokens', 'Píldora de novedades e historial de notas de versión'] },
         '1.3.1': { title: 'Corrección de la versión en el pie', items: ['La versión en ejecución se muestra correctamente en el pie de página'] },
         '1.3.0': { title: 'Mejoras en las notificaciones', items: ['Filtrar notificaciones por entorno', 'Formulario de edición de destinos más simple', 'Duplicar un destino de notificación existente'] },
@@ -51,6 +54,7 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primera versión de código abierto', items: ['El primer lanzamiento público de Sentinello'] }
     },
     fr: {
+        '2.0.0': { title: 'Analyse multi-source et une installation renforcée, sécurisée par défaut', items: ['OSV comme deuxième source optionnelle (Paramètres → Sources, désactivée par défaut) avec détection des paquets malveillants, comparée à la base de données publique OSV dans un cache local', 'Les résultats sont désormais fusionnés entre sources — une ligne par vulnérabilité, chaque source étiquetée, le meilleur correctif disponible et l’union des chemins de dépendances, avec un filtre par source et une infobulle de chemin de dépendance', 'Renforcement de la sécurité : le point de terminaison MCP est désactivé par défaut et requiert un jeton, la livraison des webhooks est protégée contre le SSRF, une page de connexion optionnelle au portail, et le conteneur s’exécute en utilisateur non privilégié', 'Les Paramètres forment désormais une section de premier niveau avec une barre latérale et une page Profil'] },
         '1.4.0': { title: 'Intégration MCP et nouveautés', items: ['Serveur MCP sur /api/mcp pour Claude Desktop, Cursor et d’autres clients', 'Nouvelle section Paramètres → MCP avec URL du serveur et gestion des jetons', 'Pastille de nouveautés et historique des notes de version'] },
         '1.3.1': { title: 'Correction de la version dans le pied de page', items: ['La version en cours s’affiche correctement dans le pied de page'] },
         '1.3.0': { title: 'Améliorations des notifications', items: ['Filtrer les notifications par environnement', 'Formulaire d’édition des cibles simplifié', 'Dupliquer une cible de notification existante'] },
@@ -61,6 +65,7 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Première version open source', items: ['La première version publique de Sentinello'] }
     },
     de: {
+        '2.0.0': { title: 'Multi-Quellen-Scan und eine gehärtete, standardmäßig sichere Installation', items: ['OSV als optionale zweite Quelle (Einstellungen → Quellen, standardmäßig aus) mit Erkennung schädlicher Pakete, abgeglichen mit der öffentlichen OSV-Datenbank in einem lokalen Cache', 'Funde werden jetzt quellenübergreifend zusammengeführt — eine Zeile pro Schwachstelle, jede Quelle markiert, der beste verfügbare Fix und die Vereinigung der Abhängigkeitspfade, mit Quellenfilter und einem Abhängigkeitspfad-Popover', 'Sicherheitshärtung: der MCP-Endpunkt ist standardmäßig aus und erfordert ein Token, die Webhook-Zustellung ist gegen SSRF abgesichert, ein optionales Portal-Login, und der Container läuft als unprivilegierter Benutzer', 'Einstellungen sind jetzt ein Bereich der obersten Ebene mit Seitenleiste und einer Profilseite'] },
         '1.4.0': { title: 'MCP-Integration & Neuigkeiten', items: ['MCP-Server unter /api/mcp für Claude Desktop, Cursor und andere Clients', 'Neuer Bereich Einstellungen → MCP mit Server-URL und Token-Verwaltung', 'Neuigkeiten-Symbol und ein Verlauf der Versionshinweise'] },
         '1.3.1': { title: 'Korrektur der Version in der Fußzeile', items: ['Die laufende Version wird in der Fußzeile sauber dargestellt'] },
         '1.3.0': { title: 'Verbesserungen bei Benachrichtigungen', items: ['Benachrichtigungen nach Umgebung filtern', 'Einfacheres Formular zum Bearbeiten von Zielen', 'Ein vorhandenes Benachrichtigungsziel duplizieren'] },
@@ -71,6 +76,7 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Erste Open-Source-Version', items: ['Die erste öffentliche Veröffentlichung von Sentinello'] }
     },
     'pt-BR': {
+        '2.0.0': { title: 'Varredura multi-fonte e uma instalação reforçada e segura por padrão', items: ['OSV como segunda fonte opcional (Configurações → Fontes, desativada por padrão) com detecção de pacotes maliciosos, comparada com o banco de dados público do OSV em um cache local', 'Os achados agora são mesclados entre fontes — uma linha por vulnerabilidade, cada fonte marcada, a melhor correção disponível e a união dos caminhos de dependência, com filtro por fonte e um popover de caminho de dependência', 'Reforço de segurança: o endpoint MCP está desativado por padrão e exige um token, a entrega de webhooks é protegida contra SSRF, uma porta de login opcional do portal, e o contêiner é executado como usuário sem privilégios', 'Configurações agora é uma seção de nível superior com barra lateral e uma página de Perfil'] },
         '1.4.0': { title: 'Integração MCP e novidades', items: ['Servidor MCP em /api/mcp para Claude Desktop, Cursor e outros clientes', 'Nova seção Configurações → MCP com URL do servidor e gerenciamento de tokens', 'Etiqueta de novidades e um histórico de notas de versão'] },
         '1.3.1': { title: 'Correção da versão no rodapé', items: ['A versão em execução é exibida corretamente no rodapé'] },
         '1.3.0': { title: 'Melhorias nas notificações', items: ['Filtrar notificações por ambiente', 'Formulário de edição de destinos mais simples', 'Duplicar um destino de notificação existente'] },
@@ -81,6 +87,7 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primeira versão de código aberto', items: ['O primeiro lançamento público do Sentinello'] }
     },
     it: {
+        '2.0.0': { title: 'Scansione multi-sorgente e un’installazione rafforzata e sicura per impostazione predefinita', items: ['OSV come seconda sorgente opzionale (Impostazioni → Fonti, disattivata per impostazione predefinita) con rilevamento di pacchetti dannosi, confrontata con il database pubblico OSV in una cache locale', 'I risultati ora vengono uniti tra le sorgenti — una riga per vulnerabilità, ogni sorgente etichettata, la migliore correzione disponibile e l’unione dei percorsi di dipendenza, con un filtro per sorgente e un popover del percorso di dipendenza', 'Rafforzamento della sicurezza: l’endpoint MCP è disattivato per impostazione predefinita e richiede un token, la consegna dei webhook è protetta da SSRF, un gate di accesso opzionale al portale, e il contenitore viene eseguito come utente senza privilegi', 'Impostazioni è ora una sezione di primo livello con barra laterale e una pagina Profilo'] },
         '1.4.0': { title: 'Integrazione MCP e novità', items: ['Server MCP su /api/mcp per Claude Desktop, Cursor e altri client', 'Nuova sezione Impostazioni → MCP con URL del server e gestione dei token', 'Badge delle novità e una cronologia delle note di rilascio'] },
         '1.3.1': { title: 'Correzione della versione nel piè di pagina', items: ['La versione in esecuzione viene mostrata correttamente nel piè di pagina'] },
         '1.3.0': { title: 'Miglioramenti alle notifiche', items: ['Filtra le notifiche per ambiente', 'Modulo di modifica delle destinazioni più semplice', 'Duplica una destinazione di notifica esistente'] },
@@ -91,6 +98,7 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Prima versione open source', items: ['La prima versione pubblica di Sentinello'] }
     },
     ja: {
+        '2.0.0': { title: '複数ソースのスキャンと、デフォルトで安全な堅牢化されたインストール', items: ['任意の第2ソースとしての OSV（設定 → ソース、デフォルトはオフ）。悪意あるパッケージ検出を備え、ローカルキャッシュ内の公開 OSV データベースと照合します', '検出結果がソース間で統合されるようになりました。脆弱性ごとに1行で、各ソースをタグ付けし、利用可能な最良の修正と依存パスの和集合を示し、ソースフィルターと依存パスのポップオーバーを備えます', 'セキュリティ強化: MCP エンドポイントはデフォルトでオフかつトークンが必要、Webhook 配信は SSRF から保護、任意のポータルログインゲート、コンテナは非特権ユーザーとして実行されます', '設定が、サイドバーとプロフィールページを備えたトップレベルのセクションになりました'] },
         '1.4.0': { title: 'MCP 連携と新着情報', items: ['Claude Desktop、Cursor などのクライアント向けの /api/mcp の MCP サーバー', 'サーバー URL とトークン管理を備えた新しい「設定 → MCP」セクション', '新着情報バッジとリリースノートの履歴'] },
         '1.3.1': { title: 'フッターのバージョン表示の修正', items: ['実行中のバージョンがフッターに正しく表示されます'] },
         '1.3.0': { title: '通知の改善', items: ['環境ごとに通知をフィルタリング', '通知先の編集フォームを簡素化', '既存の通知先を複製'] },
@@ -101,6 +109,7 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '初のオープンソースリリース', items: ['Sentinello の最初の一般公開リリース'] }
     },
     'zh-CN': {
+        '2.0.0': { title: '多来源扫描，以及默认安全的加固安装', items: ['将 OSV 作为可选的第二来源（设置 → 来源，默认关闭），具备恶意软件包检测，并与本地缓存中的公开 OSV 数据库进行比对', '检测结果现在可跨来源合并——每个漏洞一行，标记每个来源、提供可用的最佳修复方案以及依赖路径的并集，并配有来源筛选和依赖路径弹出框', '安全加固：MCP 端点默认关闭并需要令牌，webhook 投递可防御 SSRF，可选的门户登录入口，容器以非特权用户身份运行', '“设置”现在是带侧边栏和个人资料页面的顶级板块'] },
         '1.4.0': { title: 'MCP 集成与新功能', items: ['面向 Claude Desktop、Cursor 等客户端的 /api/mcp MCP 服务器', '全新的“设置 → MCP”板块，提供服务器 URL 和令牌管理', '新功能标记以及发行说明历史'] },
         '1.3.1': { title: '页脚版本显示修复', items: ['运行中的版本在页脚正确显示'] },
         '1.3.0': { title: '通知改进', items: ['按环境筛选通知', '更简单的通知目标编辑表单', '复制现有的通知目标'] },
@@ -111,6 +120,7 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '首个开源版本', items: ['Sentinello 的首个公开发布版本'] }
     },
     ko: {
+        '2.0.0': { title: '다중 소스 스캔과 기본값으로 안전한 강화된 설치', items: ['선택적 두 번째 소스로서의 OSV(설정 → 소스, 기본값 꺼짐). 악성 패키지 탐지를 갖추고 로컬 캐시의 공개 OSV 데이터베이스와 대조합니다', '이제 검출 결과가 소스 간에 병합됩니다 — 취약점당 한 행으로, 각 소스를 태그하고 사용 가능한 최선의 수정과 의존성 경로의 합집합을 보여주며, 소스 필터와 의존성 경로 팝오버를 제공합니다', '보안 강화: MCP 엔드포인트는 기본적으로 꺼져 있고 토큰이 필요하며, 웹훅 전송은 SSRF로부터 보호되고, 선택적 포털 로그인 게이트가 있으며, 컨테이너는 비권한 사용자로 실행됩니다', '설정이 이제 사이드바와 프로필 페이지를 갖춘 최상위 섹션이 되었습니다'] },
         '1.4.0': { title: 'MCP 연동 및 새로운 기능', items: ['Claude Desktop, Cursor 등 클라이언트를 위한 /api/mcp MCP 서버', '서버 URL과 토큰 관리를 갖춘 새로운 설정 → MCP 섹션', '새로운 기능 배지와 릴리스 노트 기록'] },
         '1.3.1': { title: '푸터 버전 표시 수정', items: ['실행 중인 버전이 푸터에 깔끔하게 표시됩니다'] },
         '1.3.0': { title: '알림 개선', items: ['환경별로 알림 필터링', '더 간단해진 알림 대상 편집 양식', '기존 알림 대상 복제'] },
@@ -121,6 +131,7 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '첫 오픈 소스 릴리스', items: ['Sentinello의 첫 공개 릴리스'] }
     },
     ru: {
+        '2.0.0': { title: 'Сканирование из нескольких источников и усиленная, безопасная по умолчанию установка', items: ['OSV как необязательный второй источник (Настройки → Источники, по умолчанию выключено) с обнаружением вредоносных пакетов, сверяемый с публичной базой данных OSV в локальном кэше', 'Результаты теперь объединяются между источниками — одна строка на уязвимость, каждый источник помечен, лучшее доступное исправление и объединение путей зависимостей, с фильтром по источнику и всплывающим окном пути зависимости', 'Усиление безопасности: эндпойнт MCP по умолчанию выключен и требует токен, доставка вебхуков защищена от SSRF, необязательный вход в портал, и контейнер запускается от непривилегированного пользователя', 'Настройки теперь — раздел верхнего уровня с боковой панелью и страницей профиля'] },
         '1.4.0': { title: 'Интеграция MCP и новинки', items: ['MCP-сервер по адресу /api/mcp для Claude Desktop, Cursor и других клиентов', 'Новый раздел «Настройки → MCP» с URL сервера и управлением токенами', 'Значок новинок и история примечаний к выпускам'] },
         '1.3.1': { title: 'Исправление версии в подвале', items: ['Текущая версия корректно отображается в подвале'] },
         '1.3.0': { title: 'Улучшения уведомлений', items: ['Фильтрация уведомлений по среде', 'Более простая форма редактирования получателей', 'Дублирование существующего получателя уведомлений'] },
