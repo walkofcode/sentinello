@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.1](https://github.com/walkofcode/sentinello/compare/v2.0.0...v2.0.1) (2026-06-04)
+
+
+### Documentation
+
+* **changelog:** expand the 2.0.0 breaking-changes notes with accurate upgrade steps ([555231e](https://github.com/walkofcode/sentinello/commit/555231e3ad0d4cdb492495261f43206517be5e80))
+* **readme:** note the localhost-only port binding in the upgrade steps ([13d6cb1](https://github.com/walkofcode/sentinello/commit/13d6cb1e64d722f7a1c652023758081e66b3a38d))
+
 ## [2.0.0](https://github.com/walkofcode/sentinello/compare/v1.4.0...v2.0.0) (2026-06-04)
 
 
