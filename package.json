@@ -29,8 +29,7 @@
         "docker:up": "docker compose up -d",
         "docker:down": "docker compose down",
         "demo:gen": "node scripts/gen-demo-projects.mjs",
-        "demo:up": "pnpm docker:build && docker run --rm -it -p 3870:3000 -v sentinello-data:/app/data -v sentinello-nvm:/home/sentinello/.nvm -v \"$(pwd)/demo-projects:/roots/demo:ro\" --name sentinello walkofcode/sentinello:dev",
-        "shoot": "node scripts/shoot-homepage.mjs"
+        "demo:up": "pnpm docker:build && docker run --rm -it -p 3870:3000 -v sentinello-data:/app/data -v sentinello-nvm:/home/sentinello/.nvm -v \"$(pwd)/demo-projects:/roots/demo:ro\" --name sentinello walkofcode/sentinello:dev"
     },
     "devDependencies": {
         "@eslint/js": "10.0.1",
