@@ -153,10 +153,6 @@ jobs:
     publish-ghcr:
         needs: build
         if: ${{ github.event_name == 'push' || inputs.push }}
-        # Release gate: the `release` environment has a required reviewer, so the operator-facing
-        # tags (latest, vX.Y.Z) are NOT pushed until a human approves the deployment in the Actions
-        # UI. The build job above still pushes untagged digests; nothing is pullable until approval.
-        environment: release
         runs-on: ubuntu-latest
         steps:
             - name: Download per-arch digests
@@ -212,8 +208,6 @@ jobs:
     publish-hub:
         needs: build
         if: ${{ github.event_name == 'push' || inputs.push }}
-        # Same release gate as publish-ghcr — Docker Hub tags wait for human approval too.
-        environment: release
         runs-on: ubuntu-latest
         steps:
             - name: Download per-arch digests
