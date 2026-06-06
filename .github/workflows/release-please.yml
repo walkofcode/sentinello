@@ -15,6 +15,14 @@
 #      exceptions to that rule. This keeps the whole chain on the default GITHUB_TOKEN —
 #      no PAT and no GitHub App required.
 #
+# NOTE: when folding curated release notes (packages/core/src/releases.ts) into an OPEN release PR,
+# commit them as `docs(...)`, NEVER `chore(...)`. `chore` is hidden:true in release-please-config.json,
+# so a chore-only delta yields an identical changelog and release-please leaves the open PR stale (it
+# only re-pushes the PR branch when its generated CHANGELOG/package.json/manifest would change). `docs`
+# adds a Documentation line, forcing a rebase of the PR onto the new main so the notes show up in it.
+# Neither type changes the computed bump; the notes ship either way (the tag is cut from main HEAD),
+# but `docs` keeps the PR an accurate preview.
+#
 # No secrets required — uses the built-in GITHUB_TOKEN with elevated permissions below.
 # Manual override: workflow_dispatch re-runs the action without waiting for a push.
 
