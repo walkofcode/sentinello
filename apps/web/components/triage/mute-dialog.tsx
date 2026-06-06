@@ -29,9 +29,10 @@ type Props = {
     label?: string
     muteId?: string
     iconOnly?: boolean
+    iconSize?: 'sm' | 'md'
 }
 
-export function MuteDialog({ projectId, finding, merged, label, muteId, iconOnly }: Props) {
+export function MuteDialog({ projectId, finding, merged, label, muteId, iconOnly, iconSize = 'sm' }: Props) {
     const t = useTranslations('Triage')
     const tc = useTranslations('Common')
     const [open, setOpen] = useState(false)
@@ -85,12 +86,12 @@ export function MuteDialog({ projectId, finding, merged, label, muteId, iconOnly
             return (
                 <Button
                     variant="outline"
-                    size="sm"
+                    size={iconSize === 'md' ? 'icon' : 'sm'}
                     onClick={handleUnmute}
                     disabled={pending}
                     aria-label={unmuteLabel}
                     title={unmuteLabel}
-                    className="h-8 w-8 px-0"
+                    className={iconSize === 'md' ? undefined : 'h-8 w-8 px-0'}
                 >
                     <Volume2 className="h-4 w-4" />
                 </Button>
@@ -109,11 +110,11 @@ export function MuteDialog({ projectId, finding, merged, label, muteId, iconOnly
             return (
                 <Button
                     variant="outline"
-                    size="sm"
+                    size={iconSize === 'md' ? 'icon' : 'sm'}
                     onClick={function show() { setOpen(true) }}
                     aria-label={triggerLabel}
                     title={triggerLabel}
-                    className="h-8 w-8 px-0"
+                    className={iconSize === 'md' ? undefined : 'h-8 w-8 px-0'}
                 >
                     <VolumeX className="h-4 w-4" />
                 </Button>

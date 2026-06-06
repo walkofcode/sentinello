@@ -12,9 +12,10 @@ type Props = {
     projectId: string
     folderName: string
     currentAlias: string | null
+    iconOnly?: boolean
 }
 
-export function AliasEditor({ projectId, folderName, currentAlias }: Props) {
+export function AliasEditor({ projectId, folderName, currentAlias, iconOnly }: Props) {
     const t = useTranslations('Triage')
     const tc = useTranslations('Common')
     const [open, setOpen] = useState(false)
@@ -33,10 +34,22 @@ export function AliasEditor({ projectId, folderName, currentAlias }: Props) {
     }
     return (
         <>
-            <Button variant="outline" onClick={function show() { setOpen(true) }}>
-                <Pencil className="h-4 w-4" />
-                {t('alias.editName')}
-            </Button>
+            {iconOnly ? (
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={function show() { setOpen(true) }}
+                    aria-label={t('alias.editName')}
+                    title={t('alias.editName')}
+                >
+                    <Pencil className="h-4 w-4" />
+                </Button>
+            ) : (
+                <Button variant="outline" onClick={function show() { setOpen(true) }}>
+                    <Pencil className="h-4 w-4" />
+                    {t('alias.editName')}
+                </Button>
+            )}
             <Dialog
                 open={open}
                 onClose={close}

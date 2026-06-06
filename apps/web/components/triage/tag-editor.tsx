@@ -11,9 +11,10 @@ import { setProjectTagsAction } from '@/lib/actions/tag'
 type Props = {
     projectId: string
     initialTags: string[]
+    iconOnly?: boolean
 }
 
-export function TagEditor({ projectId, initialTags }: Props) {
+export function TagEditor({ projectId, initialTags, iconOnly }: Props) {
     const t = useTranslations('Triage')
     const tc = useTranslations('Common')
     const initial = initialTags.join(', ')
@@ -33,10 +34,22 @@ export function TagEditor({ projectId, initialTags }: Props) {
     }
     return (
         <>
-            <Button variant="outline" onClick={function show() { setOpen(true) }}>
-                <Tag className="h-4 w-4" />
-                {t('tags.editTags')}
-            </Button>
+            {iconOnly ? (
+                <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={function show() { setOpen(true) }}
+                    aria-label={t('tags.editTags')}
+                    title={t('tags.editTags')}
+                >
+                    <Tag className="h-4 w-4" />
+                </Button>
+            ) : (
+                <Button variant="outline" onClick={function show() { setOpen(true) }}>
+                    <Tag className="h-4 w-4" />
+                    {t('tags.editTags')}
+                </Button>
+            )}
             <Dialog
                 open={open}
                 onClose={close}
