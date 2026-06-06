@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl'
 import { Save } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input, Label, Textarea } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
+import { Dropdown } from '@/components/ui/dropdown'
 import { locales, LOCALE_LABELS } from '@/i18n/config'
 import { updateAdvancedSettingsAction } from '@/lib/actions/settings'
 
@@ -88,15 +88,16 @@ export function AdvancedForm({ initial, roots }: Props) {
                 </div>
                 <div className="flex flex-col gap-1">
                     <Label htmlFor="notification-locale">{t('advanced.notificationLanguage')}</Label>
-                    <Select
+                    <Dropdown
                         id="notification-locale"
+                        className="w-full"
+                        ariaLabel={t('advanced.notificationLanguage')}
                         value={notificationLocale}
-                        onChange={function onChange(e) { setNotificationLocale(e.target.value) }}
-                    >
-                        {locales.map(function localeOption(code) {
-                            return <option key={code} value={code}>{LOCALE_LABELS[code]}</option>
+                        onChange={setNotificationLocale}
+                        options={locales.map(function localeOption(code) {
+                            return { value: code, label: LOCALE_LABELS[code] }
                         })}
-                    </Select>
+                    />
                     <p className="text-xs text-muted-foreground">{t('advanced.notificationLanguageHelp')}</p>
                 </div>
             </div>

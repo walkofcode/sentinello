@@ -11,7 +11,7 @@ import { SeverityPill } from '@/components/ui/severity-pill'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
+import { Dropdown } from '@/components/ui/dropdown'
 import { rememberLibrariesUrl } from '@/lib/home-url-memory'
 
 type SortKey = 'severity' | 'name' | 'projects' | 'advisories'
@@ -118,51 +118,30 @@ export function LibrariesFilterView({ libraries, depType, defaultDepType }: Prop
                     className="h-9 w-56"
                     aria-label={t('searchPackagesAria')}
                 />
-                <Select
-                    aria-label={t('filterBySeverity')}
+                <Dropdown
+                    ariaLabel={t('filterBySeverity')}
                     value={minSeverity}
-                    onChange={function onSevChange(e) {
-                        setMinSeverity(e.target.value as MinSeverity)
-                    }}
-                >
-                    {MIN_SEVERITY_OPTIONS.map(function opt(o) {
-                        return (
-                            <option key={o.value || 'any'} value={o.value}>
-                                {t(o.labelKey)}
-                            </option>
-                        )
+                    onChange={function onSevChange(v) { setMinSeverity(v as MinSeverity) }}
+                    options={MIN_SEVERITY_OPTIONS.map(function opt(o) {
+                        return { value: o.value, label: t(o.labelKey) }
                     })}
-                </Select>
-                <Select
-                    aria-label={t('filterByDepType')}
+                />
+                <Dropdown
+                    ariaLabel={t('filterByDepType')}
                     value={depType}
-                    onChange={function onDepChange(e) {
-                        onDepTypeChange(e.target.value as DepTypeFilter)
-                    }}
-                >
-                    {DEP_TYPE_OPTIONS.map(function opt(o) {
-                        return (
-                            <option key={o.value} value={o.value}>
-                                {t(o.labelKey)}
-                            </option>
-                        )
+                    onChange={function onDepChange(v) { onDepTypeChange(v as DepTypeFilter) }}
+                    options={DEP_TYPE_OPTIONS.map(function opt(o) {
+                        return { value: o.value, label: t(o.labelKey) }
                     })}
-                </Select>
-                <Select
-                    aria-label={t('sortBy')}
+                />
+                <Dropdown
+                    ariaLabel={t('sortBy')}
                     value={sort}
-                    onChange={function onSortChange(e) {
-                        setSort(e.target.value as SortKey)
-                    }}
-                >
-                    {SORT_OPTIONS.map(function opt(o) {
-                        return (
-                            <option key={o.value} value={o.value}>
-                                {t(o.labelKey)}
-                            </option>
-                        )
+                    onChange={function onSortChange(v) { setSort(v as SortKey) }}
+                    options={SORT_OPTIONS.map(function opt(o) {
+                        return { value: o.value, label: t(o.labelKey) }
                     })}
-                </Select>
+                />
             </div>
             {filtered.length === 0 ? (
                 <EmptyState

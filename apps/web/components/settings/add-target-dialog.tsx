@@ -6,7 +6,7 @@ import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { Input, Label } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
+import { Dropdown } from '@/components/ui/dropdown'
 import type {
     DepTypeFilter,
     NotificationTargetConfig,
@@ -113,15 +113,18 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
                     </label>
                     <div className="flex flex-col gap-1 sm:w-64">
                         <Label htmlFor="kind">{t('notifications.kind')}</Label>
-                        <Select
+                        <Dropdown
                             id="kind"
+                            className="w-full"
+                            ariaLabel={t('notifications.kind')}
                             value={kind}
-                            onChange={function onChange(e) { setKind(e.target.value as NotificationTargetKind) }}
-                        >
-                            <option value="slack">Slack</option>
-                            <option value="telegram">Telegram</option>
-                            <option value="webhook">{t('notifications.genericWebhook')}</option>
-                        </Select>
+                            onChange={function onChange(v) { setKind(v as NotificationTargetKind) }}
+                            options={[
+                                { value: 'slack', label: 'Slack' },
+                                { value: 'telegram', label: 'Telegram' },
+                                { value: 'webhook', label: t('notifications.genericWebhook') }
+                            ]}
+                        />
                     </div>
                     {kind === 'slack' ? (
                         <div className="flex flex-col gap-1">
@@ -173,14 +176,17 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
                             </div>
                             <div className="flex flex-col gap-1 sm:w-64">
                                 <Label htmlFor="webhook-flavor">{t('notifications.webhookFlavor')}</Label>
-                                <Select
+                                <Dropdown
                                     id="webhook-flavor"
+                                    className="w-full"
+                                    ariaLabel={t('notifications.webhookFlavor')}
                                     value={webhookFlavor}
-                                    onChange={function onChange(e) { setWebhookFlavor(e.target.value as WebhookFlavor) }}
-                                >
-                                    <option value="json">{t('notifications.webhookFlavorJson')}</option>
-                                    <option value="text">{t('notifications.webhookFlavorText')}</option>
-                                </Select>
+                                    onChange={function onChange(v) { setWebhookFlavor(v as WebhookFlavor) }}
+                                    options={[
+                                        { value: 'json', label: t('notifications.webhookFlavorJson') },
+                                        { value: 'text', label: t('notifications.webhookFlavorText') }
+                                    ]}
+                                />
                                 <p className="text-xs text-muted-foreground">{t('notifications.webhookFlavorHelp')}</p>
                             </div>
                         </div>

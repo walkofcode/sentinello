@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
+import { Dropdown } from '@/components/ui/dropdown'
 import { updateScheduleAction } from '@/lib/actions/settings'
 
 const INTERVALS = [1, 3, 6, 12, 24] as const
@@ -86,41 +86,35 @@ export function ScheduleForm({ initial }: Props) {
                 <div className="flex flex-col gap-2">
                     <Label htmlFor="schedule-start-hour">{t('schedule.startHour')}</Label>
                     <div className="flex flex-col sm:w-40">
-                        <Select
+                        <Dropdown
                             id="schedule-start-hour"
+                            className="w-full"
+                            ariaLabel={t('schedule.startHour')}
                             value={String(startHour)}
                             disabled={pending}
-                            onChange={function onChange(e) { chooseStartHour(Number(e.target.value)) }}
-                        >
-                            {HOURS.map(function option(h) {
-                                const label = (h < 10 ? '0' + h : String(h)) + ':00'
-                                return (
-                                    <option key={h} value={String(h)}>
-                                        {label}
-                                    </option>
-                                )
+                            onChange={function onChange(v) { chooseStartHour(Number(v)) }}
+                            options={HOURS.map(function option(h) {
+                                return { value: String(h), label: (h < 10 ? '0' + h : String(h)) + ':00' }
                             })}
-                        </Select>
+                        />
                     </div>
                     <p className="text-xs text-muted-foreground">
                         {t('schedule.startHourHelp')}
                     </p>
                     <Label htmlFor="schedule-timezone" className="mt-2">{t('schedule.timezone')}</Label>
                     <div className="flex flex-col sm:w-72">
-                        <Select
+                        <Dropdown
                             id="schedule-timezone"
+                            className="w-full"
+                            searchable
+                            ariaLabel={t('schedule.timezone')}
                             value={timezone}
                             disabled={pending}
-                            onChange={function onChange(e) { chooseTimezone(e.target.value) }}
-                        >
-                            {zones.map(function option(tz) {
-                                return (
-                                    <option key={tz} value={tz}>
-                                        {tz}
-                                    </option>
-                                )
+                            onChange={chooseTimezone}
+                            options={zones.map(function option(tz) {
+                                return { value: tz, label: tz }
                             })}
-                        </Select>
+                        />
                     </div>
                     <p className="text-xs text-muted-foreground">
                         {t('schedule.timezoneHelp')}

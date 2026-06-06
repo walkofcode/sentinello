@@ -10,7 +10,7 @@ import type { ProjectCatalogRow } from '@sentinello/db'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
+import { Dropdown } from '@/components/ui/dropdown'
 import { SeverityPill } from '@/components/ui/severity-pill'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -543,21 +543,12 @@ type FilterSelectProps = {
 
 function FilterSelect(props: FilterSelectProps) {
     return (
-        <Select
-            aria-label={props.ariaLabel}
+        <Dropdown
+            ariaLabel={props.ariaLabel}
             value={props.value}
-            onChange={function onChange(e) {
-                props.onChange(e.target.value)
-            }}
-        >
-            {props.options.map(function opt(o) {
-                return (
-                    <option key={o.value} value={o.value}>
-                        {o.label}
-                    </option>
-                )
-            })}
-        </Select>
+            onChange={props.onChange}
+            options={props.options}
+        />
     )
 }
 

@@ -6,7 +6,7 @@ import { useTheme } from 'next-themes'
 import { useLocale, useTranslations } from 'next-intl'
 import { Moon, Sun, type LucideIcon } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Select } from '@/components/ui/select'
+import { Dropdown } from '@/components/ui/dropdown'
 import { cn } from '@/lib/cn'
 import { locales, LOCALE_LABELS, type Locale } from '@/i18n/config'
 import { setLocale } from '@/i18n/set-locale'
@@ -103,16 +103,16 @@ function LanguageCard() {
             </CardHeader>
             <CardContent>
                 <div className="sm:max-w-xs">
-                    <Select
+                    <Dropdown
+                        className="w-full"
+                        ariaLabel={t('profile.language')}
                         value={active}
                         disabled={pending}
-                        onChange={function onChange(e) { choose(e.target.value) }}
-                        className="w-full"
-                    >
-                        {locales.map(function opt(code) {
-                            return <option key={code} value={code}>{LOCALE_LABELS[code]}</option>
+                        onChange={choose}
+                        options={locales.map(function opt(code) {
+                            return { value: code, label: LOCALE_LABELS[code] }
                         })}
-                    </Select>
+                    />
                 </div>
             </CardContent>
         </Card>

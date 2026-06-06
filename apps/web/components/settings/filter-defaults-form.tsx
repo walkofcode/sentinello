@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { useTranslations } from 'next-intl'
 import type { DepTypeFilter, Severity } from '@sentinello/core'
 import { updateFilterDefaultsAction, type FilterDefaultsInput } from '@/lib/actions/settings'
+import { Dropdown } from '@/components/ui/dropdown'
 
 type MinSeverity = '' | Severity
 
@@ -78,18 +79,16 @@ export function FilterDefaultsForm({ initial }: Props) {
             <div className="grid gap-6 sm:grid-cols-2">
                 <div className="space-y-2">
                     <label htmlFor="defaults-min-sev" className="block text-sm font-medium">{t('defaults.minSeverityLabel')}</label>
-                    <select
+                    <Dropdown
                         id="defaults-min-sev"
+                        className="w-full"
+                        ariaLabel={t('defaults.minSeverityLabel')}
                         value={minSeverity}
-                        onChange={function onChange(e) { changeMinSeverity(e.target.value as MinSeverity) }}
-                        className="h-9 w-full rounded-md border bg-card px-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                    >
-                        {MIN_SEVERITY_VALUES.map(function opt(value) {
-                            return (
-                                <option key={value || 'any'} value={value}>{t('defaults.minSeverity.' + (value || 'any'))}</option>
-                            )
+                        onChange={function onChange(v) { changeMinSeverity(v as MinSeverity) }}
+                        options={MIN_SEVERITY_VALUES.map(function opt(value) {
+                            return { value, label: t('defaults.minSeverity.' + (value || 'any')) }
                         })}
-                    </select>
+                    />
                     <p className="text-xs text-muted-foreground">
                         {t('defaults.minSeverityHelp')}
                     </p>
@@ -97,18 +96,16 @@ export function FilterDefaultsForm({ initial }: Props) {
 
                 <div className="space-y-2">
                     <label htmlFor="defaults-sort" className="block text-sm font-medium">{t('defaults.sortLabel')}</label>
-                    <select
+                    <Dropdown
                         id="defaults-sort"
+                        className="w-full"
+                        ariaLabel={t('defaults.sortLabel')}
                         value={sort}
-                        onChange={function onChange(e) { changeSort(e.target.value) }}
-                        className="h-9 w-full rounded-md border bg-card px-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                    >
-                        {SORT_VALUES.map(function opt(value) {
-                            return (
-                                <option key={value} value={value}>{t('defaults.sort.' + value)}</option>
-                            )
+                        onChange={changeSort}
+                        options={SORT_VALUES.map(function opt(value) {
+                            return { value, label: t('defaults.sort.' + value) }
                         })}
-                    </select>
+                    />
                     <p className="text-xs text-muted-foreground">
                         {t('defaults.sortHelp')}
                     </p>
