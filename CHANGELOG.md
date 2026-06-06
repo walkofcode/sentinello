@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.1.0](https://github.com/walkofcode/sentinello/compare/v2.0.1...v2.1.0) (2026-06-06)
+
+
+### Features
+
+* **web:** add icon-only variants to triage header controls ([5ae17f7](https://github.com/walkofcode/sentinello/commit/5ae17f796b620ac814d4e174acf920791717b662))
+* **web:** simplify project header and add an enabled-source filter ([55ba68e](https://github.com/walkofcode/sentinello/commit/55ba68e43bb42c72c3f099505e75c1a335cd7ee4))
+* **web:** unify dropdowns into one searchable component ([08d3f12](https://github.com/walkofcode/sentinello/commit/08d3f12adc512a0e0c6cfa3af508ab109acceb92))
+
+
+### Documentation
+
+* **release:** require docs(...) not chore for release-notes commits ([295bf56](https://github.com/walkofcode/sentinello/commit/295bf565514fc6e3591a7bef83d8e44f7a301431))
+* remove ARCHITECTURE.md ([c5a1e74](https://github.com/walkofcode/sentinello/commit/c5a1e7438a7d65610879fdd425f12f98e9e37a84))
+* remove shipped what's-new plan and design docs ([8196a23](https://github.com/walkofcode/sentinello/commit/8196a238cbcdef79c995d1812ab7266ba8d5c760))
+
 ## [2.0.1](https://github.com/walkofcode/sentinello/compare/v2.0.0...v2.0.1) (2026-06-04)
 
 
