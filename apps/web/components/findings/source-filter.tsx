@@ -1,32 +1,12 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
-import { cn } from '@/lib/cn'
+import { Dropdown, type DropdownOption } from '@/components/ui/dropdown'
+import { SOURCE_PARAM, parseSourceParam } from './source-order'
 
-export const SOURCE_PARAM = 'src'
-
-// npm audit before OSV before anything else, matching the row source-tag order so the filter chips
-// read consistently with the table.
-const SOURCE_ORDER: Record<string, number> = { 'npm-audit': 0, osv: 1 }
-
-// Distinct sources present in a set of scanner names, in display order. Drives which chips render.
-export function orderSources(scanners: Iterable<string>): string[] {
-    return [...new Set(scanners)].sort(function order(a, b) {
-        return (SOURCE_ORDER[a] ?? 9) - (SOURCE_ORDER[b] ?? 9) || a.localeCompare(b)
-    })
-}
-
-// Parse the ?src= param into the selected source set, intersected with what's actually present so a
-// stale / unknown / now-disabled source in the URL is silently ignored. Empty result = "all".
-export function parseSourceParam(raw: string | null | undefined, present: string[]): string[] {
-    if (!raw) return []
-    const wanted = raw.split(',').map(function trim(s) { return s.trim() }).filter(Boolean)
-    return present.filter(function isWanted(s) { return wanted.includes(s) })
-}
-
-// Mirrors source-tags.tsx so the filter chips look identical to the row provenance tags.
+// Mirrors source-tags.tsx so the menu chips look identical to the row provenance tags.
 function sourceVariant(scanner: string): BadgeProps['variant'] {
     if (scanner === 'osv') return 'osv'
     if (scanner === 'npm-audit') return 'npm'
@@ -39,28 +19,30 @@ function sourceLabel(scanner: string): string {
 }
 
 type Props = {
-    // Distinct scanners present in the loaded rows, in display order (use orderSources).
+    // The enabled sources (npm-audit always on, OSV when configured), already in display order. This is
+    // the filter universe — so "npm only" can filter to an empty table on a project where only OSV fired.
     sources: string[]
-    // Currently-selected sources (empty = all). Already intersected with `sources` by the caller.
-    selected: string[]
 }
 
-// URL-persisted multi-select over the sources present in the current view. Filtering by source is
-// pure presentation over already-loaded rows, so this only rewrites the ?src= param (router.replace,
-// no scroll) and the parent re-derives the filtered lists — no server round-trip, mirroring
-// dep-type-filter.tsx. Renders nothing when fewer than two sources are present (npm-only installs
-// never see a redundant control).
-export function SourceFilter({ sources, selected }: Props) {
+// URL-persisted multi-select over the enabled sources. Filtering by source is pure presentation over
+// already-loaded rows (done in findings-section.tsx), so this only rewrites the ?src= param
+// (router.replace, no scroll) and the section re-derives its filtered lists — no server round-trip,
+// mirroring dep-type-filter.tsx. Renders nothing when fewer than two sources are enabled (an npm-only
+// install never sees a redundant control). Uses the shared Dropdown so it matches every other dropdown.
+export function SourceFilter({ sources }: Props) {
     const router = useRouter()
+    const searchParams = useSearchParams()
     const t = useTranslations('Findings')
     if (sources.length < 2) return null
-    // Empty selection means "all" — render every chip active so the unfiltered state reads clearly.
-    const activeSet = selected.length === 0 ? sources : selected
-    function toggle(source: string) {
-        const current = selected.length === 0 ? [...sources] : [...selected]
-        const next = current.includes(source)
-            ? current.filter(function notIt(s) { return s !== source })
-            : [...current, source]
+    const selected = parseSourceParam(searchParams.get(SOURCE_PARAM), sources)
+    const options: DropdownOption[] = sources.map(function toOption(source) {
+        return {
+            value: source,
+            label: sourceLabel(source),
+            node: <Badge variant={sourceVariant(source)}>{sourceLabel(source)}</Badge>
+        }
+    })
+    function onChange(next: string[]) {
         const params = new URLSearchParams(window.location.search)
         // All-selected and none-selected both collapse to the unfiltered default (param removed), so a
         // deselect-the-last click resets to "all" instead of rendering an empty table.
@@ -71,24 +53,13 @@ export function SourceFilter({ sources, selected }: Props) {
         router.replace(url, { scroll: false })
     }
     return (
-        <div className="flex items-center gap-1.5" role="group" aria-label={t('filterBySource')}>
-            {sources.map(function chip(source) {
-                const isActive = activeSet.includes(source)
-                return (
-                    <button
-                        key={source}
-                        type="button"
-                        onClick={function onClick() { toggle(source) }}
-                        aria-pressed={isActive}
-                        className={cn(
-                            'rounded-md transition-opacity focus:outline-none focus:ring-2 focus:ring-primary',
-                            isActive ? 'opacity-100' : 'opacity-40 hover:opacity-70'
-                        )}
-                    >
-                        <Badge variant={sourceVariant(source)}>{sourceLabel(source)}</Badge>
-                    </button>
-                )
-            })}
-        </div>
+        <Dropdown
+            multiple
+            ariaLabel={t('filterBySource')}
+            allLabel={t('sourceAll')}
+            values={selected}
+            onChange={onChange}
+            options={options}
+        />
     )
 }

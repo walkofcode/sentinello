@@ -10,7 +10,7 @@ import { Pagination } from '@/components/ui/pagination'
 import { FindingsTable } from './findings-table'
 import { LibrariesTable } from './libraries-table'
 import { groupByLibrary } from './group-by-library'
-import { SourceFilter, orderSources, parseSourceParam } from './source-filter'
+import { parseSourceParam } from './source-order'
 import { mergeFindings } from '@/lib/merge-findings'
 
 type View = 'advisory' | 'library'
@@ -20,22 +20,22 @@ type Props = {
     projectId: string
     mutes: Mute[]
     now: number
+    // Enabled sources (npm-audit always on, OSV when configured), in display order — the filter universe.
+    sources: string[]
 }
 
 const PAGE_SIZE = 25
 
-export function FindingsSection({ findings, projectId, mutes, now }: Props) {
+export function FindingsSection({ findings, projectId, mutes, now, sources }: Props) {
     const t = useTranslations('Findings')
     const searchParams = useSearchParams()
     const [view, setView] = useState<View>('advisory')
     const [advisoryPage, setAdvisoryPage] = useState(1)
     const [libraryPage, setLibraryPage] = useState(1)
 
-    // Sources present across all loaded rows (already narrowed to active sources server-side) and the
-    // user's ?src= selection over them (empty = all). Filtering is pure presentation over loaded rows.
-    const sources = useMemo(function present() {
-        return orderSources(findings.map(function pick(f) { return f.scanner }))
-    }, [findings])
+    // The user's ?src= selection over the enabled sources (empty = all). Filtering is pure presentation
+    // over loaded rows — the universe is the enabled sources, not just those present, so "npm only" can
+    // resolve to an empty table on a project where only OSV fired.
     const selected = useMemo(function parse() {
         return parseSourceParam(searchParams.get('src'), sources)
     }, [searchParams, sources])
@@ -97,7 +97,6 @@ export function FindingsSection({ findings, projectId, mutes, now }: Props) {
                         { value: 'library', label: t('byLibrary'), count: groups.length }
                     ]}
                 />
-                <SourceFilter sources={sources} selected={selected} />
             </div>
             {view === 'advisory' ? (
                 <>

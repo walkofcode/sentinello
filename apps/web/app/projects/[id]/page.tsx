@@ -15,7 +15,8 @@ import {
     listFindingsResolvedInScan,
     listMuteLiftsForProject,
     listResolvedFindingsForProject,
-    listScansForProject
+    listScansForProject,
+    getActiveScanners
 } from '@sentinello/db'
 import { reasonCodeLabel, scanStatusLabel, type Locale } from '@sentinello/core'
 import { Badge } from '@/components/ui/badge'
@@ -28,6 +29,8 @@ import { ExportAdvisoryButton } from '@/components/triage/export-advisory-button
 import { ScanNowButton } from '@/components/triage/scan-now-button'
 import { TagEditor } from '@/components/triage/tag-editor'
 import { FindingsSection } from '@/components/findings/findings-section'
+import { SourceFilter } from '@/components/findings/source-filter'
+import { orderSources } from '@/components/findings/source-order'
 import { ResolvedFindingsTable } from '@/components/findings/resolved-findings-table'
 import { ScanHistory, type ScanFindingVM, type ScanHistoryRowVM } from '@/components/findings/scan-history'
 import { DepTypeFilter } from '@/components/findings/dep-type-filter'
@@ -39,7 +42,7 @@ import { mergeFindings } from '@/lib/merge-findings'
 
 type PageProps = {
     params: Promise<{ id: string }>
-    searchParams: Promise<{ dep?: string; scanPage?: string; resolvedPage?: string }>
+    searchParams: Promise<{ dep?: string; src?: string; scanPage?: string; resolvedPage?: string }>
 }
 
 const RESOLVED_PAGE_SIZE = 25
@@ -75,6 +78,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     const defaults = getFilterDefaults(db)
     const depType = parseDepTypeParam(resolvedSearchParams.dep) || defaults.depType
     const root = getRootById(db, project.rootId)
+    const enabledSources = orderSources(getActiveScanners(db))
     const findings = listCurrentFindingsForProject(db, project.id, now, depType)
     // The header count matches the "by advisory" tab: distinct vulnerabilities after merging the
     // per-dep-path and per-source duplicates, not raw finding rows.
@@ -137,28 +141,31 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             <header className="space-y-4">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
-                        <h1 className="text-3xl font-semibold tracking-tight">{displayName}</h1>
+                        <div className="flex items-center gap-2">
+                            <h1 className="text-3xl font-semibold tracking-tight">{displayName}</h1>
+                            <AliasEditor
+                                projectId={project.id}
+                                folderName={project.name}
+                                currentAlias={project.alias}
+                                iconOnly
+                            />
+                        </div>
                         <p className="mt-2 text-sm text-muted-foreground">
                             {fullPath} · {project.packageManager} · Node {project.nvmrcVersion || 'ambient'} ·{' '}
                             {lastScanAt ? t('project.scannedRelative', { time: formatRelativeTime(lastScanAt, tTime, now) }) : t('project.neverScanned')}
                         </p>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         <ScanNowButton projectId={project.id} scanning={scanning} />
                         {findings.length > 0 ? (
                             <ExportAdvisoryButton scope="project" projectId={project.id} depType={depType} />
                         ) : null}
                         {projectScopeMute ? (
-                            <MuteDialog projectId={project.id} muteId={projectScopeMute.id} label={tTriage('mute.unmuteProject')} />
+                            <MuteDialog projectId={project.id} muteId={projectScopeMute.id} label={tTriage('mute.unmuteProject')} iconOnly iconSize="md" />
                         ) : (
-                            <MuteDialog projectId={project.id} />
+                            <MuteDialog projectId={project.id} iconOnly iconSize="md" />
                         )}
-                        <AliasEditor
-                            projectId={project.id}
-                            folderName={project.name}
-                            currentAlias={project.alias}
-                        />
-                        <TagEditor projectId={project.id} initialTags={project.tags} />
+                        <TagEditor projectId={project.id} initialTags={project.tags} iconOnly />
                     </div>
                 </div>
                 {projectScopeMute || project.tags.length > 0 ? (
@@ -188,9 +195,12 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                     <>
                         <div className="flex flex-wrap items-baseline justify-between gap-2">
                             <h2 className="text-lg font-semibold">{t('project.currentFindings', { count: mergedFindingCount })}</h2>
-                            <DepTypeFilter value={depType} defaultValue={defaults.depType} />
+                            <div className="flex items-center gap-2">
+                                <SourceFilter sources={enabledSources} />
+                                <DepTypeFilter value={depType} defaultValue={defaults.depType} />
+                            </div>
                         </div>
-                        <FindingsSection findings={findings} projectId={project.id} mutes={activeMutes} now={now} />
+                        <FindingsSection findings={findings} projectId={project.id} mutes={activeMutes} now={now} sources={enabledSources} />
                     </>
                 )}
             </section>

@@ -1,12 +1,14 @@
 import type { Metadata } from 'next'
 import { getTranslations } from 'next-intl/server'
-import { listActiveMutes, listLibraryUsage, listMuteLiftsForLibrary, listResolvedFindingsForLibrary } from '@sentinello/db'
+import { getActiveScanners, listActiveMutes, listLibraryUsage, listMuteLiftsForLibrary, listResolvedFindingsForLibrary } from '@sentinello/db'
 import { type Severity } from '@sentinello/core'
 import { advisoryIdentity } from '@/lib/merge-findings'
 import { SeverityPill } from '@/components/ui/severity-pill'
 import { EmptyState } from '@/components/ui/empty-state'
 import { ScrollToTop } from '@/components/layout/scroll-to-top'
 import { DepTypeFilter } from '@/components/findings/dep-type-filter'
+import { SourceFilter } from '@/components/findings/source-filter'
+import { orderSources } from '@/components/findings/source-order'
 import { LibraryFindingsSection } from '@/components/findings/library-findings-section'
 import { LibraryResolvedTable } from '@/components/findings/library-resolved-table'
 import { ExportAdvisoryButton } from '@/components/triage/export-advisory-button'
@@ -17,7 +19,7 @@ import { getFilterDefaults, parseDepTypeParam } from '@/lib/filter-defaults'
 
 type PageProps = {
     params: Promise<{ name: string }>
-    searchParams: Promise<{ dep?: string }>
+    searchParams: Promise<{ dep?: string; src?: string }>
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
@@ -34,6 +36,7 @@ export default async function LibraryDetailPage({ params, searchParams }: PagePr
     const packageName = decodeURIComponent(resolvedParams.name)
     const defaults = getFilterDefaults(db)
     const depType = parseDepTypeParam(resolvedSearchParams.dep) || defaults.depType
+    const enabledSources = orderSources(getActiveScanners(db))
     const usages = listLibraryUsage(db, packageName, now, depType)
     const resolvedFindings = listResolvedFindingsForLibrary(db, packageName, 50)
     const activeMutes = listActiveMutes(db, now)
@@ -81,7 +84,10 @@ export default async function LibraryDetailPage({ params, searchParams }: PagePr
             <section className="space-y-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <h2 className="text-lg font-semibold">{t('library.currentAdvisories', { count: usages.length })}</h2>
-                    <DepTypeFilter value={depType} defaultValue={defaults.depType} />
+                    <div className="flex items-center gap-2">
+                        <SourceFilter sources={enabledSources} />
+                        <DepTypeFilter value={depType} defaultValue={defaults.depType} />
+                    </div>
                 </div>
                 {usages.length === 0 ? (
                     <EmptyState
@@ -94,6 +100,7 @@ export default async function LibraryDetailPage({ params, searchParams }: PagePr
                         usages={usages}
                         activeMutes={activeMutes}
                         now={now}
+                        sources={enabledSources}
                     />
                 )}
             </section>

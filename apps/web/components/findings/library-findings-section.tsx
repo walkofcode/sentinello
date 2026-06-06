@@ -9,7 +9,7 @@ import { Tabs } from '@/components/ui/tabs'
 import { advisoryIdentity } from '@/lib/merge-findings'
 import { LibraryByAdvisoryTable } from './library-by-advisory-table'
 import { LibraryByProjectTable } from './library-by-project-table'
-import { SourceFilter, orderSources, parseSourceParam } from './source-filter'
+import { parseSourceParam } from './source-order'
 
 type View = 'advisory' | 'project'
 
@@ -18,17 +18,16 @@ type Props = {
     usages: LibraryProjectUsage[]
     activeMutes: Mute[]
     now: number
+    // Enabled sources (npm-audit always on, OSV when configured), in display order — the filter universe.
+    sources: string[]
 }
 
-export function LibraryFindingsSection({ packageName, usages, activeMutes, now }: Props) {
+export function LibraryFindingsSection({ packageName, usages, activeMutes, now, sources }: Props) {
     const t = useTranslations('Findings')
     const searchParams = useSearchParams()
     const [view, setView] = useState<View>('advisory')
-    // Sources present across the loaded usages (already narrowed to active sources server-side) and the
-    // user's ?src= selection over them (empty = all). Both tables run off the filtered usages.
-    const sources = useMemo(function present() {
-        return orderSources(usages.map(function pick(u) { return u.scanner }))
-    }, [usages])
+    // The user's ?src= selection over the enabled sources (empty = all). Both tables run off the filtered
+    // usages — filtering is pure presentation over loaded rows.
     const selected = useMemo(function parse() {
         return parseSourceParam(searchParams.get('src'), sources)
     }, [searchParams, sources])
@@ -54,7 +53,6 @@ export function LibraryFindingsSection({ packageName, usages, activeMutes, now }
                         { value: 'project', label: t('byProject'), count: projectCount }
                     ]}
                 />
-                <SourceFilter sources={sources} selected={selected} />
             </div>
             {(view === 'advisory' && (
                 <LibraryByAdvisoryTable packageName={packageName} usages={visibleUsages} activeMutes={activeMutes} now={now} />
