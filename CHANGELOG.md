@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.3.0](https://github.com/walkofcode/sentinello/compare/v2.2.0...v2.3.0) (2026-06-09)
+
+
+### Features
+
+* **mcp:** manage MCP entirely from Settings → MCP, drop env vars ([c7431b4](https://github.com/walkofcode/sentinello/commit/c7431b40d7911db575f4198be6e4de2961bc9c54))
+* **settings:** show SENTINELLO_PORTAL_BASE_URL read-only when env-managed ([5369e45](https://github.com/walkofcode/sentinello/commit/5369e4537ac59fad31e92be382321baceaaa7b1d))
+
+
+### Documentation
+
+* **releases:** add 2.3.0 release notes ([f4ba1cc](https://github.com/walkofcode/sentinello/commit/f4ba1cc3ffcd8a4a4fadd53fb4157362f172ecaf))
+
 ## [2.2.0](https://github.com/walkofcode/sentinello/compare/v2.1.0...v2.2.0) (2026-06-09)
 
 
