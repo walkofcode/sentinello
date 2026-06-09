@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.2.0](https://github.com/walkofcode/sentinello/compare/v2.1.0...v2.2.0) (2026-06-09)
+
+
+### Features
+
+* **db:** store enumerated affected versions for OSV advisories ([ad99492](https://github.com/walkofcode/sentinello/commit/ad994924d9f7b412db4e6caa959ce14e238f189a))
+* **scanners:** unify version matching behind a shared resolver and engine ([087ca3c](https://github.com/walkofcode/sentinello/commit/087ca3c6d748c880de4bbb062f646fafa0b7ad72))
+* **worker:** preserve real MAL ranges and enumerated versions in OSV cache ([8aebf29](https://github.com/walkofcode/sentinello/commit/8aebf296feae0f104f093b16f541f1a48ba68aad))
+
+
+### Bug Fixes
+
+* **db:** self-heal duplicate finding orphans on the next scan ([59bad7d](https://github.com/walkofcode/sentinello/commit/59bad7de2d2ae9c32ff0919678bb999acde0dc41))
+
+
+### Documentation
+
+* **readme:** note OSV malware findings match the compromised version ([e40cc1e](https://github.com/walkofcode/sentinello/commit/e40cc1e117d653eab2674f734fb7aab512d692d4))
+* **releases:** add 2.2.0 release notes ([e74747e](https://github.com/walkofcode/sentinello/commit/e74747eb1d152a8673884deeef25b3b837252d63))
+
 ## [2.1.0](https://github.com/walkofcode/sentinello/compare/v2.0.1...v2.1.0) (2026-06-06)
 
 
