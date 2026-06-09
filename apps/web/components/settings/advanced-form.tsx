@@ -26,9 +26,10 @@ type Props = {
         notificationLocale: string
     }
     roots: RootOption[]
+    portalBaseUrlEnvManaged: boolean
 }
 
-export function AdvancedForm({ initial, roots }: Props) {
+export function AdvancedForm({ initial, roots, portalBaseUrlEnvManaged }: Props) {
     const t = useTranslations('Settings')
     const tc = useTranslations('Common')
     const [parallelism, setParallelism] = useState(initial.parallelism.toString())
@@ -84,7 +85,12 @@ export function AdvancedForm({ initial, roots }: Props) {
                         value={portalBaseUrl}
                         onChange={function onChange(e) { setPortalBaseUrl(e.target.value) }}
                         placeholder="https://sentinello.example.com"
+                        readOnly={portalBaseUrlEnvManaged}
+                        disabled={portalBaseUrlEnvManaged}
                     />
+                    {portalBaseUrlEnvManaged ? (
+                        <p className="text-xs text-muted-foreground">{t('advanced.portalBaseUrlEnvManaged')}</p>
+                    ) : null}
                 </div>
                 <div className="flex flex-col gap-1">
                     <Label htmlFor="notification-locale">{t('advanced.notificationLanguage')}</Label>
