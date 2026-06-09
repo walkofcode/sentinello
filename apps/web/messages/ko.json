@@ -55,7 +55,10 @@
         "clear": "지우기",
         "apply": "적용",
         "reset": "초기화",
-        "saved": "저장됨"
+        "saved": "저장됨",
+        "copy": "복사",
+        "copied": "복사됨",
+        "viewSelector": "보기 선택기"
     },
     "Footer": {
         "version": "Sentinello v{version}",
@@ -365,10 +368,26 @@
             "dryRunLabel": "드라이런 알림 — 전송될 내용을 기록만 하고 외부 대상으로 POST하지 않습니다.",
             "saveButton": "고급 설정 저장",
             "notificationLanguage": "알림 언어",
-            "notificationLanguageHelp": "스캔 실패 알림(Slack, Telegram, 웹훅)에 사용되는 언어입니다."
+            "notificationLanguageHelp": "스캔 실패 알림(Slack, Telegram, 웹훅)에 사용되는 언어입니다.",
+            "portalBaseUrlEnvManaged": "환경 변수 SENTINELLO_PORTAL_BASE_URL로 관리됩니다."
         },
         "mcp": {
-            "metaTitle": "MCP · 설정"
+            "metaTitle": "MCP · 설정",
+            "title": "MCP API 토큰",
+            "description": "Sentinello는 /api/mcp에서 Model Context Protocol 서버를 제공하여 Claude Code, Codex, Cursor 등 MCP 클라이언트가 사용할 수 있습니다. 인증은 Authorization 헤더로 전송되는 베어러 토큰(Authorization: Bearer …)을 사용합니다. 토큰이 켜기/끄기 스위치입니다. 생성하면 엔드포인트가 켜지고, 삭제하면 꺼집니다.",
+            "serverUrl": "서버 URL",
+            "status": "상태:",
+            "statusLive": "활성 — 엔드포인트가 요청을 수락 중입니다",
+            "statusOff": "꺼짐 — 토큰 없음, /api/mcp가 404를 반환합니다",
+            "copyOnce": "지금 복사하세요. 다시 표시되지 않습니다.",
+            "generate": "토큰 생성",
+            "rotate": "토큰 교체",
+            "clear": "토큰 삭제",
+            "connectTitle": "클라이언트 연결",
+            "connectHintRevealed": "아래 스니펫에는 새 토큰이 포함되어 있습니다. 사용하는 클라이언트용을 복사하세요.",
+            "connectHintPlaceholder": "{placeholder}를 본인의 토큰으로 바꾸세요(위에서 교체하면 새 토큰이 표시됩니다).",
+            "runInTerminal": "터미널에서 실행:",
+            "codexNote": "그런 다음 셸에서 SENTINELLO_MCP_TOKEN={token}을 설정하세요. Codex는 해당 환경 변수에서 토큰을 읽습니다."
         },
         "about": {
             "metaTitle": "정보"
@@ -562,8 +581,6 @@
             "portalToken": "설정하면 (헬스 체크를 제외한) 모든 라우트에 접근하기 전에 이 토큰으로 /login에 로그인해야 합니다. 설정하지 않으면 인증이 없습니다.",
             "version": "푸터와 /api/version에 표시되는 버전 레이블. 빌드 시 이미지에 포함됩니다.",
             "updateFeedUrl": "업데이트 배너를 위해 확인하는 피드. off로 설정하면 업데이트 확인을 비활성화합니다.",
-            "mcpEnabled": "/api/mcp 엔드포인트를 활성화합니다. 기본값은 꺼짐이며, 활성화하면 토큰이 필수입니다.",
-            "mcpApiToken": "MCP 엔드포인트용 Bearer 토큰. 설정되기 전까지 엔드포인트는 모든 요청을 거부합니다.",
             "webhookStrict": "활성화하면 비공개 또는 루프백 주소를 향한 웹훅 대상을 거부하고 https를 요구합니다. 링크 로컬 및 클라우드 메타데이터 주소는 항상 거부됩니다.",
             "osvFeedUrl": "OSV 권고 익스포트의 기본 URL. OSV 소스가 활성화된 경우에만 사용됩니다. off로 설정하면 모든 OSV 네트워크 접근을 비활성화합니다.",
             "osvDbPath": "재구축 가능한 OSV 권고 캐시의 위치. 기본값은 메인 데이터베이스 옆입니다."
@@ -618,5 +635,12 @@
             "previouslyResolved": "이전에 해결됨 ({count})",
             "mostRecent": "가장 최근 {count}"
         }
+    },
+    "Login": {
+        "protected": "이 포털은 보호되어 있습니다. 계속하려면 액세스 토큰을 입력하세요.",
+        "accessToken": "액세스 토큰",
+        "wrongToken": "토큰이 일치하지 않습니다. 다시 시도하세요.",
+        "signingIn": "로그인 중…",
+        "signIn": "로그인"
     }
 }

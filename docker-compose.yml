@@ -47,9 +47,7 @@ services:
             # Set a long random string; the portal then prompts at /login. Still recommended to also
             # sit behind a reverse proxy / VPN. See the README "Running it safely" section.
             # SENTINELLO_PORTAL_TOKEN: ${SENTINELLO_PORTAL_TOKEN:-}
-            # Optional — MCP is OFF by default. To enable, set BOTH (a token is mandatory):
-            # SENTINELLO_MCP_ENABLED: 'true'
-            # SENTINELLO_MCP_API_TOKEN: ${SENTINELLO_MCP_API_TOKEN:-}
+            # MCP needs no env vars — generate a token under Settings → MCP to turn /api/mcp on.
             # Optional — reject webhook targets aimed at private/internal IPs (https-only).
             # SENTINELLO_WEBHOOK_STRICT: 'true'
         volumes:

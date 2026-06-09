@@ -14,10 +14,9 @@ export default async function McpSettingsPage() {
     const portalBaseUrl = getConfigValue<string>(db, 'portalBaseUrl') || ''
     const storedMcpToken = getConfigValue<string>(db, 'mcp_api_token')
     const hasStoredToken = Boolean(storedMcpToken && storedMcpToken.trim().length > 0)
-    const envManaged = Boolean((process.env.SENTINELLO_MCP_API_TOKEN || '').trim().length > 0)
     return (
         <div className="space-y-6">
-            <McpTokenSection hasStoredToken={hasStoredToken} envManaged={envManaged} portalBaseUrl={portalBaseUrl} />
+            <McpTokenSection hasStoredToken={hasStoredToken} portalBaseUrl={portalBaseUrl} />
         </div>
     )
 }

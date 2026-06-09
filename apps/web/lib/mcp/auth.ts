@@ -2,25 +2,20 @@ import { timingSafeEqual } from 'node:crypto'
 import { getConfigValue } from '@sentinello/db'
 import { getDb } from '@/lib/db'
 
-// Source of truth for the MCP bearer token. Env wins so operators can inject via Docker without
-// writing to the DB; otherwise the app_config value (set from the Settings UI) is used. Returns
-// null when no token is configured anywhere — in that case the route refuses all requests.
+// Source of truth for the MCP bearer token: the app_config value set from Settings → MCP. Returns
+// null when no token is configured — in that case the endpoint is off (the route returns 404). The
+// token IS the on/off switch: generate one to turn MCP on, clear it to turn MCP off.
 export function getConfiguredToken(): string | null {
-    const env = (process.env.SENTINELLO_MCP_API_TOKEN || '').trim()
-    if (env.length > 0) return env
     const stored = getConfigValue<string>(getDb(), 'mcp_api_token')
     if (stored && stored.trim().length > 0) return stored.trim()
     return null
 }
 
-// MCP is disabled by default. Operators opt in by setting SENTINELLO_MCP_ENABLED to a truthy string
-// ('1', 'true', 'yes', 'on'); when unset or falsy the route returns 404 as if it didn't exist. Even
-// when enabled, the endpoint refuses every request until a token is configured (see verifyMcpAuth),
-// so enabling without a token is a no-op rather than an open door — instrumentation.ts warns about it.
+// MCP is enabled exactly when a token is configured. There is no separate enable flag — a token is
+// both necessary (an open, auth-less endpoint would be a hole) and sufficient (its presence means
+// the operator deliberately turned MCP on from the UI). No token ⇒ the route returns 404.
 export function isMcpEnabled(): boolean {
-    const raw = (process.env.SENTINELLO_MCP_ENABLED || '').trim().toLowerCase()
-    if (raw.length === 0) return false
-    return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+    return getConfiguredToken() !== null
 }
 
 function safeEqual(a: string, b: string): boolean {

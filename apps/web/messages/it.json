@@ -55,7 +55,10 @@
         "clear": "Cancella",
         "apply": "Applica",
         "reset": "Reimposta",
-        "saved": "Salvato"
+        "saved": "Salvato",
+        "copy": "Copia",
+        "copied": "Copiato",
+        "viewSelector": "Selettore vista"
     },
     "Footer": {
         "version": "Sentinello v{version}",
@@ -365,10 +368,26 @@
             "dryRunLabel": "Notifiche in modalità di prova — registra cosa verrebbe inviato, senza mai inviare a destinazioni esterne.",
             "saveButton": "Salva impostazioni avanzate",
             "notificationLanguage": "Lingua delle notifiche",
-            "notificationLanguageHelp": "Lingua usata per le notifiche di errore di scansione (Slack, Telegram, webhook)."
+            "notificationLanguageHelp": "Lingua usata per le notifiche di errore di scansione (Slack, Telegram, webhook).",
+            "portalBaseUrlEnvManaged": "Gestito dalla variabile d’ambiente SENTINELLO_PORTAL_BASE_URL."
         },
         "mcp": {
-            "metaTitle": "MCP · Impostazioni"
+            "metaTitle": "MCP · Impostazioni",
+            "title": "Token API MCP",
+            "description": "Sentinello espone un server Model Context Protocol su /api/mcp per Claude Code, Codex, Cursor e altri client MCP. L’autenticazione avviene tramite un token bearer inviato nell’header Authorization (Authorization: Bearer …). Il token è l’interruttore on/off: generane uno per attivare l’endpoint, eliminalo per disattivarlo.",
+            "serverUrl": "URL del server",
+            "status": "Stato:",
+            "statusLive": "attivo: l’endpoint accetta richieste",
+            "statusOff": "disattivato: nessun token impostato, /api/mcp restituisce 404",
+            "copyOnce": "Copialo ora: non verrà più mostrato.",
+            "generate": "Genera token",
+            "rotate": "Ruota token",
+            "clear": "Elimina token",
+            "connectTitle": "Connetti un client",
+            "connectHintRevealed": "Gli snippet seguenti includono il tuo nuovo token. Copia quello per il tuo client.",
+            "connectHintPlaceholder": "Sostituisci {placeholder} con il tuo token (ruota sopra per rivelarne uno nuovo).",
+            "runInTerminal": "Esegui nel terminale:",
+            "codexNote": "Poi imposta SENTINELLO_MCP_TOKEN={token} nella shell: Codex legge il token da quella variabile d’ambiente."
         },
         "about": {
             "metaTitle": "Informazioni"
@@ -562,8 +581,6 @@
             "portalToken": "Quando impostato, richiede l'accesso su /login con questo token prima di poter raggiungere qualsiasi route (eccetto il controllo di stato). Non impostato significa nessuna autenticazione.",
             "version": "Etichetta di versione mostrata nel piè di pagina e su /api/version; incorporata nell'immagine in fase di build.",
             "updateFeedUrl": "Feed consultato per il banner di aggiornamento; impostalo su off per disabilitare i controlli di aggiornamento.",
-            "mcpEnabled": "Abilita l'endpoint /api/mcp. Disattivato per impostazione predefinita; quando è abilitato, un token è obbligatorio.",
-            "mcpApiToken": "Token Bearer per l'endpoint MCP. Finché non ne viene impostato uno, l'endpoint rifiuta ogni richiesta.",
             "webhookStrict": "Quando è abilitato, rifiuta i target dei webhook rivolti a indirizzi privati o di loopback e richiede https. Gli indirizzi link-local e dei metadati cloud sono sempre rifiutati.",
             "osvFeedUrl": "URL di base dell'export degli advisory OSV, usato solo quando la fonte OSV è abilitata; impostalo su off per disabilitare tutto l'accesso di rete a OSV.",
             "osvDbPath": "Posizione della cache ricostruibile degli advisory OSV; per impostazione predefinita accanto al database principale."
@@ -618,5 +635,12 @@
             "previouslyResolved": "Precedentemente risolti ({count})",
             "mostRecent": "{count} più recenti"
         }
+    },
+    "Login": {
+        "protected": "Questo portale è protetto. Inserisci il tuo token di accesso per continuare.",
+        "accessToken": "Token di accesso",
+        "wrongToken": "Questo token non corrisponde. Riprova.",
+        "signingIn": "Accesso in corso…",
+        "signIn": "Accedi"
     }
 }

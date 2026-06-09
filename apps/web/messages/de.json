@@ -55,7 +55,10 @@
         "clear": "Leeren",
         "apply": "Anwenden",
         "reset": "Zurücksetzen",
-        "saved": "Gespeichert"
+        "saved": "Gespeichert",
+        "copy": "Kopieren",
+        "copied": "Kopiert",
+        "viewSelector": "Ansichtsauswahl"
     },
     "Footer": {
         "version": "Sentinello v{version}",
@@ -365,10 +368,26 @@
             "dryRunLabel": "Benachrichtigungen im Probelauf — protokolliert, was zugestellt würde, sendet aber nie per POST an externe Ziele.",
             "saveButton": "Erweiterte Einstellungen speichern",
             "notificationLanguage": "Benachrichtigungssprache",
-            "notificationLanguageHelp": "Sprache für Benachrichtigungen über fehlgeschlagene Scans (Slack, Telegram, Webhooks)."
+            "notificationLanguageHelp": "Sprache für Benachrichtigungen über fehlgeschlagene Scans (Slack, Telegram, Webhooks).",
+            "portalBaseUrlEnvManaged": "Wird über die Umgebungsvariable SENTINELLO_PORTAL_BASE_URL verwaltet."
         },
         "mcp": {
-            "metaTitle": "MCP · Einstellungen"
+            "metaTitle": "MCP · Einstellungen",
+            "title": "MCP-API-Token",
+            "description": "Sentinello stellt unter /api/mcp einen Model-Context-Protocol-Server für Claude Code, Codex, Cursor und andere MCP-Clients bereit. Die Authentifizierung erfolgt über ein Bearer-Token im Authorization-Header (Authorization: Bearer …). Das Token ist der Ein-/Ausschalter – erstellen Sie eines, um den Endpunkt einzuschalten, und löschen Sie es, um ihn auszuschalten.",
+            "serverUrl": "Server-URL",
+            "status": "Status:",
+            "statusLive": "aktiv – der Endpunkt nimmt Anfragen an",
+            "statusOff": "aus – kein Token gesetzt, /api/mcp gibt 404 zurück",
+            "copyOnce": "Jetzt kopieren – es wird nicht erneut angezeigt.",
+            "generate": "Token erstellen",
+            "rotate": "Token rotieren",
+            "clear": "Token löschen",
+            "connectTitle": "Client verbinden",
+            "connectHintRevealed": "Die folgenden Snippets enthalten Ihr neues Token. Kopieren Sie das für Ihren Client.",
+            "connectHintPlaceholder": "Ersetzen Sie {placeholder} durch Ihr Token (oben rotieren, um ein neues anzuzeigen).",
+            "runInTerminal": "Im Terminal ausführen:",
+            "codexNote": "Setzen Sie dann SENTINELLO_MCP_TOKEN={token} in Ihrer Shell – Codex liest das Token aus dieser Umgebungsvariable."
         },
         "about": {
             "metaTitle": "Über"
@@ -562,8 +581,6 @@
             "portalToken": "Wenn gesetzt, ist vor jeder Route (außer der Health-Prüfung) eine Anmeldung unter /login mit diesem Token erforderlich. Nicht gesetzt bedeutet keine Authentifizierung.",
             "version": "Versionsbezeichnung, die in der Fußzeile und unter /api/version angezeigt wird; beim Build in das Image eingebacken.",
             "updateFeedUrl": "Feed, der für das Update-Banner geprüft wird; auf off setzen, um Update-Prüfungen zu deaktivieren.",
-            "mcpEnabled": "Aktiviert den /api/mcp-Endpunkt. Standardmäßig aus; wenn aktiviert, ist ein Token zwingend erforderlich.",
-            "mcpApiToken": "Bearer-Token für den MCP-Endpunkt. Solange keines gesetzt ist, weist der Endpunkt jede Anfrage ab.",
             "webhookStrict": "Wenn aktiviert, werden Webhook-Ziele abgelehnt, die auf private oder Loopback-Adressen verweisen, und https wird verlangt. Link-local- und Cloud-Metadata-Adressen werden immer abgelehnt.",
             "osvFeedUrl": "Basis-URL für den OSV-Advisory-Export, nur verwendet, wenn die OSV-Quelle aktiviert ist; auf off setzen, um jeglichen OSV-Netzwerkzugriff zu deaktivieren.",
             "osvDbPath": "Speicherort des neu aufbaubaren OSV-Advisory-Caches; standardmäßig neben der Hauptdatenbank."
@@ -618,5 +635,12 @@
             "previouslyResolved": "Zuvor behoben ({count})",
             "mostRecent": "neueste {count}"
         }
+    },
+    "Login": {
+        "protected": "Dieses Portal ist geschützt. Geben Sie Ihr Zugriffstoken ein, um fortzufahren.",
+        "accessToken": "Zugriffstoken",
+        "wrongToken": "Dieses Token stimmt nicht. Bitte erneut versuchen.",
+        "signingIn": "Anmeldung läuft…",
+        "signIn": "Anmelden"
     }
 }

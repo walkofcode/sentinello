@@ -115,13 +115,11 @@ A ready-to-use `docker-compose.yml` ships in the repo root.
 | ---------------------------- | ----------------------------- | --------------------------------------------- |
 | `PORT`                       | `3000`                        | Web portal port inside the container          |
 | `SENTINELLO_DB_PATH`         | `/app/data/sentinello.sqlite` | SQLite location (keep on the mounted volume)  |
-| `SENTINELLO_PORTAL_BASE_URL` | `http://localhost:3870`       | External URL used in notification links       |
+| `SENTINELLO_PORTAL_BASE_URL` | `http://localhost:3870`       | External URL used in notification links. When set it is authoritative — re-applied on every boot and shown read-only in **Settings → Advanced**. Leave it unset to manage the value from that page instead |
 | `ME_NAME`                    | `anonymous`                   | Display name / owner label                    |
 | `SENTINELLO_PORTAL_TOKEN`    | _(unset)_                     | When set, requires login at `/login` with this token before any route (except the health check) is reachable. Unset = no auth. See [Running it safely](#running-it-safely) |
 | `SENTINELLO_VERSION`         | `dev`                         | Version label in the footer / `/api/version`; baked into the image at build time |
 | `SENTINELLO_UPDATE_FEED_URL` | GitHub Releases API           | Update-check feed; set to `off` to disable update checks |
-| `SENTINELLO_MCP_ENABLED`     | `false`                       | Set to `true` to enable the `/api/mcp` endpoint (a token is then **mandatory** — see below). Unset/`false` = 404 |
-| `SENTINELLO_MCP_API_TOKEN`   | _(unset)_                     | Bearer token for the MCP endpoint; overrides the one set in **Settings → MCP**. The endpoint refuses all requests until one is set |
 | `SENTINELLO_WEBHOOK_STRICT`  | _(unset)_                     | Set to `true` to reject webhook targets aimed at private (RFC-1918) / loopback addresses and require `https`. Link-local / cloud-metadata targets are always rejected regardless |
 | `SENTINELLO_OSV_FEED_URL`    | OSV GCS bucket                | OSV advisory export base URL (only used when the **OSV source** is enabled); set to `off` to disable all OSV network access |
 | `SENTINELLO_OSV_DB_PATH`     | `<data dir>/osv.db`           | Location of the rebuildable OSV advisory cache (defaults next to the main DB) |
@@ -245,32 +243,43 @@ environment.
 ## MCP integration
 
 Sentinello exposes a [Model Context Protocol](https://modelcontextprotocol.io) server at
-`POST /api/mcp` so Claude Desktop, Cursor, and other MCP-aware clients can query roots, projects,
-findings, scans, and libraries — and trigger scans, mute findings, or rename projects — without
-leaving the chat.
+`POST /api/mcp` so Claude Code, Codex, Cursor, Claude Desktop, and other MCP-aware clients can query
+roots, projects, findings, scans, and libraries — and trigger scans, mute findings, or rename
+projects — without leaving the chat.
 
-1. Generate a bearer token from **Settings → MCP** (the page also shows the server URL to paste
-   into your client) — or set `SENTINELLO_MCP_API_TOKEN` in the container environment; env wins
-   over the UI value.
-2. Add Sentinello to your MCP client config. Example for Claude Desktop
-   (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+**The endpoint is off until you generate a token — the bearer token is the on/off switch.** No env
+vars are involved. Go to **Settings → MCP**, click **Generate token**, and the endpoint goes live
+immediately; **Clear token** turns it off again (it then returns 404). The page shows the server URL
+and ready-to-paste config for Claude Code, Codex, Cursor, and Claude Desktop with your token filled
+in. Authentication is `Authorization: Bearer <token>`; a wrong/missing token returns 401, no token at
+all returns 404. The token grants read **and** write tools (trigger scans, mute findings, rename
+projects), so treat it like an admin credential.
 
-   ```json
-   {
-       "mcpServers": {
-           "sentinello": {
-               "url": "http://localhost:3870/api/mcp",
-               "headers": { "Authorization": "Bearer <your-token>" }
-           }
-       }
-   }
-   ```
+Examples (replace `<token>` with the value from **Settings → MCP**):
 
-The endpoint is **disabled by default**. Set `SENTINELLO_MCP_ENABLED=true` to turn it on — a bearer
-token is then **mandatory**: set `SENTINELLO_MCP_API_TOKEN` (or generate one in **Settings → MCP**),
-and until one is configured the endpoint refuses every request. Requests without a valid token return
-401; when disabled the route returns 404. The token grants read **and** write tools (trigger scans,
-mute findings, rename projects), so treat it like an admin credential.
+- **Claude Code** —
+  ```bash
+  claude mcp add --transport http sentinello http://localhost:3870/api/mcp \
+    --header "Authorization: Bearer <token>"
+  ```
+- **Codex** (`~/.codex/config.toml`) — Codex reads the token from an env var you name:
+  ```toml
+  [mcp_servers.sentinello]
+  url = "http://localhost:3870/api/mcp"
+  bearer_token_env_var = "SENTINELLO_MCP_TOKEN"
+  ```
+  then export `SENTINELLO_MCP_TOKEN=<token>` in your shell.
+- **Cursor / Claude Desktop** (`.cursor/mcp.json`, `claude_desktop_config.json`):
+  ```json
+  {
+      "mcpServers": {
+          "sentinello": {
+              "url": "http://localhost:3870/api/mcp",
+              "headers": { "Authorization": "Bearer <token>" }
+          }
+      }
+  }
+  ```
 
 ## Scan schedule
 

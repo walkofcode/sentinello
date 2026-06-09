@@ -59,8 +59,8 @@ A few specifics worth knowing:
   `slack.com` / `api.telegram.org`). Sentinello redacts known secret shapes from
   logs and persisted error text, but treat the SQLite database as sensitive and
   restrict access to its volume.
-- **MCP endpoint.** `/api/mcp` is **disabled by default**. Enabling it
-  (`SENTINELLO_MCP_ENABLED=true`) requires a bearer token
-  (`SENTINELLO_MCP_API_TOKEN` or one generated in Settings → MCP); without a
-  token it refuses every request. The token grants both read and write tools, so
-  treat it like an admin credential.
+- **MCP endpoint.** `/api/mcp` is **off until you generate a bearer token** in
+  Settings → MCP — the token is the on/off switch and the credential (no env vars
+  involved). With no token the endpoint returns 404; with a wrong/missing token it
+  returns 401. The token grants both read and write tools, so treat it like an
+  admin credential, and clear it from Settings → MCP to turn the endpoint off.

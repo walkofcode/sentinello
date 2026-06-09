@@ -55,7 +55,10 @@
         "clear": "Clear",
         "apply": "Apply",
         "reset": "Reset",
-        "saved": "Saved"
+        "saved": "Saved",
+        "copy": "Copy",
+        "copied": "Copied",
+        "viewSelector": "View selector"
     },
     "Footer": {
         "version": "Sentinello v{version}",
@@ -365,10 +368,26 @@
             "dryRunLabel": "Dry-run notifications — log what would dispatch, never POST to external targets.",
             "saveButton": "Save advanced settings",
             "notificationLanguage": "Notification language",
-            "notificationLanguageHelp": "Language used for scan-failure notifications (Slack, Telegram, webhooks)."
+            "notificationLanguageHelp": "Language used for scan-failure notifications (Slack, Telegram, webhooks).",
+            "portalBaseUrlEnvManaged": "Managed by the SENTINELLO_PORTAL_BASE_URL environment variable."
         },
         "mcp": {
-            "metaTitle": "MCP · Settings"
+            "metaTitle": "MCP · Settings",
+            "title": "MCP API token",
+            "description": "Sentinello exposes a Model Context Protocol server at /api/mcp for Claude Code, Codex, Cursor, and other MCP clients. Authentication is a bearer token sent in the Authorization header (Authorization: Bearer …). The token is the on/off switch — generate one to turn the endpoint on, clear it to turn it off.",
+            "serverUrl": "Server URL",
+            "status": "Status:",
+            "statusLive": "live — endpoint is accepting requests",
+            "statusOff": "off — no token set, /api/mcp returns 404",
+            "copyOnce": "Copy this now — it will not be shown again.",
+            "generate": "Generate token",
+            "rotate": "Rotate token",
+            "clear": "Clear token",
+            "connectTitle": "Connect a client",
+            "connectHintRevealed": "Snippets below include your new token. Copy the one for your client.",
+            "connectHintPlaceholder": "Replace {placeholder} with your token (rotate above to reveal a fresh one).",
+            "runInTerminal": "Run in your terminal:",
+            "codexNote": "Then set SENTINELLO_MCP_TOKEN={token} in your shell — Codex reads the token from that env var."
         },
         "about": {
             "metaTitle": "About"
@@ -562,8 +581,6 @@
             "portalToken": "When set, requires logging in at /login with this token before any route (except the health check) is reachable. Unset means no authentication.",
             "version": "Version label shown in the footer and at /api/version; baked into the image at build time.",
             "updateFeedUrl": "Feed checked for the update banner; set to off to disable update checks.",
-            "mcpEnabled": "Enables the /api/mcp endpoint. Off by default; when enabled, a token is mandatory.",
-            "mcpApiToken": "Bearer token for the MCP endpoint. Until one is set, the endpoint refuses every request.",
             "webhookStrict": "When enabled, rejects webhook targets aimed at private or loopback addresses and requires https. Link-local and cloud-metadata addresses are always rejected.",
             "osvFeedUrl": "Base URL for the OSV advisory export, used only when the OSV source is enabled; set to off to disable all OSV network access.",
             "osvDbPath": "Location of the rebuildable OSV advisory cache; defaults next to the main database."
@@ -618,5 +635,12 @@
             "previouslyResolved": "Previously resolved ({count})",
             "mostRecent": "most recent {count}"
         }
+    },
+    "Login": {
+        "protected": "This portal is protected. Enter your access token to continue.",
+        "accessToken": "Access token",
+        "wrongToken": "That token didn’t match. Try again.",
+        "signingIn": "Signing in…",
+        "signIn": "Sign in"
     }
 }
