@@ -21,9 +21,13 @@ export const osvAdvisories = sqliteTable(
         // JSON string[] of cross-references (e.g. ["CVE-2024-48913"]). Used to suppress OSV findings
         // that npm-audit already reported under the same GHSA/CVE for the same package.
         aliasesJson: text('aliases_json').notNull().default('[]'),
-        // JSON of normalized SEMVER ranges: [{ introduced: string, fixed: string | null }]. MAL records
-        // carry a single { introduced: '0', fixed: null } meaning "the whole package is malicious".
+        // JSON of normalized SEMVER ranges: [{ introduced: string, fixed: string | null }], parsed from
+        // the record's affected[].ranges (for MAL records too — they often carry a real fixable range).
         rangesJson: text('ranges_json').notNull().default('[]'),
+        // JSON string[] of enumerated affected versions from affected[].versions, e.g. ["4.4.2"]. This is
+        // how malware advisories pin the exact compromised builds; the matcher checks membership here so a
+        // clean installed version of a once-compromised package is not flagged.
+        versionsJson: text('versions_json').notNull().default('[]'),
         // OSV/GHSA severity bucket when present (critical/high/moderate/low). Null for MAL records and
         // advisories that ship no severity — the scanner maps null to a sensible default.
         severity: text('severity'),

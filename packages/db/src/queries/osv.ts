@@ -17,6 +17,9 @@ export type OsvAdvisoryRow = {
     packageName: string
     aliases: string[]
     ranges: OsvRange[]
+    // Enumerated affected versions (e.g. malware records list the exact compromised builds like ["4.4.2"]).
+    // The matcher checks membership here in addition to `ranges`.
+    versions: string[]
     severity: string | null
     summary: string | null
     url: string | null
@@ -38,6 +41,7 @@ function toInsertRow(row: OsvAdvisoryRow): InsertRow {
         packageName: row.packageName,
         aliasesJson: JSON.stringify(row.aliases),
         rangesJson: JSON.stringify(row.ranges),
+        versionsJson: JSON.stringify(row.versions),
         severity: row.severity,
         summary: row.summary,
         url: row.url,
@@ -55,6 +59,7 @@ function fromSelectRow(row: SelectRow): OsvAdvisoryRow {
         packageName: row.packageName,
         aliases: parseStringArray(row.aliasesJson),
         ranges: parseRanges(row.rangesJson),
+        versions: parseStringArray(row.versionsJson),
         severity: row.severity,
         summary: row.summary,
         url: row.url,
@@ -77,6 +82,7 @@ export function upsertOsvAdvisories(db: OsvDrizzleDb, rows: OsvAdvisoryRow[]): v
                     set: {
                         aliasesJson: values.aliasesJson,
                         rangesJson: values.rangesJson,
+                        versionsJson: values.versionsJson,
                         severity: values.severity,
                         summary: values.summary,
                         url: values.url,
@@ -170,8 +176,15 @@ export const OSV_META_KEYS = {
     // Total advisory→package rows after the last sync (denormalized count for the Settings panel).
     recordCount: 'recordCount',
     // Last sync error message, or null. Surfaced in the Settings → Sources panel.
-    lastError: 'lastError'
+    lastError: 'lastError',
+    // Version of the normalizer that produced the cached rows. Bumped when the row shape changes (e.g.
+    // adding enumerated `versions`); a mismatch forces a full re-seed so stale rows are rebuilt.
+    normalizerVersion: 'normalizerVersion'
 } as const
+
+// Bump whenever normalizeOsvRecord's output shape changes in a way that requires rebuilding the cache.
+// v2: started capturing affected[].versions and real MAL- ranges (was: all-versions malware shortcut).
+export const OSV_NORMALIZER_VERSION = 2
 
 function parseStringArray(json: string): string[] {
     const parsed = JSON.parse(json) as unknown

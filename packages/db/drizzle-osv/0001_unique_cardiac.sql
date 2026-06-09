@@ -1,0 +1,1 @@
+ALTER TABLE `osv_advisories` ADD `versions_json` text DEFAULT '[]' NOT NULL;
