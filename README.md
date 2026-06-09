@@ -174,7 +174,9 @@ against it directly. It adds two things npm audit alone doesn't give you:
 - **CVEs npm audit misses** — OSV aggregates more feeds than the npm/GitHub advisory set.
 - **Known-malicious packages** — OSV's `MAL-` records flag packages published with malware
   (typosquats, install-script payloads, registry-pollution campaigns). These surface as **critical**
-  findings with a distinct "malicious" badge.
+  findings with a distinct "malicious" badge. The installed version is matched against the advisory's
+  specific compromised versions, so a clean or already-remediated version of a once-compromised package
+  is **not** flagged.
 
 OSV findings that duplicate an npm-audit advisory (same GHSA/CVE on the same package) are suppressed,
 so enabling OSV only **adds** net-new findings to the same triage queue.
