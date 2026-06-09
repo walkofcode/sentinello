@@ -9,6 +9,7 @@ import {
 } from '@sentinello/core'
 import {
     OSV_META_KEYS,
+    OSV_NORMALIZER_VERSION,
     countOsvAdvisories,
     deleteOsvAdvisories,
     getOsvMeta,
@@ -126,6 +127,7 @@ export async function seedOsv(db: OsvDrizzleDb, abortSignal?: AbortSignal): Prom
     }
     const recordCount = countOsvAdvisories(db)
     setOsvMeta(db, OSV_META_KEYS.seedComplete, true)
+    setOsvMeta(db, OSV_META_KEYS.normalizerVersion, OSV_NORMALIZER_VERSION)
     setOsvMeta(db, OSV_META_KEYS.recordCount, recordCount)
     setOsvMeta(db, OSV_META_KEYS.refreshedAt, Date.now())
     setOsvMeta(db, OSV_META_KEYS.lastError, null)

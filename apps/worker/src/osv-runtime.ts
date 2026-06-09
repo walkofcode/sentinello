@@ -2,6 +2,7 @@ import cron, { type ScheduledTask } from 'node-cron'
 import { OSV_SCANNER_NAME, SOURCE_CONFIG_KEYS, type OsvSourceStatus } from '@sentinello/core'
 import {
     OSV_META_KEYS,
+    OSV_NORMALIZER_VERSION,
     getConfigValue,
     getOsvMeta,
     lookupOsvByPackages,
@@ -114,7 +115,11 @@ export function startOsvRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime): OsvR
 
     const scanner = createOsvScanner({
         isSeeded: function isSeeded() {
+            // Gate on BOTH the seed flag and the normalizer version: when the row shape has changed, the
+            // cache is rebuilding (forced re-seed) and the old rows lack the new fields — stay unauditable
+            // until the re-seed lands rather than match against stale data.
             return getOsvMeta<boolean>(osvDb, OSV_META_KEYS.seedComplete) === true
+                && getOsvMeta<number>(osvDb, OSV_META_KEYS.normalizerVersion) === OSV_NORMALIZER_VERSION
         },
         lookup: function lookup(packageNames: string[]): Map<string, OsvAdvisory[]> {
             const rows = lookupOsvByPackages(osvDb, NPM_ECOSYSTEM, packageNames)
@@ -162,10 +167,11 @@ export function startOsvRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime): OsvR
 // the portal reflects it. Used by the "refresh now" action, the scheduled tick, and the initial run.
 export async function runSync(mainDb: DrizzleDb, osvDb: OsvDrizzleDb, runtime: WorkerRuntime): Promise<void> {
     const seeded = getOsvMeta<boolean>(osvDb, OSV_META_KEYS.seedComplete) === true
+    const normalizerCurrent = getOsvMeta<number>(osvDb, OSV_META_KEYS.normalizerVersion) === OSV_NORMALIZER_VERSION
     const signal = runtime.abortController.signal
     try {
-        if (!seeded) {
-            console.log('[osv] seeding cache (first run)...')
+        if (!seeded || !normalizerCurrent) {
+            console.log('[osv] ' + (seeded ? 'normalizer changed — rebuilding cache' : 'seeding cache (first run)') + '...')
             await seedOsv(osvDb, signal)
         } else {
             await incrementalSyncOsv(osvDb, signal)
@@ -202,6 +208,7 @@ function toScannerAdvisory(row: {
     advisoryId: string
     aliases: string[]
     ranges: { introduced: string; fixed: string | null }[]
+    versions: string[]
     severity: string | null
     summary: string | null
     url: string | null
@@ -211,6 +218,7 @@ function toScannerAdvisory(row: {
         advisoryId: row.advisoryId,
         aliases: row.aliases,
         ranges: row.ranges,
+        versions: row.versions,
         severity: row.severity,
         summary: row.summary,
         url: row.url,

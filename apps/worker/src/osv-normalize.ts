@@ -12,7 +12,7 @@ import type { OsvAdvisoryRow, OsvRange } from '@sentinello/db'
 type OsvEvent = { introduced?: string; fixed?: string; last_affected?: string }
 type OsvRangeRaw = { type?: string; events?: OsvEvent[] }
 type OsvPackage = { name?: string; ecosystem?: string; purl?: string }
-type OsvAffected = { package?: OsvPackage; ranges?: OsvRangeRaw[] }
+type OsvAffected = { package?: OsvPackage; ranges?: OsvRangeRaw[]; versions?: string[] }
 type OsvSeverity = { type?: string; score?: string }
 type OsvRecord = {
     id?: string
@@ -49,16 +49,22 @@ export function normalizeOsvRecord(record: unknown): OsvAdvisoryRow[] {
         // One advisory can list the same package twice; collapse to a single row with merged ranges.
         if (seenPackages.has(packageName)) continue
         seenPackages.add(packageName)
-        const ranges = malicious ? maliciousRange() : extractRanges(affected.ranges)
-        // A non-malicious advisory with no parseable SEMVER range can't be matched — skip it rather
-        // than store a row that would never produce a finding.
-        if (!malicious && ranges.length === 0) continue
+        // Parse the real affected set for ALL records, malware included. Malware advisories pin the
+        // compromised builds in `versions` (e.g. ["4.4.2"]) and frequently carry a usable SEMVER range
+        // too (e.g. fsevents >=1.0.0 <1.2.11) — discarding either (the old `maliciousRange()` shortcut)
+        // is what made the matcher flag clean, remediated versions as compromised.
+        const ranges = extractRanges(affected.ranges)
+        const versions = extractVersions(affected.versions)
+        // A record we can't match on at all (no range AND no enumerated version) is only worth keeping
+        // for malware, where the engine falls back to flag-by-presence; otherwise skip it.
+        if (ranges.length === 0 && versions.length === 0 && !malicious) continue
         rows.push({
             advisoryId,
             ecosystem: NPM_ECOSYSTEM,
             packageName,
             aliases,
             ranges,
+            versions,
             severity,
             summary,
             url,
@@ -69,8 +75,13 @@ export function normalizeOsvRecord(record: unknown): OsvAdvisoryRow[] {
     return rows
 }
 
-function maliciousRange(): OsvRange[] {
-    return [{ introduced: '0', fixed: null }]
+function extractVersions(versions: string[] | undefined): string[] {
+    if (!Array.isArray(versions)) return []
+    const out: string[] = []
+    for (const v of versions) {
+        if (typeof v === 'string' && v.length > 0) out.push(v)
+    }
+    return out
 }
 
 function extractRanges(ranges: OsvRangeRaw[] | undefined): OsvRange[] {
