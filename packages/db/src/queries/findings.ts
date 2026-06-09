@@ -54,6 +54,13 @@ export type MergeFindingsResult = {
 //   - identity NOT present (or only resolved rows) + present in scan -> INSERT new open episode
 //   - identity present in DB (open)  + absent from scan -> UPDATE resolved_at = scan.finishedAt
 //
+// Duplicate self-heal: an identity should have at most one open row, but historical inserts could
+// leave several. We bucket ALL open rows per identity (never overwrite): on a match we keep the
+// earliest-detected row as the continuing episode and resolve the rest as duplicates; on an absence we
+// resolve every row in the bucket. So a single scan after upgrade collapses any stranded duplicates —
+// no migration needed. (The previous Map<key,row> kept only the last duplicate, leaking the others as
+// permanently-open orphans that no scan could ever close.)
+//
 // On non-ok scans, do not call this — leave prior findings untouched.
 export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): MergeFindingsResult {
     const openRows = db
@@ -67,17 +74,24 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             )
         )
         .all()
-    const openByIdentity = new Map<string, FindingRow>()
+    const openByIdentity = new Map<string, FindingRow[]>()
     for (const row of openRows) {
-        openByIdentity.set(identityKey(row.scanner, row.advisoryId, row.packageName), row)
+        const key = identityKey(row.scanner, row.advisoryId, row.packageName)
+        const bucket = openByIdentity.get(key)
+        if (bucket) bucket.push(row)
+        else openByIdentity.set(key, [row])
     }
     const active: Finding[] = []
+    const resolved: Finding[] = []
     const seenIdentityKeys = new Set<string>()
     for (const inc of input.incoming) {
         const key = identityKey(inc.scanner, inc.advisoryId, inc.packageName)
         seenIdentityKeys.add(key)
-        const existing = openByIdentity.get(key)
-        if (existing) {
+        const bucket = openByIdentity.get(key)
+        if (bucket && bucket.length > 0) {
+            // Keep the earliest-detected row as the continuing episode; resolve any duplicates so a
+            // stranded orphan is closed by the same scan that refreshes the real one.
+            const canonical = pickOldestRow(bucket)
             db.update(findings)
                 .set({
                     advisoryTitle: inc.advisoryTitle,
@@ -92,10 +106,10 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
                     isDev: inc.isDev,
                     lastSeenAt: input.scanFinishedAt
                 })
-                .where(eq(findings.id, existing.id))
+                .where(eq(findings.id, canonical.id))
                 .run()
             active.push(rowToFinding({
-                ...existing,
+                ...canonical,
                 advisoryTitle: inc.advisoryTitle,
                 advisoryUrl: inc.advisoryUrl,
                 installedVersion: inc.installedVersion,
@@ -108,6 +122,10 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
                 isDev: inc.isDev,
                 lastSeenAt: input.scanFinishedAt
             }))
+            for (const dup of bucket) {
+                if (dup.id === canonical.id) continue
+                resolved.push(resolveFindingRow(db, dup, input.scanFinishedAt, input.scanId))
+            }
             continue
         }
         const id = ulid()
@@ -157,20 +175,43 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             resolvedScanId: null
         })
     }
-    const resolved: Finding[] = []
-    for (const [key, row] of openByIdentity.entries()) {
+    for (const [key, bucket] of openByIdentity.entries()) {
         if (seenIdentityKeys.has(key)) continue
-        db.update(findings)
-            .set({ resolvedAt: input.scanFinishedAt, resolvedScanId: input.scanId, lastSeenAt: row.lastSeenAt })
-            .where(eq(findings.id, row.id))
-            .run()
-        resolved.push(rowToFinding({
-            ...row,
-            resolvedAt: input.scanFinishedAt,
-            resolvedScanId: input.scanId
-        }))
+        // Whole identity is gone from the scan: resolve every open row for it, duplicates included.
+        for (const row of bucket) {
+            resolved.push(resolveFindingRow(db, row, input.scanFinishedAt, input.scanId))
+        }
     }
     return { active, resolved }
+}
+
+// Resolve a single open row against this scan and return the closed Finding. Shared by the
+// duplicate-collapse path and the absent-identity path so both close rows identically.
+function resolveFindingRow(db: DrizzleDb, row: FindingRow, scanFinishedAt: number, scanId: string): Finding {
+    db.update(findings)
+        .set({ resolvedAt: scanFinishedAt, resolvedScanId: scanId, lastSeenAt: row.lastSeenAt })
+        .where(eq(findings.id, row.id))
+        .run()
+    return rowToFinding({ ...row, resolvedAt: scanFinishedAt, resolvedScanId: scanId })
+}
+
+// From open rows sharing one identity (duplicates that should never have coexisted), pick the one to
+// keep as the continuing episode: the earliest-detected row, so the finding's firstDetectedAt survives
+// the collapse. firstDetectedAt can be null on un-backfilled legacy rows — treat null as "newest" so a
+// dated row always wins; ties break on id (ULID is chronological, so the smaller id is older).
+function pickOldestRow(rows: FindingRow[]): FindingRow {
+    let best: FindingRow | undefined
+    for (const row of rows) {
+        if (!best) {
+            best = row
+            continue
+        }
+        const rowAt = row.firstDetectedAt ?? Number.POSITIVE_INFINITY
+        const bestAt = best.firstDetectedAt ?? Number.POSITIVE_INFINITY
+        if (rowAt < bestAt || (rowAt === bestAt && row.id < best.id)) best = row
+    }
+    if (!best) throw new Error('pickOldestRow called with no rows')
+    return best
 }
 
 // One-shot, idempotent backfill of firstDetectedAt / lastSeenAt for rows written under the old
