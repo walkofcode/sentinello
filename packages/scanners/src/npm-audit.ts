@@ -16,6 +16,7 @@ import type {
 } from './types'
 import { pickSafeFixVersion } from './version-fix'
 import { filterFindingsByLockfileResolution } from './lockfile-cross-check'
+import type { ResolvedGraph } from './resolver'
 
 const SCANNER_NAME = 'npm-audit'
 
@@ -146,14 +147,16 @@ type InstalledVersionMap = Map<string, string>
 
 type LockfileSnapshot = {
     installedVersions: InstalledVersionMap
-    devFlags: Map<string, boolean>
 }
 
+// Reads the per-node installed versions from a package-lock.json so pickInstalledVersion can resolve a
+// vulnerability's audit nodes to concrete versions. Prod/dev classification no longer lives here — that
+// is the shared resolver graph's job. Returns an empty map for non-npm locks (fail-open).
 async function loadLockfileSnapshot(
     projectPath: string,
     lockfile: DetectedLockfile
 ): Promise<LockfileSnapshot> {
-    const empty: LockfileSnapshot = { installedVersions: new Map(), devFlags: new Map() }
+    const empty: LockfileSnapshot = { installedVersions: new Map() }
     if (lockfile.kind !== 'package-lock.json') return empty
     let text: string
     try {
@@ -170,7 +173,6 @@ async function loadLockfileSnapshot(
     const validation = packageLockSchema.safeParse(parsed)
     if (!validation.success) return empty
     const installedVersions: InstalledVersionMap = new Map()
-    const devFlags = new Map<string, boolean>()
     const packages = validation.data.packages || {}
     for (const nodePath of Object.keys(packages)) {
         if (!nodePath) continue
@@ -179,28 +181,22 @@ async function loadLockfileSnapshot(
         if (entry.version) {
             installedVersions.set(nodePath, entry.version)
         }
-        // npm marks dev: true for dev-only installs. devOptional is dev+optional, also treat as dev.
-        if (entry.dev === true || entry.devOptional === true) {
-            devFlags.set(nodePath, true)
-        } else {
-            devFlags.set(nodePath, false)
-        }
     }
-    return { installedVersions, devFlags }
+    return { installedVersions }
 }
 
-// Builds a classifier that decides whether a finding's package ships to production, dev tooling,
-// or both. Strategy: prefer the npm lockfile's per-node `dev` flag (most authoritative); fall back
-// to package.json direct-dep membership for the path's topmost node. A finding that no signal can
-// place anywhere stays visible by defaulting to isProd=true.
+// Classifies whether a finding's package ships to production, dev tooling, or both. The authoritative
+// signal is the shared resolver graph (computed once per project from the lockfile by the runner), looked
+// up by package name + installed version. When no graph is available (yarn / unparseable lock) we fall
+// back to package.json direct-dep membership by name; a package no signal can place stays visible by
+// defaulting to isProd=true.
 type DepClassifier = {
-    classify(packageName: string, depPath: string[]): { isProd: boolean; isDev: boolean }
+    classify(packageName: string, version: string | null): { isProd: boolean; isDev: boolean }
 }
 
 async function buildDepClassifier(
     projectPath: string,
-    lockfile: DetectedLockfile,
-    lockDevFlags: Map<string, boolean>
+    graph: ResolvedGraph | null
 ): Promise<DepClassifier> {
     const prodDirect = new Set<string>()
     const devDirect = new Set<string>()
@@ -231,57 +227,18 @@ async function buildDepClassifier(
         // No package.json or parse error — sets stay empty, classifier falls through to default.
     }
 
-    function classify(packageName: string, depPath: string[]): { isProd: boolean; isDev: boolean } {
-        let isProd = false
-        let isDev = false
-
-        if (lockDevFlags.size > 0 && depPath.length > 0) {
-            for (const node of depPath) {
-                const flag = lockDevFlags.get(node)
-                if (flag === true) isDev = true
-                else if (flag === false) isProd = true
-            }
-            if (isProd || isDev) return { isProd, isDev }
+    function classify(packageName: string, version: string | null): { isProd: boolean; isDev: boolean } {
+        if (graph) {
+            const scope = graph.classify(packageName, version)
+            return { isProd: scope.isProd, isDev: scope.isDev }
         }
-
-        if (prodDirect.size > 0 || devDirect.size > 0) {
-            if (prodDirect.has(packageName)) isProd = true
-            if (devDirect.has(packageName)) isDev = true
-            for (const node of depPath) {
-                const name = extractTopDirectName(node)
-                if (!name) continue
-                if (prodDirect.has(name)) isProd = true
-                if (devDirect.has(name)) isDev = true
-            }
-            if (isProd || isDev) return { isProd, isDev }
-        }
-
-        return { isProd: true, isDev: false }
+        let isProd = prodDirect.has(packageName)
+        const isDev = devDirect.has(packageName) && !isProd
+        if (!isProd && !isDev) isProd = true
+        return { isProd, isDev }
     }
 
     return { classify }
-}
-
-// Pulls the topmost direct-dep name out of a single audit path segment. Handles npm/yarn-style
-// `node_modules/<name>(/node_modules/<inner>)?`, pnpm's content-addressed `.pnpm/<name>@<version>`
-// layout, and scoped packages. Returns null when the segment isn't recognizable.
-function extractTopDirectName(segment: string): string | null {
-    let s = segment.trim()
-    if (!s) return null
-    const prefix = 'node_modules/'
-    if (s.startsWith(prefix)) s = s.slice(prefix.length)
-    if (s.startsWith('.pnpm/')) {
-        s = s.slice('.pnpm/'.length)
-        const parenIdx = s.indexOf('(')
-        if (parenIdx >= 0) s = s.slice(0, parenIdx)
-        const isScoped = s.startsWith('@')
-        const atIdx = isScoped ? s.indexOf('@', 1) : s.indexOf('@')
-        if (atIdx > 0) s = s.slice(0, atIdx)
-        return s || null
-    }
-    const nestedIdx = s.indexOf('/node_modules/')
-    if (nestedIdx >= 0) s = s.slice(0, nestedIdx)
-    return s || null
 }
 
 const GHSA_URL_RE = /\/advisories\/(GHSA-[a-z0-9-]+)/i
@@ -675,7 +632,7 @@ function normalizeOneVulnerability(vuln: Vulnerability, packageName: string, ins
             fixAvailable = true
         }
         const depPath = pickDepPath(vuln)
-        const cls = classifier.classify(packageName, depPath)
+        const cls = classifier.classify(packageName, installedVersion)
         const finding: RawFinding = {
             advisoryId,
             advisoryTitle: via.title || null,
@@ -747,7 +704,7 @@ function normalizePnpmAuditOutput(parsed: z.infer<typeof pnpmAuditSchema>, class
         const findings = adv.findings || []
         if (findings.length === 0) {
             const fixVersion = pickSafeFixVersion({ patched, recommendation, vulnerable: vulnRange, installed: null })
-            const cls = classifier.classify(packageName, [])
+            const cls = classifier.classify(packageName, null)
             out.push({
                 advisoryId,
                 advisoryTitle,
@@ -770,7 +727,7 @@ function normalizePnpmAuditOutput(parsed: z.infer<typeof pnpmAuditSchema>, class
             const fixAvailable = fixVersion !== null
             const paths = f.paths || []
             if (paths.length === 0) {
-                const cls = classifier.classify(packageName, [])
+                const cls = classifier.classify(packageName, f.version || null)
                 out.push({
                     advisoryId,
                     advisoryTitle,
@@ -789,7 +746,7 @@ function normalizePnpmAuditOutput(parsed: z.infer<typeof pnpmAuditSchema>, class
             }
             for (const path of paths) {
                 const depPath = path.split('>')
-                const cls = classifier.classify(packageName, depPath)
+                const cls = classifier.classify(packageName, f.version || null)
                 out.push({
                     advisoryId,
                     advisoryTitle,
@@ -940,7 +897,7 @@ export async function runNpmAudit(projectPath: string, ctx: ScanContext): Promis
         if (!pnpmValidation.success) {
             return errorResult('audit_schema_mismatch', `pnpm audit JSON schema mismatch: ${pnpmValidation.error.message.slice(0, 400)}`, startedAt, rawText)
         }
-        const pnpmClassifier = await buildDepClassifier(projectPath, lockfile, new Map())
+        const pnpmClassifier = await buildDepClassifier(projectPath, ctx.resolvedGraph || null)
         const rawFindings = normalizePnpmAuditOutput(pnpmValidation.data, pnpmClassifier)
         const crossChecked = filterFindingsByLockfileResolution(rawFindings)
         logCrossCheckDrops(crossChecked, lockfile.packageManager)
@@ -965,7 +922,7 @@ export async function runNpmAudit(projectPath: string, ctx: ScanContext): Promis
     }
 
     const snapshot = await loadLockfileSnapshot(projectPath, lockfile)
-    const classifier = await buildDepClassifier(projectPath, lockfile, snapshot.devFlags)
+    const classifier = await buildDepClassifier(projectPath, ctx.resolvedGraph || null)
     const { findings, hadVulnerabilityWithoutConcreteAdvisory } = normalizeAuditOutput(validation.data, snapshot.installedVersions, classifier)
     if (hadVulnerabilityWithoutConcreteAdvisory && findings.length === 0) {
         return errorResult('audit_no_advisories', 'npm-audit output had no concrete advisory objects', startedAt, rawText)

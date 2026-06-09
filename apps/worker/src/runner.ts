@@ -11,7 +11,14 @@ import {
     type IncomingFinding,
     type SqliteDb
 } from '@sentinello/db'
-import type { RawFinding, ScannerPlugin } from '@sentinello/scanners'
+import {
+    detectLockfile,
+    reconcileAgainstReported,
+    resolveProject,
+    type RawFinding,
+    type ResolvedGraph,
+    type ScannerPlugin
+} from '@sentinello/scanners'
 import { CONFIG_KEYS } from './config-loader'
 import { notifyForCompletedScan } from './notifier'
 
@@ -74,12 +81,17 @@ async function runProjectScanners(input: RunBatchInput, project: Project): Promi
         return [outcome]
     }
     const projectPath = resolve(root.path, project.relPath)
+    // Resolve the dependency graph ONCE per project and share it across every scanner, so prod/dev
+    // classification is computed a single way (and the lockfile is parsed once, not per scanner). Null
+    // when the lockfile can't be resolved (yarn/unparseable/absent) — each scanner falls back.
+    const lockfile = await detectLockfile(projectPath)
+    const resolvedGraph: ResolvedGraph | null = lockfile ? await resolveProject(projectPath, lockfile) : null
     const outcomes: ProjectScanOutcome[] = []
     // package name → set of advisory keys (lower-cased ids + aliases) already reported this run.
     const reportedByPackage = new Map<string, Set<string>>()
     for (const scanner of input.scanners) {
         if (input.abortSignal && input.abortSignal.aborted) break
-        const outcome = await runOneScanner(input, project, projectPath, scanner, reportedByPackage)
+        const outcome = await runOneScanner(input, project, projectPath, scanner, reportedByPackage, resolvedGraph)
         outcomes.push(outcome)
     }
     return outcomes
@@ -90,7 +102,8 @@ async function runOneScanner(
     project: Project,
     projectPath: string,
     scanner: ScannerPlugin,
-    reportedByPackage: Map<string, Set<string>>
+    reportedByPackage: Map<string, Set<string>>,
+    resolvedGraph: ResolvedGraph | null
 ): Promise<ProjectScanOutcome> {
     const startedAt = Date.now()
     let scanResult
@@ -98,7 +111,8 @@ async function runOneScanner(
         scanResult = await scanner.scan(projectPath, {
             timeoutMs: SCANNER_TIMEOUT_MS,
             useNvm: project.nvmrcVersion !== null,
-            abortSignal: input.abortSignal
+            abortSignal: input.abortSignal,
+            resolvedGraph
         })
     } catch (err) {
         const message = err instanceof Error && err.message || String(err)
@@ -119,7 +133,7 @@ async function runOneScanner(
         errorText: scanResult.errorText,
         rawJson: scanResult.rawJson
     }
-    const deduped = suppressDuplicates(scanResult.findings, reportedByPackage)
+    const deduped = reconcileAgainstReported(scanResult.findings, reportedByPackage)
     const incoming: IncomingFinding[] = deduped.map(function toIncoming(raw: RawFinding): IncomingFinding {
         return {
             projectId: project.id,
@@ -165,36 +179,6 @@ async function runOneScanner(
         console.error('[runner] notifier failed for project ' + project.id + ': ' + message)
     }
     return outcome
-}
-
-// Drops findings whose advisory is already represented (by id or any alias) for the same package by an
-// earlier scanner in this run, then records the surviving findings' keys so subsequent scanners dedup
-// against them too. npm-audit and OSV both carry GHSA ids, so without this every shared advisory would
-// appear twice — once per scanner. Keys are lower-cased so GHSA/CVE casing never defeats the match.
-function suppressDuplicates(
-    findings: RawFinding[],
-    reportedByPackage: Map<string, Set<string>>
-): RawFinding[] {
-    const kept: RawFinding[] = []
-    for (const finding of findings) {
-        const existing = reportedByPackage.get(finding.packageName)
-        const keys = advisoryKeys(finding)
-        const isDup = existing ? keys.some(function seen(k) { return existing.has(k) }) : false
-        if (isDup) continue
-        kept.push(finding)
-        const set = existing || new Set<string>()
-        for (const k of keys) set.add(k)
-        reportedByPackage.set(finding.packageName, set)
-    }
-    return kept
-}
-
-function advisoryKeys(finding: RawFinding): string[] {
-    const keys = [finding.advisoryId.toLowerCase()]
-    if (finding.aliases) {
-        for (const alias of finding.aliases) keys.push(alias.toLowerCase())
-    }
-    return keys
 }
 
 function makeErrorOutcome(project: Project, errorText: string, startedAt?: number, scanner = 'npm-audit'): ProjectScanOutcome {

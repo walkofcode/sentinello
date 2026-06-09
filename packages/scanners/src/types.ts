@@ -1,4 +1,5 @@
 import type { Severity, ScanStatus, ReasonCode, PackageManager } from '@sentinello/core'
+import type { ResolvedGraph } from './resolver/types'
 
 export type RawFinding = {
     advisoryId: string
@@ -32,6 +33,10 @@ export type ScanContext = {
     timeoutMs: number
     abortSignal?: AbortSignal
     useNvm?: boolean
+    // The project's resolved dependency graph, computed once per project by the runner and shared by
+    // every scanner so prod/dev classification is identical across sources. Null when the lockfile
+    // couldn't be resolved (yarn/unparseable) — sources fall back to their own posture.
+    resolvedGraph?: ResolvedGraph | null
 }
 
 export type ScannerPlugin = {
