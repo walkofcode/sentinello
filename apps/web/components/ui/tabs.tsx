@@ -1,5 +1,6 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/cn'
 
 export type TabItem = {
@@ -17,10 +18,11 @@ type Props = {
 }
 
 export function Tabs({ value, onChange, tabs, className, ariaLabel }: Props) {
+    const tc = useTranslations('Common')
     return (
         <div
             role="tablist"
-            aria-label={ariaLabel || 'View selector'}
+            aria-label={ariaLabel || tc('viewSelector')}
             className={cn(
                 'inline-flex items-center gap-1 rounded-md border bg-card p-1',
                 className

@@ -17,8 +17,6 @@ const ROWS: Row[] = [
     { variable: 'SENTINELLO_PORTAL_TOKEN', def: '—', purposeKey: 'configRows.portalToken' },
     { variable: 'SENTINELLO_VERSION', def: 'dev', purposeKey: 'configRows.version' },
     { variable: 'SENTINELLO_UPDATE_FEED_URL', def: 'GitHub Releases API', purposeKey: 'configRows.updateFeedUrl' },
-    { variable: 'SENTINELLO_MCP_ENABLED', def: 'false', purposeKey: 'configRows.mcpEnabled' },
-    { variable: 'SENTINELLO_MCP_API_TOKEN', def: '—', purposeKey: 'configRows.mcpApiToken' },
     { variable: 'SENTINELLO_WEBHOOK_STRICT', def: '—', purposeKey: 'configRows.webhookStrict' },
     { variable: 'SENTINELLO_OSV_FEED_URL', def: 'OSV bucket', purposeKey: 'configRows.osvFeedUrl' },
     { variable: 'SENTINELLO_OSV_DB_PATH', def: '<data dir>/osv.db', purposeKey: 'configRows.osvDbPath' }

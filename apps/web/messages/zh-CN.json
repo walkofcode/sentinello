@@ -55,7 +55,10 @@
         "clear": "清除",
         "apply": "应用",
         "reset": "重置",
-        "saved": "已保存"
+        "saved": "已保存",
+        "copy": "复制",
+        "copied": "已复制",
+        "viewSelector": "视图选择器"
     },
     "Footer": {
         "version": "Sentinello v{version}",
@@ -365,10 +368,26 @@
             "dryRunLabel": "试运行通知——记录将要分发的内容，但绝不向外部目标发送。",
             "saveButton": "保存高级设置",
             "notificationLanguage": "通知语言",
-            "notificationLanguageHelp": "用于扫描失败通知（Slack、Telegram、Webhook）的语言。"
+            "notificationLanguageHelp": "用于扫描失败通知（Slack、Telegram、Webhook）的语言。",
+            "portalBaseUrlEnvManaged": "由环境变量 SENTINELLO_PORTAL_BASE_URL 管理。"
         },
         "mcp": {
-            "metaTitle": "MCP · 设置"
+            "metaTitle": "MCP · 设置",
+            "title": "MCP API 令牌",
+            "description": "Sentinello 在 /api/mcp 上提供 Model Context Protocol 服务器，供 Claude Code、Codex、Cursor 及其他 MCP 客户端使用。身份验证使用 bearer 令牌，通过 Authorization 标头发送（Authorization: Bearer …）。令牌即开关：生成令牌即可开启该端点，清除令牌即可关闭。",
+            "serverUrl": "服务器 URL",
+            "status": "状态:",
+            "statusLive": "运行中 — 端点正在接受请求",
+            "statusOff": "已关闭 — 未设置令牌，/api/mcp 返回 404",
+            "copyOnce": "请立即复制 — 它不会再次显示。",
+            "generate": "生成令牌",
+            "rotate": "轮换令牌",
+            "clear": "清除令牌",
+            "connectTitle": "连接客户端",
+            "connectHintRevealed": "下面的代码片段包含你的新令牌。复制适用于你客户端的那个。",
+            "connectHintPlaceholder": "将 {placeholder} 替换为你的令牌（在上方轮换可显示新令牌）。",
+            "runInTerminal": "在终端中运行:",
+            "codexNote": "然后在 shell 中设置 SENTINELLO_MCP_TOKEN={token} — Codex 会从该环境变量读取令牌。"
         },
         "about": {
             "metaTitle": "关于"
@@ -562,8 +581,6 @@
             "portalToken": "设置后，在访问任何路由（健康检查除外）之前，都需要用此令牌在 /login 登录。未设置则表示无需认证。",
             "version": "显示在页脚和 /api/version 中的版本标签；在构建时烘焙进镜像。",
             "updateFeedUrl": "为更新横幅检查的订阅源；设为 off 可禁用更新检查。",
-            "mcpEnabled": "启用 /api/mcp 端点。默认关闭；启用后必须提供令牌。",
-            "mcpApiToken": "MCP 端点的 Bearer 令牌。在设置之前，该端点会拒绝所有请求。",
             "webhookStrict": "启用后，拒绝指向私有或回环地址的 webhook 目标，并要求使用 https。链路本地地址和云元数据地址始终被拒绝。",
             "osvFeedUrl": "OSV 通告导出的基础 URL，仅在启用 OSV 来源时使用；设为 off 可禁用所有 OSV 网络访问。",
             "osvDbPath": "可重建的 OSV 通告缓存的位置；默认位于主数据库旁边。"
@@ -618,5 +635,12 @@
             "previouslyResolved": "此前已解决（{count}）",
             "mostRecent": "最近 {count} 条"
         }
+    },
+    "Login": {
+        "protected": "此门户受保护。请输入访问令牌以继续。",
+        "accessToken": "访问令牌",
+        "wrongToken": "令牌不匹配。请重试。",
+        "signingIn": "正在登录…",
+        "signIn": "登录"
     }
 }

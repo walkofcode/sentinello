@@ -20,6 +20,9 @@ export default async function AdvancedSettingsPage() {
     const dryRunNotify = getConfigValue<boolean>(db, 'dryRunNotify') || false
     const portalBaseUrl = getConfigValue<string>(db, 'portalBaseUrl') || ''
     const notificationLocale = getConfigValue<string>(db, 'notificationLocale') || 'en'
+    // When SENTINELLO_PORTAL_BASE_URL is set it's authoritative (instrumentation.ts re-seeds it on
+    // every boot), so the field is shown read-only — editing it here would be reverted on restart.
+    const portalBaseUrlEnvManaged = Boolean((process.env.SENTINELLO_PORTAL_BASE_URL || '').trim().length > 0)
     const roots = listRoots(db).map(function toOption(r) {
         return { id: r.id, path: r.path, label: r.label }
     })
@@ -27,6 +30,7 @@ export default async function AdvancedSettingsPage() {
         <div className="space-y-6">
             <AdvancedForm
                 roots={roots}
+                portalBaseUrlEnvManaged={portalBaseUrlEnvManaged}
                 initial={{
                     parallelism,
                     watcherEnabled,

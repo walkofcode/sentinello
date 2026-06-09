@@ -55,7 +55,10 @@
         "clear": "Limpar",
         "apply": "Aplicar",
         "reset": "Redefinir",
-        "saved": "Salvo"
+        "saved": "Salvo",
+        "copy": "Copiar",
+        "copied": "Copiado",
+        "viewSelector": "Seletor de visualização"
     },
     "Footer": {
         "version": "Sentinello v{version}",
@@ -365,10 +368,26 @@
             "dryRunLabel": "Notificações em modo de simulação — registra o que seria enviado, nunca envia POST para destinos externos.",
             "saveButton": "Salvar configurações avançadas",
             "notificationLanguage": "Idioma das notificações",
-            "notificationLanguageHelp": "Idioma usado nas notificações de falha de varredura (Slack, Telegram, webhooks)."
+            "notificationLanguageHelp": "Idioma usado nas notificações de falha de varredura (Slack, Telegram, webhooks).",
+            "portalBaseUrlEnvManaged": "Gerenciado pela variável de ambiente SENTINELLO_PORTAL_BASE_URL."
         },
         "mcp": {
-            "metaTitle": "MCP · Configurações"
+            "metaTitle": "MCP · Configurações",
+            "title": "Token de API MCP",
+            "description": "O Sentinello expõe um servidor Model Context Protocol em /api/mcp para Claude Code, Codex, Cursor e outros clientes MCP. A autenticação é um token bearer enviado no cabeçalho Authorization (Authorization: Bearer …). O token é o interruptor de liga/desliga: gere um para ativar o endpoint e remova-o para desativá-lo.",
+            "serverUrl": "URL do servidor",
+            "status": "Status:",
+            "statusLive": "ativo — o endpoint está aceitando solicitações",
+            "statusOff": "desligado — nenhum token definido, /api/mcp retorna 404",
+            "copyOnce": "Copie agora — não será exibido novamente.",
+            "generate": "Gerar token",
+            "rotate": "Renovar token",
+            "clear": "Remover token",
+            "connectTitle": "Conectar um cliente",
+            "connectHintRevealed": "Os trechos abaixo incluem seu novo token. Copie o do seu cliente.",
+            "connectHintPlaceholder": "Substitua {placeholder} pelo seu token (renove acima para revelar um novo).",
+            "runInTerminal": "Execute no seu terminal:",
+            "codexNote": "Em seguida, defina SENTINELLO_MCP_TOKEN={token} no seu shell — o Codex lê o token dessa variável de ambiente."
         },
         "about": {
             "metaTitle": "Sobre"
@@ -562,8 +581,6 @@
             "portalToken": "Quando definido, exige fazer login em /login com este token antes que qualquer rota (exceto a verificação de integridade) seja acessível. Não definido significa que não há autenticação.",
             "version": "Rótulo de versão exibido no rodapé e em /api/version; embutido na imagem no momento da build.",
             "updateFeedUrl": "Feed consultado para o banner de atualização; defina como off para desativar as verificações de atualização.",
-            "mcpEnabled": "Habilita o endpoint /api/mcp. Desativado por padrão; quando habilitado, um token é obrigatório.",
-            "mcpApiToken": "Token Bearer para o endpoint MCP. Até que um seja definido, o endpoint recusa todas as requisições.",
             "webhookStrict": "Quando habilitado, rejeita destinos de webhook direcionados a endereços privados ou de loopback e exige https. Endereços link-local e de metadados de nuvem são sempre rejeitados.",
             "osvFeedUrl": "URL base da exportação de avisos OSV, usada apenas quando a fonte OSV está habilitada; defina como off para desativar todo o acesso de rede ao OSV.",
             "osvDbPath": "Localização do cache reconstruível de avisos OSV; por padrão fica ao lado do banco de dados principal."
@@ -618,5 +635,12 @@
             "previouslyResolved": "Resolvidos anteriormente ({count})",
             "mostRecent": "{count} mais recentes"
         }
+    },
+    "Login": {
+        "protected": "Este portal é protegido. Insira seu token de acesso para continuar.",
+        "accessToken": "Token de acesso",
+        "wrongToken": "Esse token não corresponde. Tente novamente.",
+        "signingIn": "Entrando…",
+        "signIn": "Entrar"
     }
 }

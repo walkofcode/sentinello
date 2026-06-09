@@ -55,7 +55,10 @@
         "clear": "クリア",
         "apply": "適用",
         "reset": "リセット",
-        "saved": "保存しました"
+        "saved": "保存しました",
+        "copy": "コピー",
+        "copied": "コピーしました",
+        "viewSelector": "表示の選択"
     },
     "Footer": {
         "version": "Sentinello v{version}",
@@ -365,10 +368,26 @@
             "dryRunLabel": "ドライラン通知 — 配信される内容をログに記録し、外部の通知先には決して POST しません。",
             "saveButton": "詳細設定を保存",
             "notificationLanguage": "通知の言語",
-            "notificationLanguageHelp": "スキャン失敗の通知（Slack、Telegram、Webhook）に使用する言語。"
+            "notificationLanguageHelp": "スキャン失敗の通知（Slack、Telegram、Webhook）に使用する言語。",
+            "portalBaseUrlEnvManaged": "環境変数 SENTINELLO_PORTAL_BASE_URL によって管理されています。"
         },
         "mcp": {
-            "metaTitle": "MCP · 設定"
+            "metaTitle": "MCP · 設定",
+            "title": "MCP API トークン",
+            "description": "Sentinello は /api/mcp で Model Context Protocol サーバーを公開し、Claude Code、Codex、Cursor などの MCP クライアントが利用できます。認証は Authorization ヘッダーで送信するベアラートークン（Authorization: Bearer …）で行います。トークンがオン/オフのスイッチです。生成するとエンドポイントが有効になり、削除すると無効になります。",
+            "serverUrl": "サーバー URL",
+            "status": "ステータス:",
+            "statusLive": "稼働中 — エンドポイントはリクエストを受け付けています",
+            "statusOff": "オフ — トークン未設定、/api/mcp は 404 を返します",
+            "copyOnce": "今すぐコピーしてください。二度と表示されません。",
+            "generate": "トークンを生成",
+            "rotate": "トークンを再生成",
+            "clear": "トークンを削除",
+            "connectTitle": "クライアントを接続",
+            "connectHintRevealed": "以下のスニペットには新しいトークンが含まれています。お使いのクライアント用のものをコピーしてください。",
+            "connectHintPlaceholder": "{placeholder} をご自分のトークンに置き換えてください（上で再生成すると新しいトークンが表示されます）。",
+            "runInTerminal": "ターミナルで実行:",
+            "codexNote": "次にシェルで SENTINELLO_MCP_TOKEN={token} を設定してください。Codex はその環境変数からトークンを読み取ります。"
         },
         "about": {
             "metaTitle": "概要"
@@ -562,8 +581,6 @@
             "portalToken": "設定すると、（ヘルスチェックを除く）すべてのルートにアクセスする前に、このトークンで /login にログインする必要があります。未設定の場合は認証なしです。",
             "version": "フッターおよび /api/version に表示されるバージョンラベル。ビルド時にイメージへ埋め込まれます。",
             "updateFeedUrl": "更新バナー用にチェックするフィード。off に設定すると更新チェックを無効化します。",
-            "mcpEnabled": "/api/mcp エンドポイントを有効にします。デフォルトはオフで、有効にした場合はトークンが必須です。",
-            "mcpApiToken": "MCP エンドポイント用の Bearer トークン。設定されるまで、エンドポイントはすべてのリクエストを拒否します。",
             "webhookStrict": "有効にすると、プライベートアドレスやループバックアドレス宛ての Webhook ターゲットを拒否し、https を必須とします。リンクローカルアドレスとクラウドメタデータアドレスは常に拒否されます。",
             "osvFeedUrl": "OSV アドバイザリエクスポートのベース URL。OSV ソースが有効な場合のみ使用されます。off に設定すると OSV のネットワークアクセスをすべて無効化します。",
             "osvDbPath": "再構築可能な OSV アドバイザリキャッシュの場所。デフォルトはメインデータベースの隣になります。"
@@ -618,5 +635,12 @@
             "previouslyResolved": "以前に解決済み ({count})",
             "mostRecent": "最新 {count} 件"
         }
+    },
+    "Login": {
+        "protected": "このポータルは保護されています。続行するにはアクセストークンを入力してください。",
+        "accessToken": "アクセストークン",
+        "wrongToken": "トークンが一致しませんでした。もう一度お試しください。",
+        "signingIn": "サインインしています…",
+        "signIn": "サインイン"
     }
 }
