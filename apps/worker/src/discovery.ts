@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import ignoreFactory from 'ignore'
-import type { PackageManager, Project } from '@sentinello/core'
+import { ECOSYSTEMS, type EcosystemId, type PackageManager, type Project } from '@sentinello/core'
 import {
     type DrizzleDb,
     type Root,
@@ -153,11 +153,12 @@ function safeReaddir(dir: string) {
 }
 
 function detectProject(root: Root, dir: string, at: number): Project | null {
-    const pkgJsonPath = join(dir, 'package.json')
-    if (!existsSync(pkgJsonPath)) return null
-    if (!isFile(pkgJsonPath)) return null
-    // package.json-only projects (no recognized lockfile) are still emitted as PackageManager='unknown'
-    // so the scanner records scans.status='unauditable' (reason='no lockfile') and operators see the gap.
+    // A project is any directory carrying at least one ecosystem's manifest — JavaScript (package.json),
+    // Python, Go, or Rust (Phase 4). One directory spans many ecosystems; projects still do not nest.
+    const ecosystems = detectEcosystems(dir)
+    if (ecosystems.length === 0) return null
+    // `packageManager` stays the JavaScript/npm-audit detail (the lockfile that drives `npm audit`/nvm);
+    // it is 'unknown' for a project with package.json but no recognized lockfile, or one with no JS at all.
     const pm = detectPackageManager(dir)
     const folderName = resolveBasename(dir)
     const nvmrcVersion = readNvmrcVersion(dir)
@@ -171,11 +172,36 @@ function detectProject(root: Root, dir: string, at: number): Project | null {
         alias: null,
         packageManager: pm,
         nvmrcVersion,
+        ecosystems,
         muted: false,
         tags: [],
         createdAt: at,
         updatedAt: at
     }
+}
+
+// The set of ecosystems whose manifests exist in this directory, bound to the central registry. npm is
+// keyed on `package.json` (a JS project may have no lockfile yet but is still an npm project — the scanner
+// records the coverage gap); every other ecosystem is keyed on the presence of any of its resolver kinds.
+function detectEcosystems(dir: string): EcosystemId[] {
+    const out: EcosystemId[] = []
+    for (const eco of ECOSYSTEMS) {
+        if (eco.id === 'npm') {
+            if (existsFile(join(dir, 'package.json'))) out.push(eco.id)
+            continue
+        }
+        for (const kind of eco.resolverKinds) {
+            if (existsFile(join(dir, kind))) {
+                out.push(eco.id)
+                break
+            }
+        }
+    }
+    return out
+}
+
+function existsFile(path: string): boolean {
+    return existsSync(path) && isFile(path)
 }
 
 function detectPackageManager(dir: string): PackageManager {

@@ -12,9 +12,10 @@ import { Card } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
 import { AddTargetDialog } from '@/components/settings/add-target-dialog'
 import { RootScopeField, modeFromScope, type RootScopeMode } from '@/components/settings/root-scope-field'
+import { SourceScopeField, sourceScopeModeFrom, type SourceScopeMode } from '@/components/settings/source-scope-field'
 import { SeverityFilterPills } from '@/components/settings/severity-filter-pills'
 import { EnvFilterField } from '@/components/settings/env-filter-field'
-import type { DepTypeFilter, NotificationTarget, Project, Root, Severity } from '@sentinello/core'
+import type { DepTypeFilter, NotificationTarget, Project, Root, Severity, SourceCell } from '@sentinello/core'
 import {
     deleteNotificationTargetAction,
     duplicateNotificationTargetAction,
@@ -454,6 +455,8 @@ function EditTargetForm({ target, roots, projects, onSaved }: { target: Notifica
     const [scopeMode, setScopeMode] = useState<RootScopeMode>(modeFromScope(target.rootIds, target.projectIds))
     const [selectedRootIds, setSelectedRootIds] = useState<string[]>(target.rootIds)
     const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>(target.projectIds)
+    const [sourceScopeMode, setSourceScopeMode] = useState<SourceScopeMode>(sourceScopeModeFrom(target.sourceScope))
+    const [selectedCells, setSelectedCells] = useState<SourceCell[]>(target.sourceScope.cells)
     const [pending, startTransition] = useTransition()
     function toggleSeverity(sev: Severity) {
         setFilter(function next(prev) {
@@ -462,19 +465,24 @@ function EditTargetForm({ target, roots, projects, onSaved }: { target: Notifica
         })
     }
     const scopeInvalid = scopeMode === 'selected' && selectedRootIds.length === 0 && selectedProjectIds.length === 0
+    const sourceScopeInvalid = sourceScopeMode === 'selected' && selectedCells.length === 0
     function submit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault()
-        if (scopeInvalid) return
+        if (scopeInvalid || sourceScopeInvalid) return
         startTransition(async function persist() {
             const rootIds = scopeMode === 'all' ? [] : selectedRootIds
             const projectIds = scopeMode === 'all' ? [] : selectedProjectIds
+            const sourceScope = sourceScopeMode === 'all'
+                ? { mode: 'all' as const, cells: [] }
+                : { mode: 'selected' as const, cells: selectedCells }
             await updateNotificationTargetAction({
                 id: target.id,
                 severityFilter: filter,
                 envFilter,
                 enabled,
                 rootIds,
-                projectIds
+                projectIds,
+                sourceScope
             })
             onSaved()
         })
@@ -507,8 +515,16 @@ function EditTargetForm({ target, roots, projects, onSaved }: { target: Notifica
                 onSelectedProjectsChange={setSelectedProjectIds}
                 disabled={pending}
             />
+            <SourceScopeField
+                id={'edit-target-' + target.id}
+                mode={sourceScopeMode}
+                selectedCells={selectedCells}
+                onModeChange={setSourceScopeMode}
+                onSelectedCellsChange={setSelectedCells}
+                disabled={pending}
+            />
             <div className="flex justify-end gap-2">
-                <Button type="submit" disabled={pending || scopeInvalid}>
+                <Button type="submit" disabled={pending || scopeInvalid || sourceScopeInvalid}>
                     {pending ? tc('saving') : t('notifications.saveChanges')}
                 </Button>
             </div>

@@ -14,10 +14,12 @@ import type {
     Project,
     Root,
     Severity,
+    SourceCell,
     WebhookFlavor
 } from '@sentinello/core'
 import { upsertNotificationTargetAction } from '@/lib/actions/settings'
 import { RootScopeField, type RootScopeMode } from '@/components/settings/root-scope-field'
+import { SourceScopeField, type SourceScopeMode } from '@/components/settings/source-scope-field'
 import { SeverityFilterPills } from '@/components/settings/severity-filter-pills'
 import { EnvFilterField } from '@/components/settings/env-filter-field'
 
@@ -46,6 +48,8 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
     const [scopeMode, setScopeMode] = useState<RootScopeMode>('all')
     const [selectedRootIds, setSelectedRootIds] = useState<string[]>([])
     const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([])
+    const [sourceScopeMode, setSourceScopeMode] = useState<SourceScopeMode>('all')
+    const [selectedCells, setSelectedCells] = useState<SourceCell[]>([])
     const [pending, startTransition] = useTransition()
     function toggleSeverity(sev: Severity) {
         setFilter(function next(prev) {
@@ -66,11 +70,14 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
         setScopeMode('all')
         setSelectedRootIds([])
         setSelectedProjectIds([])
+        setSourceScopeMode('all')
+        setSelectedCells([])
     }
     const scopeInvalid = scopeMode === 'selected' && selectedRootIds.length === 0 && selectedProjectIds.length === 0
+    const sourceScopeInvalid = sourceScopeMode === 'selected' && selectedCells.length === 0
     function submit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault()
-        if (scopeInvalid) return
+        if (scopeInvalid || sourceScopeInvalid) return
         startTransition(async function persist() {
             const config: NotificationTargetConfig =
                 kind === 'slack'
@@ -80,6 +87,9 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
                         : { url: webhookUrl, flavor: webhookFlavor }
             const rootIds = scopeMode === 'all' ? [] : selectedRootIds
             const projectIds = scopeMode === 'all' ? [] : selectedProjectIds
+            const sourceScope = sourceScopeMode === 'all'
+                ? { mode: 'all' as const, cells: [] }
+                : { mode: 'selected' as const, cells: selectedCells }
             await upsertNotificationTargetAction({
                 kind,
                 config,
@@ -87,7 +97,8 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
                 envFilter,
                 enabled,
                 rootIds,
-                projectIds
+                projectIds,
+                sourceScope
             })
             reset()
             onClose()
@@ -208,12 +219,20 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
                         onSelectedProjectsChange={setSelectedProjectIds}
                         disabled={pending}
                     />
+                    <SourceScopeField
+                        id="add-target"
+                        mode={sourceScopeMode}
+                        selectedCells={selectedCells}
+                        onModeChange={setSourceScopeMode}
+                        onSelectedCellsChange={setSelectedCells}
+                        disabled={pending}
+                    />
                 </div>
                 <div className="flex items-center justify-end gap-2 border-t bg-muted/30 px-6 py-4">
                     <Button type="button" variant="ghost" onClick={onClose} disabled={pending}>
                         {tc('cancel')}
                     </Button>
-                    <Button type="submit" disabled={pending || scopeInvalid}>
+                    <Button type="submit" disabled={pending || scopeInvalid || sourceScopeInvalid}>
                         <Plus className="h-4 w-4" />
                         {pending ? t('notifications.adding') : t('notifications.addButton')}
                     </Button>

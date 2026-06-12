@@ -1,3 +1,6 @@
+import type { EcosystemId } from './ecosystems'
+import type { NotificationSourceScope } from './sources'
+
 export type Severity = 'critical' | 'high' | 'moderate' | 'low' | 'info'
 
 // Severity ordering. Lower rank = more severe. Mirrors the CASE in listCurrentFindingsForProject
@@ -74,6 +77,23 @@ export type ReasonCode =
     // osv — the OSV scanner could not run against its local cache
     | 'osv_db_not_seeded'
     | 'osv_db_unavailable'
+    // gemnasium — the gemnasium scanner could not run against its local cache
+    | 'gemnasium_db_not_seeded'
+    | 'gemnasium_db_unavailable'
+    // resolver — non-npm dependency resolution coverage states (Phase 4, offline honesty). A polyglot
+    // project's manifest may not yield exact installed versions offline; these codes make the limit
+    // operator-visible instead of silently implying full coverage.
+    //   - partial_dependency_graph : some dependencies resolved to exact versions, others could not
+    //     (e.g. a requirements.txt mixing `==` pins with ranges; Go's offline graph isn't guaranteed full).
+    //   - ambiguous_dependency_spec : a manifest exists but pins nothing auditable (all ranges / markers /
+    //     editable / `-r`/`-c` includes), so no exact version could be extracted.
+    //   - unsupported_lockfile     : a manifest/lockfile format we don't yet parse for this ecosystem.
+    //   - ecosystem_source_disabled: the ecosystem's manifests were found but no advisory source is
+    //     enabled for it, so it cannot be audited (surfaced per the "always a source on" model).
+    | 'partial_dependency_graph'
+    | 'ambiguous_dependency_spec'
+    | 'unsupported_lockfile'
+    | 'ecosystem_source_disabled'
     // timeout
     | 'timeout'
 
@@ -99,6 +119,12 @@ export const REASON_CODE_VALUES: ReasonCode[] = [
     'audit_unknown_failure',
     'osv_db_not_seeded',
     'osv_db_unavailable',
+    'gemnasium_db_not_seeded',
+    'gemnasium_db_unavailable',
+    'partial_dependency_graph',
+    'ambiguous_dependency_spec',
+    'unsupported_lockfile',
+    'ecosystem_source_disabled',
     'timeout'
 ]
 
@@ -123,6 +149,10 @@ export type Project = {
     alias: string | null
     packageManager: PackageManager
     nvmrcVersion: string | null
+    // The set of ecosystems (EcosystemId) whose manifests discovery found in this project's directory —
+    // one project spans many ecosystems (Phase 4). `packageManager` stays the npm-specific detail for the
+    // npm-audit/nvm path; this is the polyglot view. Empty for legacy rows discovered before polyglot.
+    ecosystems: EcosystemId[]
     muted: boolean
     tags: string[]
     createdAt: number
@@ -134,7 +164,13 @@ export type Scan = {
     projectId: string
     startedAt: number
     finishedAt: number
+    // `scanner` is the scanner *plugin* name (implementation detail used for per-scanner merge scoping).
+    // `source` is the persisted source identity (SourceId); `ecosystem` is the language ecosystem this
+    // scan ran against (EcosystemId). For the current sources source === scanner, but they are kept
+    // separate so a (source, ecosystem) cell is two orthogonal axes (Issue #004).
     scanner: string
+    source: string
+    ecosystem: string
     status: ScanStatus
     reasonCode: ReasonCode | null
     durationMs: number
@@ -147,7 +183,12 @@ export type Finding = {
     // The scan that first detected this episode. Kept stable across continuing scans.
     scanId: string
     projectId: string
+    // `scanner` = scanner plugin name (merge scoping + provenance display). `source` = persisted source
+    // identity (SourceId). `ecosystem` = the package's language ecosystem (EcosystemId). The finding
+    // identity tuple is (projectId, source, ecosystem, advisoryId, packageName).
     scanner: string
+    source: string
+    ecosystem: string
     advisoryId: string
     advisoryTitle: string | null
     advisoryUrl: string | null
@@ -176,15 +217,17 @@ export type DepTypeFilter = 'all' | 'prod' | 'dev'
 
 export type FindingIdentity = {
     projectId: string
-    scanner: string
+    source: string
+    ecosystem: string
     advisoryId: string
     packageName: string
 }
 
-export function findingIdentity(finding: Pick<Finding, 'projectId' | 'scanner' | 'advisoryId' | 'packageName'>): FindingIdentity {
+export function findingIdentity(finding: Pick<Finding, 'projectId' | 'source' | 'ecosystem' | 'advisoryId' | 'packageName'>): FindingIdentity {
     return {
         projectId: finding.projectId,
-        scanner: finding.scanner,
+        source: finding.source,
+        ecosystem: finding.ecosystem,
         advisoryId: finding.advisoryId,
         packageName: finding.packageName
     }
@@ -256,6 +299,10 @@ export type NotificationTarget = {
     // SQL — see selectDispatchablePairs.
     rootIds: string[]
     projectIds: string[]
+    // Per-target (source, ecosystem) cell scope. mode 'all' fires for every cell; mode 'selected'
+    // fires only for findings whose (source, ecosystem) is in `cells`. Dispatch filters finding events
+    // by this; operational (scan_failure) events bypass it. Defaults to { mode: 'all', cells: [] }.
+    sourceScope: NotificationSourceScope
 }
 
 export type MuteScope = 'project' | 'finding'
@@ -264,7 +311,11 @@ export type Mute = {
     id: string
     scope: MuteScope
     projectId: string | null
+    // For scope=finding the identity tuple is (projectId?, scanner-as-source, ecosystem, advisoryId,
+    // packageName). `ecosystem` disambiguates same-named packages across ecosystems so an npm mute never
+    // silences a PyPI package of the same name. null for scope=project (applies across all cells).
     scanner: string | null
+    ecosystem: string | null
     advisoryId: string | null
     packageName: string | null
     reason: string
@@ -280,7 +331,10 @@ export type NotificationEvent = {
     eventType: NotificationEventType
     identityKey: string
     projectId: string
+    // `scanner` carries the persisted source identity; `ecosystem` is part of the dedupe identity for
+    // finding events (null for scan_failure events, which key on (projectId, scanner, status, signature)).
     scanner: string
+    ecosystem: string | null
     advisoryId: string | null
     packageName: string | null
     // Severity is denormalized onto the event for findings so the dispatch query can apply the

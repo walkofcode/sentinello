@@ -153,7 +153,8 @@
         "colMaxSeverity": "Max severity",
         "nodeAmbient": "ambient",
         "badgeMuted": "muted",
-        "badgeMissing": "missing"
+        "badgeMissing": "missing",
+        "colLanguage": "Language"
     },
     "WhatsNew": {
         "pillLabel": "What's new",
@@ -287,16 +288,19 @@
         "sources": {
             "metaTitle": "Sources · Settings",
             "title": "Vulnerability sources",
-            "description": "npm audit always runs. Enable additional sources to widen coverage.",
+            "description": "Sentinello scans JavaScript by default. Enable additional languages and sources below to widen coverage. At least one source must stay enabled.",
             "npmAuditLabel": "npm audit",
             "alwaysOn": "always on",
             "optional": "optional",
             "npmAuditHelp": "The built-in source. Runs npm/pnpm/yarn audit against each project lockfile.",
             "osvLabel": "OSV (Open Source Vulnerabilities)",
-            "osvHelp": "Match the npm ecosystem against the OSV database directly. Adds CVEs npm audit misses and flags known-malicious packages.",
+            "osvHelp": "Match this language's packages against the OSV database. Adds CVEs the native source misses and flags known-malicious packages.",
+            "gemnasiumLabel": "GitLab gemnasium",
+            "gemnasiumHelp": "Match this language's packages against GitLab's gemnasium advisory database. Adds independently curated advisories beyond the native source and OSV.",
+            "gemnasiumDownloadDisclosure": "Enabling gemnasium downloads the GitLab gemnasium advisory database from gitlab.com (tens of MB) into the data volume, then ~daily updates. The cache is rebuildable and stored separately from your findings.",
             "enabled": "Enabled",
             "disabled": "Disabled",
-            "downloadDisclosure": "Enabling OSV downloads the OSV npm export (~196 MB) into the data volume, then ~daily updates. The cache is rebuildable and stored separately from your findings.",
+            "downloadDisclosure": "Enabling OSV downloads that language’s OSV advisory export into the data volume, then ~daily updates. The cache is rebuildable and stored separately from your findings.",
             "freeSpace": "About {gib} GB free on the data volume.",
             "syncStatus": "Sync status",
             "seeded": "Up to date",
@@ -305,7 +309,8 @@
             "lastRefreshed": "Last refreshed",
             "lastError": "Last error",
             "refreshNow": "Refresh now",
-            "refreshQueued": "Refresh requested — it runs in the background."
+            "refreshQueued": "Refresh requested — it runs in the background.",
+            "defaultOn": "default"
         },
         "defaults": {
             "metaTitle": "Defaults · Settings",
@@ -402,6 +407,14 @@
             "selectionError": "Pick at least one root or project, or switch to <all>All</all>.",
             "rootsHeading": "Roots",
             "projectsHeading": "Projects"
+        },
+        "sourceScope": {
+            "label": "Sources",
+            "all": "All sources",
+            "allHelp": "Notify for every source and language.",
+            "selected": "Selected sources",
+            "selectedHelp": "Only notify for the source/language cells you pick below.",
+            "selectionError": "Pick at least one cell, or choose “All sources”."
         }
     },
     "Findings": {
@@ -449,7 +462,9 @@
         "projectsAffected": "{count, plural, one {# project affected} other {# projects affected}}",
         "detectedLabel": "Detected:",
         "rangeLabel": "Range:",
-        "malicious": "malicious"
+        "malicious": "malicious",
+        "filterByEcosystem": "Filter by language",
+        "ecosystemAll": "All languages"
     },
     "Triage": {
         "alias": {
@@ -534,11 +549,11 @@
         "title": "Sentinello",
         "intro": "Centralized dependency-vulnerability monitoring across your portfolio — self-hosted, on your own infrastructure.",
         "notDoTitle": "What Sentinello does not do",
-        "notDoBody": "Sentinello runs entirely on your infrastructure. It does not read your source code — it discovers projects only by locating <code>package.json</code> files — nothing is uploaded anywhere, no telemetry leaves your machine, there is no central account, and no LLM or AI is involved. By default it is plain <code>npm audit</code>; the optional OSV source (Settings → Sources, off by default) is the only addition, and even then it only fetches public advisory data over HTTPS.",
+        "notDoBody": "Sentinello runs entirely on your infrastructure. It does not read your source code — it discovers projects by locating their dependency manifests and lockfiles (<code>package.json</code> plus Python, Go, and Rust lockfiles) — nothing is uploaded anywhere, no telemetry leaves your machine, there is no central account, and no LLM or AI is involved. For JavaScript it is plain <code>npm audit</code> by default; the optional OSV and gemnasium sources (Settings → Sources, off by default) only fetch public advisory data over HTTPS.",
         "whoTitle": "Who built it",
         "whoBody": "Built by <company>Walk of Code LLC</company> and Sebastian Arena (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "Where advisory data comes from",
-        "advisoryBody": "Vulnerability data originates from the GitHub Advisory Database, reached through the npm registry's advisory endpoint via <code>npm audit</code>. Today this covers the npm ecosystem; additional sources may be added later. You can also enable OSV (Settings → Sources), off by default, to additionally match npm packages against the public OSV database — catching advisories that npm audit misses and flagging known-malicious packages.",
+        "advisoryBody": "Vulnerability data originates from the GitHub Advisory Database, reached through the npm registry’s advisory endpoint via <code>npm audit</code> for JavaScript. You can additionally enable OSV and GitLab gemnasium per language (Settings → Sources) to match JavaScript, Python, Go, and Rust packages against those public advisory databases — catching advisories npm audit misses and flagging known-malicious packages. Non-JavaScript languages are resolved offline from lockfiles and matched against locally cached advisories; ambiguous manifests are reported as partial or unauditable rather than treated as clean.",
         "sendsTitle": "What Sentinello sends out",
         "tableDestination": "Destination",
         "tablePurpose": "Purpose",
@@ -551,8 +566,8 @@
                 "disable": "Core function — not disableable"
             },
             "osv": {
-                "purpose": "Download the public OSV advisory database for npm",
-                "when": "Daily, plus manual refresh — only when OSV is enabled",
+                "purpose": "Download the public OSV advisory export for each enabled language",
+                "when": "Daily, plus manual refresh — only when OSV is enabled for a language",
                 "disable": "Settings → Sources (off by default), or SENTINELLO_OSV_FEED_URL=off"
             },
             "github": {
@@ -564,6 +579,11 @@
                 "purpose": "Pull the Sentinello image",
                 "when": "On install or upgrade",
                 "disable": "Deployment step — not applicable at runtime"
+            },
+            "gemnasium": {
+                "purpose": "Download GitLab’s gemnasium advisory archive for each enabled language",
+                "when": "Daily, plus manual refresh — only when gemnasium is enabled for a language",
+                "disable": "Settings → Sources (off by default), or SENTINELLO_GEMNASIUM_FEED_URL=off"
             }
         },
         "dataLivesTitle": "Where your data lives",
@@ -583,7 +603,9 @@
             "updateFeedUrl": "Feed checked for the update banner; set to off to disable update checks.",
             "webhookStrict": "When enabled, rejects webhook targets aimed at private or loopback addresses and requires https. Link-local and cloud-metadata addresses are always rejected.",
             "osvFeedUrl": "Base URL for the OSV advisory export, used only when the OSV source is enabled; set to off to disable all OSV network access.",
-            "osvDbPath": "Location of the rebuildable OSV advisory cache; defaults next to the main database."
+            "osvDbPath": "Location of the rebuildable OSV advisory cache; grows per enabled language and defaults next to the main database.",
+            "gemnasiumFeedUrl": "URL for the GitLab gemnasium advisory archive, used only when the gemnasium source is enabled; set to off to disable all gemnasium network access.",
+            "gemnasiumDbPath": "Location of the rebuildable gemnasium advisory cache; defaults next to the main database."
         },
         "builtWithTitle": "Built with",
         "reportingTitle": "Reporting a vulnerability in Sentinello",
@@ -623,7 +645,11 @@
                 "resolvedCount": "{count} resolved",
                 "discovered": "Discovered",
                 "resolved": "Resolved"
-            }
+            },
+            "coverageTitle": "Coverage gaps",
+            "coverageBody": "Some languages in this project could not be fully audited offline, so findings may be incomplete for them.",
+            "coveragePartial": "Partial",
+            "coverageUnauditable": "Unauditable"
         },
         "library": {
             "eyebrow": "Library",

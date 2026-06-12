@@ -20,7 +20,8 @@ import {
     DEFAULT_GLOBAL_IGNORE,
     DEFAULT_PARALLELISM
 } from './config-loader'
-import { selectScanners, type OsvController } from './osv-runtime'
+import { selectScanners, extraSourceCells, type OsvController } from './osv-runtime'
+import { type GemnasiumController } from './gemnasium-runtime'
 import { discoverProjects } from './discovery'
 import { runBatch } from './runner'
 import type { WorkerRuntime } from './runtime'
@@ -39,9 +40,10 @@ export type StartPollerInput = {
     runtime: WorkerRuntime
     scheduler: SchedulerHandles
     intervalMs?: number
-    // Controller for the OSV source. Read per-batch via getScanner() so on-demand scans honor the
-    // current Sources setting; reload() is invoked on the 'reload-sources' worker signal.
+    // Controllers for the optional advisory sources. Read per-batch via getScanner() so on-demand scans
+    // honor the current Sources setting; reload() is invoked on the 'reload-sources' worker signal.
     osvController?: OsvController | null
+    gemnasiumController?: GemnasiumController | null
 }
 
 export function startScanRequestPoller(input: StartPollerInput): PollerHandles {
@@ -112,7 +114,7 @@ async function runSingleProject(input: StartPollerInput, projectId: string, requ
     await runBatch({
         db: input.db,
         sqlite: input.sqlite,
-        scanners: selectScanners(input.db, npmAuditPlugin, input.osvController?.getScanner() ?? null),
+        scanners: selectScanners(input.db, npmAuditPlugin, extraSourceCells(input)),
         projects: [project],
         parallelism,
         abortSignal: input.runtime.abortController.signal
@@ -136,7 +138,7 @@ async function runFullSweep(input: StartPollerInput, requestId: string): Promise
     await runBatch({
         db: input.db,
         sqlite: input.sqlite,
-        scanners: selectScanners(input.db, npmAuditPlugin, input.osvController?.getScanner() ?? null),
+        scanners: selectScanners(input.db, npmAuditPlugin, extraSourceCells(input)),
         projects,
         parallelism,
         abortSignal: input.runtime.abortController.signal
@@ -163,7 +165,7 @@ async function runRootSweep(input: StartPollerInput, rootId: string, requestId: 
     await runBatch({
         db: input.db,
         sqlite: input.sqlite,
-        scanners: selectScanners(input.db, npmAuditPlugin, input.osvController?.getScanner() ?? null),
+        scanners: selectScanners(input.db, npmAuditPlugin, extraSourceCells(input)),
         projects,
         parallelism,
         abortSignal: input.runtime.abortController.signal
@@ -198,9 +200,10 @@ function dispatchWorkerSignal(input: StartPollerInput, signal: WorkerSignal): vo
         return
     }
     if (signal.kind === 'reload-sources') {
-        // Operator toggled a source in Settings → Sources. Start or stop the OSV runtime to match the
-        // live config flag; the next batch's selectScanners() then includes/excludes OSV accordingly.
+        // Operator toggled a source in Settings → Sources. Start or stop each source runtime to match the
+        // live config flags; the next batch's selectScanners() then includes/excludes them accordingly.
         if (input.osvController) input.osvController.reload()
+        if (input.gemnasiumController) input.gemnasiumController.reload()
         return
     }
     if (signal.kind === 'refresh-osv') {
@@ -209,6 +212,16 @@ function dispatchWorkerSignal(input: StartPollerInput, signal: WorkerSignal): vo
         if (input.osvController) {
             const work = input.osvController.refresh().catch(function onErr(err: unknown) {
                 console.error('[scan-request-poller] OSV refresh failed: ' + ((err instanceof Error && err.message) || String(err)))
+            })
+            input.runtime.track(work)
+        }
+        return
+    }
+    if (signal.kind === 'refresh-gemnasium') {
+        // "Refresh now" for the gemnasium source. Kicks a full re-seed in the background.
+        if (input.gemnasiumController) {
+            const work = input.gemnasiumController.refresh().catch(function onErr(err: unknown) {
+                console.error('[scan-request-poller] gemnasium refresh failed: ' + ((err instanceof Error && err.message) || String(err)))
             })
             input.runtime.track(work)
         }

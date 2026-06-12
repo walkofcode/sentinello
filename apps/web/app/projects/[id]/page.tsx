@@ -16,7 +16,8 @@ import {
     listMuteLiftsForProject,
     listResolvedFindingsForProject,
     listScansForProject,
-    getActiveScanners
+    getActiveSources,
+    getProjectEcosystemCoverage
 } from '@sentinello/db'
 import { reasonCodeLabel, scanStatusLabel, type Locale } from '@sentinello/core'
 import { Badge } from '@/components/ui/badge'
@@ -29,8 +30,10 @@ import { ExportAdvisoryButton } from '@/components/triage/export-advisory-button
 import { ScanNowButton } from '@/components/triage/scan-now-button'
 import { TagEditor } from '@/components/triage/tag-editor'
 import { FindingsSection } from '@/components/findings/findings-section'
+import { CoverageNotice } from '@/components/findings/coverage-notice'
 import { SourceFilter } from '@/components/findings/source-filter'
-import { orderSources } from '@/components/findings/source-order'
+import { EcosystemFilter } from '@/components/findings/ecosystem-filter'
+import { orderEcosystems, orderSources } from '@/components/findings/source-order'
 import { ResolvedFindingsTable } from '@/components/findings/resolved-findings-table'
 import { ScanHistory, type ScanFindingVM, type ScanHistoryRowVM } from '@/components/findings/scan-history'
 import { DepTypeFilter } from '@/components/findings/dep-type-filter'
@@ -78,8 +81,12 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     const defaults = getFilterDefaults(db)
     const depType = parseDepTypeParam(resolvedSearchParams.dep) || defaults.depType
     const root = getRootById(db, project.rootId)
-    const enabledSources = orderSources(getActiveScanners(db))
+    const enabledSources = orderSources(getActiveSources(db))
+    const ecosystemCoverage = getProjectEcosystemCoverage(db, project.id)
     const findings = listCurrentFindingsForProject(db, project.id, now, depType)
+    // The language-filter universe is the ecosystems actually present in the loaded findings, in registry
+    // display order. Single-ecosystem projects (the common npm-only case) get no redundant control.
+    const findingEcosystems = orderEcosystems(findings.map(function pickEco(f) { return f.ecosystem }))
     // The header count matches the "by advisory" tab: distinct vulnerabilities after merging the
     // per-dep-path and per-source duplicates, not raw finding rows.
     const mergedFindingCount = mergeFindings(findings).length
@@ -182,6 +189,8 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                 ) : null}
             </header>
 
+            <CoverageNotice coverage={ecosystemCoverage} locale={locale} />
+
             <section className="space-y-3">
                 {findings.length === 0 ? (
                     <div className="flex flex-col items-center justify-center rounded-(--radius-card) border border-dashed border-emerald-500/30 bg-emerald-500/5 px-6 py-16 text-center">
@@ -196,11 +205,12 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                         <div className="flex flex-wrap items-baseline justify-between gap-2">
                             <h2 className="text-lg font-semibold">{t('project.currentFindings', { count: mergedFindingCount })}</h2>
                             <div className="flex items-center gap-2">
+                                <EcosystemFilter ecosystems={findingEcosystems} />
                                 <SourceFilter sources={enabledSources} />
                                 <DepTypeFilter value={depType} defaultValue={defaults.depType} />
                             </div>
                         </div>
-                        <FindingsSection findings={findings} projectId={project.id} mutes={activeMutes} now={now} sources={enabledSources} />
+                        <FindingsSection findings={findings} projectId={project.id} mutes={activeMutes} now={now} sources={enabledSources} ecosystems={findingEcosystems} />
                     </>
                 )}
             </section>

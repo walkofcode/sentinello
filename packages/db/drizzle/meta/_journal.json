@@ -29,6 +29,27 @@
       "when": 1779932460619,
       "tag": "0003_special_scorpion",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1781158496882,
+      "tag": "0004_plain_quicksilver",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1781160374141,
+      "tag": "0005_worried_saracen",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1781171892593,
+      "tag": "0006_tense_joystick",
+      "breakpoints": true
     }
   ]
 }

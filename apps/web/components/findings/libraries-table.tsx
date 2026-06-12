@@ -17,6 +17,20 @@ import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { groupByLibrary, type LibraryGroup } from './group-by-library'
 import { VersionChain } from './version-chain'
 import { SourceTags } from './source-tags'
+import { EcosystemBadge } from './ecosystem-badge'
+
+// Stable identity of a library row: a library is (ecosystem, packageName) (issue-019), so the expanded
+// state, React keys, and toggle all key on the pair — an npm `requests` and a PyPI `requests` are two
+// independently expandable rows.
+function groupKey(group: LibraryGroup): string {
+    return group.ecosystem + '\x00' + group.packageName
+}
+
+// The library's ecosystem badge value — shown only for non-npm so npm-only projects stay uncluttered.
+function libraryEcosystem(group: LibraryGroup): string | null {
+    if (!group.ecosystem || group.ecosystem === 'npm') return null
+    return group.ecosystem
+}
 
 type Props = {
     findings: CurrentFindingRow[]
@@ -29,12 +43,12 @@ export function LibrariesTable({ findings, projectId, mutes, now }: Props) {
     const t = useTranslations('Findings')
     const groups = useMemo(function build() { return groupByLibrary(findings) }, [findings])
     const [expanded, setExpanded] = useState<Set<string>>(new Set())
-    function toggle(packageName: string) {
+    function toggle(key: string) {
         const next = new Set(expanded)
-        if (next.has(packageName)) {
-            next.delete(packageName)
+        if (next.has(key)) {
+            next.delete(key)
         } else {
-            next.add(packageName)
+            next.add(key)
         }
         setExpanded(next)
     }
@@ -44,11 +58,11 @@ export function LibrariesTable({ findings, projectId, mutes, now }: Props) {
                 {groups.map(function card(group) {
                     return (
                         <LibraryCard
-                            key={group.packageName}
+                            key={groupKey(group)}
                             group={group}
                             projectId={projectId}
                             mutes={mutes}
-                            isOpen={expanded.has(group.packageName)}
+                            isOpen={expanded.has(groupKey(group))}
                             onToggle={toggle}
                             now={now}
                         />
@@ -69,10 +83,10 @@ export function LibrariesTable({ findings, projectId, mutes, now }: Props) {
                     </TableHeader>
                     <TableBody>
                         {groups.map(function renderGroup(group) {
-                            const isOpen = expanded.has(group.packageName)
+                            const isOpen = expanded.has(groupKey(group))
                             return (
                                 <LibraryRows
-                                    key={group.packageName}
+                                    key={groupKey(group)}
                                     group={group}
                                     projectId={projectId}
                                     mutes={mutes}
@@ -94,7 +108,7 @@ type RowProps = {
     projectId: string
     mutes: Mute[]
     isOpen: boolean
-    onToggle: (packageName: string) => void
+    onToggle: (key: string) => void
     now: number
 }
 
@@ -102,21 +116,22 @@ function LibraryRows({ group, projectId, mutes, isOpen, onToggle, now }: RowProp
     const t = useTranslations('Findings')
     const unmutedAdvisories = group.findings
         .filter(function notMuted(f) { return !f.isMuted })
-        .map(function toAdv(f) { return { scanner: f.scanner, advisoryId: f.advisoryId } })
+        .map(function toAdv(f) { return { source: f.source, ecosystem: f.ecosystem, advisoryId: f.advisoryId } })
     return (
         <>
             <TableRow className={cn('cursor-pointer', group.allMuted && 'opacity-60')}>
-                <TableCell onClick={function flip() { onToggle(group.packageName) }} className="w-8 text-muted-foreground">
+                <TableCell onClick={function flip() { onToggle(groupKey(group)) }} className="w-8 text-muted-foreground">
                     {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                 </TableCell>
-                <TableCell onClick={function flip() { onToggle(group.packageName) }}>
+                <TableCell onClick={function flip() { onToggle(groupKey(group)) }}>
                     <SeverityPill variant={group.maxSeverity as Severity} size="sm" />
                 </TableCell>
-                <TableCell onClick={function flip() { onToggle(group.packageName) }} className="font-medium">
+                <TableCell onClick={function flip() { onToggle(groupKey(group)) }} className="font-medium">
                     <span>{group.packageName}</span>
+                    {libraryEcosystem(group) ? <EcosystemBadge ecosystem={libraryEcosystem(group) as string} className="ml-2" /> : null}
                     {group.devOnly ? <Badge variant="dev" className="ml-2">{t('dev')}</Badge> : null}
                 </TableCell>
-                <TableCell onClick={function flip() { onToggle(group.packageName) }} className="text-xs">
+                <TableCell onClick={function flip() { onToggle(groupKey(group)) }} className="text-xs">
                     <span className="font-mono">{group.advisoryCount}</span>
                     {group.partial ? (
                         <span className="ml-2 text-muted-foreground">
@@ -124,7 +139,7 @@ function LibraryRows({ group, projectId, mutes, isOpen, onToggle, now }: RowProp
                         </span>
                     ) : null}
                 </TableCell>
-                <TableCell onClick={function flip() { onToggle(group.packageName) }} className="text-xs">
+                <TableCell onClick={function flip() { onToggle(groupKey(group)) }} className="text-xs">
                     {group.recommendedUpgrade ? (
                         <Badge variant="default" className="font-mono">{'>= ' + group.recommendedUpgrade}</Badge>
                     ) : (
@@ -156,11 +171,11 @@ function LibraryCard({ group, projectId, mutes, isOpen, onToggle, now }: RowProp
     const tTime = useTranslations('Time')
     const unmutedAdvisories = group.findings
         .filter(function notMuted(f) { return !f.isMuted })
-        .map(function toAdv(f) { return { scanner: f.scanner, advisoryId: f.advisoryId } })
+        .map(function toAdv(f) { return { source: f.source, ecosystem: f.ecosystem, advisoryId: f.advisoryId } })
     return (
         <Card className={cn('overflow-hidden p-0', group.allMuted && 'opacity-60')}>
             <div
-                onClick={function flip() { onToggle(group.packageName) }}
+                onClick={function flip() { onToggle(groupKey(group)) }}
                 className="flex cursor-pointer items-start gap-2 p-4"
             >
                 <span className="mt-0.5 text-muted-foreground">
@@ -170,6 +185,7 @@ function LibraryCard({ group, projectId, mutes, isOpen, onToggle, now }: RowProp
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                         <span className="min-w-0 flex-1 truncate font-medium text-sm">{group.packageName}</span>
+                        {libraryEcosystem(group) ? <EcosystemBadge ecosystem={libraryEcosystem(group) as string} /> : null}
                         {group.devOnly ? <Badge variant="dev">{t('dev')}</Badge> : null}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
@@ -195,7 +211,8 @@ function LibraryCard({ group, projectId, mutes, isOpen, onToggle, now }: RowProp
                             return (
                                 m.scope === 'finding' &&
                                 (m.projectId === null || m.projectId === projectId) &&
-                                m.scanner === f.scanner &&
+                                m.scanner === f.source &&
+                                (m.ecosystem === null || m.ecosystem === f.ecosystem) &&
                                 m.advisoryId === f.advisoryId &&
                                 m.packageName === f.packageName
                             )
@@ -237,12 +254,12 @@ function LibraryCard({ group, projectId, mutes, isOpen, onToggle, now }: RowProp
                                         <MuteDialog
                                             projectId={projectId}
                                             muteId={findingMute.id}
-                                            finding={{ scanner: f.scanner, advisoryId: f.advisoryId, packageName: f.packageName }}
+                                            finding={{ source: f.source, ecosystem: f.ecosystem, scanner: f.scanner, advisoryId: f.advisoryId, packageName: f.packageName }}
                                         />
                                     ) : (
                                         <MuteDialog
                                             projectId={projectId}
-                                            finding={{ scanner: f.scanner, advisoryId: f.advisoryId, packageName: f.packageName }}
+                                            finding={{ source: f.source, ecosystem: f.ecosystem, scanner: f.scanner, advisoryId: f.advisoryId, packageName: f.packageName }}
                                         />
                                     )}
                                 </div>
@@ -285,7 +302,8 @@ function ExpandedAdvisories({ group, projectId, mutes, now }: { group: LibraryGr
                             return (
                                 m.scope === 'finding' &&
                                 (m.projectId === null || m.projectId === projectId) &&
-                                m.scanner === f.scanner &&
+                                m.scanner === f.source &&
+                                (m.ecosystem === null || m.ecosystem === f.ecosystem) &&
                                 m.advisoryId === f.advisoryId &&
                                 m.packageName === f.packageName
                             )
@@ -327,13 +345,13 @@ function ExpandedAdvisories({ group, projectId, mutes, now }: { group: LibraryGr
                                         <MuteDialog
                                             projectId={projectId}
                                             muteId={findingMute.id}
-                                            finding={{ scanner: f.scanner, advisoryId: f.advisoryId, packageName: f.packageName }}
+                                            finding={{ source: f.source, ecosystem: f.ecosystem, scanner: f.scanner, advisoryId: f.advisoryId, packageName: f.packageName }}
                                             iconOnly
                                         />
                                     ) : (
                                         <MuteDialog
                                             projectId={projectId}
-                                            finding={{ scanner: f.scanner, advisoryId: f.advisoryId, packageName: f.packageName }}
+                                            finding={{ source: f.source, ecosystem: f.ecosystem, scanner: f.scanner, advisoryId: f.advisoryId, packageName: f.packageName }}
                                             iconOnly
                                         />
                                     )}

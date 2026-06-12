@@ -54,7 +54,8 @@ export async function notifyForCompletedScan(input: NotifyForCompletedScanInput)
     for (const finding of input.outcome.findings) {
         upsertFindingEvent(input.db, {
             projectId: finding.projectId,
-            scanner: finding.scanner,
+            source: finding.source,
+            ecosystem: finding.ecosystem,
             advisoryId: finding.advisoryId,
             packageName: finding.packageName,
             severity: finding.severity,
@@ -255,10 +256,11 @@ function groupByTarget(pairs: DispatchablePair[]): GroupedPairs[] {
 
 function indexFindingsByEventId(findings: Finding[], _projectId: string): Map<string, Finding> {
     // We index by the natural identity tuple stringified — the event row holds the same identity so
-    // we can match without recomputing the ledger's identity_key.
+    // we can match without recomputing the ledger's identity_key. The source axis is the persisted
+    // source identity (finding.source / event.scanner-as-source), never the scanner plugin name.
     const byKey = new Map<string, Finding>()
     for (const finding of findings) {
-        const key = identityTupleKey(finding.projectId, finding.scanner, finding.advisoryId, finding.packageName)
+        const key = identityTupleKey(finding.projectId, finding.source, finding.ecosystem, finding.advisoryId, finding.packageName)
         byKey.set(key, finding)
     }
     return byKey
@@ -268,15 +270,16 @@ function mapEventsToFindings(events: NotificationEvent[], findingsByKey: Map<str
     const out: Finding[] = []
     for (const event of events) {
         if (event.advisoryId === null || event.packageName === null) continue
-        const key = identityTupleKey(event.projectId, event.scanner, event.advisoryId, event.packageName)
+        // event.scanner carries the persisted source identity for finding events (matches finding.source).
+        const key = identityTupleKey(event.projectId, event.scanner, event.ecosystem ?? '', event.advisoryId, event.packageName)
         const match = findingsByKey.get(key)
         if (match) out.push(match)
     }
     return out
 }
 
-function identityTupleKey(projectId: string, scanner: string, advisoryId: string, packageName: string): string {
-    return projectId + '|' + scanner + '|' + advisoryId + '|' + packageName
+function identityTupleKey(projectId: string, source: string, ecosystem: string, advisoryId: string, packageName: string): string {
+    return projectId + '|' + source + '|' + ecosystem + '|' + advisoryId + '|' + packageName
 }
 
 function webhookRoot(root: Root | null): WebhookPayloadContext['root'] {

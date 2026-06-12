@@ -12,6 +12,7 @@ import {
     deleteNotificationTarget,
     deleteRoot,
     enqueueWorkerSignal,
+    getActiveSourceCells,
     getNotificationTargetById,
     getRootById,
     getRootByPath,
@@ -29,12 +30,13 @@ import {
 } from '@sentinello/db'
 import type {
     DepTypeFilter,
+    NotificationSourceScope,
     NotificationTarget,
     NotificationTargetConfig,
     NotificationTargetKind,
     Severity
 } from '@sentinello/core'
-import { SOURCE_CONFIG_KEYS } from '@sentinello/core'
+import { getEcosystem, sourceEnabledKey, sourceSupportsEcosystem, type EcosystemId, type SourceId } from '@sentinello/core'
 import { senderFor } from '@sentinello/notifications'
 import { getDb } from '@/lib/db'
 
@@ -180,6 +182,14 @@ const targetConfigSchemas: Record<NotificationTargetKind, z.ZodTypeAny> = {
 const rootIdsSchema = z.array(z.string().min(1)).default([])
 const projectIdsSchema = z.array(z.string().min(1)).default([])
 const envFilterSchema = z.enum(['all', 'prod', 'dev'])
+// (source, ecosystem) cell scope. mode 'all' = every cell; 'selected' = only the listed cells. The
+// query-layer parser additionally drops cells whose source/ecosystem are no longer in the registry.
+const sourceScopeSchema = z
+    .object({
+        mode: z.enum(['all', 'selected']),
+        cells: z.array(z.object({ source: z.string().min(1), ecosystem: z.string().min(1) })).default([])
+    })
+    .default({ mode: 'all', cells: [] })
 
 // Guards that every id refers to a real root. Empty list is fine (= "all roots"). Throws on the
 // first unknown id rather than silently dropping it — operators should see a clear error if the UI
@@ -209,6 +219,7 @@ export async function upsertNotificationTargetAction(input: {
     enabled: boolean
     rootIds: string[]
     projectIds: string[]
+    sourceScope?: NotificationSourceScope
 }): Promise<void> {
     const schema = targetConfigSchemas[input.kind]
     schema.parse(input.config)
@@ -216,6 +227,7 @@ export async function upsertNotificationTargetAction(input: {
     const envFilter = envFilterSchema.parse(input.envFilter)
     const rootIds = rootIdsSchema.parse(input.rootIds)
     const projectIds = projectIdsSchema.parse(input.projectIds)
+    const sourceScope = sourceScopeSchema.parse(input.sourceScope) as NotificationSourceScope
     const db = getDb()
     validateRootIds(db, rootIds)
     validateProjectIds(db, projectIds)
@@ -228,7 +240,8 @@ export async function upsertNotificationTargetAction(input: {
         enabled: input.enabled,
         createdAt: Date.now(),
         rootIds,
-        projectIds
+        projectIds,
+        sourceScope
     }
     insertNotificationTarget(db, target)
     setTargetRoots(db, target.id, rootIds)
@@ -261,6 +274,8 @@ export async function updateNotificationTargetAction(input: {
     // When provided, scope is replaced wholesale: empty arrays = "everything".
     rootIds?: string[]
     projectIds?: string[]
+    // When provided, the (source, ecosystem) cell scope is replaced wholesale.
+    sourceScope?: NotificationSourceScope
 }): Promise<void> {
     const db = getDb()
     const existing = getNotificationTargetById(db, input.id)
@@ -271,6 +286,7 @@ export async function updateNotificationTargetAction(input: {
         id: input.id,
         severityFilter,
         envFilter,
+        sourceScope: input.sourceScope !== undefined ? (sourceScopeSchema.parse(input.sourceScope) as NotificationSourceScope) : undefined,
         enabled: input.enabled
     })
     if (input.rootIds !== undefined) {
@@ -304,7 +320,8 @@ export async function duplicateNotificationTargetAction(id: string): Promise<{ i
         enabled: source.enabled,
         createdAt: Date.now(),
         rootIds: source.rootIds,
-        projectIds: source.projectIds
+        projectIds: source.projectIds,
+        sourceScope: source.sourceScope
     }
     insertNotificationTarget(db, clone)
     setTargetRoots(db, clone.id, clone.rootIds)
@@ -380,22 +397,50 @@ export async function updateAdvancedSettingsAction(input: AdvancedSettingsInput)
 
 // --- Sources ---
 
-// Toggles the OSV vulnerability source. Off by default; enabling it makes the worker download the OSV
-// npm export (~196 MB seed, then ~daily deltas) into osv.db and run the OSV scanner alongside npm audit.
-// The 'reload-sources' signal makes the running worker start/stop the OSV runtime within ~5s.
-export async function updateSourcesAction(input: { osvEnabled: boolean }): Promise<void> {
-    const parsed = z.object({ osvEnabled: z.boolean() }).parse(input)
+// Toggles one (source, ecosystem) cell of the Languages × Sources matrix. npm-audit is on by default but
+// disableable; OSV/gemnasium are off by default and, when enabled for an ecosystem, make the worker
+// download that source's advisory export into its own cache DB and run its scanner for that ecosystem. The
+// "always a source on" invariant rejects any write that would leave zero active cells anywhere —
+// Sentinello must never go fully blind. The 'reload-sources' signal makes the running worker start/stop
+// the matching runtime within ~5s.
+export async function updateSourceCellAction(input: { source: string; ecosystem: string; enabled: boolean }): Promise<void> {
+    const parsed = z.object({
+        source: z.string().min(1),
+        ecosystem: z.string().min(1),
+        enabled: z.boolean()
+    }).parse(input)
+    const source = parsed.source as SourceId
+    const ecosystem = parsed.ecosystem as EcosystemId
+    if (!getEcosystem(ecosystem)) {
+        throw new Error('Unknown ecosystem: ' + parsed.ecosystem)
+    }
+    if (!sourceSupportsEcosystem(source, ecosystem)) {
+        throw new Error('Source ' + parsed.source + ' does not answer for ecosystem ' + parsed.ecosystem)
+    }
     const db = getDb()
-    setConfigValue(db, SOURCE_CONFIG_KEYS.osvEnabled, parsed.osvEnabled)
+    // Enforce the invariant before writing: disabling the last active cell is rejected. getActiveSourceCells
+    // reflects the persisted state with per-cell defaults + legacy fallbacks, so the count is accurate even
+    // for cells that have never been written.
+    if (!parsed.enabled) {
+        const remaining = getActiveSourceCells(db).filter(function notThisCell(cell) {
+            return !(cell.source === source && cell.ecosystem === ecosystem)
+        })
+        if (remaining.length === 0) {
+            throw new Error('At least one vulnerability source must stay enabled — Sentinello cannot run with zero sources.')
+        }
+    }
+    setConfigValue(db, sourceEnabledKey(source, ecosystem), parsed.enabled)
     enqueueWorkerSignal(db, 'reload-sources', Date.now())
     revalidatePath('/settings/sources')
 }
 
-// "Refresh now" — asks the worker to run an OSV sync (seed-or-incremental) immediately rather than
-// waiting for the daily cron. No-op on the worker side if the source is disabled.
-export async function refreshOsvAction(): Promise<void> {
+// "Refresh now" — asks the worker to re-sync a cache-backed source (OSV or gemnasium) immediately rather
+// than waiting for the daily cron. The worker re-syncs every enabled ecosystem of that source. No-op on
+// the worker side if the source is disabled everywhere.
+export async function refreshSourceAction(source: string): Promise<void> {
     const db = getDb()
-    enqueueWorkerSignal(db, 'refresh-osv', Date.now())
+    const signal = source === 'gemnasium' ? 'refresh-gemnasium' : 'refresh-osv'
+    enqueueWorkerSignal(db, signal, Date.now())
     revalidatePath('/settings/sources')
 }
 

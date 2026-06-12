@@ -1,9 +1,9 @@
 {
     "Meta": {
-        "title": "Sentinello — 전체 Node.js 포트폴리오를 위한 조기 경보형 CVE 모니터링",
-        "description": "Node.js 프로젝트를 위한 자체 호스팅, 오픈 소스 의존성 취약점 모니터링. 저장소를 가리키기만 하면 모든 프로젝트의 알려진 CVE를 하나의 분류 대기열에서 확인할 수 있습니다.",
-        "tagline": "전체 Node.js 포트폴리오를 위한 CVE 조기 경보",
-        "tabTitle": "Sentinello — Node.js CVE 모니터링"
+        "title": "Sentinello — 전체 포트폴리오를 위한 조기 경보형 CVE 모니터링",
+        "description": "여러 언어에 걸친 자체 호스팅, 오픈 소스 의존성 취약점 모니터링 — 기본은 JavaScript, 선택적으로 Python·Go·Rust 지원. 저장소를 가리키기만 하면 모든 프로젝트의 알려진 CVE를 하나의 분류 대기열에서 확인할 수 있습니다.",
+        "tagline": "전체 포트폴리오를 위한 CVE 조기 경보",
+        "tabTitle": "Sentinello — 다중 언어 CVE 모니터링"
     },
     "Nav": {
         "how": "작동 방식",
@@ -38,7 +38,7 @@
     },
     "Hero": {
         "title": "더 이상 지켜보지 않게 된 의존성을 위한 조기 경보 시스템.",
-        "subtitle": "AI 시대에는 유지할 수 있는 것보다 더 많은 Node.js 프로젝트를 출시하게 됩니다. Sentinello는 그 하나하나를 지켜보며 npm 의존성에 숨은 알려진 CVE를 드러냅니다 — 잊힌 프로젝트가 사고로 이어지기 전에.",
+        "subtitle": "AI 시대에는 유지할 수 있는 것보다 더 많은 프로젝트를 출시하게 됩니다. Sentinello는 그 하나하나를 지켜보며 의존성에 숨은 알려진 CVE를 드러냅니다 — 기본은 JavaScript, Python·Go·Rust는 토글 하나로 — 잊힌 프로젝트가 사고로 이어지기 전에.",
         "commandCaption": "명령 하나로 실행:",
         "ctaPrimary": "빠른 시작 읽기",
         "ctaSecondary": "GitHub에서 별 누르기",
@@ -54,7 +54,7 @@
     },
     "Comparison": {
         "title": "비교",
-        "subtitle": "Sentinello는 더 무거운 Dependency-Track도, 더 저렴한 Snyk도 아닙니다. 다른 영역을 차지합니다: 아무도 파이프라인에 연결하지 않은 Node 프로젝트의 롱테일입니다.",
+        "subtitle": "Sentinello는 더 무거운 Dependency-Track도, 더 저렴한 Snyk도 아닙니다. 다른 영역을 차지합니다: 아무도 파이프라인에 연결하지 않은 프로젝트의 롱테일입니다.",
         "axis": "",
         "col_sentinello": "Sentinello",
         "col_depTrack": "Dependency-Track",
@@ -70,7 +70,7 @@
         "row_polyglot": "다언어(Python, Go, …)",
         "row_enterprisePolicy": "엔터프라이즈 정책 / VEX",
         "planned": "예정",
-        "footnote": "Dependency-Track는 누군가 SBOM 파이프라인으로 계측한 프로젝트만 봅니다. Sentinello는 당신이 잊은 것을 찾습니다. 엔터프라이즈 정책에서는 그쪽이 더 강력하고, 다중 언어 지원은 Sentinello의 로드맵에 있습니다 — 이미 성숙한 파이프라인에서 그 도구들을 돌리고 있다면 그대로 두세요. Sentinello는 아무도 지켜보지 않는 나머지 포트폴리오를 위한 것입니다."
+        "footnote": "Dependency-Track는 누군가 SBOM 파이프라인으로 계측한 프로젝트만 봅니다. Sentinello는 당신이 잊은 것을 찾습니다. 엔터프라이즈 정책에서는 그쪽이 더 강력합니다 — 이미 성숙한 파이프라인에서 그 도구들을 돌리고 있다면 그대로 두세요. Sentinello는 아무도 지켜보지 않는 나머지 포트폴리오를 위한 것입니다."
     },
     "How": {
         "title": "작동 방식",
@@ -89,6 +89,8 @@
         "queueBody": "수십 개의 체크아웃에 흩어진 npm audit 대신, 전체 포트폴리오의 CVE를 한곳에서 보고 분류하세요.",
         "browseTitle": "프로젝트별 또는 라이브러리별 탐색",
         "browseBody": "어떤 저장소든 들어가 발견 결과, 수정 버전, 기록을 확인하거나 — 취약한 패키지로 전환해 영향을 받는 모든 프로젝트를 보고 한 번에 모든 곳에서 음소거하세요.",
+        "polyglotTitle": "다중 언어 스캔",
+        "polyglotBody": "기본으로 JavaScript를 스캔하고, 언어별 토글로 Python·Go·Rust를 추가합니다 — 각 프로젝트의 잠금 파일을 오프라인으로 분석해 OSV 및 GitLab gemnasium 권고와 대조합니다.",
         "exportTitle": "권고 내보내기",
         "exportBody": "프로젝트나 라이브러리의 발견 결과를 Markdown으로 내보내세요. 팀이나 LLM을 위해 맞춤 설정 가능한 해결 프롬프트가 포함됩니다.",
         "scanningTitle": "지속적인 스캔",
@@ -121,12 +123,10 @@
     },
     "Roadmap": {
         "title": "로드맵",
-        "subtitle": "지금 Sentinello는 당신의 Node.js 의존성을 지켜봅니다. 앞으로 나아갈 방향과 요청할 수 있는 것을 소개합니다.",
+        "subtitle": "지금 Sentinello는 여러 언어에 걸쳐 당신의 의존성을 지켜봅니다. 앞으로 나아갈 방향과 요청할 수 있는 것을 소개합니다.",
         "planned": "예정",
         "reachabilityTitle": "더 똑똑한 우선순위",
         "reachabilityBody": "악용 가능성과 취약한 코드가 실제로 도달 가능한지를 기준으로 발견 항목의 순위를 매겨 중요한 것부터 처리합니다.",
-        "polyglotTitle": "더 많은 생태계",
-        "polyglotBody": "동일한 파일시스템 네이티브 탐색으로 스캔을 Node를 넘어 Python, Go, Rust로 확장합니다.",
         "integrationsTitle": "더 많은 통합",
         "integrationsBody": "더 많은 알림 채널과, 팀이 이미 사용하는 도구에 Sentinello를 연결하는 방법.",
         "sastTitle": "정적 분석(SAST)",

@@ -215,7 +215,8 @@ function ProjectCard({ packageName, group, activeMutes, isOpen, onToggle, now }:
                             return (
                                 m.scope === 'finding' &&
                                 (m.projectId === null || m.projectId === group.projectId) &&
-                                m.scanner === u.scanner &&
+                                m.scanner === u.source &&
+                                (m.ecosystem === null || m.ecosystem === u.ecosystem) &&
                                 m.advisoryId === u.advisoryId &&
                                 m.packageName === packageName
                             )
@@ -254,12 +255,12 @@ function ProjectCard({ packageName, group, activeMutes, isOpen, onToggle, now }:
                                         <MuteDialog
                                             projectId={group.projectId}
                                             muteId={findingMute.id}
-                                            finding={{ scanner: u.scanner, advisoryId: u.advisoryId, packageName }}
+                                            finding={{ source: u.source, ecosystem: u.ecosystem, scanner: u.scanner, advisoryId: u.advisoryId, packageName }}
                                         />
                                     )) || (
                                         <MuteDialog
                                             projectId={group.projectId}
-                                            finding={{ scanner: u.scanner, advisoryId: u.advisoryId, packageName }}
+                                            finding={{ source: u.source, ecosystem: u.ecosystem, scanner: u.scanner, advisoryId: u.advisoryId, packageName }}
                                         />
                                     )}
                                 </div>
@@ -311,7 +312,8 @@ function ExpandedAdvisories({ packageName, group, activeMutes, now }: ExpandedPr
                             return (
                                 m.scope === 'finding' &&
                                 (m.projectId === null || m.projectId === projectId) &&
-                                m.scanner === u.scanner &&
+                                m.scanner === u.source &&
+                                (m.ecosystem === null || m.ecosystem === u.ecosystem) &&
                                 m.advisoryId === u.advisoryId &&
                                 m.packageName === packageName
                             )
@@ -344,13 +346,13 @@ function ExpandedAdvisories({ packageName, group, activeMutes, now }: ExpandedPr
                                         <MuteDialog
                                             projectId={projectId}
                                             muteId={findingMute.id}
-                                            finding={{ scanner: u.scanner, advisoryId: u.advisoryId, packageName }}
+                                            finding={{ source: u.source, ecosystem: u.ecosystem, scanner: u.scanner, advisoryId: u.advisoryId, packageName }}
                                             iconOnly
                                         />
                                     )) || (
                                         <MuteDialog
                                             projectId={projectId}
-                                            finding={{ scanner: u.scanner, advisoryId: u.advisoryId, packageName }}
+                                            finding={{ source: u.source, ecosystem: u.ecosystem, scanner: u.scanner, advisoryId: u.advisoryId, packageName }}
                                             iconOnly
                                         />
                                     )}

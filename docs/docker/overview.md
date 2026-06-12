@@ -7,6 +7,11 @@ point it at, surfaces known CVEs in their dependencies, and gives you one triage
 queue across every project — instead of `npm audit` output scattered across a
 dozen checkouts.
 
+It scans **JavaScript** out of the box and can also scan **Python, Go, and Rust**
+once you enable their sources in **Settings → Sources** (off by default). One
+project can span several ecosystems; findings land in the same queue regardless of
+language.
+
 Single image, single SQLite file, no external services. The web portal and the
 background scan worker run together under `pm2-runtime`.
 
@@ -85,17 +90,46 @@ volumes:
 | `SENTINELLO_VERSION`         | `dev`                         | Version label in the footer / `/api/version`; baked into the image at build time |
 | `SENTINELLO_UPDATE_FEED_URL` | GitHub Releases API           | Update-check feed; set to `off` to disable update checks |
 | `SENTINELLO_WEBHOOK_STRICT`  | _(unset)_                     | Set to `true` to reject private (RFC-1918) / loopback webhook targets and require `https`. Link-local / cloud-metadata is always rejected |
-| `SENTINELLO_OSV_FEED_URL`    | OSV GCS bucket                | OSV advisory export base URL (only used when the **OSV source** is enabled); set to `off` to disable all OSV network access |
+| `SENTINELLO_OSV_FEED_URL`    | OSV GCS bucket                | OSV advisory export base URL (only used when an **OSV** cell is enabled); set to `off` to disable all OSV network access. Per-ecosystem exports are fetched from `<base>/<ecosystem>/all.zip` (`npm`, `PyPI`, `Go`, `crates.io`) |
 | `SENTINELLO_OSV_DB_PATH`     | `<data dir>/osv.db`           | Location of the rebuildable OSV advisory cache (defaults next to the main DB) |
+| `SENTINELLO_GEMNASIUM_FEED_URL` | GitLab gemnasium-db archive | gemnasium advisory archive URL (only used when a **GitLab gemnasium** cell is enabled); set to `off` to disable all gemnasium network access |
+| `SENTINELLO_GEMNASIUM_DB_PATH`  | `<data dir>/gemnasium.db`   | Location of the rebuildable gemnasium advisory cache (defaults next to the main DB) |
 
 ### Vulnerability sources
 
-**npm audit** is always on. **OSV** is an optional second source, enabled in **Settings → Sources**
-(off by default): it matches your lockfiles against the [OSV](https://osv.dev) database, adding CVEs
-npm audit misses and flagging **known-malicious** packages (`MAL-` records) as critical findings.
-Enabling it downloads the OSV npm export (**~196 MB**) into the data volume, then ~daily incremental
-updates; the normalized `osv.db` cache (~40–80 MB) is rebuildable and stored separately from your
-findings. Leave it off (or set `SENTINELLO_OSV_FEED_URL=off`) for a fully air-gapped install.
+**Settings → Sources** is a **Languages × Sources matrix** (rows = JavaScript / Python / Go / Rust;
+cells = the sources that answer for each). **JavaScript** ships **npm audit** on by default (now
+toggleable) plus optional **OSV** and **GitLab gemnasium**; **Python / Go / Rust** default off, each
+offering **OSV** (the default cell) plus optional **GitLab gemnasium**. An "always a source on"
+invariant blocks disabling the last active cell, so the system is never source-blind.
+
+**npm audit** runs the package manager's own audit against each project's lockfile and needs no
+provisioning. **OSV** and **GitLab gemnasium** are **cache-backed**: the worker downloads each feed
+once and then matches **offline** — it parses each project's lockfile, resolves installed versions,
+and matches them against the local cache (no per-project network at scan time). OSV adds CVEs npm
+audit misses and flags **known-malicious** packages (`MAL-` records) as critical findings.
+
+**Coverage (honest).** Exact scanning needs a **true lockfile** (`package-lock.json` /
+`pnpm-lock.yaml` / `yarn.lock`, `poetry.lock` / `Pipfile.lock` / `uv.lock`, `Cargo.lock`).
+`requirements.txt` is audited for **pinned (`==`) entries only** — unpinned / ranged / editable /
+`-r`-included entries can't be resolved offline and are reported partial / unauditable. **Go** coverage
+is a documented **conservative offline subset**. Each scan reports a per-ecosystem coverage state
+(`ok` / `partial` / `unauditable`); "polyglot" means Sentinello discovers and scans these ecosystems,
+not that every manifest yields a full graph.
+
+**Reason codes.** Alongside the npm/OSV codes, scans surface (localized in the UI and notifications):
+`partial_dependency_graph` (some deps resolved, others couldn't), `ambiguous_dependency_spec` (a
+manifest pins nothing auditable), `unsupported_lockfile` (a format not yet parsed for that ecosystem),
+`ecosystem_source_disabled` (manifests found but no source enabled for that ecosystem), and
+`gemnasium_db_not_seeded` / `gemnasium_db_unavailable` (the gemnasium cache isn't downloaded yet or
+couldn't be opened — mirroring the OSV pair).
+
+**Provisioning.** Enabling **OSV** downloads the per-ecosystem export(s) into the data volume (npm
+export ~196 MB; each additional enabled ecosystem adds its own), then ~daily incremental updates.
+Enabling **GitLab gemnasium** downloads its archive from `gitlab.com` (tens of MB; re-downloaded whole
+each sync — it has no delta feed). Both normalized caches (`osv.db`, `gemnasium.db`) are rebuildable and
+stored separately from your findings. Leave these sources off (or set `SENTINELLO_OSV_FEED_URL=off` /
+`SENTINELLO_GEMNASIUM_FEED_URL=off`) for a fully air-gapped install.
 
 ### Language
 
@@ -142,8 +176,11 @@ required.
 ### Volumes
 
 - `/app/data` — the SQLite DB plus its WAL/SHM siblings and the worker lock.
-  Mount this to persist state across restarts. With the **OSV source** enabled
-  it also holds the rebuildable `osv.db` cache (~40–80 MB; initial download ~196 MB).
+  Mount this to persist state across restarts. With **OSV** enabled it also holds
+  the rebuildable `osv.db` cache, which **grows per enabled ecosystem** (npm export
+  ~196 MB; each additional enabled language adds its own export). With **GitLab
+  gemnasium** enabled it also holds the separate rebuildable `gemnasium.db` cache.
+  Both caches are stored apart from `sentinello.sqlite` and are safe to delete.
 - `/home/sentinello/.nvm` — Node versions installed on demand by `nvm` for
   projects that pin one via `.nvmrc`. Persist it so each version downloads only
   once (the image's baked-in Node 24.14.0 is seeded into the volume on first

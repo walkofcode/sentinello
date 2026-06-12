@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq, isNull, or } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import type { DrizzleDb } from '../client'
 import { muteLifts } from '../schema'
@@ -11,6 +11,7 @@ export type MuteLift = {
     scope: 'project' | 'finding'
     projectId: string | null
     scanner: string | null
+    ecosystem: string | null
     advisoryId: string | null
     packageName: string | null
     reason: string
@@ -27,6 +28,7 @@ export function recordMuteLift(db: DrizzleDb, mute: Mute, at: number): MuteLift 
         scope: mute.scope,
         projectId: mute.projectId,
         scanner: mute.scanner,
+        ecosystem: mute.ecosystem,
         advisoryId: mute.advisoryId,
         packageName: mute.packageName,
         reason: mute.reason,
@@ -47,11 +49,25 @@ export function listMuteLiftsForProject(db: DrizzleDb, projectId: string, limit 
     return rows.map(rowToLift)
 }
 
-export function listMuteLiftsForLibrary(db: DrizzleDb, packageName: string, limit = 50): MuteLift[] {
+export function listMuteLiftsForLibrary(
+    db: DrizzleDb,
+    packageName: string,
+    limit = 50,
+    ecosystem?: string
+): MuteLift[] {
+    // A NULL ecosystem on a lift is a legacy (pre-polyglot) row that matches any ecosystem; once
+    // backfilled to 'npm' it matches only its own ecosystem, so a same-named package in another
+    // ecosystem never shows up in this library's history.
+    const where = ecosystem
+        ? and(
+              eq(muteLifts.packageName, packageName),
+              or(isNull(muteLifts.ecosystem), eq(muteLifts.ecosystem, ecosystem))
+          )
+        : eq(muteLifts.packageName, packageName)
     const rows = db
         .select()
         .from(muteLifts)
-        .where(eq(muteLifts.packageName, packageName))
+        .where(where)
         .orderBy(desc(muteLifts.liftedAt))
         .limit(limit)
         .all()
@@ -71,6 +87,7 @@ function rowToLift(row: MuteLiftRow): MuteLift {
         scope: row.scope,
         projectId: row.projectId,
         scanner: row.scanner,
+        ecosystem: row.ecosystem,
         advisoryId: row.advisoryId,
         packageName: row.packageName,
         reason: row.reason,

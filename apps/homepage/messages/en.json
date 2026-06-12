@@ -1,9 +1,9 @@
 {
     "Meta": {
-        "title": "Sentinello — early-warning CVE monitoring for your whole Node.js portfolio",
-        "description": "Self-hosted, open-source dependency-vulnerability monitoring for Node.js projects. Point it at your repositories and get one triage queue for known CVEs across every project.",
-        "tagline": "CVE early-warning for your whole Node.js portfolio",
-        "tabTitle": "Sentinello — Node.js CVE monitoring"
+        "title": "Sentinello — early-warning CVE monitoring for your whole portfolio",
+        "description": "Self-hosted, open-source dependency-vulnerability monitoring across languages — JavaScript by default, with Python, Go, and Rust opt-in. Point it at your repositories and get one triage queue for known CVEs across every project.",
+        "tagline": "CVE early-warning for your whole portfolio",
+        "tabTitle": "Sentinello — multi-language CVE monitoring"
     },
     "Nav": {
         "how": "How it works",
@@ -38,7 +38,7 @@
     },
     "Hero": {
         "title": "An early-warning system for the dependencies you stopped watching.",
-        "subtitle": "In the AI age you ship more Node.js projects than you can maintain. Sentinello watches every one and surfaces known CVEs in their npm dependencies — so a forgotten project never becomes an incident.",
+        "subtitle": "In the AI age you ship more projects than you can maintain. Sentinello watches every one and surfaces known CVEs in their dependencies — JavaScript by default, with Python, Go, and Rust a toggle away — so a forgotten project never becomes an incident.",
         "commandCaption": "Run it in one command:",
         "ctaPrimary": "Read the quick start",
         "ctaSecondary": "Star on GitHub",
@@ -54,7 +54,7 @@
     },
     "Comparison": {
         "title": "How it compares",
-        "subtitle": "Sentinello isn’t a heavier Dependency-Track or a cheaper Snyk. It owns a different niche: the long tail of Node projects nobody wired into a pipeline.",
+        "subtitle": "Sentinello isn’t a heavier Dependency-Track or a cheaper Snyk. It owns a different niche: the long tail of projects nobody wired into a pipeline.",
         "axis": "",
         "col_sentinello": "Sentinello",
         "col_depTrack": "Dependency-Track",
@@ -70,7 +70,7 @@
         "row_polyglot": "Polyglot (Python, Go, …)",
         "row_enterprisePolicy": "Enterprise policy / VEX",
         "planned": "Planned",
-        "footnote": "Dependency-Track only sees the projects someone instrumented with an SBOM pipeline. Sentinello finds the ones you forgot. They’re stronger on enterprise policy, and polyglot coverage is on Sentinello’s roadmap — if you already run them on a mature pipeline, keep them. Sentinello is for the rest of your portfolio that nobody is watching."
+        "footnote": "Dependency-Track only sees the projects someone instrumented with an SBOM pipeline. Sentinello finds the ones you forgot. They’re stronger on enterprise policy — if you already run them on a mature pipeline, keep them. Sentinello is for the rest of your portfolio that nobody is watching."
     },
     "How": {
         "title": "How it works",
@@ -89,6 +89,8 @@
         "queueBody": "See and triage CVEs across your whole portfolio in one place — instead of npm audit scattered across a dozen checkouts.",
         "browseTitle": "Browse by project or library",
         "browseBody": "Drill into any repository for its findings, fix versions, and history — or pivot to a vulnerable package to see every project it affects and mute it everywhere at once.",
+        "polyglotTitle": "Multi-language scanning",
+        "polyglotBody": "Scans JavaScript out of the box and adds Python, Go, and Rust with a per-language toggle — parsing each project's lockfile offline and matching it against OSV and GitLab gemnasium advisories.",
         "exportTitle": "Advisory export",
         "exportBody": "Export findings for a project or library as Markdown, with a customizable remediation prompt for your team or an LLM.",
         "scanningTitle": "Continuous scanning",
@@ -121,12 +123,10 @@
     },
     "Roadmap": {
         "title": "Roadmap",
-        "subtitle": "Sentinello watches your Node.js dependencies today. Here's where it's headed — and what you can ask for.",
+        "subtitle": "Sentinello watches your dependencies across languages today. Here's where it's headed — and what you can ask for.",
         "planned": "Planned",
         "reachabilityTitle": "Smarter prioritization",
         "reachabilityBody": "Rank findings by exploitability and whether the vulnerable code is actually reachable — triage what matters first.",
-        "polyglotTitle": "More ecosystems",
-        "polyglotBody": "Extend scanning beyond Node to Python, Go, and Rust, using the same filesystem-native discovery.",
         "integrationsTitle": "More integrations",
         "integrationsBody": "More notification channels and ways to plug Sentinello into the tools your team already uses.",
         "sastTitle": "Static analysis (SAST)",

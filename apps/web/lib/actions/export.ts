@@ -78,14 +78,17 @@ export async function exportProjectAdvisoryMarkdownAction(
 
 export async function exportLibraryAdvisoryMarkdownAction(
     packageName: string,
-    depType: DepTypeFilter
+    depType: DepTypeFilter,
+    ecosystem?: string
 ): Promise<{ filename: string; markdown: string }> {
     const parsedDep = depTypeSchema.parse(depType)
     const trimmed = packageName.trim()
     if (trimmed.length === 0) throw new Error('packageName is required')
     const db = getDb()
     const now = Date.now()
-    const rows = listLibraryUsage(db, trimmed, now, parsedDep)
+    // Scope the export to the (ecosystem, packageName) cell the detail page is showing so a same-named
+    // package in another ecosystem isn't folded into the same advisory dump.
+    const rows = listLibraryUsage(db, trimmed, now, parsedDep, ecosystem)
     const findings: ExportFinding[] = rows.map(function toExport(r): ExportFinding {
         return {
             packageName: trimmed,

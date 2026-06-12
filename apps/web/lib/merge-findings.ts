@@ -4,11 +4,14 @@ import { parseJsonArray } from '@/lib/format'
 
 // A findings row collapsed across sources and dependency paths. The raw table stores one row per
 // (scanner, advisory, dep-path), so the same vulnerability shows up many times: once per route into the
-// tree, and again for each source that reports it (npm audit AND OSV). We merge by (package, advisory
-// identity) so each real vulnerability is ONE row carrying every source as a tag, the best available fix
-// (OSV often has none while npm audit does), the union of installed versions, and the union of dep paths.
+// tree, and again for each source that reports it (npm audit AND OSV). We merge by (ecosystem, package,
+// advisory identity) so each real vulnerability is ONE row carrying every source as a tag, the best
+// available fix (OSV often has none while npm audit does), the union of installed versions, and the union
+// of dep paths. The ecosystem is part of the key so an npm `requests` and a PyPI `requests` sharing a
+// CVE/title never collapse into one row (issue-019).
 export type MergedFinding = {
     key: string
+    ecosystem: string
     packageName: string
     installedVersion: string
     severity: Severity
@@ -25,12 +28,14 @@ export type MergedFinding = {
     isDev: boolean
     firstDetectedAt: number | null
     lastSeenAt: number | null
-    identities: { scanner: string; advisoryId: string }[]
+    // One entry per underlying source advisory. `source`/`ecosystem` are the persisted mute identity
+    // (issue-016); `scanner` is kept for provenance/display. Keyed by (source, ecosystem, advisory).
+    identities: { source: string; ecosystem: string; scanner: string; advisoryId: string }[]
 }
 
 const SEVERITY_RANK: Record<string, number> = { critical: 5, high: 4, moderate: 3, low: 2, info: 1 }
-// npm audit before OSV before anything else, so the source tags read consistently across rows.
-const SCANNER_ORDER: Record<string, number> = { 'npm-audit': 0, osv: 1 }
+// npm audit before OSV before gemnasium before anything else, so the source tags read consistently across rows.
+const SCANNER_ORDER: Record<string, number> = { 'npm-audit': 0, osv: 1, gemnasium: 2 }
 
 // Two findings are the same vulnerability when they sit on the same package@version and describe the
 // same advisory. npm audit and OSV use different ids for the same CVE, but share the advisory title, so
@@ -99,7 +104,7 @@ function mergeBucket(key: string, bucket: CurrentFindingRow[]): MergedFinding {
     let fixRow: CurrentFindingRow | null = null
     const scannerSet = new Set<string>()
     const identityKeys = new Set<string>()
-    const identities: { scanner: string; advisoryId: string }[] = []
+    const identities: { source: string; ecosystem: string; scanner: string; advisoryId: string }[] = []
     const depPathKeys = new Set<string>()
     const depPaths: string[][] = []
     for (const r of bucket) {
@@ -114,10 +119,10 @@ function mergeBucket(key: string, bucket: CurrentFindingRow[]): MergedFinding {
             lastSeenAt = lastSeenAt === null ? r.lastSeenAt : Math.max(lastSeenAt, r.lastSeenAt)
         }
         scannerSet.add(r.scanner)
-        const identityKey = r.scanner + '\x00' + r.advisoryId
+        const identityKey = r.source + '\x00' + r.ecosystem + '\x00' + r.advisoryId
         if (!identityKeys.has(identityKey)) {
             identityKeys.add(identityKey)
-            identities.push({ scanner: r.scanner, advisoryId: r.advisoryId })
+            identities.push({ source: r.source, ecosystem: r.ecosystem, scanner: r.scanner, advisoryId: r.advisoryId })
         }
         if (!depPathKeys.has(r.depPathJson)) {
             depPathKeys.add(r.depPathJson)
@@ -135,6 +140,7 @@ function mergeBucket(key: string, bucket: CurrentFindingRow[]): MergedFinding {
     depPaths.sort(function byLength(a, b) { return a.length - b.length })
     return {
         key,
+        ecosystem: bucket[0].ecosystem,
         packageName: bucket[0].packageName,
         installedVersion: unionInstalledVersions(bucket),
         severity: severity as Severity,
@@ -158,7 +164,7 @@ function mergeBucket(key: string, bucket: CurrentFindingRow[]): MergedFinding {
 export function mergeFindings(rows: CurrentFindingRow[]): MergedFinding[] {
     const groups = new Map<string, CurrentFindingRow[]>()
     for (const row of rows) {
-        const key = row.packageName + '\x00' + advisoryKey(row)
+        const key = row.ecosystem + '\x00' + row.packageName + '\x00' + advisoryKey(row)
         const bucket = groups.get(key)
         if (bucket) bucket.push(row)
         else groups.set(key, [row])

@@ -9,7 +9,11 @@ type NotificationEventRow = typeof notificationEvents.$inferSelect
 
 export type UpsertFindingEventInput = {
     projectId: string
-    scanner: string
+    // The persisted source identity (Finding.source), NOT the scanner plugin name. It is what the
+    // dedupe identity_key hashes and what lands in the event's `scanner` column (which carries the
+    // persisted source identity for finding events — see the NotificationEvent type in @sentinello/core).
+    source: string
+    ecosystem: string
     advisoryId: string
     packageName: string
     severity: Severity
@@ -36,7 +40,8 @@ export type UpsertResult = {
 export function upsertFindingEvent(db: DrizzleDb, input: UpsertFindingEventInput): UpsertResult {
     const identityKey = findingIdentityKey({
         projectId: input.projectId,
-        scanner: input.scanner,
+        source: input.source,
+        ecosystem: input.ecosystem,
         advisoryId: input.advisoryId,
         packageName: input.packageName
     })
@@ -44,7 +49,9 @@ export function upsertFindingEvent(db: DrizzleDb, input: UpsertFindingEventInput
         identityKey,
         eventType: 'finding',
         projectId: input.projectId,
-        scanner: input.scanner,
+        // The `scanner` column carries the persisted source identity for finding events.
+        scanner: input.source,
+        ecosystem: input.ecosystem,
         advisoryId: input.advisoryId,
         packageName: input.packageName,
         severity: input.severity,
@@ -66,6 +73,7 @@ export function upsertScanFailureEvent(db: DrizzleDb, input: UpsertScanFailureEv
         eventType: 'scan_failure',
         projectId: input.projectId,
         scanner: input.scanner,
+        ecosystem: null,
         advisoryId: null,
         packageName: null,
         severity: null,
@@ -99,6 +107,7 @@ type UpsertInternalInput = {
     eventType: 'finding' | 'scan_failure'
     projectId: string
     scanner: string
+    ecosystem: string | null
     advisoryId: string | null
     packageName: string | null
     severity: Severity | null
@@ -128,6 +137,7 @@ function upsertByIdentityKey(db: DrizzleDb, input: UpsertInternalInput): UpsertR
             identityKey: input.identityKey,
             projectId: input.projectId,
             scanner: input.scanner,
+            ecosystem: input.ecosystem,
             advisoryId: input.advisoryId,
             packageName: input.packageName,
             severity: input.severity,
@@ -148,6 +158,7 @@ function rowToEvent(row: NotificationEventRow): NotificationEvent {
         identityKey: row.identityKey,
         projectId: row.projectId,
         scanner: row.scanner,
+        ecosystem: row.ecosystem,
         advisoryId: row.advisoryId,
         packageName: row.packageName,
         severity: row.severity,

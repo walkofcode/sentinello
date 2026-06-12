@@ -153,7 +153,8 @@
         "colMaxSeverity": "最高严重程度",
         "nodeAmbient": "环境默认",
         "badgeMuted": "已静默",
-        "badgeMissing": "缺失"
+        "badgeMissing": "缺失",
+        "colLanguage": "语言"
     },
     "WhatsNew": {
         "pillLabel": "新功能",
@@ -287,16 +288,19 @@
         "sources": {
             "metaTitle": "来源 · 设置",
             "title": "漏洞来源",
-            "description": "npm audit 始终运行。启用其他来源以扩大覆盖范围。",
+            "description": "Sentinello 默认扫描 JavaScript。在下方启用更多语言和来源以扩大覆盖范围。至少须保持启用一个来源。",
             "npmAuditLabel": "npm audit",
             "alwaysOn": "始终开启",
             "optional": "可选",
             "npmAuditHelp": "内置来源。对每个项目的锁文件运行 npm/pnpm/yarn audit。",
             "osvLabel": "OSV (Open Source Vulnerabilities)",
-            "osvHelp": "直接将 npm 生态系统与 OSV 数据库进行匹配。补充 npm audit 遗漏的 CVE，并标记已知的恶意软件包。",
+            "osvHelp": "将该语言的软件包与 OSV 数据库进行匹配。补充原生来源遗漏的 CVE，并标记已知的恶意软件包。",
+            "gemnasiumLabel": "GitLab gemnasium",
+            "gemnasiumHelp": "将该语言的软件包与 GitLab 的 gemnasium 公告数据库进行匹配。在原生来源和 OSV 之外补充独立整理的公告。",
+            "gemnasiumDownloadDisclosure": "启用 gemnasium 会从 gitlab.com 将 GitLab 的 gemnasium 公告数据库（数十 MB）下载到数据卷，之后约每日更新。该缓存可重建，并与您的发现分开存储。",
             "enabled": "已启用",
             "disabled": "已禁用",
-            "downloadDisclosure": "启用 OSV 会将 OSV 的 npm 导出（约 196 MB）下载到数据卷，之后约每日更新。缓存可重建，并与你的发现分开存储。",
+            "downloadDisclosure": "启用 OSV 会将该语言的 OSV 公告导出下载到数据卷，之后约每日更新。缓存可重建，并与你的发现分开存储。",
             "freeSpace": "数据卷剩余约 {gib} GB。",
             "syncStatus": "同步状态",
             "seeded": "已是最新",
@@ -305,7 +309,8 @@
             "lastRefreshed": "上次刷新",
             "lastError": "上次错误",
             "refreshNow": "立即刷新",
-            "refreshQueued": "已请求刷新 — 在后台运行。"
+            "refreshQueued": "已请求刷新 — 在后台运行。",
+            "defaultOn": "默认"
         },
         "defaults": {
             "metaTitle": "默认设置 · 设置",
@@ -402,6 +407,14 @@
             "selectionError": "请至少选择一个根目录或项目，或切换为<all>全部</all>。",
             "rootsHeading": "根目录",
             "projectsHeading": "项目"
+        },
+        "sourceScope": {
+            "label": "来源",
+            "all": "所有来源",
+            "allHelp": "对每个来源和语言都进行通知。",
+            "selected": "选定来源",
+            "selectedHelp": "仅对你在下方选择的来源/语言单元格进行通知。",
+            "selectionError": "请至少选择一个单元格，或选择“所有来源”。"
         }
     },
     "Findings": {
@@ -449,7 +462,9 @@
         "projectsAffected": "{count, plural, one {# 个项目受影响} other {# 个项目受影响}}",
         "detectedLabel": "检测到：",
         "rangeLabel": "范围：",
-        "malicious": "恶意"
+        "malicious": "恶意",
+        "filterByEcosystem": "按语言筛选",
+        "ecosystemAll": "所有语言"
     },
     "Triage": {
         "alias": {
@@ -534,11 +549,11 @@
         "title": "Sentinello",
         "intro": "集中监控你所有项目组合中的依赖漏洞——自托管，运行在你自己的基础设施上。",
         "notDoTitle": "Sentinello 不会做什么",
-        "notDoBody": "Sentinello 完全运行在你自己的基础设施上。它不会读取你的源代码——它仅通过定位 <code>package.json</code> 文件来发现项目——不会向任何地方上传任何内容，不会有遥测数据离开你的机器，没有中心账户，也不涉及任何 LLM 或 AI。默认情况下它就是纯粹的 <code>npm audit</code>；唯一的新增项是可选的 OSV 来源（设置 → 来源，默认关闭），即便启用，也仅通过 HTTPS 获取公开的通告数据。",
+        "notDoBody": "Sentinello 完全运行在你自己的基础设施上。它不会读取你的源代码——它通过定位项目的依赖清单文件和锁文件（<code>package.json</code> 以及 Python、Go 和 Rust 的锁文件）来发现项目——不会向任何地方上传任何内容，不会有遥测数据离开你的机器，没有中心账户，也不涉及任何 LLM 或 AI。对于 JavaScript，默认就是普通的 <code>npm audit</code>；可选的 OSV 和 gemnasium 来源（设置 → 来源，默认关闭）仅通过 HTTPS 获取公开的公告数据。",
         "whoTitle": "由谁构建",
         "whoBody": "由 <company>Walk of Code LLC</company> 和 Sebastian Arena（<linkedin>LinkedIn</linkedin>）构建。",
         "advisoryTitle": "通告数据来自哪里",
-        "advisoryBody": "漏洞数据源自 GitHub Advisory Database，通过 <code>npm audit</code> 经由 npm registry 的通告端点获取。目前覆盖 npm 生态系统；今后可能会添加更多来源。 你还可以启用 OSV（设置 → 来源，默认关闭），将 npm 包额外与公开的 OSV 数据库进行比对，从而发现 npm audit 遗漏的公告并标记已知的恶意软件包。",
+        "advisoryBody": "漏洞数据源自 GitHub Advisory Database，对于 JavaScript 通过 <code>npm audit</code> 经由 npm registry 的通告端点获取。你还可以按语言额外启用 OSV 和 GitLab 的 gemnasium（设置 → 来源），以将 JavaScript、Python、Go 和 Rust 软件包与这些公开的公告数据库进行匹配——捕获 npm audit 遗漏的公告并标记已知的恶意软件包。非 JavaScript 语言会从锁文件离线解析，并与本地缓存的公告进行匹配；含糊不清的清单文件会被报告为部分或无法审计，而不会被视为干净。",
         "sendsTitle": "Sentinello 会发送出去什么",
         "tableDestination": "目标",
         "tablePurpose": "用途",
@@ -551,8 +566,8 @@
                 "disable": "核心功能——无法禁用"
             },
             "osv": {
-                "purpose": "下载面向 npm 的公开 OSV 公告数据库",
-                "when": "每日以及手动刷新时 — 仅在启用 OSV 时",
+                "purpose": "为每个已启用的语言下载公开的 OSV 公告导出",
+                "when": "每日以及手动刷新时 — 仅在某语言启用 OSV 时",
                 "disable": "设置 → 来源（默认关闭），或 SENTINELLO_OSV_FEED_URL=off"
             },
             "github": {
@@ -564,6 +579,11 @@
                 "purpose": "拉取 Sentinello 镜像",
                 "when": "安装或升级时",
                 "disable": "部署步骤——运行时不适用"
+            },
+            "gemnasium": {
+                "purpose": "为每个已启用的语言下载 GitLab 的 gemnasium 公告归档",
+                "when": "每日以及手动刷新时 — 仅在某语言启用 gemnasium 时",
+                "disable": "设置 → 来源（默认关闭），或 SENTINELLO_GEMNASIUM_FEED_URL=off"
             }
         },
         "dataLivesTitle": "你的数据存放在哪里",
@@ -583,7 +603,9 @@
             "updateFeedUrl": "为更新横幅检查的订阅源；设为 off 可禁用更新检查。",
             "webhookStrict": "启用后，拒绝指向私有或回环地址的 webhook 目标，并要求使用 https。链路本地地址和云元数据地址始终被拒绝。",
             "osvFeedUrl": "OSV 通告导出的基础 URL，仅在启用 OSV 来源时使用；设为 off 可禁用所有 OSV 网络访问。",
-            "osvDbPath": "可重建的 OSV 通告缓存的位置；默认位于主数据库旁边。"
+            "osvDbPath": "可重建的 OSV 公告缓存的位置；随每个已启用的语言增长，默认位于主数据库旁边。",
+            "gemnasiumFeedUrl": "GitLab gemnasium 公告归档的 URL，仅在启用 gemnasium 来源时使用；设为 off 可禁用所有 gemnasium 网络访问。",
+            "gemnasiumDbPath": "可重建的 gemnasium 公告缓存的位置；默认位于主数据库旁边。"
         },
         "builtWithTitle": "技术栈",
         "reportingTitle": "报告 Sentinello 中的漏洞",
@@ -623,7 +645,11 @@
                 "resolvedCount": "解决 {count} 个",
                 "discovered": "发现",
                 "resolved": "已解决"
-            }
+            },
+            "coverageTitle": "覆盖缺口",
+            "coverageBody": "本项目中的某些语言无法在离线状态下完整审计，因此对它们的发现可能不完整。",
+            "coveragePartial": "部分",
+            "coverageUnauditable": "无法审计"
         },
         "library": {
             "eyebrow": "依赖库",

@@ -12,7 +12,7 @@ import {
     setProjectAlias,
     setProjectTags
 } from '@sentinello/db'
-import type { Mute, MuteScope } from '@sentinello/core'
+import { DEFAULT_ECOSYSTEM, type Mute, type MuteScope } from '@sentinello/core'
 import { getDb } from '@/lib/db'
 
 // Mirrors apps/web/lib/actions/*. We do NOT call those server-action functions directly — they
@@ -84,27 +84,36 @@ export function registerActionTools(server: McpServer): void {
         'mute_finding',
         {
             title: 'Mute a finding (or all findings on a project)',
-            description: 'Creates a mute. Use scope=project to mute every finding for a project; scope=finding requires scanner, advisoryId, and packageName.',
+            description: "Creates a mute. Use scope=project to mute every finding for a project; scope=finding requires source, advisoryId, and packageName. Pass ecosystem to target the correct (source, ecosystem) cell — a mute on one ecosystem never silences a same-named package in another. Omitting ecosystem defaults to 'npm'.",
             inputSchema: {
                 scope: z.enum(['project', 'finding']),
                 projectId: z.string().min(1).nullable().optional(),
+                // The finding's persisted source identity (finding.source: 'npm-audit' | 'osv' | 'gemnasium').
+                source: z.string().min(1).nullable().optional(),
+                // Back-compat alias for `source` — older callers passed `scanner`. Prefer `source`.
                 scanner: z.string().min(1).nullable().optional(),
+                ecosystem: z.string().min(1).nullable().optional().describe("EcosystemId of the finding ('npm', 'PyPI', 'Go', 'crates.io'); defaults to 'npm'"),
                 advisoryId: z.string().min(1).nullable().optional(),
                 packageName: z.string().min(1).nullable().optional(),
                 reason: z.string().min(1),
                 expiresAt: z.number().int().nullable().optional().describe('Unix ms timestamp when the mute expires; null = permanent')
             }
         },
-        async function handler({ scope, projectId, scanner, advisoryId, packageName, reason, expiresAt }) {
-            if (scope === 'finding' && (!scanner || !advisoryId || !packageName)) {
-                return { isError: true, content: [{ type: 'text', text: 'scope=finding requires scanner, advisoryId, and packageName' }] }
+        async function handler({ scope, projectId, source, scanner, ecosystem, advisoryId, packageName, reason, expiresAt }) {
+            // `source` is the durable finding identity persisted into mutes.scanner; accept the legacy
+            // `scanner` param name as an alias so older MCP clients keep working.
+            const sourceIdentity = source || scanner || null
+            if (scope === 'finding' && (!sourceIdentity || !advisoryId || !packageName)) {
+                return { isError: true, content: [{ type: 'text', text: 'scope=finding requires source, advisoryId, and packageName' }] }
             }
             const db = getDb()
             const mute: Mute = {
                 id: ulid(),
                 scope: scope as MuteScope,
                 projectId: projectId || null,
-                scanner: scope === 'project' ? null : scanner || null,
+                scanner: scope === 'project' ? null : sourceIdentity,
+                // Target the requested (source, ecosystem) cell; default to npm when the caller omits it.
+                ecosystem: scope === 'project' ? null : (ecosystem || DEFAULT_ECOSYSTEM),
                 advisoryId: scope === 'project' ? null : advisoryId || null,
                 packageName: scope === 'project' ? null : packageName || null,
                 reason: reason.trim(),

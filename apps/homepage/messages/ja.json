@@ -1,9 +1,9 @@
 {
     "Meta": {
-        "title": "Sentinello — Node.js ポートフォリオ全体のための早期警告型CVE監視",
-        "description": "セルフホスト型・オープンソースの、Node.js プロジェクト向け依存関係脆弱性監視。リポジトリを指定するだけで、すべてのプロジェクトにまたがる既知のCVEを1つのトリアージキューにまとめます。",
-        "tagline": "Node.js ポートフォリオ全体のためのCVE早期警告",
-        "tabTitle": "Sentinello — Node.js の CVE 監視"
+        "title": "Sentinello — ポートフォリオ全体のための早期警告型CVE監視",
+        "description": "セルフホスト型・オープンソースの、複数言語にまたがる依存関係脆弱性監視。標準で JavaScript、オプションで Python・Go・Rust に対応。リポジトリを指定するだけで、すべてのプロジェクトにまたがる既知のCVEを1つのトリアージキューにまとめます。",
+        "tagline": "ポートフォリオ全体のためのCVE早期警告",
+        "tabTitle": "Sentinello — 多言語対応の CVE 監視"
     },
     "Nav": {
         "how": "仕組み",
@@ -38,7 +38,7 @@
     },
     "Hero": {
         "title": "見守るのをやめた依存関係のための、早期警告システム。",
-        "subtitle": "AIの時代、あなたは維持できる以上の Node.js プロジェクトをリリースしています。Sentinelloはそのすべてを見守り、npm 依存関係に潜む既知のCVEを浮かび上がらせます。忘れられたプロジェクトがインシデントになる前に。",
+        "subtitle": "AIの時代、あなたは維持できる以上のプロジェクトをリリースしています。Sentinelloはそのすべてを見守り、依存関係に潜む既知のCVEを浮かび上がらせます — 標準で JavaScript、Python・Go・Rust も切り替えひとつで。忘れられたプロジェクトがインシデントになる前に。",
         "commandCaption": "コマンド1つで実行:",
         "ctaPrimary": "クイックスタートを読む",
         "ctaSecondary": "GitHubでスターを付ける",
@@ -54,7 +54,7 @@
     },
     "Comparison": {
         "title": "比較",
-        "subtitle": "Sentinello は重い Dependency-Track でも安価な Snyk でもありません。別のニッチを担います。誰もパイプラインに組み込まなかった Node プロジェクトのロングテールです。",
+        "subtitle": "Sentinello は重い Dependency-Track でも安価な Snyk でもありません。別のニッチを担います。誰もパイプラインに組み込まなかったプロジェクトのロングテールです。",
         "axis": "",
         "col_sentinello": "Sentinello",
         "col_depTrack": "Dependency-Track",
@@ -70,7 +70,7 @@
         "row_polyglot": "多言語（Python、Go、…）",
         "row_enterprisePolicy": "エンタープライズポリシー / VEX",
         "planned": "予定",
-        "footnote": "Dependency-Track は、誰かが SBOM パイプラインで計装したプロジェクトしか見えません。Sentinello は忘れられたものを見つけます。エンタープライズポリシーでは相手が優れており、多言語カバレッジは Sentinello のロードマップにあります — 成熟したパイプラインで既に使っているなら、そのまま使ってください。Sentinello は、誰も見ていない残りのポートフォリオのためのものです。"
+        "footnote": "Dependency-Track は、誰かが SBOM パイプラインで計装したプロジェクトしか見えません。Sentinello は忘れられたものを見つけます。エンタープライズポリシーでは相手が優れています — 成熟したパイプラインで既に使っているなら、そのまま使ってください。Sentinello は、誰も見ていない残りのポートフォリオのためのものです。"
     },
     "How": {
         "title": "仕組み",
@@ -89,6 +89,8 @@
         "queueBody": "十数個のチェックアウトに散らばった npm audit ではなく、ポートフォリオ全体のCVEを1か所で確認・トリアージできます。",
         "browseTitle": "プロジェクト別・ライブラリ別に見る",
         "browseBody": "任意のリポジトリを開いて、検出結果、修正バージョン、履歴を掘り下げる — あるいは脆弱なパッケージに切り替えて、影響を受けるすべてのプロジェクトを確認し、一度にすべてをミュートできます。",
+        "polyglotTitle": "多言語スキャン",
+        "polyglotBody": "標準で JavaScript をスキャンし、言語ごとの切り替えで Python・Go・Rust を追加できます — 各プロジェクトのロックファイルをオフラインで解析し、OSV と GitLab gemnasium のアドバイザリと照合します。",
         "exportTitle": "アドバイザリのエクスポート",
         "exportBody": "プロジェクトまたはライブラリの検出結果を Markdown でエクスポート。チームや LLM 向けにカスタマイズ可能な修復プロンプト付き。",
         "scanningTitle": "継続的なスキャン",
@@ -121,12 +123,10 @@
     },
     "Roadmap": {
         "title": "ロードマップ",
-        "subtitle": "Sentinello は今、あなたの Node.js 依存関係を見守っています。これからの方向性と、あなたがリクエストできることを紹介します。",
+        "subtitle": "Sentinello は今、複数の言語にまたがってあなたの依存関係を見守っています。これからの方向性と、あなたがリクエストできることを紹介します。",
         "planned": "予定",
         "reachabilityTitle": "よりスマートな優先順位付け",
         "reachabilityBody": "悪用可能性と脆弱なコードが実際に到達可能かで検出結果をランク付けし、重要なものから対応します。",
-        "polyglotTitle": "より多くのエコシステム",
-        "polyglotBody": "同じファイルシステムネイティブの検出で、スキャンを Node を超えて Python、Go、Rust に拡張します。",
         "integrationsTitle": "より多くの連携",
         "integrationsBody": "通知チャンネルを増やし、チームがすでに使っているツールと Sentinello をつなぐ方法を広げます。",
         "sastTitle": "静的解析（SAST）",

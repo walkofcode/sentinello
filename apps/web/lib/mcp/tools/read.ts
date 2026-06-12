@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import {
     getDashboardSummary,
     getProjectById,
+    getProjectEcosystemCoverage,
     getRootById,
     listCurrentFindingsForProject,
     listLibraries,
@@ -92,17 +93,21 @@ export function registerReadTools(server: McpServer): void {
         'get_project',
         {
             title: 'Get project',
-            description: 'Fetches a single project by id.',
+            description: 'Fetches a single project by id, including its detected ecosystems and per-ecosystem resolver coverage (ok / partial / unauditable with a reason code).',
             inputSchema: { id: z.string().min(1) }
         },
         async function handler({ id }) {
-            const row = getProjectById(getDb(), id)
+            const db = getDb()
+            const row = getProjectById(db, id)
             if (!row) {
                 return { isError: true, content: [{ type: 'text', text: 'Project not found: ' + id }] }
             }
+            // Surface per-ecosystem coverage so an agent sees that e.g. a Python scan was partial rather
+            // than reading the absence of findings as a clean bill of health.
+            const out = { ...row, coverage: getProjectEcosystemCoverage(db, id) }
             return {
-                content: [{ type: 'text', text: JSON.stringify(row, null, 2) }],
-                structuredContent: row
+                content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+                structuredContent: out
             }
         }
     )
@@ -111,15 +116,17 @@ export function registerReadTools(server: McpServer): void {
         'list_findings',
         {
             title: 'List current findings for a project',
-            description: 'Returns the active (unresolved) vulnerability findings for one project, ordered by severity. Optionally filter by minimum severity.',
+            description: 'Returns the active (unresolved) vulnerability findings for one project, ordered by severity. Optionally filter by minimum severity, ecosystem, or source.',
             inputSchema: {
                 projectId: z.string().min(1),
                 minSeverity: z.enum(['critical', 'high', 'moderate', 'low', 'info']).optional(),
                 depType: depTypeSchema,
+                ecosystem: z.string().min(1).optional().describe("Filter to one ecosystem id ('npm', 'PyPI', 'Go', 'crates.io')"),
+                source: z.string().min(1).optional().describe("Filter to one source id ('npm-audit', 'osv', 'gemnasium')"),
                 includeMuted: z.boolean().optional().describe('Include muted findings (default false)')
             }
         },
-        async function handler({ projectId, minSeverity, depType, includeMuted }) {
+        async function handler({ projectId, minSeverity, depType, ecosystem, source, includeMuted }) {
             const all = listCurrentFindingsForProject(getDb(), projectId, Date.now(), depType || 'all')
             // Lower rank = more severe. Keep findings at or above the requested floor. Note: must NOT
             // use `&&`/`||` here — `critical` ranks 0, and a falsy-zero would silently drop criticals
@@ -128,6 +135,8 @@ export function registerReadTools(server: McpServer): void {
             if (minSeverity) cutoff = SEVERITY_RANK[minSeverity]
             const filtered = all.filter(function keep(f) {
                 if (!includeMuted && f.isMuted) return false
+                if (ecosystem && f.ecosystem !== ecosystem) return false
+                if (source && f.source !== source) return false
                 return severityRank(f.severity) <= cutoff
             })
             return {
@@ -160,11 +169,15 @@ export function registerReadTools(server: McpServer): void {
         'list_libraries',
         {
             title: 'List libraries (packages) with their vulnerability footprint',
-            description: 'Returns a summary of every package observed across scanned projects with its severity counts.',
-            inputSchema: { depType: depTypeSchema }
+            description: 'Returns a summary of every (ecosystem, package) observed across scanned projects with its severity counts. Each row carries its ecosystem so same-named packages in different ecosystems stay distinct. Optionally filter by ecosystem.',
+            inputSchema: {
+                depType: depTypeSchema,
+                ecosystem: z.string().min(1).optional().describe("Filter to one ecosystem id ('npm', 'PyPI', 'Go', 'crates.io')")
+            }
         },
-        async function handler({ depType }) {
-            const rows = listLibraries(getDb(), Date.now(), depType || 'all')
+        async function handler({ depType, ecosystem }) {
+            const all = listLibraries(getDb(), Date.now(), depType || 'all')
+            const rows = ecosystem ? all.filter(function keep(l) { return l.ecosystem === ecosystem }) : all
             return {
                 content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
                 structuredContent: { libraries: rows }

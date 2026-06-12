@@ -12,6 +12,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Dropdown } from '@/components/ui/dropdown'
+import { EcosystemBadge } from '@/components/findings/ecosystem-badge'
+import { libraryHref } from '@/lib/library-href'
 import { rememberLibrariesUrl } from '@/lib/home-url-memory'
 
 type SortKey = 'severity' | 'name' | 'projects' | 'advisories'
@@ -153,7 +155,7 @@ export function LibrariesFilterView({ libraries, depType, defaultDepType }: Prop
                     <div className="space-y-2 md:hidden">
                         {filtered.map(function card(lib) {
                             const maxSev = topSeverity(lib.severities)
-                            const href = '/libraries/' + encodeURIComponent(lib.packageName)
+                            const href = libraryHref(lib.ecosystem, lib.packageName)
                             function onCardClick(e: MouseEvent<HTMLDivElement>) {
                                 const target = e.target as HTMLElement
                                 if (target.closest('a, button, input, select, textarea, label')) return
@@ -161,12 +163,13 @@ export function LibrariesFilterView({ libraries, depType, defaultDepType }: Prop
                                 router.push(href)
                             }
                             return (
-                                <Card key={lib.packageName} onClick={onCardClick} className="cursor-pointer p-4">
+                                <Card key={lib.ecosystem + ':' + lib.packageName} onClick={onCardClick} className="cursor-pointer p-4">
                                     <div className="flex items-center gap-2">
                                         {maxSev ? <SeverityPill variant={maxSev} size="sm" /> : null}
                                         <Link href={href} className="min-w-0 flex-1 truncate font-medium text-sm hover:opacity-80">
                                             {lib.packageName}
                                         </Link>
+                                        <EcosystemBadge ecosystem={lib.ecosystem} />
                                     </div>
                                     <dl className="mt-3 grid grid-cols-[8.5rem_1fr] gap-x-3 gap-y-1.5 text-xs">
                                         <dt className="uppercase tracking-wide text-muted-foreground">{t('colAdvisories')}</dt>
@@ -183,6 +186,7 @@ export function LibrariesFilterView({ libraries, depType, defaultDepType }: Prop
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>{t('colLibrary')}</TableHead>
+                                    <TableHead>{t('colLanguage')}</TableHead>
                                     <TableHead>{t('colAdvisories')}</TableHead>
                                     <TableHead>{t('colAffectedProjects')}</TableHead>
                                     <TableHead>{t('colMaxSeverity')}</TableHead>
@@ -191,7 +195,7 @@ export function LibrariesFilterView({ libraries, depType, defaultDepType }: Prop
                             <TableBody>
                                 {filtered.map(function row(lib) {
                                     const maxSev = topSeverity(lib.severities)
-                                    const href = '/libraries/' + encodeURIComponent(lib.packageName)
+                                    const href = libraryHref(lib.ecosystem, lib.packageName)
                                     function onRowClick(e: MouseEvent<HTMLTableRowElement>) {
                                         const target = e.target as HTMLElement
                                         if (target.closest('a, button, input, select, textarea, label')) return
@@ -199,12 +203,13 @@ export function LibrariesFilterView({ libraries, depType, defaultDepType }: Prop
                                         router.push(href)
                                     }
                                     return (
-                                        <TableRow key={lib.packageName} onClick={onRowClick} className="cursor-pointer">
+                                        <TableRow key={lib.ecosystem + ':' + lib.packageName} onClick={onRowClick} className="cursor-pointer">
                                             <TableCell className="font-medium">
                                                 <Link href={href} className="hover:opacity-80">
                                                     {lib.packageName}
                                                 </Link>
                                             </TableCell>
+                                            <TableCell><EcosystemBadge ecosystem={lib.ecosystem} /></TableCell>
                                             <TableCell>{lib.distinctAdvisories}</TableCell>
                                             <TableCell>{lib.distinctProjects}</TableCell>
                                             <TableCell>

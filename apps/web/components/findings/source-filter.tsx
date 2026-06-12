@@ -10,11 +10,13 @@ import { SOURCE_PARAM, parseSourceParam } from './source-order'
 function sourceVariant(scanner: string): BadgeProps['variant'] {
     if (scanner === 'osv') return 'osv'
     if (scanner === 'npm-audit') return 'npm'
+    if (scanner === 'gemnasium') return 'gemnasium'
     return 'muted'
 }
 function sourceLabel(scanner: string): string {
     if (scanner === 'osv') return 'OSV'
     if (scanner === 'npm-audit') return 'npm'
+    if (scanner === 'gemnasium') return 'gemnasium'
     return scanner
 }
 

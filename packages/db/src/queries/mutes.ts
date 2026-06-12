@@ -7,7 +7,10 @@ type MuteRow = typeof mutes.$inferSelect
 
 export type MuteMatchInput = {
     projectId: string
-    scanner: string
+    // The finding's persisted source identity (finding.source), NOT the plugin/provenance scanner name.
+    // mutes.scanner is the back-compat column that holds the source identity, so this is matched against it.
+    source: string
+    ecosystem: string
     advisoryId: string
     packageName: string
     at: number
@@ -28,10 +31,11 @@ export function listExpiredMutes(db: DrizzleDb, at: number): Mute[] {
 }
 
 // Returns true if a finding-identity is muted at time `at`.
-// Project-scope: matches projectId only (applies across all scanners).
-// Finding-scope: matches the full (projectId, scanner, advisoryId, packageName) tuple.
-// Global finding mute (scope=finding, projectId IS NULL) matches (scanner, advisoryId, packageName)
-// across any project.
+// Project-scope: matches projectId only (applies across all sources).
+// Finding-scope: matches the full (projectId, source, ecosystem, advisoryId, packageName) tuple, where the
+// source identity lives in the back-compat mutes.scanner column.
+// Global finding mute (scope=finding, projectId IS NULL) matches (source, ecosystem, advisoryId,
+// packageName) across any project.
 export function isMuted(db: DrizzleDb, input: MuteMatchInput): boolean {
     const candidates = db
         .select()
@@ -44,10 +48,16 @@ export function isMuted(db: DrizzleDb, input: MuteMatchInput): boolean {
         }
         // scope === 'finding'
         const projectMatches = row.projectId === null || row.projectId === input.projectId
-        const scannerMatches = row.scanner === input.scanner
+        // mutes.scanner holds the persisted source identity (back-compat column name); match it against
+        // the finding's source, never the plugin/provenance scanner name.
+        const sourceMatches = row.scanner === input.source
+        // A NULL ecosystem on a finding-scope mute is a legacy (pre-polyglot) row that matches any
+        // ecosystem; once backfilled to 'npm' it matches only its own ecosystem, so an npm mute can
+        // never silence a same-named package in another ecosystem.
+        const ecosystemMatches = row.ecosystem === null || row.ecosystem === input.ecosystem
         const advisoryMatches = row.advisoryId === input.advisoryId
         const packageMatches = row.packageName === input.packageName
-        return projectMatches && scannerMatches && advisoryMatches && packageMatches
+        return projectMatches && sourceMatches && ecosystemMatches && advisoryMatches && packageMatches
     })
 }
 
@@ -58,6 +68,7 @@ export function insertMute(db: DrizzleDb, mute: Mute): void {
             scope: mute.scope,
             projectId: mute.projectId,
             scanner: mute.scanner,
+            ecosystem: mute.ecosystem,
             advisoryId: mute.advisoryId,
             packageName: mute.packageName,
             reason: mute.reason,
@@ -78,6 +89,7 @@ function rowToMute(row: MuteRow): Mute {
         scope: row.scope,
         projectId: row.projectId,
         scanner: row.scanner,
+        ecosystem: row.ecosystem,
         advisoryId: row.advisoryId,
         packageName: row.packageName,
         reason: row.reason,

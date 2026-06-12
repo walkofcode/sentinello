@@ -1,11 +1,12 @@
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import lockfile from 'proper-lockfile'
-import { backfillFindingsLifecycle, getConfigValue, getLastScanFinishedAt, listRoots, openDb, resetOrphanedRunningRequests, resolveDbPath, resolveLockPath, runMigrations } from '@sentinello/db'
+import { backfillEcosystemIdentity, backfillFindingsLifecycle, getConfigValue, getLastScanFinishedAt, listRoots, openDb, resetOrphanedRunningRequests, resolveDbPath, resolveLockPath, runMigrations } from '@sentinello/db'
 import { CONFIG_KEYS, DEFAULT_SCHEDULE, discoverDockerRoots, loadConfigFile, pruneDockerRoots, seedFromConfig, type IntervalHours } from './config-loader'
 import { startScheduler, sweepActiveProjects } from './scheduler'
 import { startScanRequestPoller } from './scan-request-poller'
 import { createOsvController, type OsvController } from './osv-runtime'
+import { createGemnasiumController, type GemnasiumController } from './gemnasium-runtime'
 import { startLockfileWatcher, type WatcherHandle } from './watcher'
 import { startMuteExpirySweep, type MuteExpiryHandle } from './mute-expiry'
 import { createWorkerRuntime, waitForInFlight, type WorkerRuntime } from './runtime'
@@ -51,6 +52,13 @@ async function main(): Promise<void> {
     if (backfilled > 0) {
         console.log('[worker] backfilled lifecycle timestamps on ' + backfilled + ' finding row' + (backfilled === 1 ? '' : 's'))
     }
+    // One-shot polyglot (Phase 2) backfill: copy scanner→source, seed 'npm' ecosystem on the identity/audit
+    // tables, re-key finding notification events to the new (source, ecosystem) identity hash, and migrate
+    // the legacy flat source-config keys to the per-cell scheme. Idempotent — safe on every boot.
+    const ecoBackfilled = backfillEcosystemIdentity(db)
+    if (ecoBackfilled > 0) {
+        console.log('[worker] polyglot backfill updated ' + ecoBackfilled + ' row' + (ecoBackfilled === 1 ? '' : 's') + ' (source/identity)')
+    }
     const config = loadConfigFile(process.cwd())
     if (config) {
         seedFromConfig(db, config, Date.now())
@@ -76,8 +84,11 @@ async function main(): Promise<void> {
     // toggles via the 'reload-sources' worker signal. The scheduler + poller read its getScanner() per
     // batch so selectScanners() reflects the live flag without a worker restart.
     const osvController: OsvController = createOsvController(db, runtime)
-    const scheduler = startScheduler({ db, sqlite, runtime, osvController })
-    const poller = startScanRequestPoller({ db, sqlite, runtime, scheduler, osvController })
+    // gemnasium source controller, same lifecycle as OSV (off by default, opened lazily, reacts to the
+    // 'reload-sources' signal). Passed alongside osvController so selectScanners() can offer both cells.
+    const gemnasiumController: GemnasiumController = createGemnasiumController(db, runtime)
+    const scheduler = startScheduler({ db, sqlite, runtime, osvController, gemnasiumController })
+    const poller = startScanRequestPoller({ db, sqlite, runtime, scheduler, osvController, gemnasiumController })
     const muteExpiry = startMuteExpirySweep({ db, runtime })
     let watcher: WatcherHandle | null = null
     const watcherEnabled = getConfigValue<boolean>(db, CONFIG_KEYS.watcherEnabled) || false
@@ -100,6 +111,7 @@ async function main(): Promise<void> {
         scheduler,
         poller,
         osvController,
+        gemnasiumController,
         muteExpiry,
         watcher,
         sqlite,
@@ -124,7 +136,7 @@ async function main(): Promise<void> {
     if (overdue) {
         const reason = lastFinishedAt === null ? 'no prior scans' : 'last scan ' + formatAgo(elapsedMs as number) + ' ago, interval is ' + schedule.intervalHours + 'h'
         console.log('[worker] initial active sweep starting (' + reason + ')')
-        const initialSweep = sweepActiveProjects({ db, sqlite, runtime, osvController }).catch(function onInitialSweepError(err: unknown) {
+        const initialSweep = sweepActiveProjects({ db, sqlite, runtime, osvController, gemnasiumController }).catch(function onInitialSweepError(err: unknown) {
             const message = err instanceof Error && err.message || String(err)
             console.error('[worker] initial sweep failed: ' + message)
         })
@@ -165,7 +177,7 @@ function assertDataDirWritable(dbPath: string): void {
         unlinkSync(probe)
     } catch (err) {
         const detail = err instanceof Error && err.message || String(err)
-        throw new Error(dataDirNotWritableMessage(dir, detail))
+        throw new Error(dataDirNotWritableMessage(dir, detail), { cause: err })
     }
 }
 
@@ -181,6 +193,7 @@ type ShutdownDeps = {
     scheduler: { stop(): void }
     poller: { stop(): void }
     osvController: OsvController
+    gemnasiumController: GemnasiumController
     muteExpiry: MuteExpiryHandle
     watcher: WatcherHandle | null
     sqlite: { close(): void }
@@ -199,6 +212,7 @@ function makeShutdown(deps: ShutdownDeps): (signal: string) => void {
         deps.poller.stop()
         deps.muteExpiry.stop()
         deps.osvController.stop()
+        deps.gemnasiumController.stop()
         if (deps.watcher) {
             deps.watcher.stop().catch(function onWatcherStopError(err: unknown) {
                 const message = err instanceof Error && err.message || String(err)

@@ -14,6 +14,15 @@ import { cn } from '@/lib/cn'
 import { VersionChain } from './version-chain'
 import { DepPathPopover } from './dep-path-popover'
 import { SourceTags } from './source-tags'
+import { EcosystemBadge } from './ecosystem-badge'
+
+// The merged finding's ecosystem. A merged row is keyed by (ecosystem, package, advisory) (issue-019),
+// so the row carries one ecosystem directly. Shown as a badge only for non-npm packages so npm-only
+// projects stay uncluttered while a same-named package from another ecosystem is always distinguishable.
+function findingEcosystem(f: MergedFinding): string | null {
+    if (!f.ecosystem || f.ecosystem === 'npm') return null
+    return f.ecosystem
+}
 
 type Props = {
     findings: MergedFinding[]
@@ -40,6 +49,7 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                                     <span className="truncate font-medium text-sm">{f.packageName}</span>
                                     <DepPathPopover paths={f.depPaths} />
                                 </span>
+                                {findingEcosystem(f) ? <EcosystemBadge ecosystem={findingEcosystem(f) as string} /> : null}
                                 {f.isDev && !f.isProd ? <Badge variant="dev">{t('dev')}</Badge> : null}
                             </div>
                             <dl className="mt-3 grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-2 text-xs">
@@ -104,6 +114,7 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                                             <span>{f.packageName}</span>
                                             <DepPathPopover paths={f.depPaths} />
                                         </span>
+                                        {findingEcosystem(f) ? <EcosystemBadge ecosystem={findingEcosystem(f) as string} className="ml-2" /> : null}
                                         {f.isDev && !f.isProd ? (
                                             <Badge variant="dev" className="ml-2">{t('dev')}</Badge>
                                         ) : null}
@@ -154,8 +165,10 @@ function mergedTarget(f: MergedFinding, matched: Mute[], fullyMuted: boolean) {
     }
 }
 
-// A merged row is muted only when every one of its underlying (scanner, advisoryId) identities has an
-// active matching mute — a partial mute still reads as actionable so the remaining ones can be silenced.
+// A merged row is muted only when every one of its underlying (source, ecosystem, advisoryId)
+// identities has an active matching mute — a partial mute still reads as actionable so the remaining
+// ones can be silenced. mutes.scanner holds the persisted source identity (issue-016), so match it
+// against the finding's source, never the plugin scanner name.
 function matchMutes(mutes: Mute[], projectId: string, f: MergedFinding): Mute[] {
     const out: Mute[] = []
     for (const identity of f.identities) {
@@ -163,7 +176,8 @@ function matchMutes(mutes: Mute[], projectId: string, f: MergedFinding): Mute[] 
             return (
                 m.scope === 'finding' &&
                 (m.projectId === null || m.projectId === projectId) &&
-                m.scanner === identity.scanner &&
+                m.scanner === identity.source &&
+                (m.ecosystem === null || m.ecosystem === identity.ecosystem) &&
                 m.advisoryId === identity.advisoryId &&
                 m.packageName === f.packageName
             )

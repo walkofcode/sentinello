@@ -1,9 +1,9 @@
 {
     "Meta": {
-        "title": "Sentinello — monitoraggio CVE con allerta precoce per tutto il tuo portafoglio Node.js",
-        "description": "Monitoraggio delle vulnerabilità delle dipendenze per progetti Node.js, self-hosted e open source. Puntalo ai tuoi repository e ottieni un'unica coda di triage per i CVE noti di ogni progetto.",
-        "tagline": "Allerta precoce dei CVE per tutto il tuo portafoglio Node.js",
-        "tabTitle": "Sentinello — monitoraggio CVE per Node.js"
+        "title": "Sentinello — monitoraggio CVE con allerta precoce per tutto il tuo portafoglio",
+        "description": "Monitoraggio delle vulnerabilità delle dipendenze su più linguaggi, self-hosted e open source — JavaScript di default, con Python, Go e Rust opzionali. Puntalo ai tuoi repository e ottieni un'unica coda di triage per i CVE noti di ogni progetto.",
+        "tagline": "Allerta precoce dei CVE per tutto il tuo portafoglio",
+        "tabTitle": "Sentinello — monitoraggio CVE multilinguaggio"
     },
     "Nav": {
         "how": "Come funziona",
@@ -38,7 +38,7 @@
     },
     "Hero": {
         "title": "Un sistema di allerta precoce per le dipendenze che hai smesso di sorvegliare.",
-        "subtitle": "Nell'era dell'IA pubblichi più progetti Node.js di quanti tu possa mantenerne. Sentinello sorveglia ognuno e rivela i CVE noti nelle loro dipendenze npm — così un progetto dimenticato non diventa mai un incidente.",
+        "subtitle": "Nell'era dell'IA pubblichi più progetti di quanti tu possa mantenerne. Sentinello sorveglia ognuno e rivela i CVE noti nelle loro dipendenze — JavaScript di default, con Python, Go e Rust a un solo interruttore di distanza — così un progetto dimenticato non diventa mai un incidente.",
         "commandCaption": "Avvialo con un solo comando:",
         "ctaPrimary": "Leggi la guida rapida",
         "ctaSecondary": "Metti una stella su GitHub",
@@ -54,7 +54,7 @@
     },
     "Comparison": {
         "title": "Come si confronta",
-        "subtitle": "Sentinello non è un Dependency-Track più pesante né uno Snyk più economico. Occupa un’altra nicchia: la coda lunga di progetti Node che nessuno ha collegato a una pipeline.",
+        "subtitle": "Sentinello non è un Dependency-Track più pesante né uno Snyk più economico. Occupa un’altra nicchia: la coda lunga di progetti che nessuno ha collegato a una pipeline.",
         "axis": "",
         "col_sentinello": "Sentinello",
         "col_depTrack": "Dependency-Track",
@@ -70,7 +70,7 @@
         "row_polyglot": "Poliglotta (Python, Go, …)",
         "row_enterprisePolicy": "Policy aziendale / VEX",
         "planned": "Pianificato",
-        "footnote": "Dependency-Track vede solo i progetti che qualcuno ha strumentato con una pipeline SBOM. Sentinello trova quelli che hai dimenticato. Sono più forti sulla policy aziendale, e la copertura poliglotta è nella roadmap di Sentinello — se li usi già su una pipeline matura, tienili. Sentinello è per il resto del tuo portafoglio che nessuno sta osservando."
+        "footnote": "Dependency-Track vede solo i progetti che qualcuno ha strumentato con una pipeline SBOM. Sentinello trova quelli che hai dimenticato. Sono più forti sulla policy aziendale — se li usi già su una pipeline matura, tienili. Sentinello è per il resto del tuo portafoglio che nessuno sta osservando."
     },
     "How": {
         "title": "Come funziona",
@@ -89,6 +89,8 @@
         "queueBody": "Vedi e fai il triage dei CVE di tutto il tuo portafoglio in un solo posto — invece di npm audit sparso su una dozzina di copie.",
         "browseTitle": "Sfoglia per progetto o libreria",
         "browseBody": "Entra in qualsiasi repository per vederne i risultati, le versioni di correzione e la cronologia — oppure passa a un pacchetto vulnerabile per vedere ogni progetto interessato e silenziarlo ovunque in una volta sola.",
+        "polyglotTitle": "Scansione multilinguaggio",
+        "polyglotBody": "Scansiona JavaScript da subito e aggiunge Python, Go e Rust con un interruttore per linguaggio — analizzando il lockfile di ogni progetto offline e confrontandolo con gli advisory di OSV e gemnasium di GitLab.",
         "exportTitle": "Esportazione avvisi",
         "exportBody": "Esporta i risultati di un progetto o di una libreria come Markdown, con un prompt di remediation personalizzabile per il tuo team o un LLM.",
         "scanningTitle": "Scansione continua",
@@ -121,12 +123,10 @@
     },
     "Roadmap": {
         "title": "Roadmap",
-        "subtitle": "Oggi Sentinello sorveglia le tue dipendenze Node.js. Ecco dove sta andando — e cosa puoi richiedere.",
+        "subtitle": "Oggi Sentinello sorveglia le tue dipendenze su più linguaggi. Ecco dove sta andando — e cosa puoi richiedere.",
         "planned": "Pianificato",
         "reachabilityTitle": "Priorità più intelligente",
         "reachabilityBody": "Ordina i risultati per sfruttabilità e per l’effettiva raggiungibilità del codice vulnerabile — gestisci prima ciò che conta.",
-        "polyglotTitle": "Più ecosistemi",
-        "polyglotBody": "Estendere la scansione oltre Node a Python, Go e Rust, con la stessa scoperta nativa del filesystem.",
         "integrationsTitle": "Più integrazioni",
         "integrationsBody": "Più canali di notifica e modi per collegare Sentinello agli strumenti che il tuo team già usa.",
         "sastTitle": "Analisi statica (SAST)",

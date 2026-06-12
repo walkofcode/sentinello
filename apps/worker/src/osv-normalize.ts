@@ -1,13 +1,17 @@
 import type { OsvAdvisoryRow, OsvRange } from '@sentinello/db'
 
-// Parses a single OSV record (one *.json file from the npm export, or one /v1/vulns response) into the
-// denormalized advisory→package rows we cache. One record can affect multiple packages, each with its
-// own ranges, so this returns 0..N rows. Only npm-ecosystem affected entries are kept.
+// Parses a single OSV record (one *.json file from a per-ecosystem export, or one /v1/vulns response) into
+// the denormalized advisory→package rows we cache. One record can affect multiple packages, each with its
+// own ranges, so this returns 0..N rows. Only the affected entries for the TARGET ecosystem are kept — the
+// caller passes the canonical OSV ecosystem id (e.g. 'npm' | 'PyPI' | 'Go' | 'crates.io') it is syncing,
+// because one OSV record can list packages across several ecosystems and each ecosystem is synced
+// independently from its own export/cursor (mixing them would let one ecosystem's sync clobber another's).
 //
-// Two record families matter for npm:
-//   - GHSA-xxxx : a real advisory with SEMVER ranges (introduced/fixed events) and a severity bucket.
-//   - MAL-xxxx  : a malicious package; the whole package is bad (introduced "0", no fix). Flagged
-//                 `malicious: true` so the scanner and UI treat it as a distinct threat class.
+// Two record families matter:
+//   - GHSA/CVE : a real advisory with version ranges (introduced/fixed/last_affected events) and a severity
+//                bucket. Ranges may be SEMVER (npm/Go/Rust) or ECOSYSTEM (PyPI PEP 440); both are retained.
+//   - MAL-xxxx : a malicious package; the whole package is bad (introduced "0", no fix). Flagged
+//                `malicious: true` so the scanner and UI treat it as a distinct threat class.
 
 type OsvEvent = { introduced?: string; fixed?: string; last_affected?: string }
 type OsvRangeRaw = { type?: string; events?: OsvEvent[] }
@@ -25,9 +29,7 @@ type OsvRecord = {
     severity?: OsvSeverity[]
 }
 
-const NPM_ECOSYSTEM = 'npm'
-
-export function normalizeOsvRecord(record: unknown): OsvAdvisoryRow[] {
+export function normalizeOsvRecord(record: unknown, ecosystem: string): OsvAdvisoryRow[] {
     if (!record || typeof record !== 'object') return []
     const r = record as OsvRecord
     const advisoryId = typeof r.id === 'string' ? r.id : null
@@ -43,16 +45,18 @@ export function normalizeOsvRecord(record: unknown): OsvAdvisoryRow[] {
     const seenPackages = new Set<string>()
     for (const affected of r.affected) {
         const pkg = affected.package
-        if (!pkg || pkg.ecosystem !== NPM_ECOSYSTEM) continue
+        // Keep only the ecosystem currently being synced (OSV uses the canonical ids 'npm'/'PyPI'/'Go'/
+        // 'crates.io' verbatim in `package.ecosystem`). Other ecosystems are handled by their own sync.
+        if (!pkg || pkg.ecosystem !== ecosystem) continue
         const packageName = typeof pkg.name === 'string' ? pkg.name : null
         if (!packageName) continue
         // One advisory can list the same package twice; collapse to a single row with merged ranges.
         if (seenPackages.has(packageName)) continue
         seenPackages.add(packageName)
         // Parse the real affected set for ALL records, malware included. Malware advisories pin the
-        // compromised builds in `versions` (e.g. ["4.4.2"]) and frequently carry a usable SEMVER range
-        // too (e.g. fsevents >=1.0.0 <1.2.11) — discarding either (the old `maliciousRange()` shortcut)
-        // is what made the matcher flag clean, remediated versions as compromised.
+        // compromised builds in `versions` (e.g. ["4.4.2"]) and frequently carry a usable range too
+        // (e.g. fsevents >=1.0.0 <1.2.11) — discarding either (the old `maliciousRange()` shortcut) is
+        // what made the matcher flag clean, remediated versions as compromised.
         const ranges = extractRanges(affected.ranges)
         const versions = extractVersions(affected.versions)
         // A record we can't match on at all (no range AND no enumerated version) is only worth keeping
@@ -60,7 +64,7 @@ export function normalizeOsvRecord(record: unknown): OsvAdvisoryRow[] {
         if (ranges.length === 0 && versions.length === 0 && !malicious) continue
         rows.push({
             advisoryId,
-            ecosystem: NPM_ECOSYSTEM,
+            ecosystem,
             packageName,
             aliases,
             ranges,
@@ -88,22 +92,39 @@ function extractRanges(ranges: OsvRangeRaw[] | undefined): OsvRange[] {
     if (!Array.isArray(ranges)) return []
     const out: OsvRange[] = []
     for (const range of ranges) {
-        if (range.type !== 'SEMVER') continue
+        // Retain SEMVER (npm/Go/Rust) and ECOSYSTEM (PyPI PEP 440) ranges — the ecosystem's comparator
+        // interprets the version strings. GIT ranges carry commit hashes, not versions, and no comparator
+        // can evaluate them, so they are dropped (keeping them would only add unmatchable noise).
+        const type = typeof range.type === 'string' ? range.type : 'SEMVER'
+        if (type !== 'SEMVER' && type !== 'ECOSYSTEM') continue
         if (!Array.isArray(range.events)) continue
         let introduced: string | null = null
+        let lastAffected: string | null = null
         for (const event of range.events) {
             if (typeof event.introduced === 'string') {
+                // A new `introduced` opens a fresh interval. Flush any prior open interval that only had a
+                // last_affected bound (no fixed) before starting the next one.
+                if (introduced !== null) {
+                    out.push({ type, introduced, fixed: null, lastAffected })
+                    lastAffected = null
+                }
                 introduced = event.introduced
                 continue
             }
             if (typeof event.fixed === 'string' && introduced !== null) {
-                out.push({ introduced, fixed: event.fixed })
+                out.push({ type, introduced, fixed: event.fixed, lastAffected: null })
                 introduced = null
+                lastAffected = null
+                continue
+            }
+            if (typeof event.last_affected === 'string' && introduced !== null) {
+                // Inclusive upper bound with no clean fix — remember it for the current interval.
+                lastAffected = event.last_affected
             }
         }
-        // A trailing introduced with no fixed = open-ended vulnerable range.
+        // A trailing introduced with no fixed = open-ended (or last_affected-bounded) vulnerable range.
         if (introduced !== null) {
-            out.push({ introduced, fixed: null })
+            out.push({ type, introduced, fixed: null, lastAffected })
         }
     }
     return out

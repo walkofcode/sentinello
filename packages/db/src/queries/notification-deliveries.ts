@@ -29,8 +29,11 @@ export type DispatchablePair = {
 //  - the event is not currently muted:
 //    * scope='project' mutes match on project_id only and apply to ALL event types (including
 //      scan_failure) — muting a project silences both its findings and its scan-failure notifications.
-//    * scope='finding' mutes match the full (projectId, scanner, advisoryId, packageName) tuple and
-//      apply ONLY to finding events; scan_failure rows have null advisory_id/package_name so they
+//    * scope='finding' mutes match the full finding-identity tuple (projectId, source-identity,
+//      ecosystem, advisoryId, packageName) and apply ONLY to finding events; the source axis is the
+//      `scanner` column (which carries the persisted source identity), and ecosystem keeps an npm mute
+//      from silencing a same-named package in another ecosystem (a NULL mute.ecosystem is a legacy row
+//      that still matches any ecosystem). scan_failure rows have null advisory_id/package_name so they
 //      structurally cannot match a finding-scope mute. The global finding mute form
 //      (project_id IS NULL) matches across any project.
 //    * a mute is active when expires_at IS NULL OR expires_at > at.
@@ -78,23 +81,41 @@ export function selectDispatchablePairs(db: DrizzleDb, projectId: string, at: nu
                 ))`,
                 // Environment filter (target.env_filter ∈ {'all','prod','dev'}). Scan-failure events
                 // always bypass — they have no underlying finding row to classify. For finding events
-                // we EXISTS-join the findings table on the (project_id, scanner, advisory_id,
-                // package_name) identity tuple: a finding matches the target's env when ANY of its
-                // rows for that identity has is_prod=1 (target 'prod') or is_dev=1 AND is_prod=0
-                // (target 'dev'). Same prod/dev semantics as packages/db/src/queries/dep-type.ts.
+                // we EXISTS-join the findings table on the full finding-identity tuple
+                // (project_id, source, ecosystem, advisory_id, package_name): a finding matches the
+                // target's env when ANY of its rows for that identity has is_prod=1 (target 'prod') or
+                // is_dev=1 AND is_prod=0 (target 'dev'). Same prod/dev semantics as
+                // packages/db/src/queries/dep-type.ts. The source axis is the persisted source identity —
+                // findings carry it in `source` (COALESCE to scanner for un-backfilled legacy rows), the
+                // event carries it in `scanner` — and `ecosystem` is required so an npm finding can't
+                // satisfy the env filter for a same-named PyPI finding (and vice versa).
                 sql`(
                     ${notificationEvents.eventType} = 'scan_failure'
                     OR ${notificationTargets.envFilter} = 'all'
                     OR EXISTS (
                         SELECT 1 FROM findings f
                         WHERE f.project_id = ${notificationEvents.projectId}
-                          AND f.scanner = ${notificationEvents.scanner}
+                          AND COALESCE(f.source, f.scanner) = ${notificationEvents.scanner}
+                          AND f.ecosystem = COALESCE(${notificationEvents.ecosystem}, 'npm')
                           AND f.advisory_id = ${notificationEvents.advisoryId}
                           AND f.package_name = ${notificationEvents.packageName}
                           AND (
                               (${notificationTargets.envFilter} = 'prod' AND f.is_prod = 1)
                               OR (${notificationTargets.envFilter} = 'dev' AND f.is_dev = 1 AND f.is_prod = 0)
                           )
+                    )
+                )`,
+                // Per-target (source, ecosystem) cell scope. Scan-failure events bypass (no source/
+                // ecosystem identity). mode 'all' (the default for every pre-Phase-5 target) fires for
+                // every cell; mode 'selected' fires only when the event's (scanner-as-source, ecosystem)
+                // is one of the listed cells. ecosystem COALESCEs to 'npm' for un-backfilled legacy events.
+                sql`(
+                    ${notificationEvents.eventType} = 'scan_failure'
+                    OR json_extract(${notificationTargets.sourceScopeJson}, '$.mode') = 'all'
+                    OR EXISTS (
+                        SELECT 1 FROM json_each(${notificationTargets.sourceScopeJson}, '$.cells')
+                        WHERE json_extract(json_each.value, '$.source') = ${notificationEvents.scanner}
+                          AND json_extract(json_each.value, '$.ecosystem') = COALESCE(${notificationEvents.ecosystem}, 'npm')
                     )
                 )`,
                 // Per-target scope. Zero rows in BOTH notification_target_roots and
@@ -138,6 +159,7 @@ export function selectDispatchablePairs(db: DrizzleDb, projectId: string, at: nu
                             AND m.scope = 'finding'
                             AND (m.project_id IS NULL OR m.project_id = ${notificationEvents.projectId})
                             AND m.scanner = ${notificationEvents.scanner}
+                            AND (m.ecosystem IS NULL OR m.ecosystem = ${notificationEvents.ecosystem})
                             AND m.advisory_id = ${notificationEvents.advisoryId}
                             AND m.package_name = ${notificationEvents.packageName}
                         )
@@ -283,13 +305,23 @@ export function backfillForNewTarget(db: DrizzleDb, targetId: string, at: number
             OR EXISTS (
                 SELECT 1 FROM findings f
                 WHERE f.project_id = e.project_id
-                  AND f.scanner = e.scanner
+                  AND COALESCE(f.source, f.scanner) = e.scanner
+                  AND f.ecosystem = COALESCE(e.ecosystem, 'npm')
                   AND f.advisory_id = e.advisory_id
                   AND f.package_name = e.package_name
                   AND (
                       (t.env_filter = 'prod' AND f.is_prod = 1)
                       OR (t.env_filter = 'dev' AND f.is_dev = 1 AND f.is_prod = 0)
                   )
+            )
+        )
+        AND (
+            e.event_type = 'scan_failure'
+            OR json_extract(t.source_scope_json, '$.mode') = 'all'
+            OR EXISTS (
+                SELECT 1 FROM json_each(t.source_scope_json, '$.cells')
+                WHERE json_extract(json_each.value, '$.source') = e.scanner
+                  AND json_extract(json_each.value, '$.ecosystem') = COALESCE(e.ecosystem, 'npm')
             )
         )
         AND NOT EXISTS (
@@ -302,6 +334,7 @@ export function backfillForNewTarget(db: DrizzleDb, targetId: string, at: number
                     AND m.scope = 'finding'
                     AND (m.project_id IS NULL OR m.project_id = e.project_id)
                     AND m.scanner = e.scanner
+                    AND (m.ecosystem IS NULL OR m.ecosystem = e.ecosystem)
                     AND m.advisory_id = e.advisory_id
                     AND m.package_name = e.package_name
                 )
@@ -347,6 +380,7 @@ function eventRowToEvent(row: NotificationEventRow): NotificationEvent {
         identityKey: row.identityKey,
         projectId: row.projectId,
         scanner: row.scanner,
+        ecosystem: row.ecosystem,
         advisoryId: row.advisoryId,
         packageName: row.packageName,
         severity: row.severity,
@@ -368,8 +402,28 @@ function targetRowToTarget(row: NotificationTargetRow, rootIds: string[], projec
         enabled: row.enabled,
         createdAt: row.createdAt,
         rootIds,
-        projectIds
+        projectIds,
+        sourceScope: parseSourceScope(row.sourceScopeJson)
     }
+}
+
+// Lightweight parse for the returned target object (the dispatch SQL above is the load-bearing filter,
+// so this only needs to be well-formed). Anything malformed, or mode !== 'selected', is "all".
+function parseSourceScope(json: string): NotificationTarget['sourceScope'] {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(json)
+    } catch {
+        return { mode: 'all', cells: [] }
+    }
+    const obj = parsed as { mode?: unknown; cells?: unknown }
+    if (obj.mode !== 'selected' || !Array.isArray(obj.cells)) return { mode: 'all', cells: [] }
+    const cells = obj.cells.filter(function isCell(c: unknown): c is NotificationTarget['sourceScope']['cells'][number] {
+        if (!c || typeof c !== 'object') return false
+        const cell = c as { source?: unknown; ecosystem?: unknown }
+        return typeof cell.source === 'string' && typeof cell.ecosystem === 'string'
+    })
+    return { mode: 'selected', cells }
 }
 
 function parseEnvFilter(raw: string): DepTypeFilter {

@@ -5,14 +5,18 @@ import axios from 'axios'
 import unzipper from 'unzipper'
 import {
     OSV_REQUIRED_FREE_BYTES,
-    OSV_SEED_DOWNLOAD_BYTES
+    OSV_SEED_DOWNLOAD_BYTES,
+    getEcosystem,
+    type EcosystemId
 } from '@sentinello/core'
 import {
     OSV_META_KEYS,
     OSV_NORMALIZER_VERSION,
     countOsvAdvisories,
     deleteOsvAdvisories,
+    deleteOsvAdvisoriesForEcosystem,
     getOsvMeta,
+    osvMetaKeyFor,
     resolveOsvDbPath,
     setOsvMeta,
     upsertOsvAdvisories,
@@ -24,12 +28,21 @@ import { normalizeOsvRecord } from './osv-normalize'
 // Base URL of the OSV GCS export bucket. Overridable for tests / mirrors; set to 'off' to hard-disable
 // any network access (the seed/sync becomes a no-op and the scanner just never gets seeded).
 const DEFAULT_FEED_BASE = 'https://osv-vulnerabilities.storage.googleapis.com'
-const NPM_ALL_ZIP = '/npm/all.zip'
 
 function feedBase(): string {
     const fromEnv = process.env.SENTINELLO_OSV_FEED_URL
     if (fromEnv && fromEnv.trim().length > 0) return fromEnv.trim()
     return DEFAULT_FEED_BASE
+}
+
+// The canonical OSV feed directory for an ecosystem, taken from the central registry's `osvEcosystem`
+// (e.g. 'npm' | 'PyPI' | 'Go' | 'crates.io') — NEVER a lowercase language slug, which would 404 the feed.
+// encodeURIComponent guards the path segment (a no-op for the current ids, future-proof for any with
+// reserved characters). Throws on an unknown ecosystem so a typo fails loudly instead of fetching garbage.
+function osvFeedDir(ecosystem: EcosystemId): string {
+    const def = getEcosystem(ecosystem)
+    if (!def) throw new Error('unknown OSV ecosystem: ' + ecosystem)
+    return encodeURIComponent(def.osvEcosystem)
 }
 
 export function osvFeedDisabled(): boolean {
@@ -57,12 +70,22 @@ export async function checkOsvFreeSpace(): Promise<{ freeBytes: number; sufficie
     }
 }
 
-// Full seed: stream npm/all.zip, normalize each entry, and batch-upsert into osv.db. Streaming + batched
-// flushes keep memory bounded — the unpacked export is ~860 MB across ~220k files, far too large to hold
-// at once. On success sets seedComplete + the lastModified cursor from the zip's Last-Modified header.
-export async function seedOsv(db: OsvDrizzleDb, abortSignal?: AbortSignal): Promise<OsvSyncResult> {
+// Full seed/re-seed for ONE ecosystem. Once the download stream is live it marks the ecosystem unseeded and
+// DISCARDS its prior rows, then streams <ecosystem>/all.zip, normalizes each entry (keeping only that
+// ecosystem's affected entries), and batch-upserts into osv.db. Discarding first means a successful seed
+// cannot leave rows that vanished from the current export (deleted advisory, dropped affected package,
+// old-shape rows from a previous normalizer version), and a failure mid-stream leaves the ecosystem
+// unseeded — unauditable rather than matching stale/partial data. Streaming + batched flushes keep memory
+// bounded — the unpacked npm export alone is ~860 MB across ~220k files. On success sets the ecosystem's
+// seedComplete + its normalizer-version stamp + the lastModified cursor from the zip's Last-Modified header.
+// Rows are keyed by (advisoryId, ecosystem, packageName) and the discard is ecosystem-scoped, so seeding one
+// ecosystem never disturbs another's rows.
+export async function seedOsv(db: OsvDrizzleDb, ecosystem: EcosystemId, abortSignal?: AbortSignal): Promise<OsvSyncResult> {
+    const ecoCount = function ecoCount() {
+        return countOsvAdvisories(db, ecosystem)
+    }
     if (osvFeedDisabled()) {
-        return { status: 'skipped', upserted: 0, recordCount: countOsvAdvisories(db), message: 'feed disabled' }
+        return { status: 'skipped', upserted: 0, recordCount: ecoCount(), message: 'feed disabled' }
     }
     const space = await checkOsvFreeSpace()
     if (!space.sufficient) {
@@ -72,10 +95,10 @@ export async function seedOsv(db: OsvDrizzleDb, abortSignal?: AbortSignal): Prom
             ' MiB, have ' +
             mib(space.freeBytes) +
             ' MiB'
-        setOsvMeta(db, OSV_META_KEYS.lastError, message)
-        return { status: 'error', upserted: 0, recordCount: countOsvAdvisories(db), message }
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), message)
+        return { status: 'error', upserted: 0, recordCount: ecoCount(), message }
     }
-    const url = feedBase() + NPM_ALL_ZIP
+    const url = feedBase() + '/' + osvFeedDir(ecosystem) + '/all.zip'
     let response
     try {
         response = await axios.get(url, {
@@ -87,11 +110,17 @@ export async function seedOsv(db: OsvDrizzleDb, abortSignal?: AbortSignal): Prom
             maxBodyLength: Infinity
         })
     } catch (err) {
-        const message = 'OSV seed download failed: ' + errText(err)
-        setOsvMeta(db, OSV_META_KEYS.lastError, message)
-        return { status: 'error', upserted: 0, recordCount: countOsvAdvisories(db), message }
+        const message = 'OSV seed download failed (' + ecosystem + '): ' + errText(err)
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), message)
+        return { status: 'error', upserted: 0, recordCount: ecoCount(), message }
     }
     const lastModified = typeof response.headers['last-modified'] === 'string' ? response.headers['last-modified'] : null
+    // The download is live — invalidate the prior cache for this ecosystem before consuming it. Mark it
+    // unseeded first so any concurrent scan treats the ecosystem as not-yet-downloaded for the duration of
+    // the rebuild, then clear its rows so the seed below is a true rebuild (no rows survive that are absent
+    // from the current export). seedComplete flips back to true only after the full stream succeeds.
+    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, ecosystem), false)
+    deleteOsvAdvisoriesForEcosystem(db, ecosystem)
     let upserted = 0
     const batch: OsvAdvisoryRow[] = []
     const BATCH_SIZE = 2000
@@ -107,7 +136,7 @@ export async function seedOsv(db: OsvDrizzleDb, abortSignal?: AbortSignal): Prom
                 continue
             }
             const content = await entry.buffer()
-            const rows = parseEntry(content)
+            const rows = parseEntry(content, ecosystem)
             for (const row of rows) batch.push(row)
             if (batch.length >= BATCH_SIZE) {
                 upsertOsvAdvisories(db, batch)
@@ -121,56 +150,59 @@ export async function seedOsv(db: OsvDrizzleDb, abortSignal?: AbortSignal): Prom
             batch.length = 0
         }
     } catch (err) {
-        const message = 'OSV seed parse failed after ' + upserted + ' rows: ' + errText(err)
-        setOsvMeta(db, OSV_META_KEYS.lastError, message)
-        return { status: 'error', upserted, recordCount: countOsvAdvisories(db), message }
+        const message = 'OSV seed parse failed (' + ecosystem + ') after ' + upserted + ' rows: ' + errText(err)
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), message)
+        return { status: 'error', upserted, recordCount: ecoCount(), message }
     }
-    const recordCount = countOsvAdvisories(db)
-    setOsvMeta(db, OSV_META_KEYS.seedComplete, true)
-    setOsvMeta(db, OSV_META_KEYS.normalizerVersion, OSV_NORMALIZER_VERSION)
-    setOsvMeta(db, OSV_META_KEYS.recordCount, recordCount)
-    setOsvMeta(db, OSV_META_KEYS.refreshedAt, Date.now())
-    setOsvMeta(db, OSV_META_KEYS.lastError, null)
-    if (lastModified) setOsvMeta(db, OSV_META_KEYS.lastModified, lastModified)
-    console.log('[osv-sync] seed complete: ' + recordCount + ' advisory rows')
+    const recordCount = ecoCount()
+    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, ecosystem), true)
+    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, ecosystem), OSV_NORMALIZER_VERSION)
+    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.recordCount, ecosystem), recordCount)
+    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.refreshedAt, ecosystem), Date.now())
+    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), null)
+    if (lastModified) setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastModified, ecosystem), lastModified)
+    console.log('[osv-sync] seed complete (' + ecosystem + '): ' + recordCount + ' advisory rows')
     return { status: 'ok', upserted, recordCount, message: null }
 }
 
-const NPM_MODIFIED_CSV = '/npm/modified_id.csv'
-
-// Incremental sync: fetch npm/modified_id.csv (id + modified-timestamp, newest first), take every id
-// modified after the stored cursor, fetch each id's current JSON, and replace its rows. Advisories that
-// 404 (deleted upstream) or come back withdrawn are purged. Advances the cursor to the newest seen.
-export async function incrementalSyncOsv(db: OsvDrizzleDb, abortSignal?: AbortSignal): Promise<OsvSyncResult> {
-    if (osvFeedDisabled()) {
-        return { status: 'skipped', upserted: 0, recordCount: countOsvAdvisories(db), message: 'feed disabled' }
+// Incremental sync for ONE ecosystem: fetch <ecosystem>/modified_id.csv (id + modified-timestamp, newest
+// first), take every id modified after the stored per-ecosystem cursor, fetch each id's current JSON, and
+// replace its rows FOR THIS ECOSYSTEM ONLY. Advisories that 404 (deleted upstream) or come back withdrawn
+// are purged. Advances the ecosystem's cursor to the newest seen.
+export async function incrementalSyncOsv(db: OsvDrizzleDb, ecosystem: EcosystemId, abortSignal?: AbortSignal): Promise<OsvSyncResult> {
+    const ecoCount = function ecoCount() {
+        return countOsvAdvisories(db, ecosystem)
     }
-    const cursor = getCursorMs(db)
+    if (osvFeedDisabled()) {
+        return { status: 'skipped', upserted: 0, recordCount: ecoCount(), message: 'feed disabled' }
+    }
+    const cursor = getCursorMs(db, ecosystem)
     let csv: string
     try {
-        const response = await axios.get(feedBase() + NPM_MODIFIED_CSV, {
+        const response = await axios.get(feedBase() + '/' + osvFeedDir(ecosystem) + '/modified_id.csv', {
             responseType: 'text',
             signal: abortSignal,
             timeout: 60 * 1000
         })
         csv = String(response.data)
     } catch (err) {
-        const message = 'OSV modified_id.csv fetch failed: ' + errText(err)
-        setOsvMeta(db, OSV_META_KEYS.lastError, message)
-        return { status: 'error', upserted: 0, recordCount: countOsvAdvisories(db), message }
+        const message = 'OSV modified_id.csv fetch failed (' + ecosystem + '): ' + errText(err)
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), message)
+        return { status: 'error', upserted: 0, recordCount: ecoCount(), message }
     }
     const changed = selectChangedIds(csv, cursor)
     if (changed.ids.length === 0) {
-        setOsvMeta(db, OSV_META_KEYS.refreshedAt, Date.now())
-        setOsvMeta(db, OSV_META_KEYS.lastError, null)
-        return { status: 'ok', upserted: 0, recordCount: countOsvAdvisories(db), message: 'no changes' }
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.refreshedAt, ecosystem), Date.now())
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), null)
+        return { status: 'ok', upserted: 0, recordCount: ecoCount(), message: 'no changes' }
     }
     let upserted = 0
     for (const id of changed.ids) {
         if (abortSignal && abortSignal.aborted) break
-        // Clear any prior rows for this advisory so a package dropped from `affected` doesn't linger.
-        deleteOsvAdvisories(db, [id])
-        const rows = await fetchAdvisory(id, abortSignal)
+        // Clear this ecosystem's prior rows for the advisory so a package dropped from `affected` doesn't
+        // linger — scoped to the ecosystem so a sibling ecosystem's rows for the same id survive.
+        deleteOsvAdvisories(db, [id], ecosystem)
+        const rows = await fetchAdvisory(id, ecosystem, abortSignal)
         const live = rows.filter(function notWithdrawn(r) {
             return r.withdrawn === null
         })
@@ -179,18 +211,18 @@ export async function incrementalSyncOsv(db: OsvDrizzleDb, abortSignal?: AbortSi
             upserted += live.length
         }
     }
-    const recordCount = countOsvAdvisories(db)
-    setOsvMeta(db, OSV_META_KEYS.recordCount, recordCount)
-    setOsvMeta(db, OSV_META_KEYS.refreshedAt, Date.now())
-    setOsvMeta(db, OSV_META_KEYS.lastError, null)
-    if (changed.newestIso) setOsvMeta(db, OSV_META_KEYS.lastModified, changed.newestIso)
-    console.log('[osv-sync] incremental sync: ' + changed.ids.length + ' changed advisor(ies), ' + upserted + ' rows upserted')
+    const recordCount = ecoCount()
+    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.recordCount, ecosystem), recordCount)
+    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.refreshedAt, ecosystem), Date.now())
+    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), null)
+    if (changed.newestIso) setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastModified, ecosystem), changed.newestIso)
+    console.log('[osv-sync] incremental sync (' + ecosystem + '): ' + changed.ids.length + ' changed advisor(ies), ' + upserted + ' rows upserted')
     return { status: 'ok', upserted, recordCount, message: null }
 }
 
-async function fetchAdvisory(id: string, abortSignal?: AbortSignal): Promise<OsvAdvisoryRow[]> {
+async function fetchAdvisory(id: string, ecosystem: EcosystemId, abortSignal?: AbortSignal): Promise<OsvAdvisoryRow[]> {
     try {
-        const response = await axios.get(feedBase() + '/npm/' + id + '.json', {
+        const response = await axios.get(feedBase() + '/' + osvFeedDir(ecosystem) + '/' + id + '.json', {
             responseType: 'json',
             signal: abortSignal,
             timeout: 30 * 1000,
@@ -200,7 +232,7 @@ async function fetchAdvisory(id: string, abortSignal?: AbortSignal): Promise<Osv
             }
         })
         if (response.status === 404) return []
-        return normalizeOsvRecord(response.data)
+        return normalizeOsvRecord(response.data, ecosystem)
     } catch {
         return []
     }
@@ -239,21 +271,21 @@ function selectChangedIds(csv: string, cursorMs: number): ChangedIds {
     return { ids, newestIso }
 }
 
-function getCursorMs(db: OsvDrizzleDb): number {
-    const iso = getOsvMeta<string>(db, OSV_META_KEYS.lastModified)
+function getCursorMs(db: OsvDrizzleDb, ecosystem: EcosystemId): number {
+    const iso = getOsvMeta<string>(db, osvMetaKeyFor(OSV_META_KEYS.lastModified, ecosystem))
     if (!iso) return 0
     const ms = Date.parse(iso)
     return Number.isFinite(ms) ? ms : 0
 }
 
-function parseEntry(content: Buffer): OsvAdvisoryRow[] {
+function parseEntry(content: Buffer, ecosystem: EcosystemId): OsvAdvisoryRow[] {
     let parsed: unknown
     try {
         parsed = JSON.parse(content.toString('utf8'))
     } catch {
         return []
     }
-    return normalizeOsvRecord(parsed)
+    return normalizeOsvRecord(parsed, ecosystem)
 }
 
 function mib(bytes: number): string {

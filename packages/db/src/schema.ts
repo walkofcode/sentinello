@@ -25,10 +25,16 @@ export const projects = sqliteTable(
         // `upsertProject`'s onConflictDoUpdate excludes this column so re-discovery preserves the
         // value across sweeps.
         alias: text('alias'),
+        // npm-specific package-manager detail (kept for the JS/npm-audit path). A project spans
+        // ecosystems, so the set of detected ecosystems is recorded separately in ecosystemsJson.
         packageManager: text('package_manager', { enum: ['npm', 'yarn', 'pnpm', 'unknown'] }).notNull(),
         nvmrcVersion: text('nvmrc_version'),
         muted: integer('muted', { mode: 'boolean' }).notNull().default(false),
         tagsJson: text('tags_json').notNull().default('[]'),
+        // JSON array of EcosystemId values detected in this project's directory (one project, many
+        // ecosystems). Empty until a polyglot-aware discovery sweep populates it; the npm path doesn't
+        // depend on it, so existing rows default to '[]'.
+        ecosystemsJson: text('ecosystems_json').notNull().default('[]'),
         createdAt: integer('created_at').notNull(),
         updatedAt: integer('updated_at').notNull()
     },
@@ -50,7 +56,12 @@ export const scans = sqliteTable(
             }),
         startedAt: integer('started_at').notNull(),
         finishedAt: integer('finished_at').notNull(),
+        // `scanner` = scanner plugin name (merge scoping). `source` = persisted source identity (SourceId;
+        // === scanner for today's sources, nullable only for pre-migration rows, backfilled = scanner).
+        // `ecosystem` = the EcosystemId this scan ran against; existing rows default to 'npm'.
         scanner: text('scanner').notNull(),
+        source: text('source'),
+        ecosystem: text('ecosystem').notNull().default('npm'),
         status: text('status', { enum: ['ok', 'unauditable', 'error', 'timeout'] }).notNull(),
         // Structured failure category, nullable for historical rows (before this column existed).
         // New scans always set this — see packages/core/src/types.ts ReasonCode.
@@ -77,6 +88,12 @@ export const scans = sqliteTable(
                 'audit_unknown_failure',
                 'osv_db_not_seeded',
                 'osv_db_unavailable',
+                'gemnasium_db_not_seeded',
+                'gemnasium_db_unavailable',
+                'partial_dependency_graph',
+                'ambiguous_dependency_spec',
+                'unsupported_lockfile',
+                'ecosystem_source_disabled',
                 'timeout'
             ]
         }),
@@ -113,7 +130,14 @@ export const findings = sqliteTable(
             .references(function ref() {
                 return projects.id
             }),
+        // `scanner` = scanner plugin name (used for per-scanner merge scoping + provenance display).
+        // `source` = persisted source identity (SourceId; === scanner for today's sources, nullable only
+        // for pre-migration rows, backfilled = scanner). `ecosystem` = the package's EcosystemId; the
+        // identity tuple is (projectId, source, ecosystem, advisoryId, packageName). Existing rows default
+        // ecosystem to 'npm'.
         scanner: text('scanner').notNull(),
+        source: text('source'),
+        ecosystem: text('ecosystem').notNull().default('npm'),
         advisoryId: text('advisory_id').notNull(),
         advisoryTitle: text('advisory_title'),
         advisoryUrl: text('advisory_url'),
@@ -150,9 +174,15 @@ export const findings = sqliteTable(
             scanIdIdx: index('findings_scan_id_idx').on(table.scanId),
             projectIdIdx: index('findings_project_id_idx').on(table.projectId),
             packageNameIdx: index('findings_package_name_idx').on(table.packageName),
+            // Identity index aligns with the persisted finding-identity tuple
+            // (projectId, source, ecosystem, advisoryId, packageName). It indexes `source` — the
+            // persisted source identity — NOT `scanner` (the plugin/provenance name). `source` is
+            // nullable only in the brief pre-backfill window; the boot backfill sets source = scanner
+            // for legacy rows and the worker always stamps it on new rows.
             identityIdx: index('findings_identity_idx').on(
                 table.projectId,
-                table.scanner,
+                table.source,
+                table.ecosystem,
                 table.advisoryId,
                 table.packageName
             ),
@@ -177,6 +207,9 @@ export const mutes = sqliteTable(
         }),
         // required for scope=finding (matches identity tuple); null for scope=project (applies across all scanners)
         scanner: text('scanner'),
+        // EcosystemId for scope=finding (part of the identity tuple so an npm mute never silences a
+        // PyPI package of the same name); null for scope=project. Existing finding-scope rows default 'npm'.
+        ecosystem: text('ecosystem'),
         advisoryId: text('advisory_id'),
         packageName: text('package_name'),
         reason: text('reason').notNull(),
@@ -191,6 +224,7 @@ export const mutes = sqliteTable(
             identityIdx: index('mutes_identity_idx').on(
                 table.projectId,
                 table.scanner,
+                table.ecosystem,
                 table.advisoryId,
                 table.packageName
             ),
@@ -210,6 +244,10 @@ export const notificationTargets = sqliteTable(
         // dependency; 'dev' fires only for findings reachable solely from devDependencies. Mirrors the
         // DepTypeFilter union from @sentinello/core. Constrained at the app layer (SQLite has no enum).
         envFilter: text('env_filter').notNull().default('all'),
+        // Per-target (source, ecosystem) cell scope, JSON-encoded NotificationSourceScope. Default
+        // '{"mode":"all","cells":[]}' = fire for every cell (the behavior every pre-Phase-5 target had).
+        // mode 'selected' restricts dispatch to the listed cells. Parsed/validated at the query layer.
+        sourceScopeJson: text('source_scope_json').notNull().default('{"mode":"all","cells":[]}'),
         enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
         createdAt: integer('created_at').notNull()
     },
@@ -349,6 +387,11 @@ export const notificationEvents = sqliteTable(
                 return projects.id
             }),
         scanner: text('scanner').notNull(),
+        // EcosystemId for finding events (part of the dedupe identity); null for scan_failure events.
+        // Existing finding rows default 'npm'. The hashed identity_key is recomputed for legacy finding
+        // rows by a boot backfill so it includes ecosystem (the hash changed shape when ecosystem joined
+        // the tuple — a column backfill alone would diverge the stored key from freshly-computed ones).
+        ecosystem: text('ecosystem'),
         advisoryId: text('advisory_id'),
         packageName: text('package_name'),
         // Denormalized for finding events so selectDispatchablePairs() can filter by target.severity_filter
@@ -388,6 +431,9 @@ export const muteLifts = sqliteTable(
         scope: text('scope', { enum: ['project', 'finding'] }).notNull(),
         projectId: text('project_id'),
         scanner: text('scanner'),
+        // EcosystemId mirror of the lifted mute's identity (null for project-scope). Backfilled 'npm' for
+        // existing finding-scope audit rows so their identity aligns with the re-keyed findings.
+        ecosystem: text('ecosystem'),
         advisoryId: text('advisory_id'),
         packageName: text('package_name'),
         reason: text('reason').notNull(),

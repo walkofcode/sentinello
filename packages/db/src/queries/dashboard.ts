@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm'
 import { SCAN_HEARTBEAT_STALE_MS, type DepTypeFilter } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { depTypeClause } from './dep-type'
-import { activeScannerClause } from './sources'
+import { activeSourceCellClause } from './sources'
 import { advisoryIdentitySql, severityRankSql, findingMuteExclusionSql } from './advisory-identity'
 
 // Aggregate queries that power the Dashboard. Each is a single SQL statement returning a small
@@ -28,7 +28,7 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeFilter = 'all'): DashboardSummary {
     const depFilter = depTypeClause(depType)
-    const sourceFilter = activeScannerClause(db)
+    const sourceFilter = activeSourceCellClause(db)
     const total = db
         .get<{ n: number }>(sql`
             SELECT COUNT(*) AS n
@@ -50,7 +50,8 @@ export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeF
                     OR (
                       m.scope = 'finding'
                       AND (m.project_id IS NULL OR m.project_id = p.id)
-                      AND m.scanner = f.scanner
+                      AND m.scanner = COALESCE(f.source, f.scanner)
+                      AND (m.ecosystem IS NULL OR m.ecosystem = f.ecosystem)
                       AND m.advisory_id = f.advisory_id
                       AND m.package_name = f.package_name
                     )
@@ -72,7 +73,7 @@ export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeF
                   ${depFilter}
                   ${sourceFilter}
                   ${findingMuteExclusionSql(at, 'f')}
-                GROUP BY f.project_id, f.package_name, ${advisoryIdentitySql('f')}
+                GROUP BY f.project_id, f.ecosystem, f.package_name, ${advisoryIdentitySql('f')}
             )
             SELECT
                 SUM(CASE WHEN sev_rank = 5 THEN 1 ELSE 0 END) AS critical,
@@ -98,6 +99,7 @@ export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeF
                       m.scope = 'finding'
                       AND (m.project_id IS NULL OR m.project_id = e.project_id)
                       AND m.scanner = e.scanner
+                      AND (m.ecosystem IS NULL OR m.ecosystem = e.ecosystem)
                       AND m.advisory_id = e.advisory_id
                       AND m.package_name = e.package_name
                     )
@@ -157,7 +159,7 @@ export type ProjectCatalogRow = {
 
 export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFilter = 'all'): ProjectCatalogRow[] {
     const depFilter = depTypeClause(depType)
-    const sourceFilter = activeScannerClause(db)
+    const sourceFilter = activeSourceCellClause(db)
     const rows = db.all<{
         id: string
         name: string
@@ -200,7 +202,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
               ${depFilter}
               ${sourceFilter}
               ${findingMuteExclusionSql(at, 'f')}
-            GROUP BY f.project_id, f.package_name, ${advisoryIdentitySql('f')}
+            GROUP BY f.project_id, f.ecosystem, f.package_name, ${advisoryIdentitySql('f')}
         ),
         project_sev AS (
             SELECT project_id,
@@ -276,6 +278,8 @@ export type CurrentFindingRow = {
     scanId: string
     projectId: string
     scanner: string
+    source: string
+    ecosystem: string
     advisoryId: string
     advisoryTitle: string | null
     advisoryUrl: string | null
@@ -300,12 +304,14 @@ export function listCurrentFindingsForProject(
     depType: DepTypeFilter = 'all'
 ): CurrentFindingRow[] {
     const depFilter = depTypeClause(depType)
-    const sourceFilter = activeScannerClause(db)
+    const sourceFilter = activeSourceCellClause(db)
     const rows = db.all<{
         id: string
         scan_id: string
         project_id: string
         scanner: string
+        source: string | null
+        ecosystem: string | null
         advisory_id: string
         advisory_title: string | null
         advisory_url: string | null
@@ -323,7 +329,7 @@ export function listCurrentFindingsForProject(
         last_seen_at: number | null
     }>(sql`
         SELECT
-            f.id, f.scan_id, f.project_id, f.scanner, f.advisory_id, f.advisory_title, f.advisory_url,
+            f.id, f.scan_id, f.project_id, f.scanner, f.source, f.ecosystem, f.advisory_id, f.advisory_title, f.advisory_url,
             f.package_name, f.installed_version, f.vulnerable_range, f.severity, f.fix_available,
             f.fix_version, f.dep_path_json, f.is_prod, f.is_dev,
             f.first_detected_at, f.last_seen_at,
@@ -334,7 +340,8 @@ export function listCurrentFindingsForProject(
                     OR (
                       m.scope = 'finding'
                       AND (m.project_id IS NULL OR m.project_id = f.project_id)
-                      AND m.scanner = f.scanner
+                      AND m.scanner = COALESCE(f.source, f.scanner)
+                      AND (m.ecosystem IS NULL OR m.ecosystem = f.ecosystem)
                       AND m.advisory_id = f.advisory_id
                       AND m.package_name = f.package_name
                     )
@@ -362,6 +369,8 @@ export function listCurrentFindingsForProject(
             scanId: row.scan_id,
             projectId: row.project_id,
             scanner: row.scanner,
+            source: row.source ?? row.scanner,
+            ecosystem: row.ecosystem ?? 'npm',
             advisoryId: row.advisory_id,
             advisoryTitle: row.advisory_title,
             advisoryUrl: row.advisory_url,

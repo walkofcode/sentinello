@@ -2,6 +2,7 @@ import type { CurrentFindingRow } from '@sentinello/db'
 import { maxSeverity, severityRank, type Severity } from '@sentinello/core'
 
 export type LibraryGroup = {
+    ecosystem: string
     packageName: string
     installedVersions: string[]
     maxSeverity: Severity
@@ -17,18 +18,22 @@ export type LibraryGroup = {
     findings: CurrentFindingRow[]
 }
 
-// Group current findings by package name. One library can hit the same project from multiple
-// dependency paths or even at multiple installed versions when hoisting fails; we keep all
-// underlying findings on the group for the expanded sub-row and just summarize at the top.
+// Group current findings by (ecosystem, package name). One library can hit the same project from
+// multiple dependency paths or even at multiple installed versions when hoisting fails; we keep all
+// underlying findings on the group for the expanded sub-row and just summarize at the top. The ecosystem
+// is part of the key so an npm `requests` and a PyPI `requests` stay distinct libraries (issue-019).
 export function groupByLibrary(findings: CurrentFindingRow[]): LibraryGroup[] {
-    const byPackage = new Map<string, CurrentFindingRow[]>()
+    const byLibrary = new Map<string, CurrentFindingRow[]>()
     for (const f of findings) {
-        const bucket = byPackage.get(f.packageName) || []
+        const key = f.ecosystem + '\x00' + f.packageName
+        const bucket = byLibrary.get(key) || []
         bucket.push(f)
-        byPackage.set(f.packageName, bucket)
+        byLibrary.set(key, bucket)
     }
     const groups: LibraryGroup[] = []
-    byPackage.forEach(function buildGroup(rows, packageName) {
+    byLibrary.forEach(function buildGroup(rows) {
+        const ecosystem = rows[0].ecosystem
+        const packageName = rows[0].packageName
         const installedVersions = uniq(rows.map(function pickVer(r) { return r.installedVersion }))
         const severities = uniq(rows.map(function pickSev(r) { return r.severity }))
         const fixVersions = rows
@@ -39,6 +44,7 @@ export function groupByLibrary(findings: CurrentFindingRow[]): LibraryGroup[] {
         const allMuted = rows.length > 0 && rows.every(function muted(r) { return r.isMuted })
         const devOnly = rows.length > 0 && rows.every(function devish(r) { return r.isDev && !r.isProd })
         groups.push({
+            ecosystem,
             packageName,
             installedVersions,
             maxSeverity: maxSeverity(severities),
@@ -56,7 +62,7 @@ export function groupByLibrary(findings: CurrentFindingRow[]): LibraryGroup[] {
         const ra = severityRank(a.maxSeverity)
         const rb = severityRank(b.maxSeverity)
         if (ra !== rb) return ra - rb
-        return a.packageName.localeCompare(b.packageName)
+        return a.packageName.localeCompare(b.packageName) || a.ecosystem.localeCompare(b.ecosystem)
     })
     return groups
 }

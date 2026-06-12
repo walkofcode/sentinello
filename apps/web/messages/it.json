@@ -153,7 +153,8 @@
         "colMaxSeverity": "Gravità massima",
         "nodeAmbient": "ambiente",
         "badgeMuted": "silenziato",
-        "badgeMissing": "mancante"
+        "badgeMissing": "mancante",
+        "colLanguage": "Linguaggio"
     },
     "WhatsNew": {
         "pillLabel": "Novità",
@@ -287,16 +288,19 @@
         "sources": {
             "metaTitle": "Fonti · Impostazioni",
             "title": "Fonti di vulnerabilità",
-            "description": "npm audit viene sempre eseguito. Abilita fonti aggiuntive per ampliare la copertura.",
+            "description": "Per impostazione predefinita Sentinello analizza JavaScript. Abilita linguaggi e fonti aggiuntivi qui sotto per ampliare la copertura. Almeno una fonte deve rimanere abilitata.",
             "npmAuditLabel": "npm audit",
             "alwaysOn": "sempre attivo",
             "optional": "opzionale",
             "npmAuditHelp": "La fonte integrata. Esegue npm/pnpm/yarn audit sul lockfile di ogni progetto.",
             "osvLabel": "OSV (Open Source Vulnerabilities)",
-            "osvHelp": "Confronta l’ecosistema npm direttamente con il database OSV. Aggiunge CVE che npm audit non rileva e segnala i pacchetti dannosi noti.",
+            "osvHelp": "Confronta i pacchetti di questo linguaggio con il database OSV. Aggiunge CVE che la fonte nativa non rileva e segnala pacchetti notoriamente dannosi.",
+            "gemnasiumLabel": "GitLab gemnasium",
+            "gemnasiumHelp": "Confronta i pacchetti di questo linguaggio con il database di advisory gemnasium di GitLab. Aggiunge advisory curati in modo indipendente, oltre alla fonte nativa e a OSV.",
+            "gemnasiumDownloadDisclosure": "Abilitare gemnasium scarica il database di avvisi gemnasium di GitLab da gitlab.com (decine di MB) nel volume dati, poi aggiornamenti ~giornalieri. La cache è ricostruibile e archiviata separatamente dai tuoi risultati.",
             "enabled": "Abilitato",
             "disabled": "Disabilitato",
-            "downloadDisclosure": "Abilitare OSV scarica l’export npm di OSV (~196 MB) nel volume dati, poi aggiornamenti ~giornalieri. La cache è ricostruibile e archiviata separatamente dai tuoi risultati.",
+            "downloadDisclosure": "Abilitando OSV viene scaricato l’export di advisory OSV di quel linguaggio nel volume dati, con aggiornamenti quotidiani. La cache è ricostruibile ed è memorizzata separatamente dai tuoi findings.",
             "freeSpace": "Circa {gib} GB liberi sul volume dati.",
             "syncStatus": "Stato sincronizzazione",
             "seeded": "Aggiornato",
@@ -305,7 +309,8 @@
             "lastRefreshed": "Ultimo aggiornamento",
             "lastError": "Ultimo errore",
             "refreshNow": "Aggiorna ora",
-            "refreshQueued": "Aggiornamento richiesto — viene eseguito in background."
+            "refreshQueued": "Aggiornamento richiesto — viene eseguito in background.",
+            "defaultOn": "predefinita"
         },
         "defaults": {
             "metaTitle": "Predefiniti · Impostazioni",
@@ -402,6 +407,14 @@
             "selectionError": "Scegli almeno una root o un progetto, oppure passa a <all>Tutto</all>.",
             "rootsHeading": "Root",
             "projectsHeading": "Progetti"
+        },
+        "sourceScope": {
+            "label": "Fonti",
+            "all": "Tutte le fonti",
+            "allHelp": "Notifica per ogni fonte e linguaggio.",
+            "selected": "Fonti selezionate",
+            "selectedHelp": "Notifica solo per le celle fonte/linguaggio che selezioni qui sotto.",
+            "selectionError": "Seleziona almeno una cella oppure scegli “Tutte le fonti”."
         }
     },
     "Findings": {
@@ -449,7 +462,9 @@
         "projectsAffected": "{count, plural, one {# progetto interessato} other {# progetti interessati}}",
         "detectedLabel": "Rilevato:",
         "rangeLabel": "Intervallo:",
-        "malicious": "dannoso"
+        "malicious": "dannoso",
+        "filterByEcosystem": "Filtra per linguaggio",
+        "ecosystemAll": "Tutti i linguaggi"
     },
     "Triage": {
         "alias": {
@@ -534,11 +549,11 @@
         "title": "Sentinello",
         "intro": "Monitoraggio centralizzato delle vulnerabilità delle dipendenze in tutto il tuo portfolio — self-hosted, sulla tua infrastruttura.",
         "notDoTitle": "Cosa Sentinello non fa",
-        "notDoBody": "Sentinello viene eseguito interamente sulla tua infrastruttura. Non legge il tuo codice sorgente — scopre i progetti solo individuando i file <code>package.json</code> — nulla viene caricato da nessuna parte, nessuna telemetria lascia la tua macchina, non c'è alcun account centrale e non è coinvolto alcun LLM o IA. Per impostazione predefinita è semplicemente <code>npm audit</code>; la fonte opzionale OSV (Impostazioni → Fonti, disattivata per impostazione predefinita) è l'unica aggiunta, e anche in tal caso recupera solo dati pubblici di advisory tramite HTTPS.",
+        "notDoBody": "Sentinello viene eseguito interamente sulla tua infrastruttura. Non legge il tuo codice sorgente — scopre i progetti individuandone i manifest delle dipendenze e i lockfile (<code>package.json</code> più i lockfile di Python, Go e Rust) — nulla viene caricato da nessuna parte, nessuna telemetria lascia la tua macchina, non c’è alcun account centrale e non è coinvolto alcun LLM o IA. Per JavaScript, per impostazione predefinita è semplicemente <code>npm audit</code>; le fonti opzionali OSV e gemnasium (Impostazioni → Fonti, disattivate per impostazione predefinita) recuperano solo dati pubblici di advisory tramite HTTPS.",
         "whoTitle": "Chi l'ha creato",
         "whoBody": "Creato da <company>Walk of Code LLC</company> e Sebastian Arena (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "Da dove provengono i dati degli advisory",
-        "advisoryBody": "I dati sulle vulnerabilità provengono dal GitHub Advisory Database, raggiunto tramite l'endpoint advisory del registro npm via <code>npm audit</code>. Oggi questo copre l'ecosistema npm; ulteriori fonti potrebbero essere aggiunte in seguito. Puoi anche abilitare OSV (Impostazioni → Fonti, disattivato per impostazione predefinita) per confrontare i pacchetti npm anche con il database pubblico OSV, individuando avvisi che npm audit non rileva e segnalando pacchetti notoriamente dannosi.",
+        "advisoryBody": "I dati sulle vulnerabilità provengono dal GitHub Advisory Database, raggiunto tramite l’endpoint advisory del registro npm via <code>npm audit</code> per JavaScript. Puoi inoltre abilitare OSV e gemnasium di GitLab per ciascun linguaggio (Impostazioni → Fonti) per confrontare i pacchetti JavaScript, Python, Go e Rust con quei database pubblici di advisory — individuando advisory che npm audit non rileva e segnalando pacchetti notoriamente dannosi. I linguaggi diversi da JavaScript vengono risolti offline dai lockfile e confrontati con advisory memorizzati localmente nella cache; i manifest ambigui vengono segnalati come parziali o non analizzabili anziché trattati come puliti.",
         "sendsTitle": "Cosa invia Sentinello all'esterno",
         "tableDestination": "Destinazione",
         "tablePurpose": "Scopo",
@@ -551,8 +566,8 @@
                 "disable": "Funzione principale — non disabilitabile"
             },
             "osv": {
-                "purpose": "Scaricare il database pubblico degli avvisi OSV per npm",
-                "when": "Ogni giorno, più aggiornamento manuale — solo quando OSV è abilitato",
+                "purpose": "Scaricare l’export pubblico di advisory OSV per ogni linguaggio abilitato",
+                "when": "Quotidiano, più aggiornamento manuale — solo quando OSV è abilitato per un linguaggio",
                 "disable": "Impostazioni → Fonti (disattivato per impostazione predefinita), oppure SENTINELLO_OSV_FEED_URL=off"
             },
             "github": {
@@ -564,6 +579,11 @@
                 "purpose": "Scarica l'immagine di Sentinello",
                 "when": "All'installazione o all'aggiornamento",
                 "disable": "Fase di deployment — non applicabile in fase di esecuzione"
+            },
+            "gemnasium": {
+                "purpose": "Scaricare l’archivio di advisory gemnasium di GitLab per ogni linguaggio abilitato",
+                "when": "Quotidiano, più aggiornamento manuale — solo quando gemnasium è abilitato per un linguaggio",
+                "disable": "Impostazioni → Fonti (disattivato per impostazione predefinita), oppure SENTINELLO_GEMNASIUM_FEED_URL=off"
             }
         },
         "dataLivesTitle": "Dove risiedono i tuoi dati",
@@ -583,7 +603,9 @@
             "updateFeedUrl": "Feed consultato per il banner di aggiornamento; impostalo su off per disabilitare i controlli di aggiornamento.",
             "webhookStrict": "Quando è abilitato, rifiuta i target dei webhook rivolti a indirizzi privati o di loopback e richiede https. Gli indirizzi link-local e dei metadati cloud sono sempre rifiutati.",
             "osvFeedUrl": "URL di base dell'export degli advisory OSV, usato solo quando la fonte OSV è abilitata; impostalo su off per disabilitare tutto l'accesso di rete a OSV.",
-            "osvDbPath": "Posizione della cache ricostruibile degli advisory OSV; per impostazione predefinita accanto al database principale."
+            "osvDbPath": "Posizione della cache ricostruibile di advisory OSV; cresce per ogni linguaggio abilitato e per impostazione predefinita si trova accanto al database principale.",
+            "gemnasiumFeedUrl": "URL dell’archivio di advisory gemnasium di GitLab, usato solo quando la fonte gemnasium è abilitata; imposta off per disabilitare ogni accesso di rete a gemnasium.",
+            "gemnasiumDbPath": "Posizione della cache ricostruibile di advisory gemnasium; per impostazione predefinita si trova accanto al database principale."
         },
         "builtWithTitle": "Realizzato con",
         "reportingTitle": "Segnalare una vulnerabilità in Sentinello",
@@ -623,7 +645,11 @@
                 "resolvedCount": "{count} risolte",
                 "discovered": "Rilevate",
                 "resolved": "Risolte"
-            }
+            },
+            "coverageTitle": "Lacune di copertura",
+            "coverageBody": "Alcuni linguaggi in questo progetto non hanno potuto essere analizzati completamente offline, quindi i findings potrebbero essere incompleti per essi.",
+            "coveragePartial": "Parziale",
+            "coverageUnauditable": "Non analizzabile"
         },
         "library": {
             "eyebrow": "Libreria",

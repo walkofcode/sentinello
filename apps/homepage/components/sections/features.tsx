@@ -1,10 +1,11 @@
 import { useTranslations } from 'next-intl'
-import { Bell, Bot, Boxes, Container, FileDown, FolderGit2, Inbox, Languages, RefreshCw, ServerCog, ShieldAlert, type LucideIcon } from 'lucide-react'
+import { Bell, Bot, Boxes, Code2, Container, FileDown, FolderGit2, Inbox, Languages, RefreshCw, ServerCog, ShieldAlert, type LucideIcon } from 'lucide-react'
 import { Section } from './section'
 
 const FEATURES: { key: string; Icon: LucideIcon }[] = [
     { key: 'queue', Icon: Inbox },
     { key: 'browse', Icon: FolderGit2 },
+    { key: 'polyglot', Icon: Code2 },
     { key: 'scanning', Icon: RefreshCw },
     { key: 'sources', Icon: ShieldAlert },
     { key: 'notifications', Icon: Bell },

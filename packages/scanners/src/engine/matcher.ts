@@ -10,10 +10,16 @@ import type { CanonicalAdvisory, VersionComparator } from './types'
 // Malware is NOT special-cased — it's just an advisory whose affected set is usually an exact-version
 // list. (The old OSV scanner flagged malware by package *presence*, ignoring the version entirely, which
 // is what reported clean installs as compromised.)
+// `acceptedRangeTypes`, when given, restricts which OSV `range.type` values the comparator is allowed to
+// evaluate (e.g. semver accepts SEMVER+ECOSYSTEM, PEP 440 accepts ECOSYSTEM). A range whose type is not in
+// the list — or that carries no type at all — is dropped before evaluation, so a comparator never silently
+// interprets a range with the wrong version semantics. Omitted (sources with a single interval shape, e.g.
+// gemnasium) means "evaluate every range", preserving the prior behavior for those sources.
 export function matchAdvisories(
     packages: ResolvedPackage[],
     byPackage: Map<string, CanonicalAdvisory[]>,
-    comparator: VersionComparator
+    comparator: VersionComparator,
+    acceptedRangeTypes?: readonly string[]
 ): RawFinding[] {
     const findings: RawFinding[] = []
     for (const pkg of packages) {
@@ -22,7 +28,7 @@ export function matchAdvisories(
         const seen = new Set<string>()
         for (const advisory of advisories) {
             if (seen.has(advisory.id)) continue
-            const finding = matchOne(pkg, advisory, comparator)
+            const finding = matchOne(pkg, advisory, comparator, acceptedRangeTypes)
             if (finding) {
                 seen.add(advisory.id)
                 findings.push(finding)
@@ -30,6 +36,19 @@ export function matchAdvisories(
         }
     }
     return findings
+}
+
+// Keep only the ranges the selected comparator may evaluate. `undefined` accepted-types = no filtering
+// (every range kept). A range with no `type` is unclassified and is dropped whenever filtering is active —
+// we never evaluate a range we can't confirm the comparator understands.
+function applicableRanges(
+    ranges: CanonicalAdvisory['affected']['ranges'],
+    acceptedRangeTypes?: readonly string[]
+): CanonicalAdvisory['affected']['ranges'] {
+    if (!acceptedRangeTypes) return ranges
+    return ranges.filter(function typeAccepted(range) {
+        return range.type !== undefined && acceptedRangeTypes.includes(range.type)
+    })
 }
 
 type AffectedHit = {
@@ -40,9 +59,12 @@ type AffectedHit = {
 function matchOne(
     pkg: ResolvedPackage,
     advisory: CanonicalAdvisory,
-    comparator: VersionComparator
+    comparator: VersionComparator,
+    acceptedRangeTypes?: readonly string[]
 ): RawFinding | null {
-    const ranges = advisory.affected.ranges
+    // Filter to the ranges this comparator may evaluate ONCE, then use the filtered set everywhere below
+    // (matching, fix derivation, display) so a dropped range never leaks into any of them.
+    const ranges = applicableRanges(advisory.affected.ranges, acceptedRangeTypes)
     const exactVersions = advisory.affected.exactVersions
     const hasVersionData = ranges.length > 0 || exactVersions.length > 0
 
@@ -90,19 +112,28 @@ function isAffected(
     let firstFixed: string | null = null
     for (const range of ranges) {
         const introduced = range.introduced === '0' ? '0.0.0' : comparator.normalize(range.introduced)
-        const fixed = range.fixed ? comparator.normalize(range.fixed) : null
         if (introduced === null) continue
         if (!comparator.gte(installed, introduced)) continue
-        if (fixed === null) {
-            affected = true
+        const fixed = range.fixed ? comparator.normalize(range.fixed) : null
+        if (fixed !== null) {
+            // Half-open [introduced, fixed): affected when installed < fixed; `fixed` is the fix target.
+            if (comparator.lt(installed, fixed)) {
+                affected = true
+                if (firstFixed === null || comparator.lt(fixed, firstFixed)) {
+                    firstFixed = fixed
+                }
+            }
             continue
         }
-        if (comparator.lt(installed, fixed)) {
-            affected = true
-            if (firstFixed === null || comparator.lt(fixed, firstFixed)) {
-                firstFixed = fixed
-            }
+        // No `fixed`. If OSV gave a `last_affected`, treat it as an INCLUSIVE upper bound (vulnerable
+        // through that version, no known fix above it) — `installed <= lastAffected` is `gte(last, installed)`.
+        const lastAffected = range.lastAffected ? comparator.normalize(range.lastAffected) : null
+        if (lastAffected !== null) {
+            if (comparator.gte(lastAffected, installed)) affected = true
+            continue
         }
+        // Neither `fixed` nor `last_affected`: open-ended vulnerable range with no known fix.
+        affected = true
     }
     return { affected, firstFixed }
 }
@@ -119,6 +150,8 @@ function buildFinding(
         advisoryTitle: advisory.summary,
         advisoryUrl: advisory.url,
         packageName: pkg.name,
+        // The installed package's ecosystem is authoritative for the finding's identity.
+        ecosystem: pkg.ecosystem,
         installedVersion: pkg.version,
         vulnerableRange,
         severity,
@@ -143,6 +176,8 @@ function rangesToDisplay(
         const lo = range.introduced === '0' ? '0' : range.introduced
         if (range.fixed) {
             parts.push('>=' + lo + ' <' + range.fixed)
+        } else if (range.lastAffected) {
+            parts.push('>=' + lo + ' <=' + range.lastAffected)
         } else {
             parts.push('>=' + lo)
         }

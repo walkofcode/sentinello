@@ -8,17 +8,21 @@ import { Input, Label, Textarea } from '@/components/ui/input'
 import { muteAction, muteLibraryAction, unmuteAction, unmuteManyAction } from '@/lib/actions/mute'
 
 type FindingIdentity = {
+    // Persisted mute identity (issue-016): `source` + `ecosystem` are what gets written; `scanner` is
+    // provenance/display only.
+    source: string
+    ecosystem: string
     scanner: string
     advisoryId: string
     packageName: string
 }
 
-// A merged finding row stands in for several underlying (scanner, advisoryId) identities on one
-// package. Muting it mutes all of them at once; muteIds is non-empty only when every identity is
+// A merged finding row stands in for several underlying (source, ecosystem, advisoryId) identities on
+// one package. Muting it mutes all of them at once; muteIds is non-empty only when every identity is
 // already muted (i.e. the row reads as muted and the control flips to unmute).
 type MergedMuteTarget = {
     packageName: string
-    advisories: { scanner: string; advisoryId: string }[]
+    advisories: { source: string; ecosystem: string; scanner: string; advisoryId: string }[]
     muteIds: string[]
 }
 
@@ -59,7 +63,8 @@ export function MuteDialog({ projectId, finding, merged, label, muteId, iconOnly
                 await muteAction({
                     scope: finding ? 'finding' : 'project',
                     projectId,
-                    scanner: finding?.scanner || null,
+                    source: finding?.source || null,
+                    ecosystem: finding?.ecosystem || null,
                     advisoryId: finding?.advisoryId || null,
                     packageName: finding?.packageName || null,
                     reason,

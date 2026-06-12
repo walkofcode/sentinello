@@ -18,7 +18,7 @@ const ROWS: { key: string; cells: Record<Column, Cell> }[] = [
     { key: 'selfHosted', cells: { sentinello: 'yes', depTrack: 'yes', snyk: 'no', dependabot: 'no' } },
     { key: 'singleBinary', cells: { sentinello: 'yes', depTrack: 'no', snyk: 'no', dependabot: 'no' } },
     { key: 'aiNative', cells: { sentinello: 'yes', depTrack: 'no', snyk: 'partial', dependabot: 'no' } },
-    { key: 'polyglot', cells: { sentinello: 'planned', depTrack: 'yes', snyk: 'yes', dependabot: 'yes' } },
+    { key: 'polyglot', cells: { sentinello: 'yes', depTrack: 'yes', snyk: 'yes', dependabot: 'yes' } },
     { key: 'enterprisePolicy', cells: { sentinello: 'partial', depTrack: 'yes', snyk: 'yes', dependabot: 'partial' } }
 ]
 

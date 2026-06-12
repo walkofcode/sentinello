@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card'
 import { SeverityPill } from '@/components/ui/severity-pill'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatAbsoluteTime, formatExposureWindow, formatRelativeTime } from '@/lib/format'
+import { libraryHref } from '@/lib/library-href'
 
 type Props = {
     findings: Finding[]
@@ -27,7 +28,7 @@ export async function ResolvedFindingsTable({ findings, now }: Props) {
                             <div className="flex items-center gap-2">
                                 <SeverityPill variant={f.severity as Severity} size="sm" />
                                 <Link
-                                    href={'/libraries/' + encodeURIComponent(f.packageName)}
+                                    href={libraryHref(f.ecosystem, f.packageName)}
                                     className="min-w-0 flex-1 truncate font-medium text-sm hover:opacity-80"
                                 >
                                     {f.packageName}
@@ -86,7 +87,7 @@ export async function ResolvedFindingsTable({ findings, now }: Props) {
                                         <SeverityPill variant={f.severity as Severity} size="sm" />
                                     </TableCell>
                                     <TableCell className="font-medium">
-                                        <Link href={'/libraries/' + encodeURIComponent(f.packageName)} className="hover:opacity-80">
+                                        <Link href={libraryHref(f.ecosystem, f.packageName)} className="hover:opacity-80">
                                             {f.packageName}
                                         </Link>
                                         {f.isDev && !f.isProd ? (

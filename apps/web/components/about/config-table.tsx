@@ -19,7 +19,9 @@ const ROWS: Row[] = [
     { variable: 'SENTINELLO_UPDATE_FEED_URL', def: 'GitHub Releases API', purposeKey: 'configRows.updateFeedUrl' },
     { variable: 'SENTINELLO_WEBHOOK_STRICT', def: '—', purposeKey: 'configRows.webhookStrict' },
     { variable: 'SENTINELLO_OSV_FEED_URL', def: 'OSV bucket', purposeKey: 'configRows.osvFeedUrl' },
-    { variable: 'SENTINELLO_OSV_DB_PATH', def: '<data dir>/osv.db', purposeKey: 'configRows.osvDbPath' }
+    { variable: 'SENTINELLO_OSV_DB_PATH', def: '<data dir>/osv.db', purposeKey: 'configRows.osvDbPath' },
+    { variable: 'SENTINELLO_GEMNASIUM_FEED_URL', def: 'gemnasium archive', purposeKey: 'configRows.gemnasiumFeedUrl' },
+    { variable: 'SENTINELLO_GEMNASIUM_DB_PATH', def: '<data dir>/gemnasium.db', purposeKey: 'configRows.gemnasiumDbPath' }
 ]
 
 export async function ConfigTable() {

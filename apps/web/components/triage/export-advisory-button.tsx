@@ -14,7 +14,7 @@ type DepType = 'all' | 'prod' | 'dev'
 
 type Props =
     | { scope: 'project'; projectId: string; depType: DepType }
-    | { scope: 'library'; packageName: string; depType: DepType }
+    | { scope: 'library'; packageName: string; ecosystem: string; depType: DepType }
 
 function triggerDownload(filename: string, markdown: string) {
     const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
@@ -63,7 +63,7 @@ async function fetchExport(props: Props): Promise<{ filename: string; markdown: 
     if (props.scope === 'project') {
         return await exportProjectAdvisoryMarkdownAction(props.projectId, props.depType)
     }
-    return await exportLibraryAdvisoryMarkdownAction(props.packageName, props.depType)
+    return await exportLibraryAdvisoryMarkdownAction(props.packageName, props.depType, props.ecosystem)
 }
 
 export function ExportAdvisoryButton(props: Props) {

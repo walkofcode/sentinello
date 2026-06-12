@@ -153,7 +153,8 @@
         "colMaxSeverity": "Max. Schweregrad",
         "nodeAmbient": "Umgebung",
         "badgeMuted": "stummgeschaltet",
-        "badgeMissing": "fehlt"
+        "badgeMissing": "fehlt",
+        "colLanguage": "Sprache"
     },
     "WhatsNew": {
         "pillLabel": "Neuigkeiten",
@@ -287,16 +288,19 @@
         "sources": {
             "metaTitle": "Quellen · Einstellungen",
             "title": "Schwachstellenquellen",
-            "description": "npm audit läuft immer. Aktivieren Sie zusätzliche Quellen, um die Abdeckung zu erweitern.",
+            "description": "Sentinello scannt standardmäßig JavaScript. Aktivieren Sie unten weitere Sprachen und Quellen, um die Abdeckung zu erweitern. Mindestens eine Quelle muss aktiviert bleiben.",
             "npmAuditLabel": "npm audit",
             "alwaysOn": "immer aktiv",
             "optional": "optional",
             "npmAuditHelp": "Die integrierte Quelle. Führt npm/pnpm/yarn audit gegen die Lockfile jedes Projekts aus.",
             "osvLabel": "OSV (Open Source Vulnerabilities)",
-            "osvHelp": "Gleicht das npm-Ökosystem direkt mit der OSV-Datenbank ab. Ergänzt CVEs, die npm audit übersieht, und markiert bekannte bösartige Pakete.",
+            "osvHelp": "Gleicht die Pakete dieser Sprache mit der OSV-Datenbank ab. Ergänzt CVEs, die die native Quelle übersieht, und markiert bekannte bösartige Pakete.",
+            "gemnasiumLabel": "GitLab gemnasium",
+            "gemnasiumHelp": "Gleicht die Pakete dieser Sprache mit GitLabs gemnasium-Advisory-Datenbank ab. Ergänzt unabhängig kuratierte Hinweise über die native Quelle und OSV hinaus.",
+            "gemnasiumDownloadDisclosure": "Beim Aktivieren von gemnasium wird die gemnasium-Advisory-Datenbank von GitLab von gitlab.com (einige zehn MB) in das Datenvolume heruntergeladen, danach ~tägliche Updates. Der Cache ist neu aufbaubar und wird getrennt von Ihren Funden gespeichert.",
             "enabled": "Aktiviert",
             "disabled": "Deaktiviert",
-            "downloadDisclosure": "Das Aktivieren von OSV lädt den OSV-npm-Export (~196 MB) in das Datenvolume, danach ~tägliche Updates. Der Cache ist neu aufbaubar und wird getrennt von Ihren Funden gespeichert.",
+            "downloadDisclosure": "Das Aktivieren von OSV lädt den OSV-Advisory-Export dieser Sprache in das Datenvolume, danach ~tägliche Updates. Der Cache ist neu aufbaubar und wird getrennt von Ihren Funden gespeichert.",
             "freeSpace": "Etwa {gib} GB frei auf dem Datenvolume.",
             "syncStatus": "Synchronisierungsstatus",
             "seeded": "Aktuell",
@@ -305,7 +309,8 @@
             "lastRefreshed": "Zuletzt aktualisiert",
             "lastError": "Letzter Fehler",
             "refreshNow": "Jetzt aktualisieren",
-            "refreshQueued": "Aktualisierung angefordert — sie läuft im Hintergrund."
+            "refreshQueued": "Aktualisierung angefordert — sie läuft im Hintergrund.",
+            "defaultOn": "Standard"
         },
         "defaults": {
             "metaTitle": "Standardwerte · Einstellungen",
@@ -402,6 +407,14 @@
             "selectionError": "Wähle mindestens einen Root oder ein Projekt, oder wechsle zu <all>Alle</all>.",
             "rootsHeading": "Roots",
             "projectsHeading": "Projekte"
+        },
+        "sourceScope": {
+            "label": "Quellen",
+            "all": "Alle Quellen",
+            "allHelp": "Für jede Quelle und Sprache benachrichtigen.",
+            "selected": "Ausgewählte Quellen",
+            "selectedHelp": "Nur für die unten ausgewählten Quellen-/Sprachzellen benachrichtigen.",
+            "selectionError": "Wählen Sie mindestens eine Zelle aus oder wählen Sie „Alle Quellen“."
         }
     },
     "Findings": {
@@ -449,7 +462,9 @@
         "projectsAffected": "{count, plural, one {# Projekt betroffen} other {# Projekte betroffen}}",
         "detectedLabel": "Erkannt:",
         "rangeLabel": "Bereich:",
-        "malicious": "bösartig"
+        "malicious": "bösartig",
+        "filterByEcosystem": "Nach Sprache filtern",
+        "ecosystemAll": "Alle Sprachen"
     },
     "Triage": {
         "alias": {
@@ -534,11 +549,11 @@
         "title": "Sentinello",
         "intro": "Zentralisierte Überwachung von Abhängigkeits-Schwachstellen über Ihr gesamtes Portfolio — selbst gehostet, auf Ihrer eigenen Infrastruktur.",
         "notDoTitle": "Was Sentinello nicht tut",
-        "notDoBody": "Sentinello läuft vollständig auf Ihrer Infrastruktur. Es liest Ihren Quellcode nicht — es entdeckt Projekte nur durch das Auffinden von <code>package.json</code>-Dateien — nichts wird irgendwohin hochgeladen, keine Telemetrie verlässt Ihren Rechner, es gibt kein zentrales Konto, und es ist kein LLM oder KI beteiligt. Standardmäßig ist es schlichtes <code>npm audit</code>; die optionale OSV-Quelle (Einstellungen → Quellen, standardmäßig aus) ist die einzige Ergänzung, und selbst dann ruft sie nur öffentliche Advisory-Daten über HTTPS ab.",
+        "notDoBody": "Sentinello läuft vollständig auf Ihrer Infrastruktur. Es liest Ihren Quellcode nicht — es entdeckt Projekte, indem es ihre Abhängigkeitsmanifeste und Lockfiles auffindet (<code>package.json</code> sowie Python-, Go- und Rust-Lockfiles) — nichts wird irgendwohin hochgeladen, keine Telemetrie verlässt Ihren Rechner, es gibt kein zentrales Konto, und es ist kein LLM oder KI beteiligt. Für JavaScript ist es standardmäßig schlichtes <code>npm audit</code>; die optionalen Quellen OSV und gemnasium (Einstellungen → Quellen, standardmäßig aus) rufen lediglich öffentliche Advisory-Daten über HTTPS ab.",
         "whoTitle": "Wer es entwickelt hat",
         "whoBody": "Entwickelt von <company>Walk of Code LLC</company> und Sebastian Arena (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "Woher die Advisory-Daten stammen",
-        "advisoryBody": "Die Schwachstellendaten stammen aus der GitHub Advisory Database, erreicht über den Advisory-Endpunkt der npm-Registry via <code>npm audit</code>. Derzeit deckt dies das npm-Ökosystem ab; weitere Quellen können später hinzugefügt werden. Sie können auch OSV aktivieren (Einstellungen → Quellen, standardmäßig aus), um npm-Pakete zusätzlich mit der öffentlichen OSV-Datenbank abzugleichen – so werden Advisories erkannt, die npm audit übersieht, und bekannte Schadpakete markiert.",
+        "advisoryBody": "Die Schwachstellendaten stammen aus der GitHub Advisory Database, erreicht für JavaScript über den Advisory-Endpunkt der npm-Registry via <code>npm audit</code>. Sie können zusätzlich OSV und GitLab gemnasium pro Sprache aktivieren (Einstellungen → Quellen), um JavaScript-, Python-, Go- und Rust-Pakete mit diesen öffentlichen Advisory-Datenbanken abzugleichen — so werden Advisories erkannt, die npm audit übersieht, und bekannte Schadpakete markiert. Nicht-JavaScript-Sprachen werden offline aus Lockfiles aufgelöst und mit lokal gecachten Advisories abgeglichen; mehrdeutige Manifeste werden als teilweise oder nicht prüfbar gemeldet, statt als sauber behandelt zu werden.",
         "sendsTitle": "Was Sentinello nach außen sendet",
         "tableDestination": "Ziel",
         "tablePurpose": "Zweck",
@@ -551,8 +566,8 @@
                 "disable": "Kernfunktion — nicht deaktivierbar"
             },
             "osv": {
-                "purpose": "Öffentliche OSV-Sicherheitsdatenbank für npm herunterladen",
-                "when": "Täglich, zusätzlich manuelle Aktualisierung – nur wenn OSV aktiviert ist",
+                "purpose": "Den öffentlichen OSV-Advisory-Export für jede aktivierte Sprache herunterladen",
+                "when": "Täglich, zusätzlich manuelle Aktualisierung — nur wenn OSV für eine Sprache aktiviert ist",
                 "disable": "Einstellungen → Quellen (standardmäßig aus), oder SENTINELLO_OSV_FEED_URL=off"
             },
             "github": {
@@ -564,6 +579,11 @@
                 "purpose": "Das Sentinello-Image abrufen",
                 "when": "Bei Installation oder Upgrade",
                 "disable": "Bereitstellungsschritt — zur Laufzeit nicht anwendbar"
+            },
+            "gemnasium": {
+                "purpose": "GitLabs gemnasium-Advisory-Archiv für jede aktivierte Sprache herunterladen",
+                "when": "Täglich, zusätzlich manuelle Aktualisierung — nur wenn gemnasium für eine Sprache aktiviert ist",
+                "disable": "Einstellungen → Quellen (standardmäßig aus), oder SENTINELLO_GEMNASIUM_FEED_URL=off"
             }
         },
         "dataLivesTitle": "Wo Ihre Daten liegen",
@@ -583,7 +603,9 @@
             "updateFeedUrl": "Feed, der für das Update-Banner geprüft wird; auf off setzen, um Update-Prüfungen zu deaktivieren.",
             "webhookStrict": "Wenn aktiviert, werden Webhook-Ziele abgelehnt, die auf private oder Loopback-Adressen verweisen, und https wird verlangt. Link-local- und Cloud-Metadata-Adressen werden immer abgelehnt.",
             "osvFeedUrl": "Basis-URL für den OSV-Advisory-Export, nur verwendet, wenn die OSV-Quelle aktiviert ist; auf off setzen, um jeglichen OSV-Netzwerkzugriff zu deaktivieren.",
-            "osvDbPath": "Speicherort des neu aufbaubaren OSV-Advisory-Caches; standardmäßig neben der Hauptdatenbank."
+            "osvDbPath": "Speicherort des neu aufbaubaren OSV-Advisory-Caches; wächst pro aktivierter Sprache und liegt standardmäßig neben der Hauptdatenbank.",
+            "gemnasiumFeedUrl": "URL für GitLabs gemnasium-Advisory-Archiv, nur verwendet, wenn die gemnasium-Quelle aktiviert ist; auf off setzen, um jeglichen gemnasium-Netzwerkzugriff zu deaktivieren.",
+            "gemnasiumDbPath": "Speicherort des neu aufbaubaren gemnasium-Advisory-Caches; liegt standardmäßig neben der Hauptdatenbank."
         },
         "builtWithTitle": "Erstellt mit",
         "reportingTitle": "Eine Schwachstelle in Sentinello melden",
@@ -623,7 +645,11 @@
                 "resolvedCount": "{count} behoben",
                 "discovered": "Entdeckt",
                 "resolved": "Behoben"
-            }
+            },
+            "coverageTitle": "Abdeckungslücken",
+            "coverageBody": "Einige Sprachen in diesem Projekt konnten offline nicht vollständig geprüft werden, sodass die Funde dafür unvollständig sein können.",
+            "coveragePartial": "Teilweise",
+            "coverageUnauditable": "Nicht prüfbar"
         },
         "library": {
             "eyebrow": "Bibliothek",

@@ -33,6 +33,12 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         audit_unknown_failure: 'Audit failed (unknown)',
         osv_db_not_seeded: 'OSV database not downloaded yet',
         osv_db_unavailable: 'OSV database unavailable',
+        gemnasium_db_not_seeded: 'gemnasium database not downloaded yet',
+        gemnasium_db_unavailable: 'gemnasium database unavailable',
+        partial_dependency_graph: 'Partial dependency graph',
+        ambiguous_dependency_spec: 'Ambiguous dependency spec',
+        unsupported_lockfile: 'Unsupported lockfile',
+        ecosystem_source_disabled: 'No source enabled for ecosystem',
         timeout: 'Timeout'
     },
     'es': {
@@ -58,6 +64,12 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         audit_unknown_failure: 'audit falló (desconocido)',
         osv_db_not_seeded: 'Base de datos OSV aún no descargada',
         osv_db_unavailable: 'Base de datos OSV no disponible',
+        gemnasium_db_not_seeded: 'Base de datos gemnasium aún no descargada',
+        gemnasium_db_unavailable: 'Base de datos gemnasium no disponible',
+        partial_dependency_graph: 'Grafo de dependencias parcial',
+        ambiguous_dependency_spec: 'Especificación de dependencia ambigua',
+        unsupported_lockfile: 'Lockfile no compatible',
+        ecosystem_source_disabled: 'Sin fuente habilitada para el ecosistema',
         timeout: 'Tiempo de espera agotado'
     },
     'fr': {
@@ -83,6 +95,12 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         audit_unknown_failure: 'Échec d’audit (inconnu)',
         osv_db_not_seeded: 'Base de données OSV pas encore téléchargée',
         osv_db_unavailable: 'Base de données OSV indisponible',
+        gemnasium_db_not_seeded: 'Base de données gemnasium pas encore téléchargée',
+        gemnasium_db_unavailable: 'Base de données gemnasium indisponible',
+        partial_dependency_graph: 'Graphe de dépendances partiel',
+        ambiguous_dependency_spec: 'Spécification de dépendance ambiguë',
+        unsupported_lockfile: 'Lockfile non pris en charge',
+        ecosystem_source_disabled: 'Aucune source activée pour l’écosystème',
         timeout: 'Délai dépassé'
     },
     'de': {
@@ -108,6 +126,12 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         audit_unknown_failure: 'audit fehlgeschlagen (unbekannt)',
         osv_db_not_seeded: 'OSV-Datenbank noch nicht heruntergeladen',
         osv_db_unavailable: 'OSV-Datenbank nicht verfügbar',
+        gemnasium_db_not_seeded: 'gemnasium-Datenbank noch nicht heruntergeladen',
+        gemnasium_db_unavailable: 'gemnasium-Datenbank nicht verfügbar',
+        partial_dependency_graph: 'Unvollständiger Abhängigkeitsgraph',
+        ambiguous_dependency_spec: 'Mehrdeutige Abhängigkeitsangabe',
+        unsupported_lockfile: 'Nicht unterstützte Lockfile',
+        ecosystem_source_disabled: 'Keine Quelle für Ökosystem aktiviert',
         timeout: 'Zeitüberschreitung'
     },
     'pt-BR': {
@@ -133,6 +157,12 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         audit_unknown_failure: 'Falha no audit (desconhecida)',
         osv_db_not_seeded: 'Banco de dados OSV ainda não baixado',
         osv_db_unavailable: 'Banco de dados OSV indisponível',
+        gemnasium_db_not_seeded: 'Banco de dados gemnasium ainda não baixado',
+        gemnasium_db_unavailable: 'Banco de dados gemnasium indisponível',
+        partial_dependency_graph: 'Grafo de dependências parcial',
+        ambiguous_dependency_spec: 'Especificação de dependência ambígua',
+        unsupported_lockfile: 'Lockfile não suportado',
+        ecosystem_source_disabled: 'Nenhuma fonte habilitada para o ecossistema',
         timeout: 'Tempo esgotado'
     },
     'it': {
@@ -158,6 +188,12 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         audit_unknown_failure: 'audit non riuscito (sconosciuto)',
         osv_db_not_seeded: 'Database OSV non ancora scaricato',
         osv_db_unavailable: 'Database OSV non disponibile',
+        gemnasium_db_not_seeded: 'Database gemnasium non ancora scaricato',
+        gemnasium_db_unavailable: 'Database gemnasium non disponibile',
+        partial_dependency_graph: 'Grafo delle dipendenze parziale',
+        ambiguous_dependency_spec: 'Specifica di dipendenza ambigua',
+        unsupported_lockfile: 'Lockfile non supportato',
+        ecosystem_source_disabled: 'Nessuna fonte abilitata per l’ecosistema',
         timeout: 'Timeout scaduto'
     },
     'ja': {
@@ -183,6 +219,12 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         audit_unknown_failure: 'audit が失敗しました（不明）',
         osv_db_not_seeded: 'OSV データベースは未ダウンロード',
         osv_db_unavailable: 'OSV データベースを利用できません',
+        gemnasium_db_not_seeded: 'gemnasium データベースは未ダウンロード',
+        gemnasium_db_unavailable: 'gemnasium データベースを利用できません',
+        partial_dependency_graph: '依存関係グラフが不完全',
+        ambiguous_dependency_spec: '依存関係の指定が曖昧',
+        unsupported_lockfile: '未対応のロックファイル',
+        ecosystem_source_disabled: 'エコシステムに有効なソースがありません',
         timeout: 'タイムアウト'
     },
     'zh-CN': {
@@ -208,6 +250,12 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         audit_unknown_failure: 'audit 失败（未知）',
         osv_db_not_seeded: 'OSV 数据库尚未下载',
         osv_db_unavailable: 'OSV 数据库不可用',
+        gemnasium_db_not_seeded: 'gemnasium 数据库尚未下载',
+        gemnasium_db_unavailable: 'gemnasium 数据库不可用',
+        partial_dependency_graph: '依赖关系图不完整',
+        ambiguous_dependency_spec: '依赖项规范不明确',
+        unsupported_lockfile: '不支持的锁文件',
+        ecosystem_source_disabled: '该生态系统未启用任何来源',
         timeout: '超时'
     },
     'ko': {
@@ -233,6 +281,12 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         audit_unknown_failure: 'audit 실패 (알 수 없음)',
         osv_db_not_seeded: 'OSV 데이터베이스가 아직 다운로드되지 않음',
         osv_db_unavailable: 'OSV 데이터베이스를 사용할 수 없음',
+        gemnasium_db_not_seeded: 'gemnasium 데이터베이스가 아직 다운로드되지 않음',
+        gemnasium_db_unavailable: 'gemnasium 데이터베이스를 사용할 수 없음',
+        partial_dependency_graph: '의존성 그래프 불완전',
+        ambiguous_dependency_spec: '모호한 의존성 명세',
+        unsupported_lockfile: '지원하지 않는 잠금 파일',
+        ecosystem_source_disabled: '생태계에 활성화된 소스 없음',
         timeout: '시간 초과'
     },
     'ru': {
@@ -258,6 +312,12 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         audit_unknown_failure: 'Сбой audit (неизвестно)',
         osv_db_not_seeded: 'База данных OSV ещё не загружена',
         osv_db_unavailable: 'База данных OSV недоступна',
+        gemnasium_db_not_seeded: 'База данных gemnasium ещё не загружена',
+        gemnasium_db_unavailable: 'База данных gemnasium недоступна',
+        partial_dependency_graph: 'Неполный граф зависимостей',
+        ambiguous_dependency_spec: 'Неоднозначная спецификация зависимости',
+        unsupported_lockfile: 'Неподдерживаемый lockfile',
+        ecosystem_source_disabled: 'Нет источника для экосистемы',
         timeout: 'Тайм-аут'
     }
 }

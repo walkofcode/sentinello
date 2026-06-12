@@ -1,0 +1,1 @@
+ALTER TABLE `notification_targets` ADD `source_scope_json` text DEFAULT '{"mode":"all","cells":[]}' NOT NULL;

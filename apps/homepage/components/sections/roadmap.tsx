@@ -1,14 +1,13 @@
 import { useTranslations } from 'next-intl'
-import { Crosshair, FileSearch, KeyRound, Languages, Plug, ArrowRight } from 'lucide-react'
+import { Crosshair, FileSearch, KeyRound, Plug, ArrowRight } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { GITHUB_ISSUES_URL } from '@/lib/links'
 import { Section } from './section'
 
-// 'sources' (OSV + malicious-package detection) shipped — it's now a Features card, not a roadmap item.
-// Forward-looking items: more integrations, reachability/prioritization, polyglot ecosystems, SAST, secrets.
+// 'sources' (OSV + malicious-package detection) and polyglot scanning shipped — both are now Features
+// cards, not roadmap items. Forward-looking items: more integrations, reachability/prioritization, SAST, secrets.
 const ITEMS: { key: string; Icon: LucideIcon }[] = [
     { key: 'reachability', Icon: Crosshair },
-    { key: 'polyglot', Icon: Languages },
     { key: 'integrations', Icon: Plug },
     { key: 'sast', Icon: FileSearch },
     { key: 'secrets', Icon: KeyRound }

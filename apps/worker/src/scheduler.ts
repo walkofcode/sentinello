@@ -15,7 +15,8 @@ import {
     intervalHoursToCron,
     type Schedule
 } from './config-loader'
-import { selectScanners, type OsvController } from './osv-runtime'
+import { selectScanners, extraSourceCells, type OsvController } from './osv-runtime'
+import { type GemnasiumController } from './gemnasium-runtime'
 import { discoverProjects } from './discovery'
 import { runBatch } from './runner'
 import type { WorkerRuntime } from './runtime'
@@ -29,9 +30,10 @@ export type StartSchedulerInput = {
     db: DrizzleDb
     sqlite: SqliteDb
     runtime: WorkerRuntime
-    // Controller for the OSV source. Read per-batch via getScanner() so enabling/disabling the source
-    // in Settings takes effect on the next scan. Absent in contexts that never run OSV (e.g. tests).
+    // Controllers for the optional advisory sources. Read per-batch via getScanner() so enabling/disabling
+    // a source in Settings takes effect on the next scan. Absent in contexts that never run them (e.g. tests).
     osvController?: OsvController | null
+    gemnasiumController?: GemnasiumController | null
 }
 
 export function startScheduler(input: StartSchedulerInput): SchedulerHandles {
@@ -89,7 +91,7 @@ export async function sweepActiveProjects(input: StartSchedulerInput): Promise<v
     await runBatch({
         db: input.db,
         sqlite: input.sqlite,
-        scanners: selectScanners(input.db, npmAuditPlugin, input.osvController?.getScanner() ?? null),
+        scanners: selectScanners(input.db, npmAuditPlugin, extraSourceCells(input)),
         projects,
         parallelism,
         abortSignal: input.runtime.abortController.signal

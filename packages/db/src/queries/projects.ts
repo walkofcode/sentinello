@@ -1,5 +1,5 @@
 import { eq, inArray } from 'drizzle-orm'
-import type { Project } from '@sentinello/core'
+import { getEcosystem, type EcosystemId, type Project } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import {
     findings,
@@ -44,6 +44,7 @@ export function upsertProject(db: DrizzleDb, project: Project): void {
                 packageManager: insertRow.packageManager,
                 nvmrcVersion: insertRow.nvmrcVersion,
                 tagsJson: insertRow.tagsJson,
+                ecosystemsJson: insertRow.ecosystemsJson,
                 updatedAt: insertRow.updatedAt
             }
         })
@@ -108,6 +109,7 @@ function rowToProject(row: ProjectRow): Project {
         alias: row.alias,
         packageManager: row.packageManager,
         nvmrcVersion: row.nvmrcVersion,
+        ecosystems: parseEcosystems(row.ecosystemsJson),
         muted: row.muted,
         tags: parseTags(row.tagsJson),
         createdAt: row.createdAt,
@@ -123,6 +125,20 @@ function parseTags(json: string): string[] {
     })
 }
 
+// Parse the persisted ecosystems_json, keeping only values that are still known to the central registry
+// (so a renamed/removed ecosystem id can't reach the rest of the app as a phantom EcosystemId).
+function parseEcosystems(json: string): EcosystemId[] {
+    const parsed = JSON.parse(json) as unknown
+    if (!Array.isArray(parsed)) return []
+    const out: EcosystemId[] = []
+    for (const value of parsed) {
+        if (typeof value !== 'string') continue
+        const def = getEcosystem(value)
+        if (def) out.push(def.id)
+    }
+    return out
+}
+
 function projectToInsert(project: Project): ProjectInsert {
     return {
         id: project.id,
@@ -134,6 +150,7 @@ function projectToInsert(project: Project): ProjectInsert {
         nvmrcVersion: project.nvmrcVersion,
         muted: project.muted,
         tagsJson: JSON.stringify(project.tags),
+        ecosystemsJson: JSON.stringify(project.ecosystems),
         createdAt: project.createdAt,
         updatedAt: project.updatedAt
     }

@@ -3,8 +3,19 @@
 // feed source is "implement an adapter that yields these"; it cannot re-implement matching wrong because
 // it owns no matching code.
 export type CanonicalRange = {
+    // OSV `range.type` ('SEMVER' | 'ECOSYSTEM' | 'GIT') when the source preserves it (OSV does). The matcher
+    // only evaluates a range whose type the selected comparator declares it understands (see the matcher's
+    // `acceptedRangeTypes` param), so e.g. a PEP 440 comparator never silently evaluates a SEMVER-typed range
+    // and vice versa. Optional: sources that emit a single semver-interval shape (gemnasium) leave it unset,
+    // and an unset type is treated as "unclassified" — skipped when type-filtering is active.
+    type?: string
     introduced: string
     fixed: string | null
+    // OSV `last_affected`: an inclusive upper bound used by non-SEMVER ecosystems (PyPI/Go/Rust) when an
+    // advisory has no clean `fixed` version — the range is vulnerable through this version inclusive. Null
+    // / absent for the common half-open `[introduced, fixed)` case (npm advisories, gemnasium). Optional so
+    // sources that only produce half-open ranges (gemnasium) need not set it.
+    lastAffected?: string | null
 }
 
 export type CanonicalAdvisory = {

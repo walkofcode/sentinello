@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm'
-import type { DepTypeFilter, NotificationTarget, NotificationTargetConfig } from '@sentinello/core'
+import type { DepTypeFilter, NotificationSourceScope, NotificationTarget, NotificationTargetConfig } from '@sentinello/core'
+import { SOURCE_IDS, getEcosystem } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { notificationTargets } from '../schema'
 import {
@@ -41,6 +42,7 @@ export function insertNotificationTarget(db: DrizzleDb, target: NotificationTarg
             configJson: JSON.stringify(target.config),
             severityFilterJson: JSON.stringify(target.severityFilter),
             envFilter: target.envFilter,
+            sourceScopeJson: JSON.stringify(target.sourceScope),
             enabled: target.enabled,
             createdAt: target.createdAt
         })
@@ -75,6 +77,7 @@ export type UpdateNotificationTargetInput = {
     config?: NotificationTargetConfig
     severityFilter?: NotificationTarget['severityFilter']
     envFilter?: DepTypeFilter
+    sourceScope?: NotificationSourceScope
     enabled?: boolean
 }
 
@@ -83,6 +86,7 @@ export function updateNotificationTarget(db: DrizzleDb, input: UpdateNotificatio
     if (input.config !== undefined) patch.configJson = JSON.stringify(input.config)
     if (input.severityFilter !== undefined) patch.severityFilterJson = JSON.stringify(input.severityFilter)
     if (input.envFilter !== undefined) patch.envFilter = input.envFilter
+    if (input.sourceScope !== undefined) patch.sourceScopeJson = JSON.stringify(input.sourceScope)
     if (input.enabled !== undefined) patch.enabled = input.enabled
     if (Object.keys(patch).length === 0) return
     db.update(notificationTargets).set(patch).where(eq(notificationTargets.id, input.id)).run()
@@ -110,13 +114,42 @@ function rowToTarget(row: NotificationTargetRow, rootIds: string[], projectIds: 
         enabled: row.enabled,
         createdAt: row.createdAt,
         rootIds,
-        projectIds
+        projectIds,
+        sourceScope: parseSourceScope(row.sourceScopeJson)
     }
 }
 
 function parseEnvFilter(raw: string): DepTypeFilter {
     if (raw === 'prod' || raw === 'dev') return raw
     return 'all'
+}
+
+// Parse the persisted source-scope JSON, defaulting to "all" on anything malformed and keeping only cells
+// whose source/ecosystem are still known to the central registry (so a removed ecosystem can't leave a
+// dangling cell). An empty/invalid blob, or mode 'all', means "fire for every cell".
+function parseSourceScope(json: string): NotificationSourceScope {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(json)
+    } catch {
+        return { mode: 'all', cells: [] }
+    }
+    const obj = parsed as { mode?: unknown; cells?: unknown }
+    if (obj.mode !== 'selected') return { mode: 'all', cells: [] }
+    const rawCells = Array.isArray(obj.cells) ? obj.cells : []
+    const cells = rawCells
+        .filter(function isCell(c: unknown): c is { source: string; ecosystem: string } {
+            if (!c || typeof c !== 'object') return false
+            const cell = c as { source?: unknown; ecosystem?: unknown }
+            return typeof cell.source === 'string' && typeof cell.ecosystem === 'string'
+        })
+        .filter(function known(c) {
+            return (SOURCE_IDS as string[]).includes(c.source) && getEcosystem(c.ecosystem) !== null
+        })
+        .map(function toCell(c) {
+            return { source: c.source as NotificationSourceScope['cells'][number]['source'], ecosystem: c.ecosystem as NotificationSourceScope['cells'][number]['ecosystem'] }
+        })
+    return { mode: 'selected', cells }
 }
 
 function parseSeverityFilter(json: string): NotificationTarget['severityFilter'] {

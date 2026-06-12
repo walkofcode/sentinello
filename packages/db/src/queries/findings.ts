@@ -13,6 +13,9 @@ type FindingInsert = typeof findings.$inferInsert
 export type IncomingFinding = {
     projectId: string
     scanner: string
+    // Persisted source identity (SourceId; === scanner for today's sources) + the package's EcosystemId.
+    source: string
+    ecosystem: string
     advisoryId: string
     advisoryTitle: string | null
     advisoryUrl: string | null
@@ -76,7 +79,11 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
         .all()
     const openByIdentity = new Map<string, FindingRow[]>()
     for (const row of openRows) {
-        const key = identityKey(row.scanner, row.advisoryId, row.packageName)
+        // Identity keys on the persisted `source` (falling back to scanner for un-backfilled legacy
+        // rows), never the scanner plugin name. The merge is still SCOPED to one scanner (the WHERE
+        // above) for provenance — an osv scan never resolves npm-audit findings — but within that
+        // scope the dedup/identity axis is source.
+        const key = identityKey(row.source ?? row.scanner, row.ecosystem, row.advisoryId, row.packageName)
         const bucket = openByIdentity.get(key)
         if (bucket) bucket.push(row)
         else openByIdentity.set(key, [row])
@@ -85,7 +92,7 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
     const resolved: Finding[] = []
     const seenIdentityKeys = new Set<string>()
     for (const inc of input.incoming) {
-        const key = identityKey(inc.scanner, inc.advisoryId, inc.packageName)
+        const key = identityKey(inc.source, inc.ecosystem, inc.advisoryId, inc.packageName)
         seenIdentityKeys.add(key)
         const bucket = openByIdentity.get(key)
         if (bucket && bucket.length > 0) {
@@ -134,6 +141,8 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             scanId: input.scanId,
             projectId: input.projectId,
             scanner: inc.scanner,
+            source: inc.source,
+            ecosystem: inc.ecosystem,
             advisoryId: inc.advisoryId,
             advisoryTitle: inc.advisoryTitle,
             advisoryUrl: inc.advisoryUrl,
@@ -157,6 +166,8 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             scanId: input.scanId,
             projectId: input.projectId,
             scanner: inc.scanner,
+            source: inc.source,
+            ecosystem: inc.ecosystem,
             advisoryId: inc.advisoryId,
             advisoryTitle: inc.advisoryTitle,
             advisoryUrl: inc.advisoryUrl,
@@ -281,13 +292,19 @@ export type ResolvedLibraryFinding = Finding & {
 export function listResolvedFindingsForLibrary(
     db: DrizzleDb,
     packageName: string,
-    limit = 50
+    limit = 50,
+    ecosystem?: string
 ): ResolvedLibraryFinding[] {
+    // Scope to the (ecosystem, packageName) cell when the caller knows the ecosystem; COALESCE keeps
+    // un-backfilled legacy rows reachable under 'npm'.
+    const ecosystemFilter = ecosystem ? sql`AND COALESCE(f.ecosystem, 'npm') = ${ecosystem}` : sql``
     const rows = db.all<{
         id: string
         scan_id: string
         project_id: string
         scanner: string
+        source: string | null
+        ecosystem: string | null
         advisory_id: string
         advisory_title: string | null
         advisory_url: string | null
@@ -310,6 +327,7 @@ export function listResolvedFindingsForLibrary(
         FROM findings f
         INNER JOIN projects p ON p.id = f.project_id
         WHERE f.package_name = ${packageName} AND f.resolved_at IS NOT NULL
+          ${ecosystemFilter}
         ORDER BY f.resolved_at DESC
         LIMIT ${limit}
     `)
@@ -319,6 +337,8 @@ export function listResolvedFindingsForLibrary(
             scanId: row.scan_id,
             projectId: row.project_id,
             scanner: row.scanner,
+            source: row.source ?? row.scanner,
+            ecosystem: row.ecosystem ?? 'npm',
             advisoryId: row.advisory_id,
             advisoryTitle: row.advisory_title,
             advisoryUrl: row.advisory_url,
@@ -342,7 +362,7 @@ export function listResolvedFindingsForLibrary(
 
 export function findFindingByIdentity(
     db: DrizzleDb,
-    identity: { projectId: string; scanner: string; advisoryId: string; packageName: string }
+    identity: { projectId: string; source: string; ecosystem: string; advisoryId: string; packageName: string }
 ): Finding | null {
     const row = db
         .select()
@@ -350,7 +370,10 @@ export function findFindingByIdentity(
         .where(
             and(
                 eq(findings.projectId, identity.projectId),
-                eq(findings.scanner, identity.scanner),
+                // Match on the persisted source identity; COALESCE keeps un-backfilled legacy rows
+                // (source NULL) reachable by their scanner value.
+                sql`COALESCE(${findings.source}, ${findings.scanner}) = ${identity.source}`,
+                eq(findings.ecosystem, identity.ecosystem),
                 eq(findings.advisoryId, identity.advisoryId),
                 eq(findings.packageName, identity.packageName),
                 isNull(findings.resolvedAt)
@@ -361,8 +384,10 @@ export function findFindingByIdentity(
     return rowToFinding(row)
 }
 
-function identityKey(scanner: string, advisoryId: string, packageName: string): string {
-    return scanner + '|' + advisoryId + '|' + packageName
+// In-memory dedup key for the lifecycle merge. First component is the persisted source identity, not
+// the scanner plugin name (see findingIdentityKey in ../identity for the durable hashed form).
+function identityKey(source: string, ecosystem: string, advisoryId: string, packageName: string): string {
+    return source + '|' + ecosystem + '|' + advisoryId + '|' + packageName
 }
 
 function rowToFinding(row: FindingRow): Finding {
@@ -371,6 +396,10 @@ function rowToFinding(row: FindingRow): Finding {
         scanId: row.scanId,
         projectId: row.projectId,
         scanner: row.scanner,
+        // source/ecosystem fall back for the brief pre-backfill window on legacy rows: source === scanner,
+        // ecosystem === 'npm' (everything was npm before the polyglot migration).
+        source: row.source ?? row.scanner,
+        ecosystem: row.ecosystem ?? 'npm',
         advisoryId: row.advisoryId,
         advisoryTitle: row.advisoryTitle,
         advisoryUrl: row.advisoryUrl,

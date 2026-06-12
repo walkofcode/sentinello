@@ -153,7 +153,8 @@
         "colMaxSeverity": "최대 심각도",
         "nodeAmbient": "주변 환경",
         "badgeMuted": "음소거됨",
-        "badgeMissing": "누락됨"
+        "badgeMissing": "누락됨",
+        "colLanguage": "언어"
     },
     "WhatsNew": {
         "pillLabel": "새로운 기능",
@@ -287,16 +288,19 @@
         "sources": {
             "metaTitle": "소스 · 설정",
             "title": "취약점 소스",
-            "description": "npm audit는 항상 실행됩니다. 추가 소스를 활성화하여 범위를 넓히세요.",
+            "description": "Sentinello는 기본적으로 JavaScript를 스캔합니다. 아래에서 추가 언어와 소스를 활성화하여 범위를 넓히세요. 최소한 하나의 소스는 활성화된 상태로 유지해야 합니다.",
             "npmAuditLabel": "npm audit",
             "alwaysOn": "항상 켜짐",
             "optional": "선택 사항",
             "npmAuditHelp": "기본 제공 소스. 각 프로젝트의 잠금 파일에 대해 npm/pnpm/yarn audit를 실행합니다.",
             "osvLabel": "OSV (Open Source Vulnerabilities)",
-            "osvHelp": "npm 생태계를 OSV 데이터베이스와 직접 대조합니다. npm audit가 놓치는 CVE를 추가하고 알려진 악성 패키지를 표시합니다.",
+            "osvHelp": "이 언어의 패키지를 OSV 데이터베이스와 대조합니다. 네이티브 소스가 놓치는 CVE를 추가하고 알려진 악성 패키지를 표시합니다.",
+            "gemnasiumLabel": "GitLab gemnasium",
+            "gemnasiumHelp": "이 언어의 패키지를 GitLab의 gemnasium 권고 데이터베이스와 대조합니다. 네이티브 소스 및 OSV 외에 독립적으로 선별된 권고를 추가합니다.",
+            "gemnasiumDownloadDisclosure": "gemnasium을 활성화하면 GitLab의 gemnasium 권고 데이터베이스를 gitlab.com에서(수십 MB) 데이터 볼륨으로 다운로드한 다음 약 매일 업데이트합니다. 캐시는 다시 만들 수 있으며 발견 항목과 별도로 저장됩니다.",
             "enabled": "활성화됨",
             "disabled": "비활성화됨",
-            "downloadDisclosure": "OSV를 활성화하면 OSV npm 내보내기(~196 MB)를 데이터 볼륨에 다운로드하고 이후 거의 매일 업데이트합니다. 캐시는 재구축 가능하며 발견 항목과 별도로 저장됩니다.",
+            "downloadDisclosure": "OSV를 활성화하면 해당 언어의 OSV 권고 내보내기 파일이 데이터 볼륨에 다운로드되며 이후 거의 매일 업데이트됩니다. 이 캐시는 재구축 가능하며 findings와 별도로 저장됩니다.",
             "freeSpace": "데이터 볼륨에 약 {gib} GB 여유 공간이 있습니다.",
             "syncStatus": "동기화 상태",
             "seeded": "최신",
@@ -305,7 +309,8 @@
             "lastRefreshed": "마지막 새로 고침",
             "lastError": "마지막 오류",
             "refreshNow": "지금 새로 고침",
-            "refreshQueued": "새로 고침 요청됨 — 백그라운드에서 실행됩니다."
+            "refreshQueued": "새로 고침 요청됨 — 백그라운드에서 실행됩니다.",
+            "defaultOn": "기본값"
         },
         "defaults": {
             "metaTitle": "기본값 · 설정",
@@ -402,6 +407,14 @@
             "selectionError": "루트 또는 프로젝트를 하나 이상 선택하거나 <all>전체</all>로 전환하세요.",
             "rootsHeading": "루트",
             "projectsHeading": "프로젝트"
+        },
+        "sourceScope": {
+            "label": "소스",
+            "all": "모든 소스",
+            "allHelp": "모든 소스와 언어에 대해 알립니다.",
+            "selected": "선택한 소스",
+            "selectedHelp": "아래에서 선택한 소스/언어 셀에 대해서만 알립니다.",
+            "selectionError": "셀을 최소한 하나 선택하거나 “모든 소스”를 선택하세요."
         }
     },
     "Findings": {
@@ -449,7 +462,9 @@
         "projectsAffected": "{count, plural, one {# 개 프로젝트 영향받음} other {# 개 프로젝트 영향받음}}",
         "detectedLabel": "감지됨:",
         "rangeLabel": "범위:",
-        "malicious": "악성"
+        "malicious": "악성",
+        "filterByEcosystem": "언어로 필터링",
+        "ecosystemAll": "모든 언어"
     },
     "Triage": {
         "alias": {
@@ -534,11 +549,11 @@
         "title": "Sentinello",
         "intro": "포트폴리오 전반의 의존성 취약점을 중앙에서 모니터링합니다 — 자체 인프라에서 셀프 호스팅됩니다.",
         "notDoTitle": "Sentinello가 하지 않는 일",
-        "notDoBody": "Sentinello는 전적으로 사용자의 인프라에서 실행됩니다. 소스 코드를 읽지 않으며 — <code>package.json</code> 파일을 찾아 프로젝트만 발견합니다 — 어디에도 업로드되지 않고, 텔레메트리가 사용자의 머신을 떠나지 않으며, 중앙 계정이 없고, LLM이나 AI가 관여하지 않습니다. 기본적으로 순수한 <code>npm audit</code>입니다. 유일한 추가 기능은 선택적 OSV 소스(설정 → 소스, 기본값 꺼짐)뿐이며, 그 경우에도 HTTPS를 통해 공개 권고 데이터만 가져옵니다.",
+        "notDoBody": "Sentinello는 전적으로 사용자의 인프라에서 실행됩니다. 소스 코드를 읽지 않으며, 종속성 매니페스트와 lockfile(<code>package.json</code>과 Python, Go, Rust lockfile)을 찾아 프로젝트를 발견합니다 — 어디에도 업로드되지 않고, 텔레메트리가 사용자의 머신을 떠나지 않으며, 중앙 계정이 없고, LLM이나 AI가 관여하지 않습니다. JavaScript의 경우 기본적으로 순수한 <code>npm audit</code>입니다. 선택적인 OSV 및 gemnasium 소스(설정 → 소스, 기본값 꺼짐)는 HTTPS를 통해 공개 권고 데이터만 가져옵니다.",
         "whoTitle": "제작자",
         "whoBody": "<company>Walk of Code LLC</company>와 Sebastian Arena가 제작했습니다 (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "권고 데이터의 출처",
-        "advisoryBody": "취약점 데이터는 GitHub Advisory Database에서 비롯되며, <code>npm audit</code>를 통해 npm 레지스트리의 권고 엔드포인트로 접근합니다. 현재는 npm 생태계를 다루며, 추후 추가 출처가 더해질 수 있습니다. OSV(설정 → 소스, 기본값 꺼짐)를 활성화하면 npm 패키지를 공개 OSV 데이터베이스와도 대조하여 npm audit가 놓치는 권고를 찾아내고 알려진 악성 패키지를 표시할 수 있습니다.",
+        "advisoryBody": "취약점 데이터는 GitHub Advisory Database에서 비롯되며, JavaScript의 경우 <code>npm audit</code>를 통해 npm 레지스트리의 권고 엔드포인트로 접근합니다. 또한 언어별로 OSV와 GitLab gemnasium을 활성화하여(설정 → 소스) JavaScript, Python, Go, Rust 패키지를 이러한 공개 권고 데이터베이스와 대조할 수 있습니다 — npm audit가 놓치는 권고를 찾아내고 알려진 악성 패키지를 표시합니다. JavaScript 이외의 언어는 lockfile에서 오프라인으로 해석되어 로컬에 캐시된 권고와 대조됩니다. 모호한 매니페스트는 정상으로 처리되지 않고 부분적 또는 감사 불가로 보고됩니다.",
         "sendsTitle": "Sentinello가 외부로 보내는 것",
         "tableDestination": "대상",
         "tablePurpose": "목적",
@@ -551,9 +566,9 @@
                 "disable": "핵심 기능 — 비활성화 불가"
             },
             "osv": {
-                "purpose": "npm용 공개 OSV 권고 데이터베이스 다운로드",
-                "when": "매일 및 수동 새로 고침 시 — OSV가 활성화된 경우에만",
-                "disable": "설정 → 소스(기본값 꺼짐), 또는 SENTINELLO_OSV_FEED_URL=off"
+                "purpose": "활성화된 각 언어의 공개 OSV 권고 내보내기 파일 다운로드",
+                "when": "매일, 수동 새로 고침 포함 — 언어에 대해 OSV가 활성화된 경우에만",
+                "disable": "설정 → 소스(기본값 꺼짐) 또는 SENTINELLO_OSV_FEED_URL=off"
             },
             "github": {
                 "purpose": "페이지 상단 배너를 위한 업데이트 확인",
@@ -564,6 +579,11 @@
                 "purpose": "Sentinello 이미지 가져오기",
                 "when": "설치 또는 업그레이드 시",
                 "disable": "배포 단계 — 런타임에는 해당 없음"
+            },
+            "gemnasium": {
+                "purpose": "활성화된 각 언어의 GitLab gemnasium 권고 아카이브 다운로드",
+                "when": "매일, 수동 새로 고침 포함 — 언어에 대해 gemnasium이 활성화된 경우에만",
+                "disable": "설정 → 소스(기본값 꺼짐) 또는 SENTINELLO_GEMNASIUM_FEED_URL=off"
             }
         },
         "dataLivesTitle": "데이터가 저장되는 곳",
@@ -583,7 +603,9 @@
             "updateFeedUrl": "업데이트 배너를 위해 확인하는 피드. off로 설정하면 업데이트 확인을 비활성화합니다.",
             "webhookStrict": "활성화하면 비공개 또는 루프백 주소를 향한 웹훅 대상을 거부하고 https를 요구합니다. 링크 로컬 및 클라우드 메타데이터 주소는 항상 거부됩니다.",
             "osvFeedUrl": "OSV 권고 익스포트의 기본 URL. OSV 소스가 활성화된 경우에만 사용됩니다. off로 설정하면 모든 OSV 네트워크 접근을 비활성화합니다.",
-            "osvDbPath": "재구축 가능한 OSV 권고 캐시의 위치. 기본값은 메인 데이터베이스 옆입니다."
+            "osvDbPath": "재구축 가능한 OSV 권고 캐시의 위치. 활성화된 언어마다 커지며 기본적으로 메인 데이터베이스 옆에 위치합니다.",
+            "gemnasiumFeedUrl": "GitLab gemnasium 권고 아카이브의 URL. gemnasium 소스가 활성화된 경우에만 사용됩니다. off로 설정하면 gemnasium의 모든 네트워크 접근을 비활성화합니다.",
+            "gemnasiumDbPath": "재구축 가능한 gemnasium 권고 캐시의 위치. 기본적으로 메인 데이터베이스 옆에 위치합니다."
         },
         "builtWithTitle": "사용 기술",
         "reportingTitle": "Sentinello의 취약점 신고",
@@ -623,7 +645,11 @@
                 "resolvedCount": "{count}개 해결",
                 "discovered": "발견",
                 "resolved": "해결됨"
-            }
+            },
+            "coverageTitle": "범위 격차",
+            "coverageBody": "이 프로젝트의 일부 언어는 오프라인에서 완전히 감사할 수 없어 해당 언어의 findings가 불완전할 수 있습니다.",
+            "coveragePartial": "부분적",
+            "coverageUnauditable": "감사 불가"
         },
         "library": {
             "eyebrow": "라이브러리",

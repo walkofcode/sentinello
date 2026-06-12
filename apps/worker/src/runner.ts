@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { ulid } from 'ulid'
-import type { Finding, Project, Scan } from '@sentinello/core'
+import { DEFAULT_ECOSYSTEM, type Finding, type Project, type Scan } from '@sentinello/core'
 import {
     insertScan,
     mergeFindingsForScan,
@@ -12,17 +12,25 @@ import {
     type SqliteDb
 } from '@sentinello/db'
 import {
-    detectLockfile,
+    detectManifests,
+    graphForEcosystem,
+    mergeResolvedGraphs,
     reconcileAgainstReported,
-    resolveProject,
+    resolveProjectGraphs,
+    type EcosystemCoverage,
     type RawFinding,
     type ResolvedGraph,
+    type ResolverResult,
     type ScannerPlugin
 } from '@sentinello/scanners'
 import { CONFIG_KEYS } from './config-loader'
 import { notifyForCompletedScan } from './notifier'
 
 const SCANNER_TIMEOUT_MS = 90_000
+
+// The npm-audit scanner plugin name. nvm/Node tooling and the JavaScript-only resolved graph are confined
+// to this scanner; every other (advisory-feed) source is toolchain-free and answers across ecosystems.
+const NPM_AUDIT_SCANNER_NAME = 'npm-audit'
 
 export type RunBatchInput = {
     db: DrizzleDb
@@ -81,20 +89,37 @@ async function runProjectScanners(input: RunBatchInput, project: Project): Promi
         return [outcome]
     }
     const projectPath = resolve(root.path, project.relPath)
-    // Resolve the dependency graph ONCE per project and share it across every scanner, so prod/dev
-    // classification is computed a single way (and the lockfile is parsed once, not per scanner). Null
-    // when the lockfile can't be resolved (yarn/unparseable/absent) — each scanner falls back.
-    const lockfile = await detectLockfile(projectPath)
-    const resolvedGraph: ResolvedGraph | null = lockfile ? await resolveProject(projectPath, lockfile) : null
+    // Resolve EVERY detected ecosystem's graph ONCE per project (Phase 4 — one project spans JS + Python +
+    // Go + Rust). Each resolver result is classified ok/partial/unauditable so coverage is honest. The
+    // advisory-feed sources (OSV, gemnasium) answer for all ecosystems, so they get the merged graph and
+    // group by ecosystem internally; npm-audit gets only the JavaScript graph and is the sole scanner that
+    // touches the Node toolchain (nvm). Each scanner still resolves/merges findings scoped to its own name.
+    const manifests = await detectManifests(projectPath)
+    const resolverResults = await resolveProjectGraphs(projectPath, manifests)
+    const mergedGraph = mergeResolvedGraphs(resolverResults)
+    const npmGraph = graphForEcosystem(resolverResults, 'npm')
+    const coverage = resolverResults.map(toCoverage)
     const outcomes: ProjectScanOutcome[] = []
-    // package name → set of advisory keys (lower-cased ids + aliases) already reported this run.
+    // (ecosystem|package) → set of advisory keys (lower-cased ids + aliases) already reported this run.
+    // The key is the ECOSYSTEM-SCOPED package identity (findingPackageIdentity), never the bare name: a
+    // polyglot feed scan carries npm + PyPI + Go + crates packages together, so dedup must not collapse a
+    // PyPI `requests` into an npm `requests` that shares a CVE/GHSA alias. Keep it ecosystem-scoped.
     const reportedByPackage = new Map<string, Set<string>>()
     for (const scanner of input.scanners) {
         if (input.abortSignal && input.abortSignal.aborted) break
-        const outcome = await runOneScanner(input, project, projectPath, scanner, reportedByPackage, resolvedGraph)
+        const isNpmAudit = scanner.name === NPM_AUDIT_SCANNER_NAME
+        const graphForScanner = isNpmAudit ? npmGraph : mergedGraph
+        const coverageForScanner = isNpmAudit ? undefined : coverage
+        const outcome = await runOneScanner(input, project, projectPath, scanner, reportedByPackage, graphForScanner, coverageForScanner)
         outcomes.push(outcome)
     }
     return outcomes
+}
+
+// Flatten a classified ResolverResult into the compact per-ecosystem coverage the feed scanners record.
+function toCoverage(result: ResolverResult): EcosystemCoverage {
+    if (result.status === 'ok') return { ecosystem: result.ecosystem, status: 'ok' }
+    return { ecosystem: result.ecosystem, status: result.status, reasonCode: result.reasonCode, details: result.details }
 }
 
 async function runOneScanner(
@@ -103,16 +128,21 @@ async function runOneScanner(
     projectPath: string,
     scanner: ScannerPlugin,
     reportedByPackage: Map<string, Set<string>>,
-    resolvedGraph: ResolvedGraph | null
+    resolvedGraph: ResolvedGraph | null,
+    coverage: EcosystemCoverage[] | undefined
 ): Promise<ProjectScanOutcome> {
     const startedAt = Date.now()
+    // nvm/Node tooling is JavaScript-only: only the npm-audit scanner ever invokes it. Feed sources are
+    // toolchain-free, so a project's .nvmrc must not make them try to switch Node versions.
+    const useNvm = scanner.name === NPM_AUDIT_SCANNER_NAME && project.nvmrcVersion !== null
     let scanResult
     try {
         scanResult = await scanner.scan(projectPath, {
             timeoutMs: SCANNER_TIMEOUT_MS,
-            useNvm: project.nvmrcVersion !== null,
+            useNvm,
             abortSignal: input.abortSignal,
-            resolvedGraph
+            resolvedGraph,
+            coverage
         })
     } catch (err) {
         const message = err instanceof Error && err.message || String(err)
@@ -127,6 +157,10 @@ async function runOneScanner(
         startedAt,
         finishedAt,
         scanner: scanner.name,
+        // For today's sources source === scanner name; ecosystem is npm (the only ecosystem scanned until
+        // the polyglot resolvers land in Phases 3–4, when a scanner run is split per (source, ecosystem)).
+        source: scanner.name,
+        ecosystem: DEFAULT_ECOSYSTEM,
         status: scanResult.status,
         reasonCode: scanResult.reasonCode,
         durationMs: scanResult.durationMs,
@@ -138,6 +172,10 @@ async function runOneScanner(
         return {
             projectId: project.id,
             scanner: scanner.name,
+            source: scanner.name,
+            // The matcher engine stamps the package's real ecosystem; npm-audit findings have none, so
+            // they default to the npm ecosystem.
+            ecosystem: raw.ecosystem ?? DEFAULT_ECOSYSTEM,
             advisoryId: raw.advisoryId,
             advisoryTitle: raw.advisoryTitle,
             advisoryUrl: raw.advisoryUrl,
@@ -190,6 +228,8 @@ function makeErrorOutcome(project: Project, errorText: string, startedAt?: numbe
         startedAt: start,
         finishedAt: at,
         scanner,
+        source: scanner,
+        ecosystem: DEFAULT_ECOSYSTEM,
         status: 'error',
         reasonCode: 'audit_unknown_failure',
         durationMs: at - start,

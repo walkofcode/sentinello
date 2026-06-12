@@ -24,7 +24,11 @@ export function severityRankSql(alias: string = 'f'): SQL {
 // The "this finding is not silenced" predicate, extracted from the copies in getDashboardSummary /
 // listLibraries / listProjectCatalog so the deduped CTEs stay in sync with them. A finding is muted
 // when an unexpired project-scope mute covers its project, or an unexpired finding-scope mute matches
-// its (scanner, advisory_id, package_name). `at` stays a bound param; identifiers use sql.raw(alias).
+// its (source, ecosystem, advisory_id, package_name). mutes.scanner is the back-compat column that holds
+// the persisted source identity, so it matches the finding's source (COALESCE(source, scanner) for
+// un-backfilled legacy rows where the plugin name was the source identity) — never the plugin/provenance
+// field. A NULL mute.ecosystem is a legacy (pre-polyglot) finding-scope row that matches any ecosystem
+// until backfilled to 'npm'. `at` stays a bound param; identifiers use sql.raw(alias).
 export function findingMuteExclusionSql(at: number, alias: string = 'f'): SQL {
     const a = sql.raw(alias)
     return sql`AND NOT EXISTS (
@@ -35,7 +39,8 @@ export function findingMuteExclusionSql(at: number, alias: string = 'f'): SQL {
             OR (
               m.scope = 'finding'
               AND (m.project_id IS NULL OR m.project_id = ${a}.project_id)
-              AND m.scanner = ${a}.scanner
+              AND m.scanner = COALESCE(${a}.source, ${a}.scanner)
+              AND (m.ecosystem IS NULL OR m.ecosystem = ${a}.ecosystem)
               AND m.advisory_id = ${a}.advisory_id
               AND m.package_name = ${a}.package_name
             )
