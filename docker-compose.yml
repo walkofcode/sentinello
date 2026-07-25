@@ -28,6 +28,14 @@ services:
         #     dockerfile: Dockerfile
         container_name: sentinello
         restart: unless-stopped
+        # The worker waits up to 30s for an in-flight scan to drain on SIGTERM, then force-exits at
+        # 35s. Docker's default stop timeout is 10s, which kills it mid-shutdown: the scan dies and
+        # the single-instance lock in sentinello-data is never released, so the NEXT container spends
+        # ~30s restart-looping until that lock ages out as stale. 60s rather than 40s because the
+        # 35s ceiling is enforced by a timer, and better-sqlite3 writes are synchronous — a large
+        # write blocks the event loop and can delay it. Costs nothing when idle: docker waits only
+        # until the process actually exits.
+        stop_grace_period: 60s
         # Hardening: forbid privilege escalation and drop every Linux capability. The container runs
         # as an unprivileged user and only binds a high port, so it needs none of them.
         security_opt:

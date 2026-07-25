@@ -32,6 +32,7 @@ background scan worker run together under `pm2-runtime`.
 docker run -d \
   --name sentinello \
   -p 127.0.0.1:3870:3000 \
+  --stop-timeout 60 \
   -v sentinello-data:/app/data \
   -v sentinello-nvm:/home/sentinello/.nvm \
   -v /path/to/your/code:/roots/personal:ro \
@@ -54,6 +55,9 @@ services:
         image: walkofcode/sentinello:latest
         container_name: sentinello
         restart: unless-stopped
+        # Room for the worker to drain an in-flight scan and release its lock on SIGTERM — see
+        # "Shutting down cleanly" below. Docker's 10s default is too short.
+        stop_grace_period: 60s
         security_opt:
             - no-new-privileges:true
         cap_drop:
@@ -215,6 +219,31 @@ The container exposes `GET /api/health` (runs a `SELECT 1` against SQLite) and
 ships a `HEALTHCHECK`, so compose / k8s / Portainer can detect a wedged process.
 It returns only liveness + DB status — the running version is served separately at
 `GET /api/version` so the unauthenticated probe doesn't expose it.
+
+## Shutting down cleanly
+
+Set `stop_grace_period: 60s` (compose) or `--stop-timeout 60` (`docker run`).
+**Docker's default is 10 seconds, which is too short for Sentinello.**
+
+On `SIGTERM` the worker stops scheduling new work, signals any in-flight scan to
+abort, then waits up to 30s for it to drain before releasing its lock and closing
+the database — force-exiting at 35s if that stalls.
+
+Killed at 10s instead, the running scan dies mid-write and the single-instance
+lock in the `sentinello-data` volume is never released. That volume persists
+across container recreation, so the *next* container finds an orphaned lock that
+isn't stale yet and restart-loops for ~30 seconds until it ages out. It is
+self-healing — the worker recovers on its own — but it delays the first scan and
+logs:
+
+```
+[worker] could not acquire single-instance lock at /app/data/sentinello.worker.lock: Lock file is already being held
+```
+
+60s rather than 40s because the 35s force-exit is enforced by a timer, and SQLite
+writes are synchronous — a large write blocks the event loop and can delay it.
+The higher value costs nothing when idle: Docker waits only until the process
+actually exits, which is sub-second with no scan running.
 
 ## Platforms
 

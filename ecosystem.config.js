@@ -8,6 +8,8 @@
 //   ME_NAME            → 'anonymous' (used as mute-author attribution in the portal)
 //   PORT               → 3870 (web app only; see apps[0].env below)
 // Portal base URL is configured via Settings → Advanced in the portal, not via env.
+const { join } = require('node:path')
+
 const sharedEnv = {
     NODE_ENV: 'production',
     SENTINELLO_DB_PATH: process.env.SENTINELLO_DB_PATH || '',
@@ -34,12 +36,21 @@ module.exports = {
         },
         {
             name: 'sentinello-worker',
-            cwd: __dirname,
-            // Worker runs straight from TypeScript source via tsx (no dist/ build step). Going through
-            // `pnpm --filter` keeps the invocation symmetric with sentinello-web above and lets pnpm
-            // resolve the tsx binary out of the worker workspace's node_modules.
-            script: 'pnpm',
-            args: '--filter @sentinello/worker start',
+            // cwd is the worker package, NOT the repo root: the worker reads its optional config file
+            // relative to process.cwd(). `pnpm --filter` used to supply this cwd implicitly.
+            cwd: join(__dirname, 'apps', 'worker'),
+            // Worker runs straight from TypeScript source via tsx (no dist/ build step), launched as a
+            // SINGLE node process — deliberately NOT via `pnpm --filter ... start` like sentinello-web
+            // above. That indirection put two layers between pm2 and the worker (pnpm, then the
+            // .bin/tsx shell shim, which forks rather than execs), and pm2 signals only the process it
+            // spawned. SIGTERM therefore never reached the worker: its shutdown handler never ran, so
+            // an in-flight scan died mid-write and the single-instance lock was never released,
+            // leaving the next container to restart-loop ~30s until that lock aged out as stale.
+            // `node --import tsx src/index.ts` has no wrapper and no child, so the signal lands on the
+            // worker itself. Verified: no intermediate pids, and the handler runs on SIGTERM.
+            script: 'src/index.ts',
+            interpreter: 'node',
+            interpreter_args: '--import tsx',
             min_uptime: 10000,
             max_restarts: 10,
             restart_delay: 5000,
