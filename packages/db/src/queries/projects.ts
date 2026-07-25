@@ -43,6 +43,7 @@ export function upsertProject(db: DrizzleDb, project: Project): void {
                 name: insertRow.name,
                 packageManager: insertRow.packageManager,
                 nvmrcVersion: insertRow.nvmrcVersion,
+                gitBranch: insertRow.gitBranch,
                 tagsJson: insertRow.tagsJson,
                 ecosystemsJson: insertRow.ecosystemsJson,
                 updatedAt: insertRow.updatedAt
@@ -100,6 +101,12 @@ export function setProjectAlias(db: DrizzleDb, id: string, alias: string | null,
     db.update(projects).set({ alias, updatedAt: at }).where(eq(projects.id, id)).run()
 }
 
+// Written by the worker at scan start so the recorded branch matches the code the findings came
+// from, not whatever was checked out during the last discovery sweep.
+export function setProjectGitBranch(db: DrizzleDb, id: string, gitBranch: string | null, at: number): void {
+    db.update(projects).set({ gitBranch, updatedAt: at }).where(eq(projects.id, id)).run()
+}
+
 function rowToProject(row: ProjectRow): Project {
     return {
         id: row.id,
@@ -109,6 +116,7 @@ function rowToProject(row: ProjectRow): Project {
         alias: row.alias,
         packageManager: row.packageManager,
         nvmrcVersion: row.nvmrcVersion,
+        gitBranch: row.gitBranch,
         ecosystems: parseEcosystems(row.ecosystemsJson),
         muted: row.muted,
         tags: parseTags(row.tagsJson),
@@ -148,6 +156,7 @@ function projectToInsert(project: Project): ProjectInsert {
         alias: project.alias,
         packageManager: project.packageManager,
         nvmrcVersion: project.nvmrcVersion,
+        gitBranch: project.gitBranch,
         muted: project.muted,
         tagsJson: JSON.stringify(project.tags),
         ecosystemsJson: JSON.stringify(project.ecosystems),

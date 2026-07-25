@@ -142,6 +142,7 @@ async function dispatchGroup(input: DispatchGroupInput): Promise<void> {
         })
         const message: RenderedMessage = renderBatchedFindings({
             projectName: project.name,
+            gitBranch: project.gitBranch,
             projectId: project.id,
             findings: matchedFindings,
             isBaseline,
@@ -175,6 +176,7 @@ async function dispatchGroup(input: DispatchGroupInput): Promise<void> {
     for (const failureEvent of failureEvents) {
         const message: RenderedMessage = renderScanFailure({
             projectName: project.name,
+            gitBranch: project.gitBranch,
             projectId: project.id,
             event: failureEvent,
             errorText: input.scanErrorText,

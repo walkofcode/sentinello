@@ -21,6 +21,7 @@ import {
 } from '@sentinello/db'
 import { reasonCodeLabel, scanStatusLabel, type Locale } from '@sentinello/core'
 import { Badge } from '@/components/ui/badge'
+import { BranchBadge } from '@/components/ui/branch-badge'
 import { ScrollToTop } from '@/components/layout/scroll-to-top'
 import { AliasEditor } from '@/components/triage/alias-editor'
 import { MuteDialog } from '@/components/triage/mute-dialog'
@@ -157,9 +158,20 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                                 iconOnly
                             />
                         </div>
-                        <p className="mt-2 text-sm text-muted-foreground">
-                            {fullPath} · {project.packageManager} · Node {project.nvmrcVersion || 'ambient'} ·{' '}
-                            {lastScanAt ? t('project.scannedRelative', { time: formatRelativeTime(lastScanAt, tTime, now) }) : t('project.neverScanned')}
+                        <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
+                            <span>
+                                {fullPath} · {project.packageManager} · Node {project.nvmrcVersion || 'ambient'}
+                            </span>
+                            {project.gitBranch ? (
+                                <>
+                                    <span aria-hidden="true">·</span>
+                                    <BranchBadge branch={project.gitBranch} className="text-sm" />
+                                </>
+                            ) : null}
+                            <span aria-hidden="true">·</span>
+                            <span>
+                                {lastScanAt ? t('project.scannedRelative', { time: formatRelativeTime(lastScanAt, tTime, now) }) : t('project.neverScanned')}
+                            </span>
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">

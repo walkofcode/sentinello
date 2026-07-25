@@ -149,6 +149,10 @@ export type Project = {
     alias: string | null
     packageManager: PackageManager
     nvmrcVersion: string | null
+    // Checked-out git branch at the time the project was last discovered or scanned, read from
+    // .git/HEAD. A short commit sha when HEAD is detached, and null when the directory is not a git
+    // checkout — which is a normal state, not an error.
+    gitBranch: string | null
     // The set of ecosystems (EcosystemId) whose manifests discovery found in this project's directory —
     // one project spans many ecosystems (Phase 4). `packageManager` stays the npm-specific detail for the
     // npm-audit/nvm path; this is the polyglot view. Empty for legacy rows discovered before polyglot.

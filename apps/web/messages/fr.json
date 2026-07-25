@@ -584,6 +584,11 @@
                 "purpose": "Télécharger l’archive d’avis gemnasium de GitLab pour chaque langage activé",
                 "when": "Quotidiennement, plus actualisation manuelle — uniquement lorsque gemnasium est activé pour un langage",
                 "disable": "Paramètres → Sources (désactivé par défaut), ou SENTINELLO_GEMNASIUM_FEED_URL=off"
+            },
+            "notifications": {
+                "purpose": "Envoyer les vulnérabilités pour lesquelles vous avez configuré des alertes : nom du projet, branche git, paquet et version, sévérité, identifiant de l’avis et un lien vers ce portail",
+                "when": "Lorsqu’une analyse produit une nouvelle vulnérabilité, une vulnérabilité résolue ou un échec d’analyse",
+                "disable": "Paramètres → Notifications — aucune n’existe tant que vous n’en ajoutez pas"
             }
         },
         "dataLivesTitle": "Où résident vos données",

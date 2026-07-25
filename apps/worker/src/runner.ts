@@ -5,6 +5,7 @@ import {
     insertScan,
     mergeFindingsForScan,
     getRootById,
+    setProjectGitBranch,
     walCheckpoint,
     getConfigValue,
     type DrizzleDb,
@@ -24,9 +25,20 @@ import {
     type ScannerPlugin
 } from '@sentinello/scanners'
 import { CONFIG_KEYS } from './config-loader'
+import { readGitBranch } from './discovery'
 import { notifyForCompletedScan } from './notifier'
 
 const SCANNER_TIMEOUT_MS = 90_000
+
+// Keeps projects.git_branch in step with what is actually checked out when the scan runs, and
+// mutates the in-memory project so the notification built later in this same pass reports the same
+// branch. Writes only on change, so an unchanged branch costs one file read and no DB write.
+function refreshGitBranch(db: DrizzleDb, project: Project, projectPath: string, rootPath: string): void {
+    const branch = readGitBranch(projectPath, rootPath)
+    if (branch === project.gitBranch) return
+    project.gitBranch = branch
+    setProjectGitBranch(db, project.id, branch, Date.now())
+}
 
 // The npm-audit scanner plugin name. nvm/Node tooling and the JavaScript-only resolved graph are confined
 // to this scanner; every other (advisory-feed) source is toolchain-free and answers across ecosystems.
@@ -89,6 +101,10 @@ async function runProjectScanners(input: RunBatchInput, project: Project): Promi
         return [outcome]
     }
     const projectPath = resolve(root.path, project.relPath)
+    // Re-read the branch at scan start. Discovery already records it, but sweeps and scans are
+    // independent — a developer switching branches between the two would otherwise leave the portal
+    // (and the notification) attributing findings to the wrong branch. Cheap: one file read.
+    refreshGitBranch(input.db, project, projectPath, root.path)
     // Resolve EVERY detected ecosystem's graph ONCE per project (Phase 4 — one project spans JS + Python +
     // Go + Rust). Each resolver result is classified ok/partial/unauditable so coverage is honest. The
     // advisory-feed sources (OSV, gemnasium) answer for all ecosystems, so they get the merged graph and

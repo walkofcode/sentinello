@@ -18,6 +18,7 @@ function humaniseFailureSignature(sig: string, locale: Locale): string {
 
 export type RenderFindingInput = {
     projectName: string
+    gitBranch: string | null
     finding: Finding
     isBaseline: boolean
     portalBaseUrl: string | null
@@ -26,6 +27,7 @@ export type RenderFindingInput = {
 export type RenderBatchedFindingsInput = {
     projectName: string
     projectId: string
+    gitBranch: string | null
     findings: Finding[]
     isBaseline: boolean
     portalBaseUrl: string | null
@@ -34,10 +36,18 @@ export type RenderBatchedFindingsInput = {
 export type RenderScanFailureInput = {
     projectName: string
     projectId: string
+    gitBranch: string | null
     event: NotificationEvent
     errorText: string | null
     portalBaseUrl: string | null
     locale?: Locale
+}
+
+// Recipients act on notifications without opening the portal, so the branch the findings came from
+// belongs in the message body. Omitted entirely for non-git projects rather than rendered as "none".
+function pushBranchLine(lines: string[], gitBranch: string | null): void {
+    if (!gitBranch) return
+    lines.push('*Branch:* ' + gitBranch)
 }
 
 const SEVERITY_LABEL: Record<Severity, string> = {
@@ -56,6 +66,7 @@ export function renderSingleFinding(input: RenderFindingInput): RenderedMessage 
     const lines: string[] = []
     lines.push(input.isBaseline && '*Baseline finding* — first scan' || '*New finding*')
     lines.push('*Project:* ' + input.projectName)
+    pushBranchLine(lines, input.gitBranch)
     lines.push('*Package:* ' + input.finding.packageName + '@' + input.finding.installedVersion)
     lines.push('*Vulnerable range:* ' + input.finding.vulnerableRange)
     lines.push('*Severity:* ' + sev + fix)
@@ -85,6 +96,7 @@ export function renderBatchedFindings(input: RenderBatchedFindingsInput): Render
     const more = input.findings.length > 8 && ('\n…and ' + (input.findings.length - 8) + ' more') || ''
     const markdownLines: string[] = []
     markdownLines.push(headline)
+    pushBranchLine(markdownLines, input.gitBranch)
     markdownLines.push(top + more)
     if (portalLink) {
         markdownLines.push('')
@@ -107,6 +119,7 @@ export function renderScanFailure(input: RenderScanFailureInput): RenderedMessag
     const portalLink = buildProjectUrl(input.portalBaseUrl, input.projectId)
     const lines: string[] = []
     lines.push('*Scan failed* for *' + input.projectName + '*')
+    pushBranchLine(lines, input.gitBranch)
     lines.push('*Scanner:* ' + input.event.scanner)
     lines.push('*Failure:* ' + sig)
     if (input.errorText) {

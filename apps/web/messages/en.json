@@ -584,6 +584,11 @@
                 "purpose": "Download GitLab’s gemnasium advisory archive for each enabled language",
                 "when": "Daily, plus manual refresh — only when gemnasium is enabled for a language",
                 "disable": "Settings → Sources (off by default), or SENTINELLO_GEMNASIUM_FEED_URL=off"
+            },
+            "notifications": {
+                "purpose": "Send the findings you configured alerts for — project name, git branch, package and version, severity, advisory id, and a link back to this portal",
+                "when": "When a scan produces a new finding, a resolved finding, or a scan failure",
+                "disable": "Settings → Notifications — none exist until you add one"
             }
         },
         "dataLivesTitle": "Where your data lives",

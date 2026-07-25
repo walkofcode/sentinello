@@ -584,6 +584,11 @@
                 "purpose": "为每个已启用的语言下载 GitLab 的 gemnasium 公告归档",
                 "when": "每日以及手动刷新时 — 仅在某语言启用 gemnasium 时",
                 "disable": "设置 → 来源（默认关闭），或 SENTINELLO_GEMNASIUM_FEED_URL=off"
+            },
+            "notifications": {
+                "purpose": "发送你已配置告警的漏洞信息——项目名称、git 分支、包与版本、严重程度、公告 ID，以及返回本门户的链接",
+                "when": "当扫描产生新漏洞、已修复漏洞或扫描失败时",
+                "disable": "设置 → 通知——在你添加之前不存在任何通知目标"
             }
         },
         "dataLivesTitle": "你的数据存放在哪里",

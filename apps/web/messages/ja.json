@@ -584,6 +584,11 @@
                 "purpose": "有効にした各言語の GitLab gemnasium アドバイザリアーカイブをダウンロード",
                 "when": "毎日、加えて手動更新 — ある言語で gemnasium が有効な場合のみ",
                 "disable": "設定 → ソース（デフォルトはオフ）、または SENTINELLO_GEMNASIUM_FEED_URL=off"
+            },
+            "notifications": {
+                "purpose": "アラートを設定した検出結果を送信します — プロジェクト名、git ブランチ、パッケージとバージョン、深刻度、アドバイザリ ID、このポータルへのリンク",
+                "when": "スキャンで新規の検出、解決済みの検出、またはスキャン失敗が発生したとき",
+                "disable": "設定 → 通知 — 追加するまで通知先は存在しません"
             }
         },
         "dataLivesTitle": "データの保存場所",

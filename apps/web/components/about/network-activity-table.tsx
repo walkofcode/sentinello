@@ -33,6 +33,12 @@ const ROWS: Row[] = [
         disableKey: 'rows.github.disable'
     },
     {
+        destination: 'Your notification targets (Slack / Telegram / webhook)',
+        purposeKey: 'rows.notifications.purpose',
+        whenKey: 'rows.notifications.when',
+        disableKey: 'rows.notifications.disable'
+    },
+    {
         destination: 'GHCR / Docker Hub',
         purposeKey: 'rows.image.purpose',
         whenKey: 'rows.image.when',

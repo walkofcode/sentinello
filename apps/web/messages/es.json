@@ -584,6 +584,11 @@
                 "purpose": "Descargar el archivo de avisos gemnasium de GitLab para cada lenguaje habilitado",
                 "when": "A diario, además de actualización manual — solo cuando gemnasium está habilitado para un lenguaje",
                 "disable": "Configuración → Fuentes (desactivado por defecto), o SENTINELLO_GEMNASIUM_FEED_URL=off"
+            },
+            "notifications": {
+                "purpose": "Enviar los hallazgos para los que configuraste alertas: nombre del proyecto, rama de git, paquete y versión, severidad, id del aviso y un enlace de vuelta a este portal",
+                "when": "Cuando un análisis produce un hallazgo nuevo, uno resuelto o un fallo de análisis",
+                "disable": "Configuración → Notificaciones: no existe ninguno hasta que lo agregues"
             }
         },
         "dataLivesTitle": "Dónde residen tus datos",

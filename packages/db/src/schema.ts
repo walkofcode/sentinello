@@ -29,6 +29,9 @@ export const projects = sqliteTable(
         // ecosystems, so the set of detected ecosystems is recorded separately in ecosystemsJson.
         packageManager: text('package_manager', { enum: ['npm', 'yarn', 'pnpm', 'unknown'] }).notNull(),
         nvmrcVersion: text('nvmrc_version'),
+        // Checked-out branch, refreshed by discovery sweeps and again at scan start so the portal
+        // shows the branch the findings actually came from. Null for non-git directories.
+        gitBranch: text('git_branch'),
         muted: integer('muted', { mode: 'boolean' }).notNull().default(false),
         tagsJson: text('tags_json').notNull().default('[]'),
         // JSON array of EcosystemId values detected in this project's directory (one project, many

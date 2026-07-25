@@ -8,6 +8,7 @@ import { ShieldCheck } from 'lucide-react'
 import { reasonCodeLabel, type DepTypeFilter, type Locale, type ReasonCode, type Severity } from '@sentinello/core'
 import type { ProjectCatalogRow } from '@sentinello/db'
 import { Badge } from '@/components/ui/badge'
+import { BranchBadge } from '@/components/ui/branch-badge'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Dropdown } from '@/components/ui/dropdown'
@@ -220,6 +221,7 @@ export function ProjectsFilterView({ rows, depType, defaultDepType, librariesCou
                                                 {project.alias || project.name}
                                             </Link>
                                             <TagList tags={tags} />
+                                            <BranchBadge branch={project.gitBranch} className="mt-1" />
                                         </div>
                                         <div className="flex shrink-0 flex-wrap justify-end gap-1">
                                             {scanReason ? (
@@ -276,6 +278,7 @@ export function ProjectsFilterView({ rows, depType, defaultDepType, librariesCou
                                                     {project.alias || project.name}
                                                 </Link>
                                                 <TagList tags={parseJsonArray(project.tagsJson)} />
+                                                <BranchBadge branch={project.gitBranch} className="mt-0.5" />
                                             </TableCell>
                                             <TableCell className="text-xs text-muted-foreground">
                                                 {project.rootLabel || project.rootPath}

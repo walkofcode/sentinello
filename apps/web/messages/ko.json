@@ -584,6 +584,11 @@
                 "purpose": "활성화된 각 언어의 GitLab gemnasium 권고 아카이브 다운로드",
                 "when": "매일, 수동 새로 고침 포함 — 언어에 대해 gemnasium이 활성화된 경우에만",
                 "disable": "설정 → 소스(기본값 꺼짐) 또는 SENTINELLO_GEMNASIUM_FEED_URL=off"
+            },
+            "notifications": {
+                "purpose": "알림을 설정한 발견 항목을 전송합니다 — 프로젝트 이름, git 브랜치, 패키지와 버전, 심각도, 권고 ID, 이 포털로 돌아오는 링크",
+                "when": "스캔에서 새 발견, 해결된 발견 또는 스캔 실패가 생겼을 때",
+                "disable": "설정 → 알림 — 추가하기 전까지는 대상이 없습니다"
             }
         },
         "dataLivesTitle": "데이터가 저장되는 곳",

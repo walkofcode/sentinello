@@ -148,6 +148,7 @@ export type ProjectCatalogRow = {
     rootPath: string
     packageManager: string
     nvmrcVersion: string | null
+    gitBranch: string | null
     muted: boolean
     tagsJson: string
     lastScanFinishedAt: number | null
@@ -168,6 +169,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
         root_path: string
         package_manager: string
         nvmrc_version: string | null
+        git_branch: string | null
         muted: number
         tags_json: string
         last_scan_finished_at: number | null
@@ -222,6 +224,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             r.path AS root_path,
             p.package_manager AS package_manager,
             p.nvmrc_version AS nvmrc_version,
+            p.git_branch AS git_branch,
             -- Compute project-scope muted state from the mutes table (with expiry semantics) so the
             -- portal's muteAction (which writes to mutes) is the single source of truth. The legacy
             -- projects.muted column is intentionally ignored here.
@@ -256,6 +259,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             rootPath: row.root_path,
             packageManager: row.package_manager,
             nvmrcVersion: row.nvmrc_version,
+            gitBranch: row.git_branch,
             muted: row.muted === 1,
             tagsJson: row.tags_json,
             lastScanFinishedAt: row.last_scan_finished_at,

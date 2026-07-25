@@ -584,6 +584,11 @@
                 "purpose": "GitLabs gemnasium-Advisory-Archiv für jede aktivierte Sprache herunterladen",
                 "when": "Täglich, zusätzlich manuelle Aktualisierung — nur wenn gemnasium für eine Sprache aktiviert ist",
                 "disable": "Einstellungen → Quellen (standardmäßig aus), oder SENTINELLO_GEMNASIUM_FEED_URL=off"
+            },
+            "notifications": {
+                "purpose": "Sendet die Funde, für die du Benachrichtigungen eingerichtet hast — Projektname, Git-Branch, Paket und Version, Schweregrad, Advisory-ID und ein Link zurück zu diesem Portal",
+                "when": "Wenn ein Scan einen neuen Fund, einen behobenen Fund oder einen Scan-Fehler ergibt",
+                "disable": "Einstellungen → Benachrichtigungen — es existiert keine, bis du eine hinzufügst"
             }
         },
         "dataLivesTitle": "Wo Ihre Daten liegen",

@@ -584,6 +584,11 @@
                 "purpose": "Scaricare l’archivio di advisory gemnasium di GitLab per ogni linguaggio abilitato",
                 "when": "Quotidiano, più aggiornamento manuale — solo quando gemnasium è abilitato per un linguaggio",
                 "disable": "Impostazioni → Fonti (disattivato per impostazione predefinita), oppure SENTINELLO_GEMNASIUM_FEED_URL=off"
+            },
+            "notifications": {
+                "purpose": "Invia i risultati per cui hai configurato gli avvisi: nome del progetto, branch git, pacchetto e versione, gravità, id dell’advisory e un link a questo portale",
+                "when": "Quando una scansione produce un nuovo risultato, un risultato risolto o un errore di scansione",
+                "disable": "Impostazioni → Notifiche — non ne esiste nessuna finché non la aggiungi"
             }
         },
         "dataLivesTitle": "Dove risiedono i tuoi dati",

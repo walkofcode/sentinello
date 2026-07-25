@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import ignoreFactory from 'ignore'
 import { ECOSYSTEMS, type EcosystemId, type PackageManager, type Project } from '@sentinello/core'
 import {
@@ -162,6 +162,7 @@ function detectProject(root: Root, dir: string, at: number): Project | null {
     const pm = detectPackageManager(dir)
     const folderName = resolveBasename(dir)
     const nvmrcVersion = readNvmrcVersion(dir)
+    const gitBranch = readGitBranch(dir, root.path)
     const relPath = relative(root.path, dir) || '.'
     const id = makeProjectId(root.id, relPath)
     return {
@@ -172,6 +173,7 @@ function detectProject(root: Root, dir: string, at: number): Project | null {
         alias: null,
         packageManager: pm,
         nvmrcVersion,
+        gitBranch,
         ecosystems,
         muted: false,
         tags: [],
@@ -223,6 +225,60 @@ function readNvmrcVersion(dir: string): string | null {
     try {
         const raw = readFileSync(nvmrcPath, 'utf8').trim()
         return raw.length > 0 && raw || null
+    } catch {
+        return null
+    }
+}
+
+// The checked-out branch for a project, read straight off the filesystem. We never shell out to
+// `git`: the runtime image carries no git binary, roots are mounted read-only, and reading a file
+// is both faster and safe. Returns null for anything that is not a git checkout, which is a normal
+// state (a plain directory of manifests), not an error.
+export function readGitBranch(dir: string, rootPath: string): string | null {
+    const gitDir = findGitDir(dir, rootPath)
+    if (!gitDir) return null
+    try {
+        const head = readFileSync(join(gitDir, 'HEAD'), 'utf8').trim()
+        // Attached HEAD: "ref: refs/heads/<name>". Branch names may themselves contain slashes
+        // (feature/foo), so take everything after the refs/heads/ prefix rather than the last segment.
+        const ref = head.match(/^ref:\s*refs\/heads\/(.+)$/)
+        if (ref && ref[1]) return ref[1].trim() || null
+        // Detached HEAD stores a bare commit sha; the short form is what a developer recognises.
+        if (/^[0-9a-f]{40}$/i.test(head)) return head.slice(0, 7)
+        return null
+    } catch {
+        return null
+    }
+}
+
+// Locates the git directory for `dir`, walking up no further than the mounted root. The walk matters
+// because a project can be a package inside a repository rather than the repository root, and a
+// worktree or submodule stores `.git` as a FILE containing `gitdir: <path>` instead of a directory.
+function findGitDir(dir: string, rootPath: string): string | null {
+    const stopAt = resolve(rootPath)
+    let current = resolve(dir)
+    for (;;) {
+        const candidate = join(current, '.git')
+        if (existsSync(candidate)) {
+            if (!isFile(candidate)) return candidate
+            const resolved = readGitFilePointer(candidate, current)
+            if (resolved) return resolved
+        }
+        if (current === stopAt) return null
+        const parent = dirname(current)
+        // dirname('/') === '/' — guards against an unbounded loop if dir ever escapes the root.
+        if (parent === current) return null
+        current = parent
+    }
+}
+
+function readGitFilePointer(gitFile: string, baseDir: string): string | null {
+    try {
+        const raw = readFileSync(gitFile, 'utf8').trim()
+        const match = raw.match(/^gitdir:\s*(.+)$/)
+        if (!match || !match[1]) return null
+        const target = match[1].trim()
+        return resolve(baseDir, target)
     } catch {
         return null
     }
