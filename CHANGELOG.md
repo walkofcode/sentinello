@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.4.1](https://github.com/walkofcode/sentinello/compare/v2.4.0...v2.4.1) (2026-07-25)
+
+
+### Bug Fixes
+
+* **worker:** deliver SIGTERM to the worker so it shuts down cleanly ([451d335](https://github.com/walkofcode/sentinello/commit/451d335db3ed34658e9f3a3ea9102ff6581144d4))
+
+
+### Documentation
+
+* **releases:** add 2.4.1 release notes ([27e0bda](https://github.com/walkofcode/sentinello/commit/27e0bda982ed53b5bb1fc395226022c19ad7ba99))
+
 ## [2.4.0](https://github.com/walkofcode/sentinello/compare/v2.3.0...v2.4.0) (2026-07-25)
 
 
