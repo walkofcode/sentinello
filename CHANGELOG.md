@@ -1,5 +1,38 @@
 # Changelog
 
+## [2.4.0](https://github.com/walkofcode/sentinello/compare/v2.3.0...v2.4.0) (2026-07-25)
+
+
+### Features
+
+* **export:** teach the advisory prompt about release age, lockfiles, and stale overrides ([835fd86](https://github.com/walkofcode/sentinello/commit/835fd867f3147acaf5a4bf55cca12873e95b799a))
+* **projects:** per-row actions in the project list ([13f4040](https://github.com/walkofcode/sentinello/commit/13f4040efee0ff9743b2e240d3e4d619fd2562cb))
+* **projects:** record and show the git branch that was scanned ([ecd62ff](https://github.com/walkofcode/sentinello/commit/ecd62ff042976af6d0aa4b62829b3dfa806e2a38))
+* reframe Sentinello as a multi-language (polyglot) dependency scanner ([ba8f819](https://github.com/walkofcode/sentinello/commit/ba8f819c9381a2920e8d3e6801c37a7f3b6c86cd))
+
+
+### Bug Fixes
+
+* **deps:** force postcss &gt;=8.5.19 ([ebeefd5](https://github.com/walkofcode/sentinello/commit/ebeefd52b398c47f50110c17f016b09ce26a210c))
+* **deps:** override @hono/node-server to 2.0.11 ([2d50f4d](https://github.com/walkofcode/sentinello/commit/2d50f4d8f05a24598d22f796bd5fec95215a5cd4))
+* **deps:** override next&gt;sharp to 0.35.3 ([ba3609a](https://github.com/walkofcode/sentinello/commit/ba3609a39df6e37841d45779eca7139ff80b9b18))
+* **deps:** refresh MCP SDK transitives (hono, fast-uri, body-parser) ([8c79298](https://github.com/walkofcode/sentinello/commit/8c792981f5518251acef80955cacab6307ee7c70))
+* **deps:** upgrade axios to 1.18.1 and form-data to 4.0.6 ([2f15a5e](https://github.com/walkofcode/sentinello/commit/2f15a5ea670e52feaf21632494a280c01ed2ad64))
+* **deps:** upgrade js-yaml to 4.3.0 ([29b13be](https://github.com/walkofcode/sentinello/commit/29b13be94b458ea986226f3ce07007f2808e0cb1))
+* **deps:** upgrade next to 16.2.11 in both apps ([a32ef2d](https://github.com/walkofcode/sentinello/commit/a32ef2dbe7311e9aa443bb1b102f005113f95883))
+
+
+### Performance
+
+* **db:** index scans(project_id, finished_at) — dashboard was 3.3s, now 0.03s ([64005b5](https://github.com/walkofcode/sentinello/commit/64005b5a379d9b1dd65f7874c5d3db25fbe5a313))
+* **web:** add route loading boundaries for projects and libraries ([b0ee68a](https://github.com/walkofcode/sentinello/commit/b0ee68a68d5ef3ad7f4f96f5be682f3d6fc68a5a))
+
+
+### Documentation
+
+* **docker:** clarify SENTINELLO_PORTAL_BASE_URL is the external URL ([1337589](https://github.com/walkofcode/sentinello/commit/1337589f76c4c3c7db84664b482a23ed4aab9949))
+* **releases:** add 2.4.0 release notes ([bb003b1](https://github.com/walkofcode/sentinello/commit/bb003b1dd530b9fe28ce65b25b9ff4720cebe56f))
+
 ## [2.3.0](https://github.com/walkofcode/sentinello/compare/v2.2.0...v2.3.0) (2026-06-09)
 
 
