@@ -46,12 +46,12 @@
     },
     "pnpm": {
         "overrides": {
-            "postcss@<8.5.10": "8.5.10",
+            "postcss@<8.5.19": "8.5.19",
             "brace-expansion@>=5.0.0 <5.0.6": "5.0.6",
             "@esbuild-kit/core-utils>esbuild": "0.25.12"
         },
         "overridesNotes": {
-            "postcss@<8.5.10": "GHSA-qx2v-qp2m-jg93 XSS via unescaped </style> in stringify. next 16.2.x still pins postcss 8.4.31 exactly; next 16.3-canary has adopted 8.5.10 so Vercel itself considers this combination safe. Remove when next 16.3 stable lands.",
+            "postcss@<8.5.19": "GHSA-qx2v-qp2m-jg93 XSS via unescaped </style> in stringify, plus GHSA-6g55-p6wh-862q (<=8.5.11) and GHSA-r28c-9q8g-f849 (<=8.5.17) arbitrary .map file disclosure via attacker-controlled sourceMappingURL. next 16.2.x still pins postcss 8.4.31 exactly, and @tailwindcss/postcss allows ^8.5.6, so this override is what lifts next's copy. Do NOT retarget this at next 16.3: 16.3.0-preview.9 pins postcss 8.5.10, which is still vulnerable to both sourceMappingURL advisories — so the previous 'remove when next 16.3 stable lands' trigger was wrong. Remove only when next's own pinned postcss is >=8.5.18.",
             "brace-expansion@>=5.0.0 <5.0.6": "GHSA-jxxr-4gwj-5jf2 / CVE-2026-45149 DoS via large numeric range expansion. Remove when @typescript-eslint's minimatch chain resolves brace-expansion >=5.0.6 naturally.",
             "@esbuild-kit/core-utils>esbuild": "GHSA-67mh-4wv8-2f99 esbuild dev-server CVE. @esbuild-kit/core-utils only calls esbuild.transform()/transformSync()/version (never serve()/build()/context()), so 0.18.20 -> 0.25.12 is safe for the TS-config-loading path drizzle-kit uses. Remove when drizzle-kit 1.0 stable drops @esbuild-kit/* entirely."
         }
