@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.4.2](https://github.com/walkofcode/sentinello/compare/v2.4.1...v2.4.2) (2026-07-25)
+
+
+### Bug Fixes
+
+* **projects:** give the scanned branch its own column ([98b0472](https://github.com/walkofcode/sentinello/commit/98b04726b9f4cc2fc6e1f9e4fd889f6334df8b91))
+
+
+### Documentation
+
+* **releases:** add 2.4.2 release notes ([ad8f068](https://github.com/walkofcode/sentinello/commit/ad8f068a07963f3a0d23604ef24b21c13e49b849))
+
 ## [2.4.1](https://github.com/walkofcode/sentinello/compare/v2.4.0...v2.4.1) (2026-07-25)
 
 
