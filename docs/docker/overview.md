@@ -63,6 +63,9 @@ services:
             - '127.0.0.1:3870:3000'
         environment:
             SENTINELLO_DB_PATH: /app/data/sentinello.sqlite
+            # The address people open in a browser — NOT the port mapping above. Every notification
+            # link is built from it, so leaving it on localhost sends links nobody else can open.
+            # Once you expose the portal, change this too (e.g. https://sentinello.example.com).
             SENTINELLO_PORTAL_BASE_URL: http://localhost:3870
             # Optional login gate — set a long random string, then the portal prompts at /login:
             # SENTINELLO_PORTAL_TOKEN: change-me-to-a-long-random-string
