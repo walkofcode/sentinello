@@ -48,11 +48,13 @@
         "overrides": {
             "postcss@<8.5.19": "8.5.19",
             "brace-expansion@>=5.0.0 <5.0.6": "5.0.6",
-            "@esbuild-kit/core-utils>esbuild": "0.25.12"
+            "@esbuild-kit/core-utils>esbuild": "0.25.12",
+            "next>sharp": "0.35.3"
         },
         "overridesNotes": {
             "postcss@<8.5.19": "GHSA-qx2v-qp2m-jg93 XSS via unescaped </style> in stringify, plus GHSA-6g55-p6wh-862q (<=8.5.11) and GHSA-r28c-9q8g-f849 (<=8.5.17) arbitrary .map file disclosure via attacker-controlled sourceMappingURL. next 16.2.x still pins postcss 8.4.31 exactly, and @tailwindcss/postcss allows ^8.5.6, so this override is what lifts next's copy. Do NOT retarget this at next 16.3: 16.3.0-preview.9 pins postcss 8.5.10, which is still vulnerable to both sourceMappingURL advisories — so the previous 'remove when next 16.3 stable lands' trigger was wrong. Remove only when next's own pinned postcss is >=8.5.18.",
             "brace-expansion@>=5.0.0 <5.0.6": "GHSA-jxxr-4gwj-5jf2 / CVE-2026-45149 DoS via large numeric range expansion. Remove when @typescript-eslint's minimatch chain resolves brace-expansion >=5.0.6 naturally.",
+            "next>sharp": "GHSA-f88m-g3jw-g9cj inherited libvips CVEs (CVE-2026-33327, CVE-2026-33328, CVE-2026-35590, CVE-2026-35591), fixed in sharp 0.35.0. Reachable, not theoretical: next/image is used in both apps including the shipped portal (apps/web/components/layout/top-nav.tsx), and next/dist/server/image-optimizer.js does a bare require('sharp'), which under pnpm resolves to next's OWN sibling copy — so adding sharp as an app dependency would install a second copy that is never loaded. next 16.2.11 pins sharp ^0.34.5, which excludes 0.35.x; the first line to pin ^0.35.3 is 16.3.0-preview.9, so no stable next resolves a patched sharp today. Sentinello never calls sharp directly, so 0.35.0's removals (failOnError, paletteBitDepth, format.jp2k -> jp2, dropped install script) only matter to Next's optimizer, and Vercel already ships next+sharp 0.35.3 together on the 16.3 line. Node 24 satisfies sharp's >=20.9.0. Remove when next 16.3 stable lands and pins ^0.35.3 natively.",
             "@esbuild-kit/core-utils>esbuild": "GHSA-67mh-4wv8-2f99 esbuild dev-server CVE. @esbuild-kit/core-utils only calls esbuild.transform()/transformSync()/version (never serve()/build()/context()), so 0.18.20 -> 0.25.12 is safe for the TS-config-loading path drizzle-kit uses. Remove when drizzle-kit 1.0 stable drops @esbuild-kit/* entirely."
         }
     }
