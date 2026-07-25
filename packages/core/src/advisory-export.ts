@@ -7,7 +7,20 @@ import { severityRank, type Severity } from './types'
 // written as enforced gates, not soft principles: a consolidated up-front triage is mandatory, and no
 // override may be proposed without a four-part written justification block. This is deliberate — soft
 // principles get internalized and silently skipped, forcing the human to drag the reasoning out.
+//
+// Three sections exist because each one covers a failure that actually happened during a real
+// remediation pass, and each fails SILENTLY — nothing errors, the work just ends up wrong:
+//   - step 6 (release age): the agent either ignores the supply-chain gate or abandons a critical fix
+//     because of it. Both are wrong; the human decides, and the relaxation must never be committed.
+//   - "Audit existing overrides first": an override added for last quarter's advisory pins a version
+//     that no longer moves and becomes the cause of today's finding, removal-trigger notes included.
+//   - "Ranges are a claim": a parent range permitting a patched child does NOT mean the lockfile
+//     resolved to it, so an "applied" fix can leave the vulnerable copy installed.
 export const DEFAULT_EXPORT_PROMPT = `You are helping a development team triage and fix the vulnerabilities listed at the bottom of this document. Treat this as a remediation work list, not a checklist to rubber-stamp.
+
+## Audit existing overrides first — they may be the cause
+
+Before triaging anything, read the existing \`overrides\` / \`resolutions\` / \`pnpm.overrides\` and any notes recorded beside them. An override written to fix an older advisory pins a version that no longer moves, so over time it silently becomes the reason a package is stale — including, quite possibly, the reason a finding in this list exists at all. For each existing override, report: what it forces and to which version, the original reason if one was recorded, whether its removal trigger has now been met, and whether it is currently *causing* any finding below. Say so explicitly when an override has become the problem rather than the fix, and treat correcting it as part of this work. Verify recorded removal triggers instead of trusting them — check the upstream version the note refers to and confirm it actually resolves the patched dependency, because a trigger written months ago is frequently no longer true.
 
 ## Triage every finding before you touch anything
 
@@ -23,7 +36,15 @@ Do NOT propose or apply a single version change until you have worked through al
 
 5. **Install-policy / supply-chain check.** Before recommending a target version, confirm it satisfies the project's install policy. If the project pins a minimum release age (\`.npmrc\` \`minimum-release-age\`, or pnpm \`minimumReleaseAge\`), check the target version's publish date — if it is too new to install, say so up front and present options (wait N days vs. temporarily lower the threshold). Do not discover this only when the install fails.
 
+6. **When the fix is too new for the install policy.** A minimum release age is a deliberate supply-chain control: it stops a freshly compromised release from being installed automatically. Do not quietly work around it — and do not silently drop the fix either. When the target version is younger than the threshold, report the advisory severity, the version's exact publish date and age, and the configured threshold, then let the human decide. For **critical or high** severity, actively recommend overriding and explain why the exposure outweighs the remaining wait; for moderate or low, default to waiting. If the human agrees, relax the gate for that **single command only** — e.g. \`pnpm --config.minimumReleaseAge=0 add <pkg>@<exact-version>\` — and **never** edit \`.npmrc\` or \`pnpm-workspace.yaml\` to achieve it, because a relaxed setting that gets committed disables the protection for everyone, permanently and invisibly. Whenever the gate is relaxed, pin every package you install in that command to an exact version: the relaxation applies to the whole resolution, not just the package you are fixing, so unrelated transitives can otherwise silently float to builds published hours ago. Afterwards, re-read the lockfile and confirm nothing moved except what you intended.
+
 Present all of the above as one triage table covering every finding, with your recommended fix path per finding, and get the human's go-ahead before editing any manifest.
+
+## Ranges are a claim; the lockfile is the fact
+
+A caret or wildcard range tells you what *could* be installed, never what *is*. After every change, verify the fix in the lockfile itself — read the resolved version there, do not infer it from \`package.json\`. A parent's range routinely permits a patched child while the lockfile keeps the older resolved version, so the advisory survives an upgrade that looked correct. Re-running the scanner is the check that matters: if the finding is still present, the vulnerable copy is still installed.
+
+Where you do control the specifier, prefer an exact version for direct dependencies — many projects enforce this already via \`save-exact\`. Treat \`*\`, \`latest\`, and bare \`>=\` as defects worth flagging on sight: they hand version selection to whatever was published most recently, which is precisely the window a compromised release needs. Never widen a range to obtain a fix, and never loosen a pin a human deliberately set — if a pinned direct dependency must move, move it to another exact version.
 
 ## Overrides are a last resort — and they require a written justification
 
@@ -42,7 +63,7 @@ No justification block, no override.
 - **One package (or one tight family) per commit.** After each fix, re-run Sentinello — the advisory should disappear from the current findings. If it does not, the upgrade did not actually replace the vulnerable version (usually a transitive resolution issue); dig deeper, do not move on.
 - **Do not skip findings because they look hard.** Record the specific blocker (e.g. "needs major bump of X which touches Y, Z") so the team can plan it. Silent skips become next quarter's incident.
 
-The vulnerability list follows.\``
+The vulnerability list follows.`
 
 export type ExportScope =
     | { kind: 'project'; projectName: string; projectPath: string; depType: 'all' | 'prod' | 'dev' }
