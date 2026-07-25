@@ -1,0 +1,1 @@
+CREATE INDEX `scans_project_finished_idx` ON `scans` (`project_id`,`finished_at`);

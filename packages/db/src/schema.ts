@@ -104,7 +104,14 @@ export const scans = sqliteTable(
     function scansIndexes(table) {
         return {
             projectIdIdx: index('scans_project_id_idx').on(table.projectId),
-            finishedAtIdx: index('scans_finished_at_idx').on(table.finishedAt)
+            finishedAtIdx: index('scans_finished_at_idx').on(table.finishedAt),
+            // "Latest scan per project" is the dashboard's hottest access path (the latest_scan CTE
+            // in listProjectCatalog, and getLatestScanForProject on the detail page). With only the
+            // single-column indexes above, SQLite finds every scan for a project then sorts them in
+            // a TEMP B-TREE on finished_at — per row of a full scans scan. On a real instance with
+            // ~30k scans across 45 projects that measured 8.85s for the CTE alone; this composite
+            // index supplies the ordering directly and takes it to 0.019s.
+            projectFinishedIdx: index('scans_project_finished_idx').on(table.projectId, table.finishedAt)
         }
     }
 )
