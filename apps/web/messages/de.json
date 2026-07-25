@@ -147,6 +147,7 @@
         "colNode": "Node",
         "colSeverity": "Schweregrad",
         "colState": "Status",
+        "colActions": "Aktionen",
         "colLibrary": "Bibliothek",
         "colAdvisories": "Advisories",
         "colAffectedProjects": "Betroffene Projekte",

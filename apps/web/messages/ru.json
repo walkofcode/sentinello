@@ -147,6 +147,7 @@
         "colNode": "Node",
         "colSeverity": "Серьёзность",
         "colState": "Состояние",
+        "colActions": "Действия",
         "colLibrary": "Библиотека",
         "colAdvisories": "Рекомендации",
         "colAffectedProjects": "Затронутые проекты",

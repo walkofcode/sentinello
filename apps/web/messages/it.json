@@ -147,6 +147,7 @@
         "colNode": "Node",
         "colSeverity": "Gravità",
         "colState": "Stato",
+        "colActions": "Azioni",
         "colLibrary": "Libreria",
         "colAdvisories": "Advisory",
         "colAffectedProjects": "Progetti interessati",

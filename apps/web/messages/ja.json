@@ -147,6 +147,7 @@
         "colNode": "Node",
         "colSeverity": "深刻度",
         "colState": "状態",
+        "colActions": "操作",
         "colLibrary": "ライブラリ",
         "colAdvisories": "アドバイザリ",
         "colAffectedProjects": "影響を受けるプロジェクト",

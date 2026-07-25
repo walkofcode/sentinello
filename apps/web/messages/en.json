@@ -147,6 +147,7 @@
         "colNode": "Node",
         "colSeverity": "Severity",
         "colState": "State",
+        "colActions": "Actions",
         "colLibrary": "Library",
         "colAdvisories": "Advisories",
         "colAffectedProjects": "Affected projects",

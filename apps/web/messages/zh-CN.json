@@ -147,6 +147,7 @@
         "colNode": "Node",
         "colSeverity": "严重程度",
         "colState": "状态",
+        "colActions": "操作",
         "colLibrary": "依赖库",
         "colAdvisories": "通告",
         "colAffectedProjects": "受影响的项目",

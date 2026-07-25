@@ -1,6 +1,12 @@
 import type { Metadata } from 'next'
 import { getTranslations } from 'next-intl/server'
-import { getDashboardSummary, isAnyScanInFlight, listLibraries, listProjectCatalog } from '@sentinello/db'
+import {
+    getDashboardSummary,
+    isAnyScanInFlight,
+    listInFlightScanProjectIds,
+    listLibraries,
+    listProjectCatalog
+} from '@sentinello/db'
 import { ProjectsFilterView } from '@/components/home/projects-filter-view'
 import { ScanAutoRefresh } from '@/components/scan-auto-refresh'
 import { getDb } from '@/lib/db'
@@ -24,11 +30,15 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Sea
     const projects = listProjectCatalog(db, now, projDep)
     const libraries = listLibraries(db, now, libDep)
     const anyInFlight = isAnyScanInFlight(db, now)
+    // One query for every project's scan state, so each row's "Scan now" button reflects an
+    // in-flight sweep without running isScanInFlightForProject once per row.
+    const inFlightProjectIds = listInFlightScanProjectIds(db, now)
     return (
         <div className="space-y-6">
             <ScanAutoRefresh active={anyInFlight} />
             <ProjectsFilterView
                 rows={projects}
+                inFlightProjectIds={inFlightProjectIds}
                 depType={projDep}
                 defaultDepType={defaults.depType}
                 librariesCount={libraries.length}

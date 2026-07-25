@@ -169,6 +169,30 @@ export function isScanInFlightForProject(
     return Boolean(row)
 }
 
+// The ids of every project a pending/fresh-running request covers, in ONE query. The projects list
+// needs per-row scan state for its "Scan now" buttons; calling isScanInFlightForProject per row
+// would be one query per project. Scope semantics are deliberately identical to that function: a
+// request counts when it targets the project directly, targets its root, or is a full sweep.
+export function listInFlightScanProjectIds(db: DrizzleDb, now: number): string[] {
+    const freshAfter = now - SCAN_HEARTBEAT_STALE_MS
+    const rows = db.all<{ id: string }>(sql`
+        SELECT p.id AS id
+        FROM projects p
+        WHERE EXISTS (
+            SELECT 1 FROM scan_requests sr
+            WHERE (sr.status = 'pending' OR (sr.status = 'running' AND sr.heartbeat_at >= ${freshAfter}))
+              AND (
+                sr.project_id = p.id
+                OR sr.root_id = p.root_id
+                OR (sr.project_id IS NULL AND sr.root_id IS NULL)
+              )
+        )
+    `)
+    return rows.map(function toId(row) {
+        return row.id
+    })
+}
+
 // True if a pending/fresh-running request covers this root — either targets it directly,
 // or is a full sweep. Per-project requests that happen to be inside this root are NOT counted:
 // the per-root "Scan now" button is a coarser action and the user picked the strict cascade.

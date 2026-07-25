@@ -9,6 +9,10 @@ import { reasonCodeLabel, type DepTypeFilter, type Locale, type ReasonCode, type
 import type { ProjectCatalogRow } from '@sentinello/db'
 import { Badge } from '@/components/ui/badge'
 import { BranchBadge } from '@/components/ui/branch-badge'
+import { ExportAdvisoryButton } from '@/components/triage/export-advisory-button'
+import { MuteDialog } from '@/components/triage/mute-dialog'
+import { ScanNowButton } from '@/components/triage/scan-now-button'
+import { TagEditor } from '@/components/triage/tag-editor'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Dropdown } from '@/components/ui/dropdown'
@@ -49,6 +53,9 @@ type RootOption = { label: string; path: string }
 
 type Props = {
     rows: ProjectCatalogRow[]
+    // Ids of projects covered by an in-flight scan (direct, by root, or a full sweep), resolved in
+    // one query by the page rather than per row.
+    inFlightProjectIds: string[]
     depType: DepTypeFilter
     defaultDepType: DepTypeFilter
     librariesCount: number
@@ -57,7 +64,7 @@ type Props = {
     anyInFlight: boolean
 }
 
-export function ProjectsFilterView({ rows, depType, defaultDepType, librariesCount, lastScanFinishedAt, now, anyInFlight }: Props) {
+export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultDepType, librariesCount, lastScanFinishedAt, now, anyInFlight }: Props) {
     const t = useTranslations('Home')
     const locale = useLocale() as Locale
     const router = useRouter()
@@ -96,6 +103,10 @@ export function ProjectsFilterView({ rows, depType, defaultDepType, librariesCou
         window.history.replaceState(window.history.state, '', next)
         rememberProjectsUrl(next)
     }, [query, root, tag, minSeverity, showHealthy, showMuted, sort])
+
+    const inFlightSet = useMemo(function buildInFlight() {
+        return new Set(inFlightProjectIds)
+    }, [inFlightProjectIds])
 
     const rootOptions = useMemo(function buildRoots() {
         return uniqueRoots(rows)
@@ -243,6 +254,9 @@ export function ProjectsFilterView({ rows, depType, defaultDepType, librariesCou
                                         <dt className="uppercase tracking-wide">{t('colNode')}</dt>
                                         <dd>{project.nvmrcVersion || t('nodeAmbient')}</dd>
                                     </dl>
+                                    <div className="mt-3 flex justify-end">
+                                        <RowActions project={project} depType={depType} scanning={inFlightSet.has(project.id)} />
+                                    </div>
                                 </Card>
                             )
                         })}
@@ -257,6 +271,7 @@ export function ProjectsFilterView({ rows, depType, defaultDepType, librariesCou
                                     <TableHead>{t('colNode')}</TableHead>
                                     <TableHead>{t('colSeverity')}</TableHead>
                                     <TableHead>{t('colState')}</TableHead>
+                                    <TableHead className="w-px whitespace-nowrap text-right">{t('colActions')}</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -301,6 +316,9 @@ export function ProjectsFilterView({ rows, depType, defaultDepType, librariesCou
                                                     ) : null}
                                                     {project.muted ? <Badge variant="muted">muted</Badge> : null}
                                                 </div>
+                                            </TableCell>
+                                            <TableCell className="w-px whitespace-nowrap text-right align-middle">
+                                                <RowActions project={project} depType={depType} scanning={inFlightSet.has(project.id)} />
                                             </TableCell>
                                         </TableRow>
                                     )
@@ -566,6 +584,32 @@ function TagList({ tags }: { tags: string[] }) {
                     </Badge>
                 )
             })}
+        </div>
+    )
+}
+
+// The same four actions the project detail page offers, in their icon-only form, so a triage pass
+// over the list never needs a round-trip into each project. These are the SAME components the
+// detail page renders, not copies — behaviour cannot drift between the two surfaces.
+// The row/card click handlers ignore clicks landing on a button, so these never navigate.
+function RowActions({ project, depType, scanning }: { project: ProjectCatalogRow; depType: DepTypeFilter; scanning: boolean }) {
+    const tTriage = useTranslations('Triage')
+    return (
+        <div className="flex items-center justify-end gap-1">
+            <ScanNowButton projectId={project.id} scanning={scanning} iconOnly />
+            <ExportAdvisoryButton scope="project" projectId={project.id} depType={depType} iconOnly />
+            {project.muteId ? (
+                <MuteDialog
+                    projectId={project.id}
+                    muteId={project.muteId}
+                    label={tTriage('mute.unmuteProject')}
+                    iconOnly
+                    iconSize="md"
+                />
+            ) : (
+                <MuteDialog projectId={project.id} iconOnly iconSize="md" />
+            )}
+            <TagEditor projectId={project.id} initialTags={parseJsonArray(project.tagsJson)} iconOnly />
         </div>
     )
 }

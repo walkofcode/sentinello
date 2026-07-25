@@ -150,6 +150,9 @@ export type ProjectCatalogRow = {
     nvmrcVersion: string | null
     gitBranch: string | null
     muted: boolean
+    // Id of the active project-scope mute, so the list can offer unmute without a second query.
+    // Null when the project is not muted.
+    muteId: string | null
     tagsJson: string
     lastScanFinishedAt: number | null
     lastScanStatus: string | null
@@ -171,6 +174,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
         nvmrc_version: string | null
         git_branch: string | null
         muted: number
+        mute_id: string | null
         tags_json: string
         last_scan_finished_at: number | null
         last_scan_status: string | null
@@ -234,6 +238,11 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
                   AND m.project_id = p.id
                   AND (m.expires_at IS NULL OR m.expires_at > ${at})
             ) THEN 1 ELSE 0 END) AS muted,
+            (SELECT m2.id FROM mutes m2
+              WHERE m2.scope = 'project'
+                AND m2.project_id = p.id
+                AND (m2.expires_at IS NULL OR m2.expires_at > ${at})
+              LIMIT 1) AS mute_id,
             p.tags_json AS tags_json,
             ls.finished_at AS last_scan_finished_at,
             ls.status AS last_scan_status,
@@ -260,6 +269,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             packageManager: row.package_manager,
             nvmrcVersion: row.nvmrc_version,
             gitBranch: row.git_branch,
+            muteId: row.mute_id,
             muted: row.muted === 1,
             tagsJson: row.tags_json,
             lastScanFinishedAt: row.last_scan_finished_at,

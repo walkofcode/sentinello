@@ -147,6 +147,7 @@
         "colNode": "Node",
         "colSeverity": "심각도",
         "colState": "상태",
+        "colActions": "작업",
         "colLibrary": "라이브러리",
         "colAdvisories": "권고",
         "colAffectedProjects": "영향받는 프로젝트",

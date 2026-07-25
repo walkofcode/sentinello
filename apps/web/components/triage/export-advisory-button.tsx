@@ -12,9 +12,11 @@ import {
 
 type DepType = 'all' | 'prod' | 'dev'
 
+// iconOnly is the compact form used by the project-list row actions: the trigger collapses to an
+// icon (label moves to the accessible name / tooltip) while the copy + download menu is unchanged.
 type Props =
-    | { scope: 'project'; projectId: string; depType: DepType }
-    | { scope: 'library'; packageName: string; ecosystem: string; depType: DepType }
+    | { scope: 'project'; projectId: string; depType: DepType; iconOnly?: boolean }
+    | { scope: 'library'; packageName: string; ecosystem: string; depType: DepType; iconOnly?: boolean }
 
 function triggerDownload(filename: string, markdown: string) {
     const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
@@ -113,14 +115,17 @@ export function ExportAdvisoryButton(props: Props) {
         <div ref={wrapperRef} className="relative">
             <Button
                 variant="outline"
+                size={props.iconOnly ? 'icon' : 'default'}
                 onClick={toggle}
                 disabled={pending}
                 aria-haspopup="menu"
                 aria-expanded={open}
+                aria-label={props.iconOnly ? label : undefined}
+                title={props.iconOnly ? label : undefined}
             >
                 {copied ? <Check className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
-                {label}
-                <ChevronDown className="h-4 w-4 opacity-60" />
+                {props.iconOnly ? null : label}
+                {props.iconOnly ? null : <ChevronDown className="h-4 w-4 opacity-60" />}
             </Button>
             {open && (
                 <div
