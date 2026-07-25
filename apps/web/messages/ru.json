@@ -142,6 +142,7 @@
         "librariesEmptyTitle": "Нет библиотек для показа",
         "librariesEmptyDescription": "Измените фильтры выше или дождитесь следующего сканирования, чтобы заполнить находки.",
         "colName": "Имя",
+        "colBranch": "Ветка",
         "colRoot": "Корень",
         "colPm": "PM",
         "colNode": "Node",

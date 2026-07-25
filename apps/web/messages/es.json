@@ -142,6 +142,7 @@
         "librariesEmptyTitle": "No hay librerías para mostrar",
         "librariesEmptyDescription": "Ajusta los filtros de arriba, o espera al próximo escaneo para poblar los hallazgos.",
         "colName": "Nombre",
+        "colBranch": "Rama",
         "colRoot": "Raíz",
         "colPm": "GP",
         "colNode": "Node",

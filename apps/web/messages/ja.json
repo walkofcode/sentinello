@@ -142,6 +142,7 @@
         "librariesEmptyTitle": "表示するライブラリがありません",
         "librariesEmptyDescription": "上のフィルターを調整するか、次回のスキャンで検出が反映されるのを待ってください。",
         "colName": "名前",
+        "colBranch": "ブランチ",
         "colRoot": "ルート",
         "colPm": "PM",
         "colNode": "Node",

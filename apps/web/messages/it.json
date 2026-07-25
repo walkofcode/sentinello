@@ -142,6 +142,7 @@
         "librariesEmptyTitle": "Nessuna libreria da mostrare",
         "librariesEmptyDescription": "Modifica i filtri sopra, oppure attendi la prossima scansione per popolare i risultati.",
         "colName": "Nome",
+        "colBranch": "Ramo",
         "colRoot": "Radice",
         "colPm": "PM",
         "colNode": "Node",

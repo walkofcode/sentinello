@@ -142,6 +142,7 @@
         "librariesEmptyTitle": "Aucune bibliothèque à afficher",
         "librariesEmptyDescription": "Ajustez les filtres ci-dessus, ou attendez la prochaine analyse pour remplir les résultats.",
         "colName": "Nom",
+        "colBranch": "Branche",
         "colRoot": "Racine",
         "colPm": "GP",
         "colNode": "Node",

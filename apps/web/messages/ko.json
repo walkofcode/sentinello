@@ -142,6 +142,7 @@
         "librariesEmptyTitle": "표시할 라이브러리가 없습니다",
         "librariesEmptyDescription": "위의 필터를 조정하거나, 다음 스캔이 발견 항목을 채울 때까지 기다리세요.",
         "colName": "이름",
+        "colBranch": "브랜치",
         "colRoot": "루트",
         "colPm": "PM",
         "colNode": "Node",

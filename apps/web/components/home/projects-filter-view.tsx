@@ -8,7 +8,6 @@ import { ShieldCheck } from 'lucide-react'
 import { reasonCodeLabel, type DepTypeFilter, type Locale, type ReasonCode, type Severity } from '@sentinello/core'
 import type { ProjectCatalogRow } from '@sentinello/db'
 import { Badge } from '@/components/ui/badge'
-import { BranchBadge } from '@/components/ui/branch-badge'
 import { ExportAdvisoryButton } from '@/components/triage/export-advisory-button'
 import { MuteDialog } from '@/components/triage/mute-dialog'
 import { ScanNowButton } from '@/components/triage/scan-now-button'
@@ -232,7 +231,6 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                                                 {project.alias || project.name}
                                             </Link>
                                             <TagList tags={tags} />
-                                            <BranchBadge branch={project.gitBranch} className="mt-1" />
                                         </div>
                                         <div className="flex shrink-0 flex-wrap justify-end gap-1">
                                             {scanReason ? (
@@ -247,6 +245,8 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                                         <SeverityCountsRow counts={project.severityCounts} />
                                     </div>
                                     <dl className="mt-3 grid grid-cols-[4.5rem_1fr] gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+                                        <dt className="uppercase tracking-wide">{t('colBranch')}</dt>
+                                        <dd className="min-w-0 break-words">{project.gitBranch || '—'}</dd>
                                         <dt className="uppercase tracking-wide">{t('colRoot')}</dt>
                                         <dd className="min-w-0 break-words">{project.rootLabel || project.rootPath}</dd>
                                         <dt className="uppercase tracking-wide">{t('colPm')}</dt>
@@ -266,6 +266,7 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>{t('colName')}</TableHead>
+                                    <TableHead>{t('colBranch')}</TableHead>
                                     <TableHead>{t('colRoot')}</TableHead>
                                     <TableHead>{t('colPm')}</TableHead>
                                     <TableHead>{t('colNode')}</TableHead>
@@ -293,7 +294,11 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                                                     {project.alias || project.name}
                                                 </Link>
                                                 <TagList tags={parseJsonArray(project.tagsJson)} />
-                                                <BranchBadge branch={project.gitBranch} className="mt-0.5" />
+                                            </TableCell>
+                                            <TableCell className="text-xs text-muted-foreground">
+                                                <span className="block max-w-40 truncate" title={project.gitBranch || ''}>
+                                                    {project.gitBranch || '—'}
+                                                </span>
                                             </TableCell>
                                             <TableCell className="text-xs text-muted-foreground">
                                                 {project.rootLabel || project.rootPath}

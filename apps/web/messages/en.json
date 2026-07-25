@@ -142,6 +142,7 @@
         "librariesEmptyTitle": "No libraries to show",
         "librariesEmptyDescription": "Adjust filters above, or wait for the next scan to populate findings.",
         "colName": "Name",
+        "colBranch": "Branch",
         "colRoot": "Root",
         "colPm": "PM",
         "colNode": "Node",

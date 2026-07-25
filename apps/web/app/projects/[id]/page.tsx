@@ -21,7 +21,6 @@ import {
 } from '@sentinello/db'
 import { reasonCodeLabel, scanStatusLabel, type Locale } from '@sentinello/core'
 import { Badge } from '@/components/ui/badge'
-import { BranchBadge } from '@/components/ui/branch-badge'
 import { ScrollToTop } from '@/components/layout/scroll-to-top'
 import { AliasEditor } from '@/components/triage/alias-editor'
 import { MuteDialog } from '@/components/triage/mute-dialog'
@@ -165,7 +164,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                             {project.gitBranch ? (
                                 <>
                                     <span aria-hidden="true">·</span>
-                                    <BranchBadge branch={project.gitBranch} className="text-sm" />
+                                    <span className="min-w-0 truncate" title={project.gitBranch}>{project.gitBranch}</span>
                                 </>
                             ) : null}
                             <span aria-hidden="true">·</span>

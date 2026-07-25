@@ -142,6 +142,7 @@
         "librariesEmptyTitle": "Nenhuma biblioteca para exibir",
         "librariesEmptyDescription": "Ajuste os filtros acima ou aguarde a próxima varredura preencher as ocorrências.",
         "colName": "Nome",
+        "colBranch": "Ramo",
         "colRoot": "Raiz",
         "colPm": "GP",
         "colNode": "Node",

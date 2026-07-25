@@ -142,6 +142,7 @@
         "librariesEmptyTitle": "没有可显示的依赖库",
         "librariesEmptyDescription": "请调整上方筛选条件，或等待下次扫描生成发现。",
         "colName": "名称",
+        "colBranch": "分支",
         "colRoot": "根目录",
         "colPm": "包管理器",
         "colNode": "Node",
