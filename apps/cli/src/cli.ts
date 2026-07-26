@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 import { writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { DEFAULT_ECOSYSTEM, DEFAULT_EXPORT_PROMPT } from '@sentinello/core'
+import {
+    DEFAULT_ECOSYSTEM,
+    DEFAULT_EXPORT_PROMPT,
+    GEMNASIUM_NORMALIZER_VERSION,
+    OSV_NORMALIZER_VERSION
+} from '@sentinello/core'
 import { discoverProjectsInTree, type DiscoverySkip } from '@sentinello/scanners'
-import { resolveCacheDir } from './cache/meta'
+import { isSeeded, readCacheMeta, resolveCacheDir } from './cache/meta'
 import { loadCacheForPackages } from './cache/lookup'
 import { planSync, runSync } from './cache/sync'
 import { applyConfigFile, explicitFlagNames, parseArgs, type CliOptions } from './options'
@@ -112,12 +117,18 @@ async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Promise<n
     const packageNames = collectPackageNames(resolved)
     const cache = await loadCacheForPackages(cacheDir, DEFAULT_ECOSYSTEM, packageNames, options.sources)
 
-    // 4. Scan.
+    // 4. Scan. Seeded state comes from the cache metadata, not from whether this project happened to match
+    // any rows, so a dependency-free project is reported as scanned-and-clean rather than unauditable.
+    const meta = await readCacheMeta(cacheDir)
     const setup = {
         cacheDir,
         sources: options.sources,
         ecosystem: DEFAULT_ECOSYSTEM,
-        includeNpmAudit: options.includeNpmAudit
+        includeNpmAudit: options.includeNpmAudit,
+        seeded: {
+            osv: isSeeded(meta, 'osv', DEFAULT_ECOSYSTEM, OSV_NORMALIZER_VERSION),
+            gemnasium: isSeeded(meta, 'gemnasium', DEFAULT_ECOSYSTEM, GEMNASIUM_NORMALIZER_VERSION)
+        }
     }
     const scanners = buildScanners(setup, cache)
     const results: ProjectScanResult[] = []

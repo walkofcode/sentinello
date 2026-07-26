@@ -1,0 +1,127 @@
+# Build and publish the Sentinello CLI to npm as `sentinello`.
+#
+# Triggers:
+#   - Push of a `v*` tag (e.g. `v3.0.0`) → publishes sentinello@X.Y.Z, alongside publish-image.yml
+#     which publishes the container at the same tag. One tag, one version, everywhere.
+#   - workflow_dispatch → dry run by default (packs and inspects without publishing), so the
+#     packaging can be smoke-tested without burning a version.
+#
+# Versioning — why nothing here reads apps/cli/package.json#version:
+#   The canonical version is the monorepo ROOT package.json, maintained by release-please. Every
+#   workspace package stays pinned at 0.1.0 forever (they are internal and never published), and this
+#   workflow stamps the released version onto the CLI package immediately before publishing. That keeps
+#   the npm version and the Docker tag identical by construction rather than by remembering to bump a
+#   second file, and it means release-please needs no second package registered.
+#
+# Authentication — npm trusted publishing (OIDC):
+#   No NPM_TOKEN secret. npm mints a short-lived credential from this workflow's OIDC identity, which
+#   also produces a provenance attestation linking the tarball to this exact commit and workflow. A
+#   long-lived automation token is exactly the kind of credential a supply-chain attack wants; not
+#   having one is the point.
+#
+#   ONE-TIME SETUP (cannot be done before the package exists on the registry):
+#     1. Publish once manually to claim the name:
+#          pnpm install && pnpm --filter sentinello build
+#          cd apps/cli && npm pkg set version=$(node -p "require('../../package.json').version")
+#          npm publish --access public
+#     2. On npmjs.com → sentinello → Settings → Trusted Publisher, add:
+#          repository: walkofcode/sentinello   workflow: .github/workflows/publish-npm.yml
+#     3. Revoke any token used for step 1.
+#   Until step 2 is done this workflow will fail to authenticate — that is expected, not a bug.
+
+name: publish-npm
+
+on:
+    push:
+        tags:
+            - 'v*'
+    workflow_dispatch:
+        inputs:
+            publish:
+                description: 'Actually publish to npm (false = pack and inspect only)'
+                type: boolean
+                default: false
+
+permissions:
+    contents: read
+    # Required for trusted publishing and provenance attestation.
+    id-token: write
+
+jobs:
+    publish:
+        name: publish to npm
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v5
+
+            - uses: pnpm/action-setup@v4
+
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 24
+                  cache: pnpm
+                  registry-url: https://registry.npmjs.org
+
+            # Trusted publishing requires a recent npm; the version bundled with Node 24 predates it.
+            - name: Update npm
+              run: npm install -g npm@latest
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Resolve the release version
+              id: version
+              run: |
+                  if [ "${{ github.event_name }}" = "push" ]; then
+                      VERSION="${GITHUB_REF_NAME#v}"
+                  else
+                      VERSION=$(node -p "require('./package.json').version")
+                  fi
+                  echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+                  echo "Publishing version $VERSION"
+
+            # The tag is the source of truth on a release. If it disagrees with the root package.json,
+            # release-please and the tag have diverged and the Docker image would ship different code
+            # under the same number — fail loudly rather than publish a mismatched pair.
+            - name: Verify the tag matches the root package.json
+              if: github.event_name == 'push'
+              run: |
+                  ROOT_VERSION=$(node -p "require('./package.json').version")
+                  if [ "$ROOT_VERSION" != "${{ steps.version.outputs.version }}" ]; then
+                      echo "::error::tag ${{ steps.version.outputs.version }} does not match root package.json $ROOT_VERSION"
+                      exit 1
+                  fi
+
+            - name: Build the CLI bundle
+              run: pnpm --filter sentinello build
+
+            - name: Stamp the version onto the package
+              working-directory: apps/cli
+              run: npm pkg set version=${{ steps.version.outputs.version }}
+
+            # The published package must declare no runtime dependencies: everything is bundled, and the
+            # workspace packages it builds from are private and unpublishable. A stray `dependencies`
+            # entry would produce a tarball that cannot install.
+            - name: Verify the package is dependency-free
+              working-directory: apps/cli
+              run: |
+                  DEPS=$(node -p "JSON.stringify(require('./package.json').dependencies || {})")
+                  if [ "$DEPS" != "{}" ]; then
+                      echo "::error::published package must have no runtime dependencies, found $DEPS"
+                      exit 1
+                  fi
+
+            - name: Smoke-test the built binary
+              working-directory: apps/cli
+              run: |
+                  node dist/cli.cjs --version
+                  node dist/cli.cjs --help > /dev/null
+
+            - name: Pack and inspect
+              working-directory: apps/cli
+              run: npm pack --dry-run
+
+            - name: Publish
+              if: github.event_name == 'push' || inputs.publish
+              working-directory: apps/cli
+              run: npm publish --access public --provenance

@@ -56,8 +56,14 @@ function isTransientStatus(status: number): boolean {
     return status >= 500 && status < 600
 }
 
-const MAX_ATTEMPTS = 3
-const RETRY_BASE_MS = 750
+// Backoff is exponential and deliberately generous. GitLab's throttle window on the archive endpoint
+// outlasts a short linear backoff: a first run that seeds OSV and then immediately requests the gemnasium
+// archive — the exact default sequence — was observed failing all attempts across ~2s of retries and
+// succeeding on a later run. 1s, 3s, then 9s clears it while still giving up inside ~13s when a feed is
+// genuinely down, rather than stalling someone's terminal.
+const MAX_ATTEMPTS = 4
+const RETRY_BASE_MS = 1000
+const RETRY_FACTOR = 3
 
 function delay(ms: number): Promise<void> {
     return new Promise(function schedule(resolve) {
@@ -78,7 +84,7 @@ async function fetchWithRetry(url: string, init: RequestInit, options: FetchOpti
         if (response.body) await response.body.cancel()
         if (attempt === MAX_ATTEMPTS) break
         if (options && options.abortSignal && options.abortSignal.aborted) break
-        await delay(RETRY_BASE_MS * attempt)
+        await delay(RETRY_BASE_MS * Math.pow(RETRY_FACTOR, attempt - 1))
     }
     throw new Error(describeMethod(init) + ' ' + url + ' failed: HTTP ' + lastStatus + ' after ' + MAX_ATTEMPTS + ' attempts')
 }

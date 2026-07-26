@@ -1,28 +1,56 @@
 {
     "name": "sentinello",
     "version": "0.1.0",
-    "private": true,
     "license": "MIT",
     "description": "Scan the projects in a folder for vulnerable dependencies and write an advisory an agent can act on.",
+    "keywords": [
+        "security",
+        "vulnerability",
+        "audit",
+        "npm-audit",
+        "osv",
+        "dependencies",
+        "supply-chain",
+        "cli"
+    ],
+    "homepage": "https://sentinello.org",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/walkofcode/sentinello.git",
+        "directory": "apps/cli"
+    },
+    "bugs": {
+        "url": "https://github.com/walkofcode/sentinello/issues"
+    },
+    "author": "Walk of Code LLC <info@sentinello.org> (https://walkofcode.io)",
     "type": "module",
     "bin": {
-        "sentinello": "./dist/cli.js"
+        "sentinello": "./dist/cli.cjs"
     },
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE"
+    ],
     "engines": {
         "node": ">=22.0.0"
     },
+    "publishConfig": {
+        "access": "public",
+        "provenance": true
+    },
     "scripts": {
+        "build": "tsup",
         "dev": "tsx src/cli.ts",
         "lint": "eslint src",
         "typecheck": "tsc -p tsconfig.json --noEmit"
     },
-    "dependencies": {
+    "devDependencies": {
         "@sentinello/core": "workspace:*",
         "@sentinello/feeds": "workspace:*",
-        "@sentinello/scanners": "workspace:*"
-    },
-    "devDependencies": {
+        "@sentinello/scanners": "workspace:*",
         "@types/node": "25.6.0",
+        "tsup": "8.5.1",
         "tsx": "4.21.0"
     }
 }

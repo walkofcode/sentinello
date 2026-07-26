@@ -83,6 +83,12 @@ export type ScanSetup = {
     sources: SourceId[]
     ecosystem: EcosystemId
     includeNpmAudit: boolean
+    // Whether each source's cache is genuinely downloaded and current, read from the cache metadata.
+    // This must NOT be inferred from whether any rows matched the project being scanned: a project with no
+    // dependencies (or simply no vulnerable ones) matches nothing, and inferring from that would report
+    // "database not downloaded" about a cache holding 224k advisories — telling the user to fix something
+    // that is not broken, and hiding the fact that the project was in fact scanned cleanly.
+    seeded: Record<SourceId, boolean>
     abortSignal?: AbortSignal
 }
 
@@ -96,10 +102,8 @@ export function buildScanners(setup: ScanSetup, cache: LoadedCache): ScannerPlug
             lookup: function lookup(ecosystem, packageNames) {
                 return pick(cache.osv, ecosystem, packageNames, setup.ecosystem)
             },
-            // The cache having rows at all IS the seeded signal here; sync runs before scanning, so a
-            // source that failed to seed simply has none and stays honestly unauditable.
             isSeeded: function isSeeded(): boolean {
-                return cache.osv.size > 0
+                return setup.seeded.osv
             },
             isEnabled: function isEnabled(ecosystem: string): boolean {
                 return ecosystem === setup.ecosystem
@@ -112,7 +116,7 @@ export function buildScanners(setup: ScanSetup, cache: LoadedCache): ScannerPlug
                 return pick(cache.gemnasium, ecosystem, packageNames, setup.ecosystem)
             },
             isSeeded: function isSeeded(): boolean {
-                return cache.gemnasium.size > 0
+                return setup.seeded.gemnasium
             },
             isEnabled: function isEnabled(ecosystem: string): boolean {
                 return ecosystem === setup.ecosystem

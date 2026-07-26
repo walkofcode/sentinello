@@ -4,7 +4,8 @@
     "globalPassThroughEnv": ["SENTINELLO_*"],
     "tasks": {
         "build": {
-            "outputs": [".next/**", "!.next/cache/**"]
+            "outputs": [".next/**", "!.next/cache/**", "dist/**"],
+            "env": ["SENTINELLO_VERSION"]
         },
         "dev": {
             "cache": false,
