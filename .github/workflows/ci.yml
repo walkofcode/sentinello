@@ -57,3 +57,24 @@ jobs:
 
             - name: Build
               run: pnpm build
+
+    cli-e2e:
+        name: cli end-to-end
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v5
+
+            - uses: pnpm/action-setup@v4
+
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 24
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            # Bundles the CLI and drives the real dist/cli.cjs as a subprocess — the same artifact
+            # npm publishes. Catches packaging faults no in-process test can see.
+            - name: CLI end-to-end
+              run: pnpm test:e2e:cli
