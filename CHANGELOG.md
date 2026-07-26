@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.4.3](https://github.com/walkofcode/sentinello/compare/v2.4.2...v2.4.3) (2026-07-26)
+
+
+### Features
+
+* **export:** make the advisory prompt plan first and refuse a muted zero ([0ddecf7](https://github.com/walkofcode/sentinello/commit/0ddecf7cc78552082a36de1347b5cf9ea97d6f0b))
+
+
+### Bug Fixes
+
+* **ui:** portal popups so scroll containers stop clipping them ([bbc9fa6](https://github.com/walkofcode/sentinello/commit/bbc9fa6ff61eb96175f96e2e756beb0d7c27aaa4))
+
+
+### Documentation
+
+* **releases:** add 2.4.3 release notes ([e5d6a60](https://github.com/walkofcode/sentinello/commit/e5d6a60d13dc418ab8f86528b1db84857a1ec7b2))
+* **releases:** date 2.4.3 to match the changelog ([d563a4b](https://github.com/walkofcode/sentinello/commit/d563a4b5f12d96a85427b5912034064baad19663))
+
 ## [2.4.2](https://github.com/walkofcode/sentinello/compare/v2.4.1...v2.4.2) (2026-07-25)
 
 
