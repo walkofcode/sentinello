@@ -1,8 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
 import { Check, ChevronDown } from 'lucide-react'
+import { useAnchoredPanel } from '@/components/ui/use-anchored-panel'
 import { cn } from '@/lib/cn'
 
 export type DropdownOption = {
@@ -45,18 +47,25 @@ type Props = SingleProps | MultiProps
 const TRIGGER_BASE =
     'inline-flex h-9 w-full min-w-[8rem] items-center justify-between gap-2 rounded-md border bg-transparent px-3 text-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50'
 
+// Matches the panel's `max-w-[20rem]`; the flip threshold covers a full-height option list.
+const PANEL_WIDTH = 320
+const FLIP_THRESHOLD = 320
+
 // Unified custom dropdown used everywhere a native <select> used to live. Single-select by default;
 // pass `multiple` for a checkbox-style multi-select (e.g. the source filter). Trigger + popover chrome
 // are shared so every dropdown in the app reads identically. Closes on outside-click / Escape; supports
 // arrow-key navigation and an optional search box for long option lists.
 export function Dropdown(props: Props) {
     const t = useTranslations('Common')
-    const [open, setOpen] = useState(false)
     const [query, setQuery] = useState('')
     const [highlight, setHighlight] = useState(0)
-    const wrapperRef = useRef<HTMLDivElement>(null)
-    const panelRef = useRef<HTMLDivElement>(null)
     const searchRef = useRef<HTMLInputElement>(null)
+    const { open, setOpen, triggerRef, panelRef, style } = useAnchoredPanel<HTMLButtonElement>({
+        align: 'left',
+        width: PANEL_WIDTH,
+        flipThreshold: FLIP_THRESHOLD,
+        matchTriggerWidth: true
+    })
 
     const filtered = useMemo(function applyQuery() {
         const q = query.trim().toLowerCase()
@@ -73,16 +82,6 @@ export function Dropdown(props: Props) {
     useEffect(function resetHighlight() {
         setHighlight(0)
     }, [query])
-
-    useEffect(function bindOutsideClick() {
-        if (!open) return
-        function onMouseDown(e: MouseEvent) {
-            const target = e.target as Node | null
-            if (wrapperRef.current && target && !wrapperRef.current.contains(target)) setOpen(false)
-        }
-        document.addEventListener('mousedown', onMouseDown)
-        return function cleanup() { document.removeEventListener('mousedown', onMouseDown) }
-    }, [open])
 
     // For multi-select, an empty selection means "all" — so every row reads as checked and toggling one
     // narrows from the full set rather than inverting. Single-select compares against the chosen value.
@@ -154,8 +153,9 @@ export function Dropdown(props: Props) {
     }
 
     return (
-        <div ref={wrapperRef} className={cn('relative inline-block', props.className)}>
+        <div className={cn('inline-block', props.className)}>
             <button
+                ref={triggerRef}
                 type="button"
                 id={props.id}
                 disabled={props.disabled}
@@ -169,57 +169,61 @@ export function Dropdown(props: Props) {
                 <span className="truncate">{triggerLabel}</span>
                 <ChevronDown className="h-4 w-4 shrink-0 opacity-60" />
             </button>
-            {open && (
-                <div
-                    ref={panelRef}
-                    role="listbox"
-                    tabIndex={-1}
-                    onKeyDown={onPanelKeyDown}
-                    className="absolute left-0 top-full z-40 mt-1 min-w-full max-w-[20rem] rounded-md border bg-card shadow-md focus:outline-none"
-                >
-                    {props.searchable ? (
-                        <div className="border-b p-1">
-                            <input
-                                ref={searchRef}
-                                type="text"
-                                value={query}
-                                onChange={function onSearch(e) { setQuery(e.target.value) }}
-                                placeholder={t('search')}
-                                aria-label={t('search')}
-                                className="h-8 w-full rounded-sm bg-transparent px-2 text-sm focus:outline-none"
-                            />
-                        </div>
-                    ) : null}
-                    <div className="max-h-64 overflow-auto p-1">
-                        {filtered.length === 0 ? (
-                            <div className="px-2 py-1.5 text-sm text-muted-foreground">{t('noMatches')}</div>
-                        ) : (
-                            filtered.map(function row(o, i) {
-                                const active = isSelected(o)
-                                return (
-                                    <button
-                                        key={o.value}
-                                        type="button"
-                                        role="option"
-                                        aria-selected={active}
-                                        disabled={o.disabled}
-                                        onMouseEnter={function hover() { setHighlight(i) }}
-                                        onClick={function pick() { choose(o) }}
-                                        className={cn(
-                                            'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm',
-                                            i === highlight && 'bg-accent text-accent-foreground',
-                                            o.disabled && 'opacity-50'
-                                        )}
-                                    >
-                                        <Check className={cn('h-4 w-4 shrink-0', active ? 'opacity-100' : 'opacity-0')} />
-                                        <span className="min-w-0 truncate">{o.node || o.label}</span>
-                                    </button>
-                                )
-                            })
-                        )}
-                    </div>
-                </div>
-            )}
+            {open && style && typeof document !== 'undefined'
+                ? createPortal(
+                      <div
+                          ref={panelRef}
+                          role="listbox"
+                          tabIndex={-1}
+                          onKeyDown={onPanelKeyDown}
+                          style={style}
+                          className="z-50 max-w-[20rem] rounded-md border bg-card shadow-md focus:outline-none"
+                      >
+                          {props.searchable ? (
+                              <div className="border-b p-1">
+                                  <input
+                                      ref={searchRef}
+                                      type="text"
+                                      value={query}
+                                      onChange={function onSearch(e) { setQuery(e.target.value) }}
+                                      placeholder={t('search')}
+                                      aria-label={t('search')}
+                                      className="h-8 w-full rounded-sm bg-transparent px-2 text-sm focus:outline-none"
+                                  />
+                              </div>
+                          ) : null}
+                          <div className="max-h-64 overflow-auto p-1">
+                              {filtered.length === 0 ? (
+                                  <div className="px-2 py-1.5 text-sm text-muted-foreground">{t('noMatches')}</div>
+                              ) : (
+                                  filtered.map(function row(o, i) {
+                                      const active = isSelected(o)
+                                      return (
+                                          <button
+                                              key={o.value}
+                                              type="button"
+                                              role="option"
+                                              aria-selected={active}
+                                              disabled={o.disabled}
+                                              onMouseEnter={function hover() { setHighlight(i) }}
+                                              onClick={function pick() { choose(o) }}
+                                              className={cn(
+                                                  'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm',
+                                                  i === highlight && 'bg-accent text-accent-foreground',
+                                                  o.disabled && 'opacity-50'
+                                              )}
+                                          >
+                                              <Check className={cn('h-4 w-4 shrink-0', active ? 'opacity-100' : 'opacity-0')} />
+                                              <span className="min-w-0 truncate">{o.node || o.label}</span>
+                                          </button>
+                                      )
+                                  })
+                              )}
+                          </div>
+                      </div>,
+                      document.body
+                  )
+                : null}
         </div>
     )
 }
