@@ -1,38 +1,33 @@
-import { execFileSync } from 'node:child_process'
-import { resolve } from 'node:path'
+import { existsSync, statSync } from 'node:fs'
 import { E2E_DB_PATH } from './paths'
 
-// Seeds the database the portal will read. The portal never migrates its own database — apps/web
-// deliberately leaves the lifecycle to the worker — so the harness stands in for the worker.
+// Verification only — the seeding itself happens in `pnpm test:e2e:seed`, BEFORE Playwright is
+// launched at all.
 //
-// Two constraints shape this file, both from Playwright loading it through a CJS require:
-//   - No `import.meta`. Its presence forces the file to be treated as ESM, and the transpiled CJS
-//     output then fails with `exports is not defined in ES module scope`. Paths come from
-//     process.cwd(), which Playwright sets to the config's directory (the repo root).
-//   - No importing @sentinello/db. It is ESM all the way down to better-sqlite3's bindings, so it
-//     cannot cross the same boundary. The seeding runs in a child process under tsx instead, inside
-//     a workspace that already depends on db — which also gets module resolution right for free.
+// That ordering is the whole point, and it was not obvious. Playwright starts the webServer BEFORE
+// globalSetup, so seeding here was too late: the readiness probe on /api/health opened the database
+// first, openDb created the missing file, apps/web cached the connection in its
+// globalThis.__sentinelloDb singleton, and the seed then replaced that file with a fresh inode. The
+// server kept querying the deleted one and every request failed with "no such table: projects" —
+// while /api/health still reported the database as up, because SELECT 1 works fine on an empty one.
 //
-// The database path is computed ONCE here and handed to the child, rather than recomputed on both
-// sides. Two independent os.tmpdir() calls in two processes are two chances to disagree, and when
-// they do the failure is silent and baffling: openDb creates the missing file, `SELECT 1` succeeds
-// so /api/health reports the database as up, and only the content queries fail with
-// "no such table: projects".
+// Worse, it passed locally and only failed in CI: a previous run left a seeded file behind, so the
+// server's stale handle happened to hold the right data. A green run on stale state is the failure
+// mode this check exists to make impossible.
 export default function globalSetup(): void {
-    const repoRoot = process.cwd()
-    const seedRun = resolve(repoRoot, 'tests', 'e2e', 'portal', 'seed-run.ts')
+    if (!existsSync(E2E_DB_PATH)) {
+        throw new Error(
+            '[e2e] no seeded database at ' + E2E_DB_PATH + '. Run `pnpm test:e2e` rather than ' +
+            '`playwright test` directly — the database must be seeded before the server starts.'
+        )
+    }
 
-    const output = execFileSync('pnpm', ['--filter', '@sentinello/worker', 'exec', 'tsx', seedRun], {
-        cwd: repoRoot,
-        encoding: 'utf8',
-        env: { ...process.env, SENTINELLO_E2E_DB_PATH: E2E_DB_PATH }
-    })
-
-    process.stdout.write(output)
-
-    // Fail here, loudly and in the right place, rather than letting every content assertion time
-    // out five minutes later with a locator error that says nothing about the real cause.
-    if (!output.includes('projects=2') || !output.includes('findings=2')) {
-        throw new Error('[e2e] seeding did not produce the expected rows at ' + E2E_DB_PATH + '\n' + output)
+    // A database created by the server rather than the seeder is a few KB of empty schema-less file.
+    const size = statSync(E2E_DB_PATH).size
+    if (size < 50_000) {
+        throw new Error(
+            '[e2e] the database at ' + E2E_DB_PATH + ' is only ' + size + ' bytes, which means the ' +
+            'server created an empty one before the seed ran. Re-run `pnpm test:e2e`.'
+        )
     }
 }
