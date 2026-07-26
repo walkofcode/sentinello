@@ -1,29 +1,13 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import type { GemnasiumAdvisoryRow, GemnasiumRange } from '@sentinello/core'
 import type { GemnasiumDrizzleDb } from '../gemnasium-client'
 import { gemnasiumAdvisories, gemnasiumMeta } from '../gemnasium-schema'
 
-// A normalized version range. `fixed` is null for an open-ended range (vulnerable from `introduced`
-// onward with no known fix). Identical shape to OsvRange so both caches feed the same matcher.
-export type GemnasiumRange = {
-    introduced: string
-    fixed: string | null
-}
-
-// One denormalized advisory→package row, the shape the scanner consumes. `rowKey` is synthesized by
-// the writer; callers building rows for upsert pass everything except it (see toInsertRow).
-export type GemnasiumAdvisoryRow = {
-    advisoryId: string
-    ecosystem: string
-    packageName: string
-    aliases: string[]
-    ranges: GemnasiumRange[]
-    versions: string[]
-    severity: string | null
-    summary: string | null
-    url: string | null
-    malicious: boolean
-    withdrawn: number | null
-}
+// The row/range shapes moved to @sentinello/core so the feed normalizers can produce them without
+// linking the SQLite layer (see packages/core/src/advisory-rows.ts). Re-exported here under their
+// historical names — every `from '@sentinello/db'` import site is unchanged, and the column mapping
+// below stays this module's business.
+export type { GemnasiumAdvisoryRow, GemnasiumRange }
 
 export function gemnasiumRowKeyFor(advisoryId: string, ecosystem: string, packageName: string): string {
     return advisoryId + '|' + ecosystem + '|' + packageName
@@ -116,6 +100,24 @@ export function deleteGemnasiumAdvisoriesExcept(db: GemnasiumDrizzleDb, keepRowK
     return stale.length
 }
 
+// Removes every row belonging to the given advisory ids, across all ecosystems. Used by the incremental
+// sync: an advisory file that changed upstream has its rows cleared and rewritten from the new content, so
+// a package dropped from the advisory's affected set does not linger. One advisory maps to 0..N rows (one
+// per affected package), which is why this deletes by advisoryId rather than by rowKey.
+export function deleteGemnasiumAdvisories(db: GemnasiumDrizzleDb, advisoryIds: string[]): number {
+    if (advisoryIds.length === 0) return 0
+    const CHUNK = 500
+    let deleted = 0
+    db.transaction(function txn(tx) {
+        for (let i = 0; i < advisoryIds.length; i += CHUNK) {
+            const slice = advisoryIds.slice(i, i + CHUNK)
+            const result = tx.delete(gemnasiumAdvisories).where(inArray(gemnasiumAdvisories.advisoryId, slice)).run()
+            deleted += result.changes
+        }
+    })
+    return deleted
+}
+
 // Look up all advisories affecting any of the given package names in one ecosystem. Returns a Map
 // keyed by package name so the scanner can join against its resolved-package list. The `withdrawn`
 // filter is a structural mirror of the OSV lookup (gemnasium rows are always non-withdrawn).
@@ -186,7 +188,12 @@ export const GEMNASIUM_META_KEYS = {
     // Last sync error message, or null. Surfaced in the Settings → Sources panel.
     lastError: 'lastError',
     // Version of the normalizer that produced the cached rows. A mismatch forces a full re-seed.
-    normalizerVersion: 'normalizerVersion'
+    normalizerVersion: 'normalizerVersion',
+    // Commit sha of gemnasium-db that the cache was built from. This is the freshness gate: gemnasium-db
+    // is a git repo, so an unchanged HEAD proves the cache is current for the cost of one small API call,
+    // and a changed HEAD lets us fetch only the advisory files that actually differ instead of the whole
+    // 80 MB archive. Null means "provenance unknown" and forces a full archive rebuild.
+    headSha: 'headSha'
 } as const
 
 // Bump whenever the gemnasium normalizer's output shape changes in a way that requires rebuilding the

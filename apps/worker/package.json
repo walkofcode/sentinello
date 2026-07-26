@@ -14,6 +14,7 @@
     "dependencies": {
         "@sentinello/core": "workspace:*",
         "@sentinello/db": "workspace:*",
+        "@sentinello/feeds": "workspace:*",
         "@sentinello/notifications": "workspace:*",
         "@sentinello/scanners": "workspace:*",
         "axios": "1.18.1",

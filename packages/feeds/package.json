@@ -1,0 +1,30 @@
+{
+    "name": "@sentinello/feeds",
+    "version": "0.1.0",
+    "private": true,
+    "license": "MIT",
+    "description": "Advisory feed downloaders, normalizers, and freshness checks (OSV, gemnasium). Storage-agnostic by design so the CLI can cache without SQLite.",
+    "type": "module",
+    "main": "./src/index.ts",
+    "types": "./src/index.ts",
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "default": "./src/index.ts"
+        }
+    },
+    "scripts": {
+        "lint": "eslint src",
+        "typecheck": "tsc -p tsconfig.json --noEmit"
+    },
+    "dependencies": {
+        "@sentinello/core": "workspace:*",
+        "js-yaml": "4.3.0",
+        "unzipper": "0.12.3"
+    },
+    "devDependencies": {
+        "@types/js-yaml": "4.0.9",
+        "@types/node": "25.6.0",
+        "@types/unzipper": "0.10.11"
+    }
+}

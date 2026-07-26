@@ -1,5 +1,5 @@
-import type { GemnasiumAdvisoryRow, GemnasiumRange } from '@sentinello/db'
-import { severityFromCvss } from './gemnasium-cvss'
+import type { GemnasiumAdvisoryRow, GemnasiumRange } from '@sentinello/core'
+import { severityFromCvss } from './cvss'
 
 // Parses a single gemnasium-db advisory (one *.yml file, already YAML-parsed to an object) into the
 // denormalized advisory→package rows we cache. A gemnasium file is per package_slug, so this yields 0..1

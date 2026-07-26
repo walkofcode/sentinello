@@ -1,4 +1,4 @@
-import type { OsvAdvisoryRow, OsvRange } from '@sentinello/db'
+import type { OsvAdvisoryRow, OsvRange } from '@sentinello/core'
 
 // Parses a single OSV record (one *.json file from a per-ecosystem export, or one /v1/vulns response) into
 // the denormalized advisory→package rows we cache. One record can affect multiple packages, each with its

@@ -1,36 +1,13 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import type { OsvAdvisoryRow, OsvRange } from '@sentinello/core'
 import type { OsvDrizzleDb } from '../osv-client'
 import { osvAdvisories, osvMeta } from '../osv-schema'
 
-// A normalized OSV version range. `fixed` is null when there is no clean fix boundary; in that case
-// `lastAffected` (OSV `last_affected`), when set, is an INCLUSIVE upper bound, and when both are null the
-// range is open-ended (vulnerable from `introduced` onward, as every MAL- malicious record is stored).
-// `type` is OSV's `range.type` ('SEMVER' | 'ECOSYSTEM' | 'GIT') — preserved so non-SEMVER ecosystems
-// (PyPI/Go/Rust) keep enough semantics for their comparator to evaluate the range correctly.
-export type OsvRange = {
-    type: string
-    introduced: string
-    fixed: string | null
-    lastAffected: string | null
-}
-
-// One denormalized advisory→package row, the shape the scanner consumes. `rowKey` is synthesized by
-// the writer; callers building rows for upsert pass everything except it (see toOsvRow).
-export type OsvAdvisoryRow = {
-    advisoryId: string
-    ecosystem: string
-    packageName: string
-    aliases: string[]
-    ranges: OsvRange[]
-    // Enumerated affected versions (e.g. malware records list the exact compromised builds like ["4.4.2"]).
-    // The matcher checks membership here in addition to `ranges`.
-    versions: string[]
-    severity: string | null
-    summary: string | null
-    url: string | null
-    malicious: boolean
-    withdrawn: number | null
-}
+// The row/range shapes moved to @sentinello/core so the feed normalizers can produce them without
+// linking the SQLite layer (see packages/core/src/advisory-rows.ts). Re-exported here under their
+// historical names — every `from '@sentinello/db'` import site is unchanged, and the column mapping
+// below stays this module's business.
+export type { OsvAdvisoryRow, OsvRange }
 
 function rowKeyFor(advisoryId: string, ecosystem: string, packageName: string): string {
     return advisoryId + '|' + ecosystem + '|' + packageName
@@ -210,7 +187,11 @@ export const OSV_META_KEYS = {
     // Version of the normalizer that produced the ecosystem's cached rows. Per-ecosystem (via osvMetaKeyFor).
     // Bumped when the row shape changes; a mismatch forces a full re-seed of that ecosystem so stale rows are
     // rebuilt, and the scanner treats the ecosystem as unseeded until the re-seed completes.
-    normalizerVersion: 'normalizerVersion'
+    normalizerVersion: 'normalizerVersion',
+    // ETag of the last modified_id.csv we consumed, replayed as If-None-Match on the next incremental sync.
+    // An unchanged feed then answers 304 with no body at all, turning the routine "is there anything new?"
+    // check into a single round trip instead of an 8.4 MB download. Per-ecosystem.
+    modifiedIdsEtag: 'modifiedIdsEtag'
 } as const
 
 // Build a per-ecosystem osv_meta key, e.g. osvMetaKeyFor('seedComplete', 'PyPI') === 'seedComplete.PyPI'.

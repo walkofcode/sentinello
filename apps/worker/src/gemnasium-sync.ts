@@ -1,42 +1,36 @@
 import { statfs } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { Readable } from 'node:stream'
-import axios from 'axios'
-import yaml from 'js-yaml'
-import unzipper from 'unzipper'
 import {
-    ECOSYSTEMS,
     GEMNASIUM_REQUIRED_FREE_BYTES,
     GEMNASIUM_SEED_DOWNLOAD_BYTES
 } from '@sentinello/core'
 import {
+    advisoryIdFromPath,
+    errText,
+    fetchGemnasiumChangedPaths,
+    fetchGemnasiumFileRows,
+    fetchGemnasiumHeadSha,
+    gemnasiumFeedDisabled,
+    streamGemnasiumArchive
+} from '@sentinello/feeds'
+import {
     GEMNASIUM_META_KEYS,
     GEMNASIUM_NORMALIZER_VERSION,
     countGemnasiumAdvisories,
+    deleteGemnasiumAdvisories,
     deleteGemnasiumAdvisoriesExcept,
     gemnasiumRowKeyFor,
+    getGemnasiumMeta,
     resolveGemnasiumDbPath,
     setGemnasiumMeta,
     upsertGemnasiumAdvisories,
-    type GemnasiumAdvisoryRow,
     type GemnasiumDrizzleDb
 } from '@sentinello/db'
-import { normalizeGemnasiumRecord } from './gemnasium-normalize'
 
-// Full URL of the GitLab gemnasium-db archive (a zip of the repo at HEAD). Overridable for tests/mirrors;
-// set to 'off' to hard-disable network access (the sync becomes a no-op and the scanner stays unseeded).
-const DEFAULT_ARCHIVE_URL =
-    'https://gitlab.com/gitlab-org/security-products/gemnasium-db/-/archive/master/gemnasium-db-master.zip'
+// The worker's gemnasium persistence layer. Feed I/O lives in @sentinello/feeds; this module owns
+// gemnasium.db state and the choice between a full archive rebuild and an incremental catch-up.
 
-function feedUrl(): string {
-    const fromEnv = process.env.SENTINELLO_GEMNASIUM_FEED_URL
-    if (fromEnv && fromEnv.trim().length > 0) return fromEnv.trim()
-    return DEFAULT_ARCHIVE_URL
-}
-
-export function gemnasiumFeedDisabled(): boolean {
-    return feedUrl().toLowerCase() === 'off'
-}
+export { gemnasiumFeedDisabled }
 
 export type GemnasiumSyncResult = {
     status: 'ok' | 'skipped' | 'error'
@@ -58,25 +52,108 @@ export async function checkGemnasiumFreeSpace(): Promise<{ freeBytes: number; su
     }
 }
 
-// Map of gemnasium package-type directory name (e.g. 'npm', 'pypi', 'go', 'cargo') → registry ecosystem id
-// ('npm', 'PyPI', 'Go', 'crates.io'), derived from the central registry so adding a language is a registry
-// edit, never a change here. The sync parses ONLY the directories we have a resolver + comparator for;
-// other gemnasium ecosystems (maven, gem, packagist, …) are skipped until their language ships.
-const PACKAGE_TYPE_TO_ECOSYSTEM: Record<string, string> = (function buildMap() {
-    const map: Record<string, string> = {}
-    for (const eco of ECOSYSTEMS) map[eco.gemnasiumPackageType] = eco.id
-    return map
-})()
-
-// gemnasium-db has no per-advisory delta feed, so every sync re-downloads the whole archive and rebuilds
-// the cache. We stream the zip, resolve each entry's package-type directory to a registry ecosystem,
-// normalize the *.yml, batch-upsert, then purge any advisory not seen this pass (so upstream deletions
-// don't linger). The purge runs ONLY after the full stream succeeds, so a failed/partial download never
-// empties the cache. On success sets seedComplete + the archive's Last-Modified cursor.
+// Entry point for a gemnasium refresh. Three outcomes, cheapest first:
+//   1. HEAD sha matches what the cache was built from → nothing changed upstream, return immediately.
+//   2. HEAD moved and we know our sha → ask which advisory files differ and apply just those.
+//   3. No usable provenance (first seed, normalizer bump, or an unusable compare) → full archive rebuild.
+// This is what stopped the old behavior of re-downloading 80 MB on every sync cycle regardless of whether
+// the upstream repo had moved at all.
 export async function syncGemnasium(db: GemnasiumDrizzleDb, abortSignal?: AbortSignal): Promise<GemnasiumSyncResult> {
     if (gemnasiumFeedDisabled()) {
         return { status: 'skipped', upserted: 0, recordCount: countGemnasiumAdvisories(db), message: 'feed disabled' }
     }
+    const seeded = getGemnasiumMeta<boolean>(db, GEMNASIUM_META_KEYS.seedComplete) === true
+    const normalizerCurrent = getGemnasiumMeta<number>(db, GEMNASIUM_META_KEYS.normalizerVersion) === GEMNASIUM_NORMALIZER_VERSION
+    const storedSha = getGemnasiumMeta<string>(db, GEMNASIUM_META_KEYS.headSha) ?? null
+    const headSha = await fetchGemnasiumHeadSha({ abortSignal })
+
+    if (seeded && normalizerCurrent && headSha && storedSha === headSha) {
+        setGemnasiumMeta(db, GEMNASIUM_META_KEYS.refreshedAt, Date.now())
+        setGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastError, null)
+        return { status: 'ok', upserted: 0, recordCount: countGemnasiumAdvisories(db), message: 'unchanged upstream' }
+    }
+
+    if (seeded && normalizerCurrent && headSha && storedSha) {
+        const incremental = await incrementalSyncGemnasium(db, storedSha, headSha, abortSignal)
+        if (incremental) return incremental
+        // Fall through to the full rebuild when the incremental path was unusable.
+    }
+
+    return await rebuildGemnasium(db, headSha, abortSignal)
+}
+
+// Applies only the advisory files that changed between two commits. Returns null when the compare is
+// unusable (too many changes, upstream timeout, request failure), which tells the caller to fall back to
+// the full archive rather than leave the cache subtly incomplete.
+async function incrementalSyncGemnasium(
+    db: GemnasiumDrizzleDb,
+    fromSha: string,
+    toSha: string,
+    abortSignal?: AbortSignal
+): Promise<GemnasiumSyncResult | null> {
+    const changed = await fetchGemnasiumChangedPaths(fromSha, toSha, { abortSignal })
+    if (changed.status === 'unavailable') {
+        console.log('[gemnasium-sync] incremental unavailable (' + changed.reason + '); falling back to full archive')
+        return null
+    }
+    // A commit that touched only unsupported ecosystems (maven, gem, …) legitimately changes nothing here,
+    // but the sha must still advance or every later sync would re-compare from the same stale point.
+    if (changed.changed.length === 0 && changed.deleted.length === 0) {
+        setGemnasiumMeta(db, GEMNASIUM_META_KEYS.headSha, toSha)
+        setGemnasiumMeta(db, GEMNASIUM_META_KEYS.refreshedAt, Date.now())
+        setGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastError, null)
+        return { status: 'ok', upserted: 0, recordCount: countGemnasiumAdvisories(db), message: 'no relevant changes' }
+    }
+    let upserted = 0
+    try {
+        const deletedIds: string[] = []
+        for (const path of changed.deleted) {
+            const id = advisoryIdFromPath(path)
+            if (id) deletedIds.push(id)
+        }
+        // Clear the rows of every touched advisory before rewriting them, so a package dropped from an
+        // advisory's affected set disappears instead of lingering as a phantom finding.
+        for (const path of changed.changed) {
+            const id = advisoryIdFromPath(path)
+            if (id) deletedIds.push(id)
+        }
+        deleteGemnasiumAdvisories(db, deletedIds)
+        for (const path of changed.changed) {
+            if (abortSignal && abortSignal.aborted) throw new Error('aborted')
+            const rows = await fetchGemnasiumFileRows(path, toSha, { abortSignal })
+            if (rows.length > 0) {
+                upsertGemnasiumAdvisories(db, rows)
+                upserted += rows.length
+            }
+        }
+    } catch (err) {
+        // The sha is deliberately NOT advanced here: a partially applied catch-up must be retried from the
+        // same starting point, not skipped past.
+        const message = 'gemnasium incremental sync failed after ' + upserted + ' rows: ' + errText(err)
+        setGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastError, message)
+        return { status: 'error', upserted, recordCount: countGemnasiumAdvisories(db), message }
+    }
+    const recordCount = countGemnasiumAdvisories(db)
+    setGemnasiumMeta(db, GEMNASIUM_META_KEYS.headSha, toSha)
+    setGemnasiumMeta(db, GEMNASIUM_META_KEYS.recordCount, recordCount)
+    setGemnasiumMeta(db, GEMNASIUM_META_KEYS.refreshedAt, Date.now())
+    setGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastError, null)
+    console.log(
+        '[gemnasium-sync] incremental sync: ' +
+        changed.changed.length + ' changed, ' + changed.deleted.length + ' deleted, ' +
+        upserted + ' rows upserted'
+    )
+    return { status: 'ok', upserted, recordCount, message: null }
+}
+
+// Full rebuild from the repo archive. Streams the zip, normalizes each *.yml, batch-upserts, then purges
+// any advisory not seen this pass (so upstream deletions don't linger). The purge runs ONLY after the full
+// stream succeeds, so a failed/partial download never empties the cache.
+async function rebuildGemnasium(
+    db: GemnasiumDrizzleDb,
+    headSha: string | null,
+    abortSignal?: AbortSignal
+): Promise<GemnasiumSyncResult> {
     const space = await checkGemnasiumFreeSpace()
     if (!space.sufficient) {
         const message =
@@ -88,56 +165,20 @@ export async function syncGemnasium(db: GemnasiumDrizzleDb, abortSignal?: AbortS
         setGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastError, message)
         return { status: 'error', upserted: 0, recordCount: countGemnasiumAdvisories(db), message }
     }
-    let response
-    try {
-        response = await axios.get(feedUrl(), {
-            responseType: 'stream',
-            signal: abortSignal,
-            timeout: 10 * 60 * 1000,
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity
-        })
-    } catch (err) {
-        const message = 'gemnasium archive download failed: ' + errText(err)
-        setGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastError, message)
-        return { status: 'error', upserted: 0, recordCount: countGemnasiumAdvisories(db), message }
-    }
-    const lastModified = typeof response.headers['last-modified'] === 'string' ? response.headers['last-modified'] : null
     let upserted = 0
+    let lastModified: string | null = null
     const seenRowKeys = new Set<string>()
-    const batch: GemnasiumAdvisoryRow[] = []
-    const BATCH_SIZE = 2000
     try {
-        const zip = (response.data as Readable).pipe(unzipper.Parse({ forceStream: true }))
-        for await (const entry of zip) {
-            if (abortSignal && abortSignal.aborted) {
-                entry.autodrain()
-                throw new Error('aborted')
-            }
-            const cell = advisoryPathEcosystem(String(entry.path))
-            if (entry.type !== 'File' || !cell) {
-                entry.autodrain()
-                continue
-            }
-            const content = await entry.buffer()
-            const rows = parseEntry(content, cell.ecosystem, cell.slugPrefix)
-            for (const row of rows) {
+        for await (const batch of streamGemnasiumArchive(undefined, { abortSignal })) {
+            lastModified = batch.lastModified
+            for (const row of batch.rows) {
                 seenRowKeys.add(gemnasiumRowKeyFor(row.advisoryId, row.ecosystem, row.packageName))
-                batch.push(row)
             }
-            if (batch.length >= BATCH_SIZE) {
-                upsertGemnasiumAdvisories(db, batch)
-                upserted += batch.length
-                batch.length = 0
-            }
-        }
-        if (batch.length > 0) {
-            upsertGemnasiumAdvisories(db, batch)
-            upserted += batch.length
-            batch.length = 0
+            upsertGemnasiumAdvisories(db, batch.rows)
+            upserted += batch.rows.length
         }
     } catch (err) {
-        const message = 'gemnasium archive parse failed after ' + upserted + ' rows: ' + errText(err)
+        const message = 'gemnasium archive sync failed after ' + upserted + ' rows: ' + errText(err)
         setGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastError, message)
         return { status: 'error', upserted, recordCount: countGemnasiumAdvisories(db), message }
     }
@@ -149,43 +190,17 @@ export async function syncGemnasium(db: GemnasiumDrizzleDb, abortSignal?: AbortS
     setGemnasiumMeta(db, GEMNASIUM_META_KEYS.recordCount, recordCount)
     setGemnasiumMeta(db, GEMNASIUM_META_KEYS.refreshedAt, Date.now())
     setGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastError, null)
+    // The archive is fetched from the `master` ref rather than a pinned sha, so it may in principle be
+    // newer than the sha we read a moment earlier. Recording the sha we know about is still correct: the
+    // next compare then replays that window, which is idempotent, rather than skipping it.
+    setGemnasiumMeta(db, GEMNASIUM_META_KEYS.headSha, headSha)
     if (lastModified) setGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastModified, lastModified)
-    console.log('[gemnasium-sync] sync complete: ' + recordCount + ' advisory rows (' + purged + ' stale purged)')
+    console.log('[gemnasium-sync] full sync complete: ' + recordCount + ' advisory rows (' + purged + ' stale purged)')
     return { status: 'ok', upserted, recordCount, message: null }
-}
-
-// The archive nests everything under a top folder (e.g. "gemnasium-db-master/"); a real advisory path is
-// "<root>/<packageType>/<package>/<id>.yml". Resolve the package-type segment to a supported registry
-// ecosystem; return null (skip) for non-advisory paths or ecosystems we don't yet scan. The `slugPrefix`
-// (e.g. "pypi/") is what the normalizer strips off `package_slug` to recover the package name.
-function advisoryPathEcosystem(path: string): { ecosystem: string; slugPrefix: string } | null {
-    if (!path.endsWith('.yml') && !path.endsWith('.yaml')) return null
-    const segments = path.split('/')
-    // [root, packageType, ...packageName, id.yml] — need the type segment and at least a package + file.
-    if (segments.length < 4) return null
-    const packageType = segments[1]
-    if (!packageType) return null
-    const ecosystem = PACKAGE_TYPE_TO_ECOSYSTEM[packageType]
-    if (!ecosystem) return null
-    return { ecosystem, slugPrefix: packageType + '/' }
-}
-
-function parseEntry(content: Buffer, ecosystem: string, slugPrefix: string): GemnasiumAdvisoryRow[] {
-    let parsed: unknown
-    try {
-        parsed = yaml.load(content.toString('utf8'))
-    } catch {
-        return []
-    }
-    return normalizeGemnasiumRecord(parsed, ecosystem, slugPrefix)
 }
 
 function mib(bytes: number): string {
     return Math.round(bytes / (1024 * 1024)).toString()
-}
-
-function errText(err: unknown): string {
-    return (err instanceof Error && err.message) || String(err)
 }
 
 // Exposed so the runtime can show the expected download footprint before a seed.

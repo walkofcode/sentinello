@@ -1,0 +1,214 @@
+import yaml from 'js-yaml'
+import unzipper from 'unzipper'
+import { ECOSYSTEMS, type GemnasiumAdvisoryRow } from '@sentinello/core'
+import {
+    getJson,
+    getTextOrNull,
+    openDownloadStream,
+    type FetchOptions,
+    type ProgressReporter
+} from '../http'
+import { normalizeGemnasiumRecord } from './normalize'
+
+// The gemnasium-db feed as pure I/O + parsing. Storage lives with the caller, exactly as in ../osv/feed.
+//
+// gemnasium-db has no per-advisory delta feed, which historically meant re-downloading the whole 80 MB
+// archive on every sync. It IS a git repository though, so the GitLab API gives us two much cheaper
+// signals: the HEAD commit sha (is there anything new at all?) and a compare between two shas (which
+// files changed?). A daily upstream sync typically touches a handful of files, so the common refresh
+// becomes a few KB instead of 80 MB, with the full archive kept as the fallback.
+
+const DEFAULT_ARCHIVE_URL =
+    'https://gitlab.com/gitlab-org/security-products/gemnasium-db/-/archive/master/gemnasium-db-master.zip'
+
+// URL-encoded project path rather than a numeric id: the path is stable and self-documenting, and a
+// numeric id would silently point at the wrong project if it were ever mistyped.
+const DEFAULT_API_BASE = 'https://gitlab.com/api/v4/projects/gitlab-org%2Fsecurity-products%2Fgemnasium-db'
+
+const DEFAULT_REF = 'master'
+
+const BATCH_SIZE = 2000
+
+// GitLab caps compare responses (1000 diffs by default) and flags truncation via `compare_timeout`. Past
+// this many changed files the incremental path stops being a saving anyway, so fall back to the archive.
+export const GEMNASIUM_COMPARE_MAX_FILES = 1000
+
+function archiveUrl(): string {
+    const fromEnv = process.env.SENTINELLO_GEMNASIUM_FEED_URL
+    if (fromEnv && fromEnv.trim().length > 0) return fromEnv.trim()
+    return DEFAULT_ARCHIVE_URL
+}
+
+function apiBase(): string {
+    const fromEnv = process.env.SENTINELLO_GEMNASIUM_API_URL
+    if (fromEnv && fromEnv.trim().length > 0) return fromEnv.trim()
+    return DEFAULT_API_BASE
+}
+
+export function gemnasiumFeedDisabled(): boolean {
+    return archiveUrl().toLowerCase() === 'off'
+}
+
+// Map of gemnasium package-type directory name (e.g. 'npm', 'pypi', 'go', 'cargo') → registry ecosystem id
+// ('npm', 'PyPI', 'Go', 'crates.io'), derived from the central registry so adding a language is a registry
+// edit, never a change here. The sync parses ONLY the directories we have a resolver + comparator for;
+// other gemnasium ecosystems (maven, gem, packagist, …) are skipped until their language ships.
+const PACKAGE_TYPE_TO_ECOSYSTEM: Record<string, string> = (function buildMap() {
+    const map: Record<string, string> = {}
+    for (const eco of ECOSYSTEMS) map[eco.gemnasiumPackageType] = eco.id
+    return map
+})()
+
+type AdvisoryPath = { ecosystem: string; slugPrefix: string }
+
+// Resolves an advisory file path to its registry ecosystem, or null for non-advisory paths and ecosystems
+// we do not yet scan. `rootOffset` accounts for the two path shapes this feed produces: archive entries
+// are nested under a top folder ("gemnasium-db-master/npm/lodash/CVE-x.yml", offset 1) while API paths are
+// repo-relative ("npm/lodash/CVE-x.yml", offset 0). Passing the wrong offset silently matches nothing.
+function advisoryPathEcosystem(path: string, rootOffset: number): AdvisoryPath | null {
+    if (!path.endsWith('.yml') && !path.endsWith('.yaml')) return null
+    const segments = path.split('/')
+    // [<root>?, packageType, ...packageName, id.yml] — need the type segment plus a package and a file.
+    if (segments.length < rootOffset + 3) return null
+    const packageType = segments[rootOffset]
+    if (!packageType) return null
+    const ecosystem = PACKAGE_TYPE_TO_ECOSYSTEM[packageType]
+    if (!ecosystem) return null
+    return { ecosystem, slugPrefix: packageType + '/' }
+}
+
+type CommitEntry = { id?: string }
+
+// The HEAD commit sha of the advisory repo. This is the freshness gate: when it matches the sha recorded
+// at the last sync, the cache is current and nothing else needs fetching. Returns null when the API is
+// unreachable or answers unexpectedly, which the caller treats as "unknown" and handles conservatively.
+export async function fetchGemnasiumHeadSha(options?: FetchOptions): Promise<string | null> {
+    const url = apiBase() + '/repository/commits?ref_name=' + DEFAULT_REF + '&per_page=1'
+    try {
+        const commits = await getJson<CommitEntry[]>(url, options)
+        if (!Array.isArray(commits) || commits.length === 0) return null
+        const head = commits[0]
+        if (!head || typeof head.id !== 'string' || head.id.length === 0) return null
+        return head.id
+    } catch {
+        return null
+    }
+}
+
+type CompareDiff = { new_path?: string; old_path?: string; deleted_file?: boolean }
+type CompareResponse = { diffs?: CompareDiff[]; compare_timeout?: boolean }
+
+export type GemnasiumChangedPaths =
+    // The incremental path is not usable — caller must rebuild from the full archive.
+    | { status: 'unavailable'; reason: string }
+    | { status: 'ok'; changed: string[]; deleted: string[]; toSha: string }
+
+// Advisory files that changed between two commits. Only paths under a supported package type are returned,
+// so an upstream commit touching only maven/gem advisories correctly yields an empty changed set.
+export async function fetchGemnasiumChangedPaths(
+    fromSha: string,
+    toSha: string,
+    options?: FetchOptions
+): Promise<GemnasiumChangedPaths> {
+    const url = apiBase() + '/repository/compare?from=' + encodeURIComponent(fromSha) + '&to=' + encodeURIComponent(toSha)
+    let response: CompareResponse
+    try {
+        response = await getJson<CompareResponse>(url, options)
+    } catch (err) {
+        return { status: 'unavailable', reason: 'compare request failed: ' + ((err instanceof Error && err.message) || String(err)) }
+    }
+    // A truncated diff would silently under-report changes, leaving the cache subtly stale — rebuild instead.
+    if (response.compare_timeout === true) {
+        return { status: 'unavailable', reason: 'compare timed out upstream' }
+    }
+    const diffs = Array.isArray(response.diffs) ? response.diffs : []
+    if (diffs.length >= GEMNASIUM_COMPARE_MAX_FILES) {
+        return { status: 'unavailable', reason: 'too many changed files (' + diffs.length + ')' }
+    }
+    const changed: string[] = []
+    const deleted: string[] = []
+    for (const diff of diffs) {
+        const path = typeof diff.new_path === 'string' ? diff.new_path : null
+        if (!path) continue
+        if (!advisoryPathEcosystem(path, 0)) continue
+        if (diff.deleted_file === true) {
+            deleted.push(path)
+            continue
+        }
+        changed.push(path)
+    }
+    return { status: 'ok', changed, deleted, toSha }
+}
+
+// Current rows for one advisory file. Returns [] when the file 404s (deleted between the compare and the
+// fetch) or parses to nothing, which the caller applies as "this advisory no longer matches".
+export async function fetchGemnasiumFileRows(
+    path: string,
+    ref: string,
+    options?: FetchOptions
+): Promise<GemnasiumAdvisoryRow[]> {
+    const cell = advisoryPathEcosystem(path, 0)
+    if (!cell) return []
+    const url = apiBase() + '/repository/files/' + encodeURIComponent(path) + '/raw?ref=' + encodeURIComponent(ref)
+    const text = await getTextOrNull(url, options)
+    if (text === null) return []
+    return parseAdvisoryYaml(Buffer.from(text, 'utf8'), cell)
+}
+
+// The advisory id a repo-relative path refers to, so a deleted file can be dropped from the cache without
+// re-fetching it. gemnasium names each file "<identifier>.yml", which IS the row's advisoryId.
+export function advisoryIdFromPath(path: string): string | null {
+    const segments = path.split('/')
+    const file = segments[segments.length - 1]
+    if (!file) return null
+    const dot = file.lastIndexOf('.')
+    const id = dot > 0 ? file.slice(0, dot) : file
+    return id.length > 0 ? id : null
+}
+
+export type GemnasiumArchiveBatch = {
+    rows: GemnasiumAdvisoryRow[]
+    lastModified: string | null
+}
+
+// Streams the full repo archive, yielding normalized rows in batches. Used for the first seed and as the
+// fallback whenever the incremental path is unavailable.
+export async function* streamGemnasiumArchive(
+    onProgress?: ProgressReporter,
+    options?: FetchOptions
+): AsyncGenerator<GemnasiumArchiveBatch> {
+    const download = await openDownloadStream(archiveUrl(), onProgress, options)
+    const abortSignal = options && options.abortSignal
+    let batch: GemnasiumAdvisoryRow[] = []
+    const zip = download.stream.pipe(unzipper.Parse({ forceStream: true }))
+    for await (const entry of zip) {
+        if (abortSignal && abortSignal.aborted) {
+            entry.autodrain()
+            throw new Error('aborted')
+        }
+        const cell = advisoryPathEcosystem(String(entry.path), 1)
+        if (entry.type !== 'File' || !cell) {
+            entry.autodrain()
+            continue
+        }
+        const content = await entry.buffer()
+        for (const row of parseAdvisoryYaml(content, cell)) batch.push(row)
+        if (batch.length >= BATCH_SIZE) {
+            yield { rows: batch, lastModified: download.lastModified }
+            batch = []
+        }
+    }
+    if (batch.length > 0) {
+        yield { rows: batch, lastModified: download.lastModified }
+    }
+}
+
+function parseAdvisoryYaml(content: Buffer, cell: AdvisoryPath): GemnasiumAdvisoryRow[] {
+    let parsed: unknown
+    try {
+        parsed = yaml.load(content.toString('utf8'))
+    } catch {
+        return []
+    }
+    return normalizeGemnasiumRecord(parsed, cell.ecosystem, cell.slugPrefix)
+}
