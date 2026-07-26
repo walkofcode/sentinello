@@ -17,7 +17,7 @@ function stripVPrefix(value: string): string {
 // Newest first. The locale-independent version index. Adding a release = one entry here plus a
 // RELEASE_COPY entry in every locale below. See CLAUDE.md for the release-please version-sync flow.
 export const RELEASES: ReleaseEntry[] = [
-    { version: '2.4.3', date: '2026-07-25' },
+    { version: '2.4.3', date: '2026-07-26' },
     { version: '2.4.2', date: '2026-07-25' },
     { version: '2.4.1', date: '2026-07-25' },
     { version: '2.4.0', date: '2026-07-25' },
