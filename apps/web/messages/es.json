@@ -583,7 +583,7 @@
                 "disable": "Paso de despliegue — no aplica en tiempo de ejecución"
             },
             "gemnasium": {
-                "purpose": "Descargar el archivo de avisos gemnasium de GitLab para cada lenguaje habilitado",
+                "purpose": "Comprobar si hay cambios en el repositorio gemnasium-db y descargar los avisos que cambiaron (el archivo completo en la primera sincronización)",
                 "when": "A diario, además de actualización manual — solo cuando gemnasium está habilitado para un lenguaje",
                 "disable": "Configuración → Fuentes (desactivado por defecto), o SENTINELLO_GEMNASIUM_FEED_URL=off"
             },

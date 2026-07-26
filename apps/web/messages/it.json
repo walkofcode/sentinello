@@ -583,8 +583,8 @@
                 "disable": "Fase di deployment — non applicabile in fase di esecuzione"
             },
             "gemnasium": {
-                "purpose": "Scaricare l’archivio di advisory gemnasium di GitLab per ogni linguaggio abilitato",
-                "when": "Quotidiano, più aggiornamento manuale — solo quando gemnasium è abilitato per un linguaggio",
+                "purpose": "Verificare le modifiche al repository gemnasium-db e scaricare gli avvisi modificati (l’archivio completo alla prima sincronizzazione)",
+                "when": "Ogni giorno, più aggiornamento manuale — solo quando gemnasium è abilitato per un linguaggio",
                 "disable": "Impostazioni → Fonti (disattivato per impostazione predefinita), oppure SENTINELLO_GEMNASIUM_FEED_URL=off"
             },
             "notifications": {

@@ -583,8 +583,8 @@
                 "disable": "デプロイ手順 — 実行時には該当しません"
             },
             "gemnasium": {
-                "purpose": "有効にした各言語の GitLab gemnasium アドバイザリアーカイブをダウンロード",
-                "when": "毎日、加えて手動更新 — ある言語で gemnasium が有効な場合のみ",
+                "purpose": "gemnasium-db リポジトリの変更を確認し、変更されたアドバイザリのみをダウンロード（初回同期時はアーカイブ全体）",
+                "when": "毎日、および手動更新 — 言語で gemnasium が有効な場合のみ",
                 "disable": "設定 → ソース（デフォルトはオフ）、または SENTINELLO_GEMNASIUM_FEED_URL=off"
             },
             "notifications": {

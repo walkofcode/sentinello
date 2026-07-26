@@ -583,8 +583,8 @@
                 "disable": "Etapa de implantação — não se aplica em tempo de execução"
             },
             "gemnasium": {
-                "purpose": "Baixar o arquivo de avisos gemnasium do GitLab para cada linguagem ativada",
-                "when": "Diariamente, além de atualização manual — apenas quando o gemnasium está ativado para uma linguagem",
+                "purpose": "Verificar alterações no repositório gemnasium-db e baixar os avisos alterados (o arquivo completo na primeira sincronização)",
+                "when": "Diariamente, além da atualização manual — somente quando o gemnasium está habilitado para uma linguagem",
                 "disable": "Configurações → Fontes (desativado por padrão), ou SENTINELLO_GEMNASIUM_FEED_URL=off"
             },
             "notifications": {

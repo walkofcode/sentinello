@@ -583,7 +583,7 @@
                 "disable": "Deployment step — not applicable at runtime"
             },
             "gemnasium": {
-                "purpose": "Download GitLab’s gemnasium advisory archive for each enabled language",
+                "purpose": "Check the gemnasium-db repository for changes and download the advisories that changed (the full archive on first sync)",
                 "when": "Daily, plus manual refresh — only when gemnasium is enabled for a language",
                 "disable": "Settings → Sources (off by default), or SENTINELLO_GEMNASIUM_FEED_URL=off"
             },

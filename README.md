@@ -38,6 +38,30 @@ telemetry — your code and your findings never leave your machine.
 
 ---
 
+## Just want the answer, right now?
+
+You don't have to run anything to use Sentinello. The same scanners are available as a CLI:
+
+```bash
+npx sentinello
+```
+
+It walks the current directory for projects, checks them against all three advisory sources, and writes
+a markdown advisory with a remediation prompt attached — ready to hand to an agent:
+
+```bash
+npx sentinello | claude -p "$(cat -)"
+```
+
+No portal, no database, no history — it runs, prints, and exits. Add it to a project with
+`npm install -D sentinello` and gate CI with `npx sentinello --fail-on high`. Full documentation in
+[docs/cli.md](docs/cli.md).
+
+Use the portal when you want the other half: continuous watching, findings tracked over time, mutes,
+and notifications when something new appears.
+
+---
+
 ## Quick start
 
 > **Local/trusted-network only:** Sentinello has no built-in authentication by default. The command
@@ -85,6 +109,28 @@ Three steps — no agents to install in your projects, no accounts to create:
    queue you can filter by severity — browse by project or by library, export a
    remediation-ready advisory, and get optional alerts in Slack, Telegram, or a
    webhook.
+
+### What counts as a project
+
+Any directory holding a recognised manifest (`package.json`, `poetry.lock`, `go.mod`, `Cargo.lock`, …).
+Discovery stops descending as soon as it finds one, so a monorepo root is **one** project rather than one
+per workspace package — the same view `pnpm audit` takes.
+
+Three things are never scanned:
+
+- `node_modules` and `.git`, always, everywhere. They hold dependencies and metadata, not your projects.
+- Anything matched by a **`.gitignore`** file. If git treats a directory as generated or vendored, it is
+  not a project you wrote. This is not configurable — see [Upgrading to 3.0](#upgrading-to-30) if you
+  are coming from 2.x.
+- Anything matched by a **`.sentinelloignore`** file, which uses gitignore syntax and applies to the
+  directory it sits in and everything below it. It is also the escape hatch in the other direction: a
+  `!pattern` line re-includes something `.gitignore` excluded, because both files for a directory are
+  evaluated together with `.sentinelloignore` having the last word.
+
+```gitignore
+# .sentinelloignore — scan the demo tree even though .gitignore excludes it
+!demo-projects/
+```
 
 ## docker compose
 
@@ -141,6 +187,8 @@ A ready-to-use `docker-compose.yml` ships in the repo root.
 | `SENTINELLO_OSV_FEED_URL`    | OSV GCS bucket                | OSV advisory export base URL (only used when an **OSV** cell is enabled); set to `off` to disable all OSV network access. Per-ecosystem exports are fetched from `<base>/<ecosystem>/all.zip` (`npm`, `PyPI`, `Go`, `crates.io`) |
 | `SENTINELLO_OSV_DB_PATH`     | `<data dir>/osv.db`           | Location of the rebuildable OSV advisory cache (defaults next to the main DB) |
 | `SENTINELLO_GEMNASIUM_FEED_URL` | GitLab gemnasium-db archive | gemnasium advisory archive URL (only used when a **GitLab gemnasium** cell is enabled); set to `off` to disable all gemnasium network access |
+| `SENTINELLO_GEMNASIUM_API_URL` | GitLab API for gemnasium-db | GitLab project API base used to read the advisory repository's HEAD commit and fetch only the files that changed, so a routine sync transfers a few KB instead of re-downloading the whole archive. Point it at a mirror's API if you host one |
+| `SENTINELLO_USER_AGENT`      | `sentinello (+https://sentinello.org)` | User-Agent sent with every advisory-feed request. Override only if a proxy filters on agent strings |
 | `SENTINELLO_GEMNASIUM_DB_PATH`  | `<data dir>/gemnasium.db`   | Location of the rebuildable gemnasium advisory cache (defaults next to the main DB) |
 
 ### Language
@@ -442,6 +490,38 @@ Pin a digest in production: `image: ghcr.io/walkofcode/sentinello:vX.Y.Z@sha256:
 digest from the release page) so a `docker compose pull` can't transparently swap the image.
 
 ## Upgrading
+
+### Upgrading to 3.0
+
+**Discovery now honours `.gitignore`.** A project living in a gitignored directory is no longer
+discovered, and because Sentinello keeps only what it currently sees, the next sweep **deletes** that
+project along with its scans, findings, and mutes.
+
+The reasoning is the one you would apply yourself: if git treats a directory as generated or vendored, it
+holds dependencies or build output, not a project you wrote. In practice this removes phantom projects
+from `dist/`, `vendor/`, `.venv/`, and scratch directories that previously cluttered the queue.
+
+**Before upgrading**, check whether anything you actually watch lives in a gitignored directory:
+
+```bash
+# from inside a mounted root
+git check-ignore -v path/to/the/project
+```
+
+If something you want scanned is excluded, add a `.sentinelloignore` beside the `.gitignore` re-including
+it — negations there take precedence:
+
+```gitignore
+# .sentinelloignore
+!my-vendored-app/
+```
+
+The worker logs every directory it skips and the rule that caused it, so a project that disappears can be
+traced in one look at the container logs:
+
+```
+[discovery] skipped /roots/personal/demo-projects (gitignore)
+```
 
 ### Upgrading to the non-root image
 

@@ -583,7 +583,7 @@
                 "disable": "Étape de déploiement — non applicable à l'exécution"
             },
             "gemnasium": {
-                "purpose": "Télécharger l’archive d’avis gemnasium de GitLab pour chaque langage activé",
+                "purpose": "Vérifier les modifications du dépôt gemnasium-db et télécharger les avis modifiés (l’archive complète lors de la première synchronisation)",
                 "when": "Quotidiennement, plus actualisation manuelle — uniquement lorsque gemnasium est activé pour un langage",
                 "disable": "Paramètres → Sources (désactivé par défaut), ou SENTINELLO_GEMNASIUM_FEED_URL=off"
             },

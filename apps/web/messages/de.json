@@ -583,8 +583,8 @@
                 "disable": "Bereitstellungsschritt — zur Laufzeit nicht anwendbar"
             },
             "gemnasium": {
-                "purpose": "GitLabs gemnasium-Advisory-Archiv für jede aktivierte Sprache herunterladen",
-                "when": "Täglich, zusätzlich manuelle Aktualisierung — nur wenn gemnasium für eine Sprache aktiviert ist",
+                "purpose": "Das gemnasium-db-Repository auf Änderungen prüfen und die geänderten Advisories herunterladen (beim ersten Sync das vollständige Archiv)",
+                "when": "Täglich, plus manuelle Aktualisierung — nur wenn gemnasium für eine Sprache aktiviert ist",
                 "disable": "Einstellungen → Quellen (standardmäßig aus), oder SENTINELLO_GEMNASIUM_FEED_URL=off"
             },
             "notifications": {

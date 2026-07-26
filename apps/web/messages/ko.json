@@ -583,8 +583,8 @@
                 "disable": "배포 단계 — 런타임에는 해당 없음"
             },
             "gemnasium": {
-                "purpose": "활성화된 각 언어의 GitLab gemnasium 권고 아카이브 다운로드",
-                "when": "매일, 수동 새로 고침 포함 — 언어에 대해 gemnasium이 활성화된 경우에만",
+                "purpose": "gemnasium-db 저장소의 변경 사항을 확인하고 변경된 권고만 다운로드(최초 동기화 시에는 전체 아카이브)",
+                "when": "매일 및 수동 새로 고침 — 해당 언어에서 gemnasium이 활성화된 경우에만",
                 "disable": "설정 → 소스(기본값 꺼짐) 또는 SENTINELLO_GEMNASIUM_FEED_URL=off"
             },
             "notifications": {

@@ -100,6 +100,8 @@ volumes:
 | `SENTINELLO_OSV_FEED_URL`    | OSV GCS bucket                | OSV advisory export base URL (only used when an **OSV** cell is enabled); set to `off` to disable all OSV network access. Per-ecosystem exports are fetched from `<base>/<ecosystem>/all.zip` (`npm`, `PyPI`, `Go`, `crates.io`) |
 | `SENTINELLO_OSV_DB_PATH`     | `<data dir>/osv.db`           | Location of the rebuildable OSV advisory cache (defaults next to the main DB) |
 | `SENTINELLO_GEMNASIUM_FEED_URL` | GitLab gemnasium-db archive | gemnasium advisory archive URL (only used when a **GitLab gemnasium** cell is enabled); set to `off` to disable all gemnasium network access |
+| `SENTINELLO_GEMNASIUM_API_URL` | GitLab API for gemnasium-db | GitLab project API base used to read the advisory repository's HEAD commit and fetch only the files that changed, so a routine sync transfers a few KB instead of re-downloading the whole archive. Point it at a mirror's API if you host one |
+| `SENTINELLO_USER_AGENT`      | `sentinello (+https://sentinello.org)` | User-Agent sent with every advisory-feed request. Override only if a proxy filters on agent strings |
 | `SENTINELLO_GEMNASIUM_DB_PATH`  | `<data dir>/gemnasium.db`   | Location of the rebuildable gemnasium advisory cache (defaults next to the main DB) |
 
 ### Vulnerability sources

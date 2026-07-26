@@ -583,8 +583,8 @@
                 "disable": "部署步骤——运行时不适用"
             },
             "gemnasium": {
-                "purpose": "为每个已启用的语言下载 GitLab 的 gemnasium 公告归档",
-                "when": "每日以及手动刷新时 — 仅在某语言启用 gemnasium 时",
+                "purpose": "检查 gemnasium-db 仓库的变更并仅下载有变化的公告（首次同步时下载完整存档）",
+                "when": "每日，以及手动刷新 — 仅当某语言启用了 gemnasium 时",
                 "disable": "设置 → 来源（默认关闭），或 SENTINELLO_GEMNASIUM_FEED_URL=off"
             },
             "notifications": {
