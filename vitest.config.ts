@@ -42,7 +42,29 @@ export default defineConfig({
                 '**/.next/**',
                 '**/drizzle*/**',
                 'tests/fixtures/**'
-            ]
+            ],
+            // A ratchet, not a target. Each floor sits just under what the suite actually covers
+            // today, so coverage can only go up — a change that removes tests fails CI, while there
+            // is no arbitrary number to game. Raise these as coverage grows; never lower them to
+            // make a build pass.
+            //
+            // The global figures are held down by three areas that are deliberately not unit-tested
+            // yet: apps/worker (orchestration, covered via its injected seams rather than directly),
+            // apps/web/lib (rendering is covered by the Playwright suite against a real build), and
+            // the npm-audit spawn path in packages/scanners, which needs a real package manager.
+            thresholds: {
+                statements: 18,
+                branches: 18,
+                functions: 14,
+                lines: 18,
+                'packages/core/src/**': { statements: 35, branches: 30, functions: 42, lines: 37 },
+                // findings.ts and options.ts each have a substantial branch set still uncovered:
+                // the finding backfills and list queries here, and applyConfigFile there. Both are
+                // next in line, and these floors exist to stop them sliding backwards meanwhile.
+                'packages/db/src/queries/findings.ts': { statements: 70, branches: 41, functions: 56, lines: 74 },
+                'apps/cli/src/options.ts': { statements: 81, branches: 69, functions: 90, lines: 82 },
+                'apps/cli/src/cache/store.ts': { statements: 85, branches: 73, functions: 85, lines: 85 }
+            }
         }
     }
 })
