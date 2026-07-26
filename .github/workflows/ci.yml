@@ -1,0 +1,59 @@
+# Pull-request gate. Everything else in .github/workflows fires on a tag or on main and is
+# release machinery — this is the only workflow that gives a contributor feedback before merge.
+#
+# `pnpm install --frozen-lockfile` is load-bearing beyond reproducibility: it installs straight from
+# the lockfile without a resolution pass, which is what keeps the `minimumReleaseAge` supply-chain
+# guard (7 days, set in .npmrc and pnpm-workspace.yaml) from re-validating already-vetted transitive
+# platform binaries and failing the build on a package nobody added.
+name: ci
+
+on:
+    pull_request:
+    push:
+        branches: [main, develop]
+
+# A force-push or a quick follow-up commit should cancel the superseded run rather than queue behind it.
+concurrency:
+    group: ci-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    verify:
+        name: lint, typecheck, test, build
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v5
+
+            - uses: pnpm/action-setup@v4
+
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 24
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Lint
+              run: pnpm lint
+
+            - name: Typecheck
+              run: pnpm typecheck
+
+            - name: Test
+              run: pnpm test:coverage
+
+            - name: Upload coverage
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: coverage
+                  path: coverage/
+                  if-no-files-found: ignore
+                  retention-days: 7
+
+            - name: Build
+              run: pnpm build

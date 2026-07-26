@@ -12,6 +12,8 @@ export default [
             '**/*.config.js',
             '**/*.config.cjs',
             '**/*.config.mjs',
+            '**/*.config.ts',
+            '**/coverage/**',
             '**/.turbo/**',
             'eslint.config.mjs'
         ]
