@@ -8,7 +8,7 @@ import { severityRank, type Severity } from './types'
 // override may be proposed without a four-part written justification block. This is deliberate — soft
 // principles get internalized and silently skipped, forcing the human to drag the reasoning out.
 //
-// Three sections exist because each one covers a failure that actually happened during a real
+// Four sections exist because each one covers a failure that actually happened during a real
 // remediation pass, and each fails SILENTLY — nothing errors, the work just ends up wrong:
 //   - step 6 (release age): the agent either ignores the supply-chain gate or abandons a critical fix
 //     because of it. Both are wrong; the human decides, and the relaxation must never be committed.
@@ -16,7 +16,14 @@ import { severityRank, type Severity } from './types'
 //     that no longer moves and becomes the cause of today's finding, removal-trigger notes included.
 //   - "Ranges are a claim": a parent range permitting a patched child does NOT mean the lockfile
 //     resolved to it, so an "applied" fix can leave the vulnerable copy installed.
-export const DEFAULT_EXPORT_PROMPT = `You are helping a development team triage and fix the vulnerabilities listed at the bottom of this document. Treat this as a remediation work list, not a checklist to rubber-stamp.
+//   - "The goal is zero": the zero target is what makes the agent finish the list instead of stopping
+//     at the easy half, but stated alone it rewards the cheapest path to a clean dashboard rather than
+//     a fixed tree. The disqualification list is the load-bearing half — an agent with the Sentinello
+//     MCP connected holds mute_finding, so "reach zero" plus that tool is a straight line to a muted
+//     clean board. Muting is a human's accepted-risk call; the same goes for widening a range or
+//     narrowing the scan's scope until the advisory stops matching. The residual table is the honest
+//     alternative: it makes "not fixed" visible and dated instead of absent.
+export const DEFAULT_EXPORT_PROMPT = `You are helping a development team triage and fix the vulnerabilities listed at the bottom of this document. Treat this as a remediation work list, not a checklist to rubber-stamp. Work in a planning posture from the start: if your tooling has a read-only planning mode (Claude Code's plan mode, for example), enter it now and stay in it until the human has approved the triage below. Nothing in this document authorises you to edit a file before then.
 
 ## Audit existing overrides first — they may be the cause
 
@@ -32,7 +39,7 @@ Do NOT propose or apply a single version change until you have worked through al
 
 3. **The parent-upgrade path — always check this; it is the preferred fix.** If the package is transitive, the safest fix is almost always to upgrade the *parent* so it pulls the patched child via a combination its author actually tested. For each transitive finding, report: the immediate parent, whether a newer parent version exists that resolves to the patched child, that parent's release maturity (stable / rc / beta / canary), and whether it is installable under the project's policy. Only if no viable parent upgrade exists do you move on to an override.
 
-4. **Breaking changes between installed and target.** Read the CHANGELOG between the installed version and the fix version. Majors regularly break APIs; minors occasionally; patches rarely but can. Note what affects *this* codebase specifically.
+4. **Breaking changes between installed and target.** Read the CHANGELOG between the installed version and the fix version. Majors regularly break APIs; minors occasionally; patches rarely but can. Note what affects *this* codebase specifically — and go further than "this is a major, it may break": grep for the affected APIs, list the call sites by file, and sketch the code change each one needs. A version bump whose code impact you cannot describe is not a plan, it is a guess. If the upgrade needs no code change, say that explicitly too — it is the single most useful line the human can read.
 
 5. **Install-policy / supply-chain check.** Before recommending a target version, confirm it satisfies the project's install policy. If the project pins a minimum release age (\`.npmrc\` \`minimum-release-age\`, or pnpm \`minimumReleaseAge\`), check the target version's publish date — if it is too new to install, say so up front and present options (wait N days vs. temporarily lower the threshold). Do not discover this only when the install fails.
 
@@ -59,9 +66,23 @@ No justification block, no override.
 
 ## Then fix incrementally and verify
 
+- **Group findings by their fix before you sequence anything.** Several findings frequently collapse into one change — a single parent upgrade can clear four transitive advisories at once. Work out that mapping first and order the work by findings-cleared-per-change, so the cheapest high-yield fixes land first and whatever residue is left is genuinely irreducible rather than an artefact of fixing things one at a time.
 - **Baseline first.** Run the test suite and a smoke build before any change; capture the output. After each fix, re-run both and diff — any new failure, warning, or behavioural change is yours to investigate, not to wave through because the audit went green.
 - **One package (or one tight family) per commit.** After each fix, re-run Sentinello — the advisory should disappear from the current findings. If it does not, the upgrade did not actually replace the vulnerable version (usually a transitive resolution issue); dig deeper, do not move on.
 - **Do not skip findings because they look hard.** Record the specific blocker (e.g. "needs major bump of X which touches Y, Z") so the team can plan it. Silent skips become next quarter's incident.
+
+## The goal is zero — and what "zero" actually means
+
+The target is zero remaining findings, and you should plan for zero rather than for "fewer". But zero only counts when you got there honestly: every finding either fixed by a real upgrade, or covered by an override carrying the full four-part justification above.
+
+None of the following count as reaching zero, and you must not use them to close a finding:
+
+- **Muting or dismissing a finding in Sentinello.** Muting is a human's decision about accepted risk, not a remediation step. Never mute on your own initiative, and never offer muting as a way to clear the list — if a finding genuinely warrants one, recommend it with reasoning and let the human do it.
+- **Widening a range, unpinning a dependency, or loosening the lockfile** so the advisory stops matching.
+- **Removing a package from the scan's scope**, excluding a workspace, or narrowing the dep-type filter.
+- **Declaring a finding "not exploitable" without evidence.** Reachability is an argument you make from the code, not an assumption you start from.
+
+Finish every pass with a residual table covering everything still open: the finding, why it is open (no upstream fix / needs a major bump touching X / parent unmaintained), what has to become true to close it, and the concrete trigger to revisit. A short residual table with real reasons is a good outcome. A silent zero is not.
 
 The vulnerability list follows.`
 
