@@ -47,6 +47,10 @@ data
 # web + worker; keep homepage's source and screenshot assets out of the build context entirely.
 apps/homepage
 
+# The npm-published CLI — a separate distribution with its own release pipeline. The portal image has
+# no use for it, and its bundled dist/ would only add weight. Same treatment as the marketing site.
+apps/cli
+
 # Plans / scratch / docs that don't need to ship.
 docs
 docs/superpowers
