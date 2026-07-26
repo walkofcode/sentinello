@@ -89,6 +89,11 @@ The vulnerability list follows.`
 export type ExportScope =
     | { kind: 'project'; projectName: string; projectPath: string; depType: 'all' | 'prod' | 'dev' }
     | { kind: 'library'; packageName: string; depType: 'all' | 'prod' | 'dev' }
+    // Many projects under one directory, which is what a CLI run over a folder of repositories produces.
+    // Findings stay in one severity-ordered list rather than being grouped per project, because the work
+    // is prioritised by severity across the whole tree — each finding carries its own `projectName`, so
+    // attribution is never lost.
+    | { kind: 'workspace'; rootPath: string; projectCount: number; depType: 'all' | 'prod' | 'dev' }
 
 export type ExportFinding = {
     packageName: string
@@ -116,6 +121,12 @@ export function resolveExportPrompt(stored: string | null | undefined): string {
     const trimmed = stored.trim()
     if (trimmed.length === 0) return DEFAULT_EXPORT_PROMPT
     return stored
+}
+
+function scopeTitle(scope: ExportScope): string {
+    if (scope.kind === 'project') return scope.projectName
+    if (scope.kind === 'library') return scope.packageName
+    return scope.rootPath
 }
 
 function depTypeLabel(depType: 'all' | 'prod' | 'dev'): string {
@@ -184,16 +195,17 @@ export function buildAdvisoryMarkdown(args: {
         if (nameCmp !== 0) return nameCmp
         return a.advisoryId.localeCompare(b.advisoryId)
     })
-    const title = scope.kind === 'project'
-        ? 'Sentinello advisory export — ' + scope.projectName
-        : 'Sentinello advisory export — ' + scope.packageName
+    const title = 'Sentinello advisory export — ' + scopeTitle(scope)
     const subtitleParts: string[] = []
     subtitleParts.push('Generated ' + new Date(generatedAt).toISOString())
     subtitleParts.push(sorted.length + ' ' + (sorted.length === 1 ? 'finding' : 'findings'))
     if (scope.kind === 'project') {
         subtitleParts.push('project: `' + escapeForMarkdown(scope.projectPath) + '`')
-    } else {
+    } else if (scope.kind === 'library') {
         subtitleParts.push('library: `' + escapeForMarkdown(scope.packageName) + '`')
+    } else {
+        subtitleParts.push('root: `' + escapeForMarkdown(scope.rootPath) + '`')
+        subtitleParts.push(scope.projectCount + ' ' + (scope.projectCount === 1 ? 'project' : 'projects'))
     }
     subtitleParts.push('dep type: ' + depTypeLabel(scope.depType))
 
@@ -227,7 +239,9 @@ export function buildAdvisoryMarkdown(args: {
 // stamp so multiple exports of the same scope sort sensibly when the dev team archives them.
 export function buildExportFilename(scope: ExportScope, generatedAt: number): string {
     const stamp = new Date(generatedAt).toISOString().slice(0, 10)
-    const raw = scope.kind === 'project' ? scope.projectName : scope.packageName
+    // A workspace scope names the directory that was scanned; its full path would make an unwieldy
+    // filename, so only the final segment is used.
+    const raw = scope.kind === 'workspace' ? lastPathSegment(scope.rootPath) : scopeTitle(scope)
     const slug = raw
         .toLowerCase()
         .replace(/[^a-z0-9._-]+/g, '-')
@@ -235,4 +249,11 @@ export function buildExportFilename(scope: ExportScope, generatedAt: number): st
         .replace(/-{2,}/g, '-')
     const safeSlug = slug.length > 0 ? slug : 'unnamed'
     return 'sentinello-' + safeSlug + '-advisories-' + stamp + '.md'
+}
+
+function lastPathSegment(path: string): string {
+    const parts = path.split('/').filter(function nonEmpty(p): boolean {
+        return p.length > 0
+    })
+    return parts[parts.length - 1] || path
 }
