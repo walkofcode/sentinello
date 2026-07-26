@@ -26,7 +26,12 @@ export default defineConfig({
     },
     projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
     webServer: {
-        command: 'pnpm --filter @sentinello/web start',
+        // The echo is deliberate and permanent. When the server ends up on a different database
+        // than the one that was seeded, every symptom is misleading — /api/health still reports the
+        // database as up, because openDb creates the missing file and `SELECT 1` succeeds against
+        // an empty one. Printing the path the server actually received turns a baffling wall of
+        // locator timeouts into a one-line diagnosis.
+        command: 'node -e "console.log(\'[e2e] server SENTINELLO_DB_PATH=\' + process.env.SENTINELLO_DB_PATH)" && pnpm --filter @sentinello/web start',
         url: 'http://127.0.0.1:' + PORT + '/api/health',
         reuseExistingServer: !process.env.CI,
         timeout: 180_000,

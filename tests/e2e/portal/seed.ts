@@ -26,10 +26,14 @@ const T0 = Date.now() - 60_000
 // states that the worker owns the DB lifecycle — so the harness must do it, exactly as the worker
 // would at boot.
 export function seedPortalDatabase(): string {
-    rmSync(dirname(E2E_DB_PATH), { recursive: true, force: true })
-    mkdirSync(dirname(E2E_DB_PATH), { recursive: true })
+    // The path is handed down from globalSetup so exactly one process decides it. Recomputing
+    // os.tmpdir() here would be a second chance to disagree with the value the webServer was given.
+    const dbPath = process.env.SENTINELLO_E2E_DB_PATH || E2E_DB_PATH
 
-    const { db, sqlite } = openDb({ dbPath: E2E_DB_PATH })
+    rmSync(dirname(dbPath), { recursive: true, force: true })
+    mkdirSync(dirname(dbPath), { recursive: true })
+
+    const { db, sqlite } = openDb({ dbPath })
     runMigrations(db, { migrationsFolder: MIGRATIONS })
 
     upsertRoot(db, { id: SEEDED.rootId, path: SEEDED.rootPath, label: 'E2E fixtures', createdAt: T0 })
@@ -132,5 +136,5 @@ export function seedPortalDatabase(): string {
     })
 
     sqlite.close()
-    return E2E_DB_PATH
+    return dbPath
 }
