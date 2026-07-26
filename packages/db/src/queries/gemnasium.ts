@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
-import type { GemnasiumAdvisoryRow, GemnasiumRange } from '@sentinello/core'
+import { GEMNASIUM_NORMALIZER_VERSION, type GemnasiumAdvisoryRow, type GemnasiumRange } from '@sentinello/core'
 import type { GemnasiumDrizzleDb } from '../gemnasium-client'
 import { gemnasiumAdvisories, gemnasiumMeta } from '../gemnasium-schema'
 
@@ -196,11 +196,9 @@ export const GEMNASIUM_META_KEYS = {
     headSha: 'headSha'
 } as const
 
-// Bump whenever the gemnasium normalizer's output shape changes in a way that requires rebuilding the
-// cache. v1: initial npm-only normalization (affected_range + fixed_versions → {introduced, fixed}).
-// v2 (Phase 4): multi-ecosystem — parses npm + PyPI + Go + crates.io package-type dirs and stamps the
-// registry ecosystem id (PyPI names PEP 503-normalized), so an existing npm-only cache must rebuild.
-export const GEMNASIUM_NORMALIZER_VERSION = 2
+// Defined in @sentinello/core beside the row shape it describes, so the portal's SQLite cache and the
+// CLI's ndjson cache invalidate on the same signal. Re-exported here for the existing import sites.
+export { GEMNASIUM_NORMALIZER_VERSION }
 
 function parseStringArray(json: string): string[] {
     const parsed = JSON.parse(json) as unknown

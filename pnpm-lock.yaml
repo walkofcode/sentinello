@@ -50,6 +50,25 @@ importers:
         specifier: 8.59.3
         version: 8.59.3(eslint@10.3.0(jiti@2.6.1))(typescript@6.0.3)
 
+  apps/cli:
+    dependencies:
+      '@sentinello/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@sentinello/feeds':
+        specifier: workspace:*
+        version: link:../../packages/feeds
+      '@sentinello/scanners':
+        specifier: workspace:*
+        version: link:../../packages/scanners
+    devDependencies:
+      '@types/node':
+        specifier: 25.6.0
+        version: 25.6.0
+      tsx:
+        specifier: 4.21.0
+        version: 4.21.0
+
   apps/homepage:
     dependencies:
       '@next/third-parties':

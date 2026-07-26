@@ -1,0 +1,28 @@
+{
+    "name": "sentinello",
+    "version": "0.1.0",
+    "private": true,
+    "license": "MIT",
+    "description": "Scan the projects in a folder for vulnerable dependencies and write an advisory an agent can act on.",
+    "type": "module",
+    "bin": {
+        "sentinello": "./dist/cli.js"
+    },
+    "engines": {
+        "node": ">=22.0.0"
+    },
+    "scripts": {
+        "dev": "tsx src/cli.ts",
+        "lint": "eslint src",
+        "typecheck": "tsc -p tsconfig.json --noEmit"
+    },
+    "dependencies": {
+        "@sentinello/core": "workspace:*",
+        "@sentinello/feeds": "workspace:*",
+        "@sentinello/scanners": "workspace:*"
+    },
+    "devDependencies": {
+        "@types/node": "25.6.0",
+        "tsx": "4.21.0"
+    }
+}

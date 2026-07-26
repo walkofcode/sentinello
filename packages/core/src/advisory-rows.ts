@@ -35,6 +35,14 @@ export type OsvAdvisoryRow = {
     withdrawn: number | null
 }
 
+// Bump whenever normalizeOsvRecord's output shape changes in a way that requires rebuilding the cache.
+// v2: started capturing affected[].versions and real MAL- ranges (was: all-versions malware shortcut).
+// v3: per-ecosystem rows (dropped the npm/SEMVER-only filters) + richer range shape (range.type +
+//     last_affected) + per-ecosystem meta keys. Forces a full re-seed off the prior flat-key npm cache.
+// Lives beside the row type it describes so every store — the portal's SQLite cache and the CLI's ndjson
+// cache alike — invalidates on exactly the same signal.
+export const OSV_NORMALIZER_VERSION = 3
+
 // gemnasium states its affected set as plain introduced/fixed pairs — no range `type` discriminator and no
 // `last_affected` equivalent — so it stays a distinct shape rather than being force-fitted onto OsvRange.
 export type GemnasiumRange = {
@@ -57,3 +65,9 @@ export type GemnasiumAdvisoryRow = {
     malicious: boolean
     withdrawn: number | null
 }
+
+// Bump whenever the gemnasium normalizer's output shape changes in a way that requires rebuilding the
+// cache. v1: initial npm-only normalization (affected_range + fixed_versions → {introduced, fixed}).
+// v2 (Phase 4): multi-ecosystem — parses npm + PyPI + Go + crates.io package-type dirs and stamps the
+// registry ecosystem id (PyPI names PEP 503-normalized), so an existing npm-only cache must rebuild.
+export const GEMNASIUM_NORMALIZER_VERSION = 2

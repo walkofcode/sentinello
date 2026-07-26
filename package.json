@@ -1,5 +1,5 @@
 {
-    "name": "sentinello",
+    "name": "sentinello-monorepo",
     "version": "2.4.3",
     "private": true,
     "description": "Centralized dependency-vulnerability monitoring portal",

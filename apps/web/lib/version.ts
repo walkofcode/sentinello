@@ -63,7 +63,10 @@ function findRootPackageVersion(): string | null {
         if (existsSync(pj)) {
             try {
                 const pkg = JSON.parse(readFileSync(pj, 'utf8')) as { name?: string; version?: string }
-                if (pkg.name === 'sentinello' && pkg.version) return pkg.version
+                // Matches the monorepo ROOT, which is the canonical version release-please maintains. The
+                // name must not be plain 'sentinello': that is now the published CLI package in apps/cli,
+                // and walking up from there would report the CLI workspace's frozen 0.1.0 instead.
+                if (pkg.name === 'sentinello-monorepo' && pkg.version) return pkg.version
             } catch {
                 // fall through and keep walking
             }

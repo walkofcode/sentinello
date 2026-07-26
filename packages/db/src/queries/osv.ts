@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
-import type { OsvAdvisoryRow, OsvRange } from '@sentinello/core'
+import { OSV_NORMALIZER_VERSION, type OsvAdvisoryRow, type OsvRange } from '@sentinello/core'
 import type { OsvDrizzleDb } from '../osv-client'
 import { osvAdvisories, osvMeta } from '../osv-schema'
 
@@ -200,11 +200,9 @@ export function osvMetaKeyFor(base: string, ecosystem: string): string {
     return base + '.' + ecosystem
 }
 
-// Bump whenever normalizeOsvRecord's output shape changes in a way that requires rebuilding the cache.
-// v2: started capturing affected[].versions and real MAL- ranges (was: all-versions malware shortcut).
-// v3: per-ecosystem rows (dropped the npm/SEMVER-only filters) + richer range shape (range.type +
-//     last_affected) + per-ecosystem meta keys. Forces a full re-seed off the prior flat-key npm cache.
-export const OSV_NORMALIZER_VERSION = 3
+// Defined in @sentinello/core beside the row shape it describes, so the portal's SQLite cache and the
+// CLI's ndjson cache invalidate on the same signal. Re-exported here for the existing import sites.
+export { OSV_NORMALIZER_VERSION }
 
 function parseStringArray(json: string): string[] {
     const parsed = JSON.parse(json) as unknown
