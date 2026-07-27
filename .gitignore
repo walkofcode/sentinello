@@ -28,5 +28,6 @@ docs/superpowers/
 # AI assistant / agent config — kept local, not published when open-sourcing.
 .llm/
 .cursor/
+.claude/
 AGENTS.md
 CLAUDE.md
