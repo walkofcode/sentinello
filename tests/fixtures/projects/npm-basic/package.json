@@ -1,0 +1,13 @@
+{
+    "name": "npm-basic",
+    "version": "1.0.0",
+    "private": true,
+    "description": "Frozen fixture: two vulnerable deps (one prod, one dev) and one safe prod dep.",
+    "dependencies": {
+        "lodash": "4.17.11",
+        "axios": "1.7.0"
+    },
+    "devDependencies": {
+        "minimist": "1.2.0"
+    }
+}
