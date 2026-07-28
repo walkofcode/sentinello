@@ -172,8 +172,11 @@ and other MCP clients. **It needs no env vars** — generate a bearer token unde
 and the endpoint goes live; the token is both the credential and the on/off switch (clear it and the
 endpoint returns 404 again). The page shows the server URL and ready-to-paste config for each client.
 Point your client at `http://localhost:3870/api/mcp` with `Authorization: Bearer <token>` (a
-wrong/missing token returns 401, no token returns 404). The token grants read **and** write tools, so
-treat it like an admin credential.
+wrong/missing token returns 401, no token returns 404). Clients can query roots, projects, findings,
+scans, and libraries, pull a project's Markdown advisory export (`get_project_advisory`, the same
+document as the portal's **Download .md**), and trigger scans or mute findings. The token grants read
+**and** write tools — and exposes your custom export prompt from **Settings → Export** — so treat it
+like an admin credential.
 
 ### Scan schedule
 

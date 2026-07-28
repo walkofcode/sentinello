@@ -13,6 +13,7 @@ import {
 } from '@sentinello/db'
 import { SEVERITY_RANK, severityRank } from '@sentinello/core'
 import { getDb } from '@/lib/db'
+import { buildProjectAdvisoryExport } from '@/lib/project-advisory-export'
 
 const depTypeSchema = z.enum(['all', 'prod', 'dev']).optional()
 
@@ -197,6 +198,55 @@ export function registerReadTools(server: McpServer): void {
             return {
                 content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }],
                 structuredContent: summary
+            }
+        }
+    )
+
+    server.registerTool(
+        'get_project_advisory',
+        {
+            title: 'Get the advisory export document for a project',
+            description:
+                "Returns the full Markdown advisory export for one project — the same document the portal's Download .md button produces: a remediation prompt followed by every active finding. This is a complete work document (tens of KB), not a data query; use list_findings when you only need the finding rows. Muted findings are excluded. Note the default depType here is 'all', while the portal page defaults to 'prod' — pass 'prod' to match a download taken from the default view.",
+            inputSchema: {
+                projectId: z.string().min(1),
+                depType: depTypeSchema.describe('Dependency-type filter baked into the document (default: all)')
+            }
+        },
+        async function handler({ projectId, depType }) {
+            const result = buildProjectAdvisoryExport(getDb(), projectId, depType || 'all', Date.now())
+            if (!result) {
+                return { isError: true, content: [{ type: 'text', text: 'Project not found: ' + projectId }] }
+            }
+            // Returned as raw Markdown rather than JSON.stringify'd like the other tools: the payload
+            // is prose, and stringifying it would escape every newline and backtick in a document
+            // whose native form is already a text content block. structuredContent carries metadata
+            // only — the SDK puts it on the wire whether or not an outputSchema is declared, so
+            // duplicating the document there would double the frame for a field most clients ignore.
+            let markdown = result.markdown
+            if (result.mutedExcludedCount > 0) {
+                // Without this the document can render "_No current findings._" under a prompt that
+                // says the goal is zero — exactly the silent zero that prompt warns against.
+                const one = result.mutedExcludedCount === 1
+                const clause = one
+                    ? '1 finding is excluded from this document because it is muted'
+                    : result.mutedExcludedCount + ' findings are excluded from this document because they are muted'
+                markdown =
+                    markdown +
+                    '\n> Note: ' + clause + ' in Sentinello. Muting records a human\'s accepted-risk decision — ' +
+                    'do not unmute or act on ' + (one ? 'it' : 'them') + ' as part of this work.\n'
+            }
+            return {
+                content: [{ type: 'text', text: markdown }],
+                structuredContent: {
+                    filename: result.filename,
+                    projectId: result.projectId,
+                    projectName: result.projectName,
+                    depType: result.depType,
+                    findingCount: result.findingCount,
+                    mutedExcludedCount: result.mutedExcludedCount,
+                    generatedAt: result.generatedAt
+                }
             }
         }
     )

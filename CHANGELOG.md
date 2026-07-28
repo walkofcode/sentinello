@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.5.0](https://github.com/walkofcode/sentinello/compare/v2.4.3...v2.5.0) (2026-07-28)
+
+
+### Features
+
+* **mcp:** return the project advisory document over MCP ([8b9f81b](https://github.com/walkofcode/sentinello/commit/8b9f81b8881ca666ff94446c6ce3d8120b92f0e9))
+
+
+### Bug Fixes
+
+* **export:** exclude muted findings from the project advisory export ([da03215](https://github.com/walkofcode/sentinello/commit/da03215346b86c0e2c0a237aa1bc503089ced6c9))
+
+
+### Documentation
+
+* **releases:** add the 2.5.0 what's-new entry ([c10ffb6](https://github.com/walkofcode/sentinello/commit/c10ffb6c8bc0c224ec7bf53fbea695b16280d39e))
+
 ## [2.4.3](https://github.com/walkofcode/sentinello/compare/v2.4.2...v2.4.3) (2026-07-26)
 
 
