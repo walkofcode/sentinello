@@ -48,17 +48,24 @@ export default defineConfig({
             // is no arbitrary number to game. Raise these as coverage grows; never lower them to
             // make a build pass.
             //
-            // The global figures are held down by three areas that are deliberately not unit-tested
-            // yet, each because it needs a seam that does not exist rather than because it was
-            // skipped: apps/worker (orchestration), apps/web/lib/actions and lib/mcp (Next server
-            // actions, exercised by the Playwright suite against a real build — which v8 coverage
-            // here cannot observe), and the npm-audit spawn path in packages/scanners, which needs a
-            // real package manager. Closing those is the next meaningful step past ~43%.
+            // What still holds the global figures down, and what it would actually take to move each:
+            //
+            //  - apps/worker. NOT blocked on a missing seam, contrary to what this comment used to
+            //    say: runBatch(input) and notifyForCompletedScan(input) already take db/scanners as
+            //    injected objects, and config-loader takes db + cwd. These are testable today.
+            //  - apps/web/lib/actions and lib/mcp/tools. Also not blocked: lib/db.ts caches its
+            //    handle on globalThis.__sentinelloDb, so seeding that with a temp-file database runs
+            //    these against a real schema with no mocking. lib/mcp/auth.test.ts does exactly that.
+            //    Only revalidatePath and cookies need stubbing.
+            //  - The npm-audit spawn path. This one is a genuine seam problem, but a small one:
+            //    spawnAndCapture() is already a single private function, so lifting it into a deps
+            //    object (mirroring createOsvScanner) opens the whole result-shaping surface.
+            //  - apps/cli's ui/sync/doctor layer, which closes over process.stderr and isTTY.
             thresholds: {
-                statements: 43,
-                branches: 43,
-                functions: 42,
-                lines: 42,
+                statements: 50,
+                branches: 50,
+                functions: 49,
+                lines: 49,
                 // Per-path floors for the areas that are now well covered. Without these, a global
                 // floor alone would let a well-covered module regress to zero as long as some other
                 // area improved enough to compensate.
@@ -68,8 +75,26 @@ export default defineConfig({
                 'packages/notifications/src/render.ts': { statements: 99, branches: 96, functions: 99, lines: 99 },
                 'packages/notifications/src/redact.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'packages/notifications/src/ssrf.ts': { statements: 97, branches: 90, functions: 99, lines: 99 },
+                // The outbound transports. These are where the SSRF guard and secret redaction meet
+                // the wire, so they carry floors individually rather than as a directory average.
+                'packages/notifications/src/webhook.ts': { statements: 99, branches: 95, functions: 99, lines: 99 },
+                'packages/notifications/src/slack.ts': { statements: 99, branches: 95, functions: 99, lines: 99 },
+                'packages/notifications/src/telegram.ts': { statements: 99, branches: 96, functions: 99, lines: 99 },
+                'packages/notifications/src/resolve.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'packages/db/src/queries/osv.ts': { statements: 95, branches: 76, functions: 99, lines: 99 },
                 'packages/db/src/queries/notifications.ts': { statements: 92, branches: 84, functions: 99, lines: 97 },
+                // The gemnasium path, end to end: normalizer, cache, and scanner. A regression in the
+                // range parsing or the purge logic is silent, so each gets its own floor.
+                'packages/feeds/src/gemnasium/normalize.ts': { statements: 98, branches: 93, functions: 99, lines: 99 },
+                'packages/db/src/queries/gemnasium.ts': { statements: 97, branches: 85, functions: 99, lines: 99 },
+                'packages/db/src/gemnasium-client.ts': { statements: 94, branches: 74, functions: 99, lines: 94 },
+                'packages/scanners/src/gemnasium.ts': { statements: 97, branches: 94, functions: 99, lines: 99 },
+                // Produces the "upgrade to this version" advice shown next to every finding.
+                'packages/scanners/src/version-fix.ts': { statements: 95, branches: 85, functions: 99, lines: 99 },
+                // The MCP bearer check is the only thing in front of an endpoint that can mute
+                // findings and request scans.
+                'apps/web/lib/mcp/auth.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
+                'apps/web/lib/project-advisory-export.ts': { statements: 99, branches: 88, functions: 99, lines: 99 },
                 'apps/web/components/findings/**': { statements: 99, branches: 95, functions: 99, lines: 99 },
                 // findings.ts and options.ts each have a substantial branch set still uncovered:
                 // the finding backfills and list queries here, and applyConfigFile there. Both are
