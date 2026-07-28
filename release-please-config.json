@@ -22,7 +22,7 @@
     ],
     "packages": {
         ".": {
-            "package-name": "sentinello"
+            "package-name": "sentinello-monorepo"
         }
     }
 }
