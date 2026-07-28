@@ -310,12 +310,27 @@ environment.
 > require `https`. On a shared network, don't aim a target at an internal-only service you don't
 > trust to receive scan payloads.
 
+## Advisory export
+
+Every project detail page has an **Export advisory** button that copies or downloads a Markdown
+document: a remediation prompt followed by each active finding with its severity, advisory link, fix
+version, vulnerable range, and dependency path. It is written to be handed straight to a coding agent
+— the prompt sets the ground rules (triage before editing, prefer upgrading the parent over an
+`overrides` entry, verify the fix in the lockfile rather than the manifest). Edit the prompt under
+**Settings → Export**, or reset it to the built-in one there.
+
+**Muted findings are excluded from the document.** Muting records a human's accepted-risk decision,
+so the export leaves those findings out rather than instructing an agent to fix something you have
+already signed off on. The same document is available over MCP as `get_project_advisory`, and as the
+plain-text webhook flavour above.
+
 ## MCP integration
 
 Sentinello exposes a [Model Context Protocol](https://modelcontextprotocol.io) server at
 `POST /api/mcp` so Claude Code, Codex, Cursor, Claude Desktop, and other MCP-aware clients can query
-roots, projects, findings, scans, and libraries — and trigger scans, mute findings, or rename
-projects — without leaving the chat.
+roots, projects, findings, scans, and libraries, pull the same Markdown advisory export the portal's
+**Download .md** button produces (`get_project_advisory`) — and trigger scans, mute findings, or
+rename projects — without leaving the chat.
 
 **The endpoint is off until you generate a token — the bearer token is the on/off switch.** No env
 vars are involved. Go to **Settings → MCP**, click **Generate token**, and the endpoint goes live
@@ -323,7 +338,9 @@ immediately; **Clear token** turns it off again (it then returns 404). The page 
 and ready-to-paste config for Claude Code, Codex, Cursor, and Claude Desktop with your token filled
 in. Authentication is `Authorization: Bearer <token>`; a wrong/missing token returns 401, no token at
 all returns 404. The token grants read **and** write tools (trigger scans, mute findings, rename
-projects), so treat it like an admin credential.
+projects), so treat it like an admin credential. It also exposes your **custom export prompt**
+(**Settings → Export**) to the connected client, since that prompt is part of the advisory document
+— worth knowing if you have put internal policy or hostnames in it.
 
 Examples (replace `<token>` with the value from **Settings → MCP**):
 
