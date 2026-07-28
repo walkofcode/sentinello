@@ -50,10 +50,12 @@ export default defineConfig({
             //
             // What still holds the global figures down, and what it would actually take to move each:
             //
-            //  - apps/worker. NOT blocked on a missing seam, contrary to what this comment used to
-            //    say: runBatch(input) and notifyForCompletedScan(input) already take db/scanners as
-            //    injected objects, and config-loader takes db + cwd. These are testable today.
-            //  - apps/web/lib/actions and lib/mcp/tools. Also not blocked: lib/db.ts caches its
+            //  - apps/worker. The orchestration core (runner, notifier, config-loader, runtime) is
+            //    now covered; what remains is the boot/scheduling shell — index.ts, scheduler.ts,
+            //    watcher.ts, the osv/gemnasium sync runtimes and the scan-request poller. Those
+            //    schedule via node-cron and own process lifecycle, so they need cron stubbing rather
+            //    than a seam.
+            //  - apps/web/lib/actions and lib/mcp/tools. Not blocked: lib/db.ts caches its
             //    handle on globalThis.__sentinelloDb, so seeding that with a temp-file database runs
             //    these against a real schema with no mocking. lib/mcp/auth.test.ts does exactly that.
             //    Only revalidatePath and cookies need stubbing.
@@ -62,10 +64,10 @@ export default defineConfig({
             //    object (mirroring createOsvScanner) opens the whole result-shaping surface.
             //  - apps/cli's ui/sync/doctor layer, which closes over process.stderr and isTTY.
             thresholds: {
-                statements: 50,
-                branches: 50,
-                functions: 49,
-                lines: 49,
+                statements: 55,
+                branches: 54,
+                functions: 56,
+                lines: 55,
                 // Per-path floors for the areas that are now well covered. Without these, a global
                 // floor alone would let a well-covered module regress to zero as long as some other
                 // area improved enough to compensate.
@@ -96,6 +98,15 @@ export default defineConfig({
                 'apps/web/lib/mcp/auth.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'apps/web/lib/project-advisory-export.ts': { statements: 99, branches: 88, functions: 99, lines: 99 },
                 'apps/web/components/findings/**': { statements: 99, branches: 95, functions: 99, lines: 99 },
+                // The worker's orchestration core. runner owns scanner ordering and cross-scanner
+                // dedup; notifier owns the record-attempt-before-send rule; config-loader owns the
+                // first-boot guard that stops a restart reverting the operator's portal edits.
+                'apps/worker/src/runner.ts': { statements: 91, branches: 83, functions: 88, lines: 91 },
+                'apps/worker/src/notifier.ts': { statements: 89, branches: 83, functions: 99, lines: 92 },
+                'apps/worker/src/config-loader.ts': { statements: 97, branches: 96, functions: 99, lines: 99 },
+                'apps/worker/src/runtime.ts': { statements: 92, branches: 66, functions: 99, lines: 99 },
+                // The dispatch decision: every filter that decides whether an operator gets paged.
+                'packages/db/src/queries/notification-deliveries.ts': { statements: 93, branches: 83, functions: 99, lines: 97 },
                 // findings.ts and options.ts each have a substantial branch set still uncovered:
                 // the finding backfills and list queries here, and applyConfigFile there. Both are
                 // next in line, and these floors exist to stop them sliding backwards meanwhile.
