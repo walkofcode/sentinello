@@ -64,10 +64,10 @@ export default defineConfig({
             //    object (mirroring createOsvScanner) opens the whole result-shaping surface.
             //  - apps/cli's ui/sync/doctor layer, which closes over process.stderr and isTTY.
             thresholds: {
-                statements: 55,
-                branches: 54,
-                functions: 56,
-                lines: 55,
+                statements: 59,
+                branches: 58,
+                functions: 61,
+                lines: 58,
                 // Per-path floors for the areas that are now well covered. Without these, a global
                 // floor alone would let a well-covered module regress to zero as long as some other
                 // area improved enough to compensate.
@@ -107,6 +107,18 @@ export default defineConfig({
                 'apps/worker/src/runtime.ts': { statements: 92, branches: 66, functions: 99, lines: 99 },
                 // The dispatch decision: every filter that decides whether an operator gets paged.
                 'packages/db/src/queries/notification-deliveries.ts': { statements: 93, branches: 83, functions: 99, lines: 97 },
+                // The feed HTTP client. Its retry policy decides whether a transient upstream failure
+                // costs one round trip or silently leaves a source unauditable for the whole run.
+                'packages/feeds/src/http.ts': { statements: 98, branches: 98, functions: 99, lines: 99 },
+                // The read paths behind the portal's numbers and the triage views. Each applies the
+                // same blast-radius rules (open episodes, unmuted, active source cells); a regression
+                // shows an operator findings they silenced or hides ones they have not.
+                'packages/db/src/queries/dashboard.ts': { statements: 96, branches: 86, functions: 99, lines: 96 },
+                'packages/db/src/queries/libraries.ts': { statements: 99, branches: 66, functions: 99, lines: 99 },
+                'packages/db/src/queries/projects.ts': { statements: 93, branches: 78, functions: 99, lines: 93 },
+                'packages/db/src/queries/scans.ts': { statements: 99, branches: 93, functions: 99, lines: 99 },
+                'packages/db/src/queries/config.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
+                'packages/db/src/queries/ecosystem-backfill.ts': { statements: 96, branches: 85, functions: 99, lines: 96 },
                 // findings.ts and options.ts each have a substantial branch set still uncovered:
                 // the finding backfills and list queries here, and applyConfigFile there. Both are
                 // next in line, and these floors exist to stop them sliding backwards meanwhile.
