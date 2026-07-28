@@ -2,16 +2,10 @@
 
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
-import {
-    getConfigValue,
-    getProjectById,
-    getRootById,
-    listCurrentFindingsForProject,
-    listLibraryUsage,
-    setConfigValue
-} from '@sentinello/db'
+import { getConfigValue, listLibraryUsage, setConfigValue } from '@sentinello/db'
 import type { DepTypeFilter, Severity } from '@sentinello/core'
 import { getDb } from '@/lib/db'
+import { buildProjectAdvisoryExport } from '@/lib/project-advisory-export'
 import {
     buildAdvisoryMarkdown,
     buildExportFilename,
@@ -22,58 +16,16 @@ import {
 
 const depTypeSchema = z.enum(['all', 'prod', 'dev'])
 
-// Helper: parse the JSON-encoded depPath that the project finding query returns as a string.
-// Library usage rows don't include dep path, so this is only called on the project path.
-function parseDepPath(json: string): string[] {
-    try {
-        const parsed = JSON.parse(json)
-        if (Array.isArray(parsed)) return parsed.filter(function isString(v): v is string { return typeof v === 'string' })
-        return []
-    } catch {
-        return []
-    }
-}
-
+// Narrowed to the two fields the download button reads. This is a client-callable server action, so
+// every extra field on the return value is serialized to the browser on each click.
 export async function exportProjectAdvisoryMarkdownAction(
     projectId: string,
     depType: DepTypeFilter
 ): Promise<{ filename: string; markdown: string }> {
     const parsedDep = depTypeSchema.parse(depType)
-    const db = getDb()
-    const project = getProjectById(db, projectId)
-    if (!project) throw new Error('project not found: ' + projectId)
-    const root = getRootById(db, project.rootId)
-    const now = Date.now()
-    const rows = listCurrentFindingsForProject(db, project.id, now, parsedDep)
-    const findings: ExportFinding[] = rows.map(function toExport(r): ExportFinding {
-        return {
-            packageName: r.packageName,
-            installedVersion: r.installedVersion,
-            fixAvailable: r.fixAvailable,
-            fixVersion: r.fixVersion,
-            severity: r.severity as Severity,
-            advisoryId: r.advisoryId,
-            advisoryTitle: r.advisoryTitle,
-            advisoryUrl: r.advisoryUrl,
-            vulnerableRange: r.vulnerableRange,
-            isProd: r.isProd,
-            isDev: r.isDev,
-            depPath: parseDepPath(r.depPathJson)
-        }
-    })
-    const displayName = project.alias || project.name
-    const rootLabel = root?.label || root?.path || 'unknown root'
-    const projectPath = project.relPath === '.' ? rootLabel : rootLabel + '/' + project.relPath
-    const scope: ExportScope = {
-        kind: 'project',
-        projectName: displayName,
-        projectPath,
-        depType: parsedDep
-    }
-    const prompt = resolveExportPrompt(getConfigValue<string>(db, 'markdownExportPrompt'))
-    const markdown = buildAdvisoryMarkdown({ scope, prompt, findings, generatedAt: now })
-    const filename = buildExportFilename(scope, now)
-    return { filename, markdown }
+    const result = buildProjectAdvisoryExport(getDb(), projectId, parsedDep, Date.now())
+    if (!result) throw new Error('project not found: ' + projectId)
+    return { filename: result.filename, markdown: result.markdown }
 }
 
 export async function exportLibraryAdvisoryMarkdownAction(
