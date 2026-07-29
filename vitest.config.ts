@@ -70,11 +70,11 @@ export default defineConfig({
             //
             // FUNCTIONS ARE DONE: 1011/1011, and the global floor above is set to 100 to keep them
             // that way. Lines and statements are effectively done too. What is left is branch
-            // residue, and it falls into two kinds. Knowing which kind you are looking at is worth
-            // more than any other single fact in this file:
+            // residue — 111 arms of 4044, so 97.25%. It falls into two kinds, and knowing which kind
+            // you are looking at is worth more than any other single fact in this file:
             //
             //  1. UNREACHABLE defensive arms, which no test can reach through the public API and
-            //     which should NOT be chased. Four recurring shapes, with confirmed examples:
+            //     which should NOT be chased. Six recurring shapes, with confirmed examples:
             //
             //     a. `err instanceof Error && err.message || String(err)` behind a collaborator that
             //        only ever throws Errors — node:fs and better-sqlite3 both do. worker.ts:184
@@ -87,7 +87,10 @@ export default defineConfig({
             //        isBlockedAddress only calls after isIP(addr) === 4 — all four always exist.
             //        Also graph.ts:17 (`stack.pop()` inside `while (stack.length > 0)`),
             //        npm-audit-parse.ts:381, version-fix.ts:38/52/76/82 (a Range's comparators carry
-            //        versions that already passed valid()).
+            //        versions that already passed valid()), npm-audit.ts:70 (`!entry` on a key just
+            //        read off Object.keys), version.ts:48-49 (whose own comment says so),
+            //        findings.ts:285 (`row?.count ?? 0` — a COUNT(*) always returns a row) and
+            //        findings.ts:224 (`if (!best) throw` — the loop above assigns on its first pass).
             //     c. A guard a caller upstream already made impossible. gemnasium/normalize.ts:164
             //        (parseComparatorForm's empty-token check — line 97 filters empty disjuncts
             //        before it) and :180 (its final else-if, which only `<=` can reach because the
@@ -96,33 +99,73 @@ export default defineConfig({
             //        one); cli/ui.ts:60 (formatDuration's ms branch, whose only call site is guarded
             //        by `remaining > 1` second, so the argument is always over 1000);
             //        npm-audit.ts:296 and :375; runtime.ts:42; scan-request-poller.ts:53.
+            //        Wave 10 added five more, all confirmed rather than assumed:
+            //        notifier.ts:130 (dispatchGroup's `if (!project) return` — its ONE call site
+            //        passes the project notifyForCompletedScan already null-checked at :52);
+            //        notifier.ts:288 (webhookRoot(null) — projects.root_id is a RESTRICT foreign key
+            //        and the client sets `foreign_keys = ON`, so a project whose root row is missing
+            //        cannot exist); mcp/tools/actions.ts:165 and :166 (`advisoryId || null` inside
+            //        the non-project branch, which the `scope === 'finding'` guard above already
+            //        rejected — and the zod enum admits only project|finding, so there is no third
+            //        scope to arrive with them absent); notification-deliveries.ts:187-188
+            //        (`targetRootIds.get(id) || []` — the loop immediately above sets an entry for
+            //        every row's target id, and an empty array is truthy anyway).
             //     d. A build-time define. help.ts:7 returns __SENTINELLO_VERSION__, which tsup
             //        injects into the published bundle and vitest never defines — under test it is
             //        always undefined, which is the dev path the env fallback exists for.
+            //     e. A `?? default` on a column the schema declares NOT NULL DEFAULT <that same
+            //        default>. The fallback duplicates a constraint SQLite already enforces, so no
+            //        row can reach it: `row.ecosystem ?? 'npm'` in findings.ts:341 and :402,
+            //        dashboard.ts:387 and libraries.ts:90 — findings.ecosystem is
+            //        `.notNull().default('npm')` (schema.ts:150). Same for libraries.ts:94's
+            //        `(row.severities || '')`: severity is `.notNull()` (schema.ts:157), and
+            //        GROUP_CONCAT under a GROUP BY never returns NULL for a non-null column.
+            //        CHECK THE SCHEMA, NOT THE CODE — the sibling `row.source ?? row.scanner` on the
+            //        very same lines IS reachable, because findings.source is nullable for the window
+            //        between the Phase 2 migration and the boot backfill. Identical expression shape,
+            //        opposite verdict, and reading the code alone gets it wrong in both directions.
+            //     f. A JS fallback duplicating a COALESCE in the query that produced the row.
+            //        libraries.ts:174-175: listLibraryUsage selects
+            //        `COALESCE(f.source, f.scanner)` and `COALESCE(f.ecosystem, 'npm')`, so SQLite has
+            //        already substituted by the time the mapper runs. Contrast dashboard.ts:386,
+            //        which selects `f.*` — the same expression there IS reachable and is now covered.
+            //        A legacy-row test through this path is still worth having (libraries.test.ts has
+            //        one) but it pins the two COALESCEs, not this arm; the comment there says so.
             //
             //  2. Genuinely reachable arms that cost more setup than they have been worth so far.
-            //     The remaining pool is mostly in notifier.ts (a group whose project was deleted
-            //     mid-run), cli/cache/sync.ts (the getSourceState-returned-nothing family) and the
-            //     rarely-taken query filters in packages/db/src/queries. Those are fair game.
+            //     Wave 10 emptied most of this bucket. What is left: cli/cache/sync.ts's seven arms —
+            //     RECLASSIFIED as shape (c), since the `state?.recordCount ?? 0` / `if (!state)`
+            //     family only runs on a refresh, which by definition means the source cell exists;
+            //     discovery.ts:162 (a path matched by an ignore rule with a trailing slash but not
+            //     without, or vice versa) and :258/:284 (degenerate paths — resolve('/'), a HEAD ref
+            //     that is whitespace); scan.ts:138/141; cache/store.ts; osv-client.ts:25/36. Those
+            //     last few are fair game, and none is worth much.
             //
-            // Three things worth knowing before chasing the last few points:
+            // Four things worth knowing before chasing the last few points:
             //
             //  - The v8 text reporter OMITS files at 100% on all four metrics, so a file vanishing
             //    from the table is success, not absence. Check coverage/lcov.info to confirm.
+            //  - v8 reports STATEMENTS and LINES as separate numbers and they are not equal. Deriving
+            //    one from the other silently mis-sets floors; read each from its own field in
+            //    coverage/coverage-summary.json.
             //  - jsdom has NO LAYOUT ENGINE. getBoundingClientRect returns zeros, so any new test of
             //    positioning logic must stub it — otherwise the test passes while asserting nothing,
             //    since every branch computes the same numbers from zeros.
-            //  - Grinding these arms is how the last two real bugs were found (a JSON `null` in
-            //    source_scope_json that threw instead of failing open, and a decode crash in
-            //    parseDepPath). If a case here is awkward to reach, ask whether the code is right
-            //    before assuming the test is wrong.
+            //  - Grinding these arms is how every real bug on this branch was found: a JSON `null` in
+            //    source_scope_json that threw instead of failing open, a decode crash in
+            //    parseDepPath, a go.sum `/go.mod` version stripped to an unmatchable empty string,
+            //    and — from wave 10 — a lockfile cross-check that coerced a version RANGE into a
+            //    version and silently deleted every npm-audit finding for a project whose
+            //    package-lock could not be read. Every one of them reported success while doing
+            //    nothing. If a case here is awkward to reach, ask whether the code is right before
+            //    assuming the test is wrong.
             //
             // README.md and apps/cli/README.md carry a coverage badge showing the STATEMENTS floor
             // below. It is honest precisely because this is a CI-enforced ratchet — so when you
             // raise that number, bump both badges in the same commit.
             thresholds: {
                 statements: 99,
-                branches: 96,
+                branches: 97,
                 // 100, not 99. Every function in every measured file is executed by the suite, and
                 // this is the one metric where "all of them" is a state worth keeping rather than a
                 // number to approach: at 100 a new function with no test fails CI on the spot, which
@@ -134,7 +177,7 @@ export default defineConfig({
                 // area improved enough to compensate.
                 'packages/core/src/**': { statements: 99, branches: 98, functions: 99, lines: 99 },
                 'packages/scanners/src/resolver/**': { statements: 99, branches: 99, functions: 99, lines: 99 },
-                'packages/scanners/src/engine/**': { statements: 99, branches: 97, functions: 99, lines: 99 },
+                'packages/scanners/src/engine/**': { statements: 99, branches: 98, functions: 99, lines: 99 },
                 'packages/notifications/src/render.ts': { statements: 99, branches: 97, functions: 99, lines: 99 },
                 'packages/notifications/src/redact.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'packages/notifications/src/ssrf.ts': { statements: 98, branches: 91, functions: 99, lines: 99 },
@@ -168,18 +211,18 @@ export default defineConfig({
                 // The MCP tool surface — the same mutations, reachable by an agent. Driven through a
                 // real McpServer/Client pair so the declared zod input schemas are exercised too; a
                 // schema that stops matching its handler fails here rather than in front of an agent.
-                'apps/web/lib/mcp/tools/**': { statements: 99, branches: 97, functions: 99, lines: 99 },
+                'apps/web/lib/mcp/tools/**': { statements: 99, branches: 98, functions: 99, lines: 99 },
                 // Branches sit at 84 for the `root?.label || root?.path || 'unknown root'` fallback:
                 // projects.root_id is a foreign key, so a project whose root row is missing cannot be
                 // inserted, and the undefined-root arms are unreachable from any state the database
                 // will hold. The naming, mute and dedup branches are all covered.
                 'apps/web/lib/project-advisory-export.ts': { statements: 99, branches: 84, functions: 99, lines: 99 },
-                'apps/web/components/findings/**': { statements: 99, branches: 96, functions: 99, lines: 99 },
+                'apps/web/components/findings/**': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 // The worker's orchestration core. runner owns scanner ordering and cross-scanner
                 // dedup; notifier owns the record-attempt-before-send rule; config-loader owns the
                 // first-boot guard that stops a restart reverting the operator's portal edits.
                 'apps/worker/src/runner.ts': { statements: 99, branches: 97, functions: 99, lines: 99 },
-                'apps/worker/src/notifier.ts': { statements: 96, branches: 85, functions: 99, lines: 99 },
+                'apps/worker/src/notifier.ts': { statements: 97, branches: 95, functions: 99, lines: 99 },
                 'apps/worker/src/config-loader.ts': { statements: 97, branches: 96, functions: 99, lines: 99 },
                 'apps/worker/src/runtime.ts': { statements: 96, branches: 83, functions: 99, lines: 99 },
                 // The worker's boot/scheduling shell. Every one of these decides WHETHER work happens
@@ -213,7 +256,7 @@ export default defineConfig({
                 // The read paths behind the portal's numbers and the triage views. Each applies the
                 // same blast-radius rules (open episodes, unmuted, active source cells); a regression
                 // shows an operator findings they silenced or hides ones they have not.
-                'packages/db/src/queries/dashboard.ts': { statements: 96, branches: 86, functions: 99, lines: 96 },
+                'packages/db/src/queries/dashboard.ts': { statements: 99, branches: 93, functions: 99, lines: 99 },
                 'packages/db/src/queries/libraries.ts': { statements: 99, branches: 66, functions: 99, lines: 99 },
                 'packages/db/src/queries/projects.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'packages/db/src/queries/scans.ts': { statements: 99, branches: 93, functions: 99, lines: 99 },
@@ -222,7 +265,7 @@ export default defineConfig({
                 // Owns finding-episode lifecycle: which episode continues, which closes, and which of
                 // several duplicate rows survives a collapse (the earliest-detected one, so a finding's
                 // age is not silently reset). Was the weakest floor in this list at 70/41/56/74.
-                'packages/db/src/queries/findings.ts': { statements: 98, branches: 89, functions: 99, lines: 99 },
+                'packages/db/src/queries/findings.ts': { statements: 98, branches: 91, functions: 99, lines: 99 },
                 // applyConfigFile is the remaining uncovered branch set in options.ts.
                 'apps/cli/src/options.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'apps/cli/src/cache/store.ts': { statements: 99, branches: 94, functions: 99, lines: 99 },
@@ -259,14 +302,21 @@ export default defineConfig({
                 // before its first await and a SIGTERM in that window would otherwise hit a process
                 // with no handlers. run.ts owns the exit codes, which are the CLI's CI contract.
                 'apps/worker/src/worker.ts': { statements: 99, branches: 98, functions: 99, lines: 99 },
-                'apps/cli/src/run.ts': { statements: 97, branches: 90, functions: 99, lines: 98 },
+                'apps/cli/src/run.ts': { statements: 98, branches: 97, functions: 99, lines: 98 },
                 // The subprocess half of npm-audit. Every branch here returns "no findings", but they
                 // mean entirely different things to an operator — pm_missing is "install pnpm",
                 // audit_schema_mismatch is "Sentinello needs updating", and ok-with-zero-findings is
                 // "your project is clean". Picking the wrong one is silent, because the scan still
                 // succeeds, which is what makes these floors worth carrying.
-                'packages/scanners/src/npm-audit.ts': { statements: 97, branches: 91, functions: 99, lines: 98 },
+                'packages/scanners/src/npm-audit.ts': { statements: 98, branches: 96, functions: 99, lines: 98 },
                 'packages/scanners/src/npm-audit-parse.ts': { statements: 98, branches: 98, functions: 99, lines: 99 },
+                // Total floors, and the newest entry in this list. It decides which npm-audit findings
+                // are FALSE positives already fixed by an override — so every bug here deletes real
+                // findings and reports the project clean. Wave 10 found one: it coerced a version RANGE
+                // into a version, so any project whose package-lock could not yield an installed-version
+                // snapshot (lockfileVersion 1, unreadable, or schema-rejected) had every finding
+                // silently dropped. Its contract is fail-open, and the floors are total to keep it that way.
+                'packages/scanners/src/lockfile-cross-check.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 // The five modules that had no test file at all until wave 8. schema.ts is the literal
                 // contract between apps/web and apps/worker, and its floors are total for a reason: the
                 // suite asserts each foreign key against a REALLY migrated database, so a column added
@@ -282,7 +332,7 @@ export default defineConfig({
                 // Collapses the one-row-per-(scanner, advisory, dep-path) table into what the operator
                 // sees. Both directions are dangerous: merging too eagerly HIDES a vulnerability,
                 // merging too little shows the same thing three times.
-                'apps/web/lib/merge-findings.ts': { statements: 99, branches: 93, functions: 99, lines: 99 },
+                'apps/web/lib/merge-findings.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 // Walks read-only mounts it does not control, so its unreadable-path handling is not
                 // padding: one bad permission must not abort the scan of every other project under the
                 // same root.
