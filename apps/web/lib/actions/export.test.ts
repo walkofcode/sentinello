@@ -9,7 +9,6 @@ import {
     scanProject,
     seedProject,
     seedRoot,
-    T0,
     type PortalTestDb
 } from '@/lib/portal-test-db.fixture'
 import {

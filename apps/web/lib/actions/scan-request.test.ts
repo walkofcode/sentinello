@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { revalidatePath } from 'next/cache'
-import { enqueueScanRequest, listRecentScanRequests, type ScanRequest } from '@sentinello/db'
+import { enqueueScanRequest, listRecentScanRequests } from '@sentinello/db'
+import type { ScanRequest } from '@sentinello/core'
 import { closePortalTestDb, openPortalTestDb, seedProject, seedRoot, ROOT_ID, type PortalTestDb } from '@/lib/portal-test-db.fixture'
 import { requestFullSweep, requestScanForProject, requestScanForRoot } from './scan-request'
 

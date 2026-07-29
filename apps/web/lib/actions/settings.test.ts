@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { revalidatePath } from 'next/cache'
-import { senderFor } from '@sentinello/notifications'
+import { senderFor, type NotificationSender } from '@sentinello/notifications'
 import {
     claimPendingSignals,
     getConfigValue,
@@ -638,7 +638,7 @@ describe('testSendNotificationTargetAction', function () {
 
     it('sends a message carrying the Sentinello test-send marker', async function () {
         seedTarget('target-1')
-        const send = vi.fn(async function ok() { return { ok: true } })
+        const send = vi.fn<NotificationSender>(async function ok() { return { ok: true } })
         vi.mocked(senderFor).mockReturnValue(send)
 
         await testSendNotificationTargetAction('target-1')

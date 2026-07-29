@@ -60,19 +60,18 @@ export default defineConfig({
             //    watcher.ts, the osv/gemnasium sync runtimes and the scan-request poller. Those
             //    schedule via node-cron and own process lifecycle, so they need cron stubbing rather
             //    than a seam.
-            //  - apps/web/lib/actions and lib/mcp/tools. Not blocked: lib/db.ts caches its
-            //    handle on globalThis.__sentinelloDb, so seeding that with a temp-file database runs
-            //    these against a real schema with no mocking. lib/mcp/auth.test.ts does exactly that.
-            //    Only revalidatePath and cookies need stubbing.
             //  - The npm-audit spawn path. This one is a genuine seam problem, but a small one:
             //    spawnAndCapture() is already a single private function, so lifting it into a deps
             //    object (mirroring createOsvScanner) opens the whole result-shaping surface.
             //  - apps/cli's ui/sync/doctor layer, which closes over process.stderr and isTTY.
+            //  - The two feed.ts downloaders (osv, gemnasium) and apps/web/lib/version.ts, whose
+            //    uncovered half is the GitHub update-check — both are network clients whose HTTP
+            //    layer (packages/feeds/src/http.ts) is already covered beneath them.
             thresholds: {
-                statements: 59,
-                branches: 58,
-                functions: 61,
-                lines: 58,
+                statements: 66,
+                branches: 64,
+                functions: 68,
+                lines: 66,
                 // Per-path floors for the areas that are now well covered. Without these, a global
                 // floor alone would let a well-covered module regress to zero as long as some other
                 // area improved enough to compensate.
@@ -101,6 +100,15 @@ export default defineConfig({
                 // The MCP bearer check is the only thing in front of an endpoint that can mute
                 // findings and request scans.
                 'apps/web/lib/mcp/auth.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
+                // Every mutation the portal can make. These run against a real schema via the
+                // globalThis.__sentinelloDb seam, so the floors are near-total: the only stubs are
+                // revalidatePath (which cannot work outside a render request) and the outbound
+                // notification sender (the one action that would make a real HTTP call).
+                'apps/web/lib/actions/**': { statements: 99, branches: 97, functions: 99, lines: 99 },
+                // The MCP tool surface — the same mutations, reachable by an agent. Driven through a
+                // real McpServer/Client pair so the declared zod input schemas are exercised too; a
+                // schema that stops matching its handler fails here rather than in front of an agent.
+                'apps/web/lib/mcp/tools/**': { statements: 99, branches: 96, functions: 99, lines: 99 },
                 'apps/web/lib/project-advisory-export.ts': { statements: 99, branches: 88, functions: 99, lines: 99 },
                 'apps/web/components/findings/**': { statements: 99, branches: 95, functions: 99, lines: 99 },
                 // The worker's orchestration core. runner owns scanner ordering and cross-scanner
