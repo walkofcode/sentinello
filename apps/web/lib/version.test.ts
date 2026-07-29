@@ -245,3 +245,116 @@ describe('getVersionInfo — failure and caching', function () {
         expect((await getVersionInfo()).checkedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     })
 })
+
+describe('getCurrentVersion — the walk to the monorepo root', function () {
+    // The dev fallback walks up from cwd looking for the ROOT package.json, matched by name rather
+    // than by position. These cover what happens when the walk finds nothing useful — which is what a
+    // published Docker image would see if SENTINELLO_VERSION were ever unset there.
+    async function inDir(dir: string) {
+        vi.stubEnv('SENTINELLO_VERSION', '')
+        vi.spyOn(process, 'cwd').mockReturnValue(dir)
+        return await loadVersion()
+    }
+
+    it('reports dev when the walk reaches the filesystem root with no match', async function () {
+        const { mkdtemp } = await import('node:fs/promises')
+        const { tmpdir } = await import('node:os')
+        const { join } = await import('node:path')
+        const dir = await mkdtemp(join(tmpdir(), 'sentinello-version-'))
+
+        const { getCurrentVersion } = await inDir(dir)
+
+        expect(getCurrentVersion()).toBe('dev')
+    })
+
+    // A package.json that is not the monorepo root is walked PAST, not read. apps/cli is also named
+    // 'sentinello' and carries a frozen 0.1.0, so a match on the bare name would report the CLI's
+    // version in the portal footer.
+    it('walks past a package.json with a different name', async function () {
+        const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises')
+        const { tmpdir } = await import('node:os')
+        const { join } = await import('node:path')
+        const root = await mkdtemp(join(tmpdir(), 'sentinello-version-'))
+        await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'sentinello-monorepo', version: '7.7.7' }), 'utf8')
+        const nested = join(root, 'apps', 'cli')
+        await mkdir(nested, { recursive: true })
+        await writeFile(join(nested, 'package.json'), JSON.stringify({ name: 'sentinello', version: '0.1.0' }), 'utf8')
+
+        const { getCurrentVersion } = await inDir(nested)
+
+        expect(getCurrentVersion()).toBe('7.7.7')
+    })
+
+    it('walks past the root package.json when it carries no version', async function () {
+        const { mkdtemp, writeFile } = await import('node:fs/promises')
+        const { tmpdir } = await import('node:os')
+        const { join } = await import('node:path')
+        const dir = await mkdtemp(join(tmpdir(), 'sentinello-version-'))
+        await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'sentinello-monorepo' }), 'utf8')
+
+        const { getCurrentVersion } = await inDir(dir)
+
+        expect(getCurrentVersion()).toBe('dev')
+    })
+
+    // An unparseable package.json must not take the footer down — keep walking.
+    it('keeps walking past an unparseable package.json', async function () {
+        const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises')
+        const { tmpdir } = await import('node:os')
+        const { join } = await import('node:path')
+        const root = await mkdtemp(join(tmpdir(), 'sentinello-version-'))
+        await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'sentinello-monorepo', version: '8.8.8' }), 'utf8')
+        const nested = join(root, 'broken')
+        await mkdir(nested, { recursive: true })
+        await writeFile(join(nested, 'package.json'), '{not json', 'utf8')
+
+        const { getCurrentVersion } = await inDir(nested)
+
+        expect(getCurrentVersion()).toBe('8.8.8')
+    })
+
+    it('strips a leading v from the resolved root version', async function () {
+        const { mkdtemp, writeFile } = await import('node:fs/promises')
+        const { tmpdir } = await import('node:os')
+        const { join } = await import('node:path')
+        const dir = await mkdtemp(join(tmpdir(), 'sentinello-version-'))
+        await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'sentinello-monorepo', version: 'v3.2.1' }), 'utf8')
+
+        const { getCurrentVersion } = await inDir(dir)
+
+        expect(getCurrentVersion()).toBe('3.2.1')
+    })
+})
+
+describe('getVersionInfo — the feed URL and the enabled flag', function () {
+    // The check falls back to the public repo feed when nothing overrides it, which is what a default
+    // deployment uses. An empty or whitespace env var must not be taken literally as the URL.
+    it.each([
+        ['an unset feed', undefined],
+        ['an empty feed', ''],
+        ['a whitespace feed', '   ']
+    ])('falls back to the public GitHub feed with %s', async function (_label, value) {
+        vi.stubEnv('SENTINELLO_UPDATE_FEED_URL', value as string)
+        alwaysReturns({ tag_name: 'v9.9.9' })
+        const { getVersionInfo } = await loadVersion()
+
+        await getVersionInfo()
+
+        expect(String(fetchMock.mock.calls[0]?.[0])).toBe('https://api.github.com/repos/walkofcode/sentinello/releases/latest')
+    })
+
+    // The flag is read from the database, and the portal renders the footer on pages that may run
+    // before the worker has migrated. Failing to read it must default to ON rather than throwing out
+    // of a footer render.
+    it('defaults the check to enabled when the config read throws', async function () {
+        const { getSqlite } = await import('./db')
+        getSqlite().close()
+        alwaysReturns({ tag_name: 'v9.9.9' })
+        const { getVersionInfo } = await loadVersion()
+
+        const info = await getVersionInfo()
+
+        expect(info.source).not.toBe('disabled')
+        expect(fetchMock).toHaveBeenCalled()
+    })
+})

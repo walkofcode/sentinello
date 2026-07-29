@@ -280,3 +280,89 @@ describe('mergeFindings ordering', function () {
         expect(merged.map(function v(m) { return m.installedVersion })).toEqual(['1.0.0', '2.0.0'])
     })
 })
+
+describe('mergeFindings — the installed-version union', function () {
+    // npm-audit joins hoisted copies into one comma-separated string while OSV emits one concrete
+    // version per row. The merged row has to show every affected version exactly once regardless of
+    // which source contributed it — a duplicate reads as two problems, and a dropped one hides a
+    // vulnerable copy that is genuinely installed.
+    it('unions a comma-joined string with a single version', function () {
+        const merged = mergeFindings([
+            row({ id: 'a', scanner: 'npm-audit', source: 'npm-audit', installedVersion: '4.17.20, 4.17.11' }),
+            row({ id: 'b', scanner: 'osv', source: 'osv', installedVersion: '4.17.15' })
+        ])
+        expect(merged).toHaveLength(1)
+        expect(merged[0]?.installedVersion).toBe('4.17.11, 4.17.15, 4.17.20')
+    })
+
+    it('collapses a version reported by both sources', function () {
+        const merged = mergeFindings([
+            row({ id: 'a', scanner: 'npm-audit', source: 'npm-audit', installedVersion: '4.17.20' }),
+            row({ id: 'b', scanner: 'osv', source: 'osv', installedVersion: '4.17.20' })
+        ])
+        expect(merged[0]?.installedVersion).toBe('4.17.20')
+    })
+
+    it('trims padding and drops empty segments', function () {
+        const merged = mergeFindings([row({ installedVersion: ' 4.17.20 ,, 4.17.11 , ' })])
+        expect(merged[0]?.installedVersion).toBe('4.17.11, 4.17.20')
+    })
+
+    // Sorted numerically, not lexically: a string sort puts 4.17.9 above 4.17.11, which reads as the
+    // newest copy being the older one.
+    it('sorts numerically rather than lexically', function () {
+        const merged = mergeFindings([row({ installedVersion: '4.17.9, 4.17.11, 4.2.0' })])
+        expect(merged[0]?.installedVersion).toBe('4.2.0, 4.17.9, 4.17.11')
+    })
+
+    it('treats a missing segment as zero when comparing different lengths', function () {
+        const merged = mergeFindings([row({ installedVersion: '4.17, 4.17.1' })])
+        expect(merged[0]?.installedVersion).toBe('4.17, 4.17.1')
+    })
+
+    // Non-numeric segments compare as zero rather than NaN. NaN comparisons are all false, which
+    // would leave the sort order dependent on input order.
+    it('does not let a non-numeric segment destabilise the sort', function () {
+        const merged = mergeFindings([row({ installedVersion: '4.x.0, 4.1.0' })])
+        expect(merged[0]?.installedVersion?.split(', ')).toHaveLength(2)
+    })
+})
+
+describe('mergeFindings — picking the fix version', function () {
+    // Several sources can each name a fix. The HIGHEST wins, because a lower one may not clear every
+    // vulnerable copy in the union above — advising the lower version would tell the operator they
+    // are done when they are not.
+    it('keeps the highest fix version across the bucket', function () {
+        const merged = mergeFindings([
+            row({ id: 'a', scanner: 'npm-audit', source: 'npm-audit', fixAvailable: true, fixVersion: '4.17.21' }),
+            row({ id: 'b', scanner: 'osv', source: 'osv', fixAvailable: true, fixVersion: '4.18.0' })
+        ])
+        expect(merged[0]?.fixVersion).toBe('4.18.0')
+    })
+
+    it('keeps the highest regardless of the order the rows arrive in', function () {
+        const merged = mergeFindings([
+            row({ id: 'a', scanner: 'osv', source: 'osv', fixAvailable: true, fixVersion: '4.18.0' }),
+            row({ id: 'b', scanner: 'npm-audit', source: 'npm-audit', fixAvailable: true, fixVersion: '4.17.21' })
+        ])
+        expect(merged[0]?.fixVersion).toBe('4.18.0')
+    })
+
+    // fixAvailable without a version contributes nothing to the comparison — comparing against null
+    // would coerce to 0 and let it win.
+    it('ignores a row claiming a fix with no version', function () {
+        const merged = mergeFindings([
+            row({ id: 'a', scanner: 'npm-audit', source: 'npm-audit', fixAvailable: true, fixVersion: null }),
+            row({ id: 'b', scanner: 'osv', source: 'osv', fixAvailable: true, fixVersion: '4.17.21' })
+        ])
+        expect(merged[0]?.fixVersion).toBe('4.17.21')
+    })
+
+    it('reports no fix when no row names one', function () {
+        const merged = mergeFindings([
+            row({ id: 'a', scanner: 'npm-audit', source: 'npm-audit', fixAvailable: false, fixVersion: null }),
+            row({ id: 'b', scanner: 'osv', source: 'osv', fixAvailable: false, fixVersion: null })
+        ])
+        expect(merged[0]?.fixVersion).toBeNull()
+    })
+})
