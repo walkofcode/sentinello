@@ -134,6 +134,25 @@ describe('mergeFindings aggregation', function () {
         expect(merged[0]?.installedVersion).toBe('4.17.20')
     })
 
+    // Not every installed version has three numeric segments. A missing segment counts as 0 so "4.17"
+    // sorts below "4.17.1", and a non-numeric one counts as 0 rather than NaN — NaN compares false
+    // against everything, which would leave the list in whatever order it arrived in.
+    it('sorts versions with missing or non-numeric segments', function () {
+        const merged = mergeFindings([
+            row({ scanner: 'npm-audit', installedVersion: '4.17.1, 4.17' }),
+            row({ scanner: 'osv', installedVersion: '4' })
+        ])
+        expect(merged[0]?.installedVersion).toBe('4, 4.17, 4.17.1')
+    })
+
+    it('places a version with an unparseable segment below its numeric sibling', function () {
+        const merged = mergeFindings([
+            row({ scanner: 'npm-audit', installedVersion: '4.x.0, 4.2.0' }),
+            row({ scanner: 'osv', installedVersion: '4.1.0' })
+        ])
+        expect(merged[0]?.installedVersion).toBe('4.x.0, 4.1.0, 4.2.0')
+    })
+
     // OSV frequently has no fix while npm audit does, so the merged row must take the best fix on
     // offer rather than whichever source happened to sort first.
     it('takes the highest fix version across sources', function () {

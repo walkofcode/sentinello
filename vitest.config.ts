@@ -68,43 +68,73 @@ export default defineConfig({
             // per-file `// @vitest-environment jsdom` docblock rather than a config change here,
             // because every other suite wants the `node` default above.
             //
-            // FUNCTIONS ARE EFFECTIVELY DONE (99.7%). Three remain, all in files whose other
-            // functions are covered; there is no untested module left in the repo.
-            //
-            // What is left is branch residue, and it falls into two kinds. Knowing which kind you are
-            // looking at saves the most time:
+            // FUNCTIONS ARE DONE: 1011/1011, and the global floor above is set to 100 to keep them
+            // that way. Lines and statements are effectively done too. What is left is branch
+            // residue, and it falls into two kinds. Knowing which kind you are looking at is worth
+            // more than any other single fact in this file:
             //
             //  1. UNREACHABLE defensive arms, which no test can reach through the public API and
-            //     which should NOT be chased. The recurring shape is
-            //     `err instanceof Error && err.message || String(err)` sitting behind a collaborator
-            //     that only ever throws Errors — node:fs and better-sqlite3 both do. Named examples:
-            //     worker.ts:184 (assertDataDirWritable's catch), runtime.ts:42 (the graceTimer's
-            //     `if (settled) return`, which the allSettled path clears the timer before reaching),
-            //     scan-request-poller.ts:53 (a `stopped` guard that clearInterval already prevents),
-            //     npm-audit.ts:296 and :375 (a stdin write no caller passes, and an empty-command
-            //     guard pickAuditCommand cannot produce).
-            //  2. Genuinely reachable arms that simply cost more setup than they have been worth so
-            //     far — mostly non-Error rejection paths and rarely-taken query filters. Those are
-            //     fair game.
+            //     which should NOT be chased. Four recurring shapes, with confirmed examples:
             //
-            // Two things worth knowing before chasing the last few points:
+            //     a. `err instanceof Error && err.message || String(err)` behind a collaborator that
+            //        only ever throws Errors — node:fs and better-sqlite3 both do. worker.ts:184
+            //        (assertDataDirWritable's catch), mute-expiry.ts:32, runner.ts:232. Where the
+            //        collaborator IS mocked the same shape is reachable and is now covered, which is
+            //        why both sync runtimes came off this list.
+            //     b. `x[i] ?? fallback` / `!x` guards that exist only to satisfy
+            //        noUncheckedIndexedAccess. ssrf.ts:65-68 is the clearest: the four octet
+            //        defaults in ipv4ToInt, which is only reached via isBlockedIpv4, which
+            //        isBlockedAddress only calls after isIP(addr) === 4 — all four always exist.
+            //        Also graph.ts:17 (`stack.pop()` inside `while (stack.length > 0)`),
+            //        npm-audit-parse.ts:381, version-fix.ts:38/52/76/82 (a Range's comparators carry
+            //        versions that already passed valid()).
+            //     c. A guard a caller upstream already made impossible. gemnasium/normalize.ts:164
+            //        (parseComparatorForm's empty-token check — line 97 filters empty disjuncts
+            //        before it) and :180 (its final else-if, which only `<=` can reach because the
+            //        four other operators are handled above); gemnasium/feed.ts:166
+            //        (advisoryIdFromPath's empty-id ternary — the `dot > 0` split cannot produce
+            //        one); cli/ui.ts:60 (formatDuration's ms branch, whose only call site is guarded
+            //        by `remaining > 1` second, so the argument is always over 1000);
+            //        npm-audit.ts:296 and :375; runtime.ts:42; scan-request-poller.ts:53.
+            //     d. A build-time define. help.ts:7 returns __SENTINELLO_VERSION__, which tsup
+            //        injects into the published bundle and vitest never defines — under test it is
+            //        always undefined, which is the dev path the env fallback exists for.
+            //
+            //  2. Genuinely reachable arms that cost more setup than they have been worth so far.
+            //     The remaining pool is mostly in notifier.ts (a group whose project was deleted
+            //     mid-run), cli/cache/sync.ts (the getSourceState-returned-nothing family) and the
+            //     rarely-taken query filters in packages/db/src/queries. Those are fair game.
+            //
+            // Three things worth knowing before chasing the last few points:
             //
             //  - The v8 text reporter OMITS files at 100% on all four metrics, so a file vanishing
             //    from the table is success, not absence. Check coverage/lcov.info to confirm.
             //  - jsdom has NO LAYOUT ENGINE. getBoundingClientRect returns zeros, so any new test of
             //    positioning logic must stub it — otherwise the test passes while asserting nothing,
             //    since every branch computes the same numbers from zeros.
+            //  - Grinding these arms is how the last two real bugs were found (a JSON `null` in
+            //    source_scope_json that threw instead of failing open, and a decode crash in
+            //    parseDepPath). If a case here is awkward to reach, ask whether the code is right
+            //    before assuming the test is wrong.
+            //
+            // README.md and apps/cli/README.md carry a coverage badge showing the STATEMENTS floor
+            // below. It is honest precisely because this is a CI-enforced ratchet — so when you
+            // raise that number, bump both badges in the same commit.
             thresholds: {
-                statements: 98,
-                branches: 94,
-                functions: 99,
+                statements: 99,
+                branches: 96,
+                // 100, not 99. Every function in every measured file is executed by the suite, and
+                // this is the one metric where "all of them" is a state worth keeping rather than a
+                // number to approach: at 100 a new function with no test fails CI on the spot, which
+                // is a far clearer signal than watching a percentage drift down.
+                functions: 100,
                 lines: 99,
                 // Per-path floors for the areas that are now well covered. Without these, a global
                 // floor alone would let a well-covered module regress to zero as long as some other
                 // area improved enough to compensate.
-                'packages/core/src/**': { statements: 98, branches: 93, functions: 97, lines: 99 },
-                'packages/scanners/src/resolver/**': { statements: 98, branches: 95, functions: 98, lines: 99 },
-                'packages/scanners/src/engine/**': { statements: 98, branches: 95, functions: 99, lines: 99 },
+                'packages/core/src/**': { statements: 99, branches: 98, functions: 99, lines: 99 },
+                'packages/scanners/src/resolver/**': { statements: 99, branches: 99, functions: 99, lines: 99 },
+                'packages/scanners/src/engine/**': { statements: 99, branches: 97, functions: 99, lines: 99 },
                 'packages/notifications/src/render.ts': { statements: 99, branches: 97, functions: 99, lines: 99 },
                 'packages/notifications/src/redact.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'packages/notifications/src/ssrf.ts': { statements: 98, branches: 91, functions: 99, lines: 99 },
@@ -114,16 +144,16 @@ export default defineConfig({
                 'packages/notifications/src/slack.ts': { statements: 99, branches: 95, functions: 99, lines: 99 },
                 'packages/notifications/src/telegram.ts': { statements: 99, branches: 96, functions: 99, lines: 99 },
                 'packages/notifications/src/resolve.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
-                'packages/db/src/queries/osv.ts': { statements: 96, branches: 77, functions: 99, lines: 99 },
-                'packages/db/src/queries/notifications.ts': { statements: 93, branches: 85, functions: 99, lines: 98 },
+                'packages/db/src/queries/osv.ts': { statements: 99, branches: 93, functions: 99, lines: 99 },
+                'packages/db/src/queries/notifications.ts': { statements: 99, branches: 95, functions: 99, lines: 99 },
                 // The gemnasium path, end to end: normalizer, cache, and scanner. A regression in the
                 // range parsing or the purge logic is silent, so each gets its own floor.
-                'packages/feeds/src/gemnasium/normalize.ts': { statements: 98, branches: 93, functions: 99, lines: 99 },
-                'packages/db/src/queries/gemnasium.ts': { statements: 97, branches: 85, functions: 99, lines: 99 },
+                'packages/feeds/src/gemnasium/normalize.ts': { statements: 99, branches: 98, functions: 99, lines: 99 },
+                'packages/db/src/queries/gemnasium.ts': { statements: 99, branches: 96, functions: 99, lines: 99 },
                 'packages/db/src/gemnasium-client.ts': { statements: 94, branches: 87, functions: 99, lines: 94 },
                 'packages/scanners/src/gemnasium.ts': { statements: 97, branches: 94, functions: 99, lines: 99 },
                 // Produces the "upgrade to this version" advice shown next to every finding.
-                'packages/scanners/src/version-fix.ts': { statements: 97, branches: 89, functions: 99, lines: 99 },
+                'packages/scanners/src/version-fix.ts': { statements: 97, branches: 95, functions: 99, lines: 99 },
                 // The MCP bearer check is the only thing in front of an endpoint that can mute
                 // findings and request scans. Branches sit at 93 rather than 99 for one unreachable
                 // else: `match[1] ?? ''` exists because noUncheckedIndexedAccess types the capture as
@@ -168,24 +198,24 @@ export default defineConfig({
                 // The two advisory-source runtimes: lazy cache open, per-batch scanner selection, and
                 // the scanner closures that gate matching on the live (source, ecosystem) cell AND the
                 // normalizer stamp. A regression there silently reports "no vulnerabilities".
-                'apps/worker/src/osv-runtime.ts': { statements: 99, branches: 92, functions: 99, lines: 99 },
-                'apps/worker/src/gemnasium-runtime.ts': { statements: 99, branches: 91, functions: 99, lines: 99 },
+                'apps/worker/src/osv-runtime.ts': { statements: 99, branches: 96, functions: 99, lines: 99 },
+                'apps/worker/src/gemnasium-runtime.ts': { statements: 99, branches: 97, functions: 99, lines: 99 },
                 // Their persistence halves, where an ordering mistake corrupts the operator's cache:
                 // invalidate only once the download is live, purge only after the full stream succeeds,
                 // advance the cursor/sha only on success.
                 'apps/worker/src/osv-sync.ts': { statements: 99, branches: 97, functions: 99, lines: 99 },
                 'apps/worker/src/gemnasium-sync.ts': { statements: 99, branches: 94, functions: 99, lines: 99 },
                 // The dispatch decision: every filter that decides whether an operator gets paged.
-                'packages/db/src/queries/notification-deliveries.ts': { statements: 93, branches: 83, functions: 99, lines: 97 },
+                'packages/db/src/queries/notification-deliveries.ts': { statements: 99, branches: 91, functions: 99, lines: 99 },
                 // The feed HTTP client. Its retry policy decides whether a transient upstream failure
                 // costs one round trip or silently leaves a source unauditable for the whole run.
-                'packages/feeds/src/http.ts': { statements: 98, branches: 98, functions: 99, lines: 99 },
+                'packages/feeds/src/http.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 // The read paths behind the portal's numbers and the triage views. Each applies the
                 // same blast-radius rules (open episodes, unmuted, active source cells); a regression
                 // shows an operator findings they silenced or hides ones they have not.
                 'packages/db/src/queries/dashboard.ts': { statements: 96, branches: 86, functions: 99, lines: 96 },
                 'packages/db/src/queries/libraries.ts': { statements: 99, branches: 66, functions: 99, lines: 99 },
-                'packages/db/src/queries/projects.ts': { statements: 93, branches: 78, functions: 99, lines: 99 },
+                'packages/db/src/queries/projects.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'packages/db/src/queries/scans.ts': { statements: 99, branches: 93, functions: 99, lines: 99 },
                 'packages/db/src/queries/config.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'packages/db/src/queries/ecosystem-backfill.ts': { statements: 96, branches: 85, functions: 99, lines: 99 },
@@ -202,14 +232,14 @@ export default defineConfig({
                 // normalizers all run for real. The trap they guard is silent rather than loud:
                 // gemnasium's rootOffset and OSV's canonical-vs-lowercase feed directory both match
                 // NOTHING when wrong, which reads as a clean upstream rather than a bug.
-                'packages/feeds/src/osv/feed.ts': { statements: 97, branches: 97, functions: 99, lines: 96 },
-                'packages/feeds/src/gemnasium/feed.ts': { statements: 96, branches: 92, functions: 99, lines: 96 },
+                'packages/feeds/src/osv/feed.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
+                'packages/feeds/src/gemnasium/feed.ts': { statements: 99, branches: 98, functions: 99, lines: 99 },
                 // The CLI's terminal and cache layers. ui.ts writes exclusively to stderr because
                 // stdout carries the advisory document a user may pipe straight into an agent, and
                 // confirmSeed refuses on a non-TTY rather than pulling ~100 MB onto a build machine
                 // unattended. sync.ts owns seed-vs-refresh, where a wrong answer costs either a
                 // needless full re-download or a silently stale cache.
-                'apps/cli/src/ui.ts': { statements: 99, branches: 94, functions: 99, lines: 99 },
+                'apps/cli/src/ui.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'apps/cli/src/doctor.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'apps/cli/src/cache/sync.ts': { statements: 96, branches: 93, functions: 99, lines: 98 },
                 'apps/cli/src/cache/lookup.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
@@ -236,7 +266,7 @@ export default defineConfig({
                 // "your project is clean". Picking the wrong one is silent, because the scan still
                 // succeeds, which is what makes these floors worth carrying.
                 'packages/scanners/src/npm-audit.ts': { statements: 97, branches: 91, functions: 99, lines: 98 },
-                'packages/scanners/src/npm-audit-parse.ts': { statements: 98, branches: 94, functions: 99, lines: 99 },
+                'packages/scanners/src/npm-audit-parse.ts': { statements: 98, branches: 98, functions: 99, lines: 99 },
                 // The five modules that had no test file at all until wave 8. schema.ts is the literal
                 // contract between apps/web and apps/worker, and its floors are total for a reason: the
                 // suite asserts each foreign key against a REALLY migrated database, so a column added
@@ -252,7 +282,7 @@ export default defineConfig({
                 // Collapses the one-row-per-(scanner, advisory, dep-path) table into what the operator
                 // sees. Both directions are dangerous: merging too eagerly HIDES a vulnerability,
                 // merging too little shows the same thing three times.
-                'apps/web/lib/merge-findings.ts': { statements: 99, branches: 92, functions: 99, lines: 99 },
+                'apps/web/lib/merge-findings.ts': { statements: 99, branches: 93, functions: 99, lines: 99 },
                 // Walks read-only mounts it does not control, so its unreadable-path handling is not
                 // padding: one bad permission must not abort the scan of every other project under the
                 // same root.
