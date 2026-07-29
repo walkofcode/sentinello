@@ -2,11 +2,13 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
+import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { NotificationTarget } from '@sentinello/core'
 import { openDb } from '../client'
 import type { DrizzleDb, SqliteDb } from '../client'
 import { runMigrations } from '../migrate'
+import { notificationTargets } from '../schema'
 import { upsertRoot } from './config'
 import { upsertProject } from './projects'
 import { insertScan } from './scans'
@@ -669,5 +671,59 @@ describe('backfillForNewTarget', function () {
         })
         addFindingEvent({ at: T0, source: 'osv' })
         expect(backfillForNewTarget(db, TARGET_ID, T0 + 2 * HOUR)).toBe(0)
+    })
+})
+
+// The target handed back with each pair is rebuilt from the row's JSON columns by this module's own
+// parsers — a second copy of the ones in notifications.ts, kept separate so the dispatch query does
+// not have to import the target module. The dispatch SQL is the load-bearing filter, so these only
+// shape the returned object. A scan-failure event is the way in: it bypasses the severity,
+// environment and source-scope filters by design, so the column can be corrupted and a pair still
+// comes back to inspect.
+describe('selectDispatchablePairs — defensive target parsing', function () {
+    function corruptTarget(patch: { severityFilterJson?: string; sourceScopeJson?: string }): NotificationTarget | undefined {
+        addTarget({ sourceScope: { mode: 'selected', cells: [{ source: 'osv', ecosystem: 'npm' }] } })
+        addFailureEvent()
+        db.update(notificationTargets).set(patch).where(eq(notificationTargets.id, TARGET_ID)).run()
+        return dispatchable()[0]?.target
+    }
+
+    it('seeds a pair whose target parses both columns non-empty', function () {
+        const seeded = corruptTarget({ severityFilterJson: JSON.stringify(['critical']) })
+        expect(seeded?.severityFilter).toEqual(['critical'])
+        expect(seeded?.sourceScope.cells).toHaveLength(1)
+    })
+
+    it.each(['{}', 'null', '42'])('reads the non-array severity_filter_json %s as empty', function (json) {
+        expect(corruptTarget({ severityFilterJson: json })?.severityFilter).toEqual([])
+    })
+
+    it('drops a severity that is not a known bucket', function () {
+        expect(corruptTarget({ severityFilterJson: '["critical","fatal",7,null]' })?.severityFilter).toEqual(['critical'])
+    })
+
+    it.each(['{ broken', 'null', '42', '{"mode":"everything"}', '{"mode":"selected","cells":{}}'])(
+        'falls open to mode all for the source scope %s',
+        function (json) {
+            expect(corruptTarget({ sourceScopeJson: json })?.sourceScope).toEqual({ mode: 'all', cells: [] })
+        }
+    )
+
+    it.each(['null', '42', '"osv"', '[]'])('drops the non-object scope cell %s', function (cell) {
+        const json = '{"mode":"selected","cells":[' + cell + ']}'
+        expect(corruptTarget({ sourceScopeJson: json })?.sourceScope.cells).toEqual([])
+    })
+
+    // The pair's target carries its resolved scope, looked up in two batched queries. A target with
+    // no scope rows is absent from those maps entirely, so the populated case needs its own test —
+    // every other test here leaves both lists empty.
+    it('carries the resolved root and project scope on the returned target', function () {
+        addTarget()
+        setTargetRoots(db, TARGET_ID, [ROOT_ID])
+        setTargetProjects(db, TARGET_ID, [PROJECT_ID])
+        addFindingEvent()
+        const pair = dispatchable()[0]
+        expect(pair?.target.rootIds).toEqual([ROOT_ID])
+        expect(pair?.target.projectIds).toEqual([PROJECT_ID])
     })
 })

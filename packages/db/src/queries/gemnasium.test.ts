@@ -1,7 +1,9 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { gemnasiumAdvisories } from '../gemnasium-schema'
 import {
     openGemnasiumDb,
     resolveGemnasiumDbPath,
@@ -353,5 +355,67 @@ describe('gemnasium meta', function () {
         setGemnasiumMeta(db, GEMNASIUM_META_KEYS.refreshedAt, 1700000000000)
         expect(getGemnasiumMeta(db, GEMNASIUM_META_KEYS.headSha)).toBe('sha')
         expect(getGemnasiumMeta(db, GEMNASIUM_META_KEYS.refreshedAt)).toBe(1700000000000)
+    })
+})
+
+// Same guard shape as the OSV cache next door, and reachable the same way: the JSON columns are only
+// written by upsertGemnasiumAdvisories, so a row in an older shape can only be simulated by writing
+// the column directly. A normalizer-version bump re-seeds the whole archive, and until it finishes a
+// lookup can still land on a row the previous normalizer wrote.
+describe('defensive column parsing', function () {
+    function seed(): GemnasiumAdvisoryRow | undefined {
+        upsertGemnasiumAdvisories(db, [advisory({ versions: ['1.0.0'] })])
+        return lookupGemnasiumByPackages(db, 'npm', ['lodash']).get('lodash')?.[0]
+    }
+
+    function corrupt(patch: Partial<{ aliasesJson: string; rangesJson: string; versionsJson: string }>): GemnasiumAdvisoryRow | undefined {
+        seed()
+        db.update(gemnasiumAdvisories).set(patch).where(eq(gemnasiumAdvisories.packageName, 'lodash')).run()
+        return lookupGemnasiumByPackages(db, 'npm', ['lodash']).get('lodash')?.[0]
+    }
+
+    it('seeds every parsed column non-empty', function () {
+        const row = seed()
+        expect(row?.aliases.length).toBeGreaterThan(0)
+        expect(row?.ranges.length).toBeGreaterThan(0)
+        expect(row?.versions.length).toBeGreaterThan(0)
+    })
+
+    it.each(['{}', 'null', '42', '"CVE-1"'])('reads the non-array aliases_json %s as empty', function (json) {
+        expect(corrupt({ aliasesJson: json })?.aliases).toEqual([])
+    })
+
+    it.each(['{}', 'null', '42'])('reads the non-array versions_json %s as empty', function (json) {
+        expect(corrupt({ versionsJson: json })?.versions).toEqual([])
+    })
+
+    it.each(['{}', 'null', '42'])('reads the non-array ranges_json %s as empty', function (json) {
+        expect(corrupt({ rangesJson: json })?.ranges).toEqual([])
+    })
+
+    it('drops a non-string entry from a string column', function () {
+        expect(corrupt({ aliasesJson: '["GHSA-1",7,null,"GHSA-2"]' })?.aliases).toEqual(['GHSA-1', 'GHSA-2'])
+        expect(corrupt({ versionsJson: '[1,"1.0.0",{}]' })?.versions).toEqual(['1.0.0'])
+    })
+
+    // Dropping a range with no lower bound is the safe reading — defaulting it to "0" would make the
+    // advisory match every version of the package.
+    it.each(['[null]', '[42]', '["a string"]', '[{"fixed":"1.0.0"}]', '[{"introduced":7}]'])(
+        'drops the unusable range %s',
+        function (json) {
+            expect(corrupt({ rangesJson: json })?.ranges).toEqual([])
+        }
+    )
+
+    it('defaults a missing or non-string fixed bound to null', function () {
+        expect(corrupt({ rangesJson: '[{"introduced":"0"},{"introduced":"1.0.0","fixed":9}]' })?.ranges).toEqual([
+            { introduced: '0', fixed: null },
+            { introduced: '1.0.0', fixed: null }
+        ])
+    })
+
+    it('keeps a well-formed range alongside a broken one', function () {
+        const json = '[{"bogus":true},{"introduced":"1.0.0","fixed":"2.0.0"}]'
+        expect(corrupt({ rangesJson: json })?.ranges).toEqual([{ introduced: '1.0.0', fixed: '2.0.0' }])
     })
 })

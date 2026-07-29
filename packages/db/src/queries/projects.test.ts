@@ -2,11 +2,13 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
+import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Project } from '@sentinello/core'
 import { openDb } from '../client'
 import type { DrizzleDb, SqliteDb } from '../client'
 import { runMigrations } from '../migrate'
+import { projects } from '../schema'
 import { upsertRoot } from './config'
 import { insertScan } from './scans'
 import { mergeFindingsForScan, listFindingsForScan } from './findings'
@@ -356,5 +358,46 @@ describe('cascadeDeleteProjects', function () {
         upsertProject(db, project())
         deleteProject(db, PROJECT_ID)
         expect(listProjects(db)).toEqual([])
+    })
+})
+
+// tags_json and ecosystems_json are only ever written by upsertProject, which serialises a typed
+// array. These parsers therefore guard the hand-edited or shape-drifted row, and writing the column
+// directly is the only way to reach them. Both must degrade to an empty list rather than throwing:
+// a project row that cannot be read is a project that vanishes from the portal entirely.
+describe('defensive column parsing', function () {
+    function corrupt(patch: { tagsJson?: string; ecosystemsJson?: string }): Project | null {
+        upsertProject(db, project({ tags: ['prod', 'team-a'], ecosystems: ['npm', 'PyPI'] }))
+        db.update(projects).set(patch).where(eq(projects.id, PROJECT_ID)).run()
+        return getProjectById(db, PROJECT_ID)
+    }
+
+    // The seed row is non-empty in both columns, so every empty expectation below is a rejection.
+    it('seeds both columns non-empty', function () {
+        const seeded = corrupt({ tagsJson: JSON.stringify(['prod']) })
+        expect(seeded?.tags).toEqual(['prod'])
+        expect(seeded?.ecosystems).toEqual(['npm', 'PyPI'])
+    })
+
+    it.each(['{}', 'null', '42', '"prod"'])('reads the non-array tags_json %s as empty', function (json) {
+        expect(corrupt({ tagsJson: json })?.tags).toEqual([])
+    })
+
+    it('drops a tag that is not a string', function () {
+        expect(corrupt({ tagsJson: '["prod",7,null,{},"team-a"]' })?.tags).toEqual(['prod', 'team-a'])
+    })
+
+    it.each(['{}', 'null', '42'])('reads the non-array ecosystems_json %s as empty', function (json) {
+        expect(corrupt({ ecosystemsJson: json })?.ecosystems).toEqual([])
+    })
+
+    it('drops an ecosystem entry that is not a string', function () {
+        expect(corrupt({ ecosystemsJson: '["npm",7,null,"Go"]' })?.ecosystems).toEqual(['npm', 'Go'])
+    })
+
+    // An id the central registry no longer knows must not reach the rest of the app as a phantom
+    // EcosystemId — it would render as a filter nothing can ever match.
+    it('drops an ecosystem the registry no longer knows', function () {
+        expect(corrupt({ ecosystemsJson: '["npm","cocoapods"]' })?.ecosystems).toEqual(['npm'])
     })
 })

@@ -2,11 +2,13 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
+import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { NotificationTarget } from '@sentinello/core'
 import { openDb } from '../client'
 import type { DrizzleDb, SqliteDb } from '../client'
 import { runMigrations } from '../migrate'
+import { notificationTargets } from '../schema'
 import { upsertRoot } from './config'
 import { upsertProject } from './projects'
 import { insertScan } from './scans'
@@ -439,5 +441,98 @@ describe('setFirstNotifiedAt', function () {
         expect(function set() {
             setFirstNotifiedAt(db, 'nope', T0)
         }).not.toThrow()
+    })
+})
+
+// severity_filter_json and source_scope_json are only written by insert/updateNotificationTarget,
+// which always serialise a well-formed value. The parsers below therefore guard against a blob that
+// predates a shape change or was hand-edited in the database, and the only way to reach them is to
+// write the column directly. A target that fails to parse must degrade to "notify about everything"
+// rather than silently matching nothing — a filter that quietly drops to zero cells is how a target
+// goes dark without anyone noticing.
+describe('defensive target column parsing', function () {
+    function corrupt(patch: { severityFilterJson?: string; sourceScopeJson?: string }): NotificationTarget | null {
+        insertNotificationTarget(db, target({ sourceScope: { mode: 'selected', cells: [{ source: 'osv', ecosystem: 'npm' }] } }))
+        db.update(notificationTargets).set(patch).where(eq(notificationTargets.id, 'target-1')).run()
+        return getNotificationTargetById(db, 'target-1')
+    }
+
+    // The seed row is non-empty on both columns, so every empty expectation below is a real rejection.
+    it('seeds both filters non-empty', function () {
+        const seeded = corrupt({ severityFilterJson: JSON.stringify(['critical']) })
+        expect(seeded?.severityFilter).toEqual(['critical'])
+        expect(seeded?.sourceScope.cells).toHaveLength(1)
+    })
+
+    it.each(['{}', 'null', '42', '"high"'])('reads the non-array severity_filter_json %s as empty', function (json) {
+        expect(corrupt({ severityFilterJson: json })?.severityFilter).toEqual([])
+    })
+
+    it('drops a severity that is not a known bucket', function () {
+        const json = JSON.stringify(['critical', 'catastrophic', 7, null, 'low'])
+        expect(corrupt({ severityFilterJson: json })?.severityFilter).toEqual(['critical', 'low'])
+    })
+
+    it('reads a selected scope whose cells are not an array as no cells', function () {
+        const scope = corrupt({ sourceScopeJson: '{"mode":"selected","cells":{}}' })
+        expect(scope?.sourceScope).toEqual({ mode: 'selected', cells: [] })
+    })
+
+    it.each(['null', '42', '"osv"', '[]'])('drops the non-object cell %s', function (cell) {
+        const json = '{"mode":"selected","cells":[' + cell + ']}'
+        expect(corrupt({ sourceScopeJson: json })?.sourceScope.cells).toEqual([])
+    })
+
+    it('keeps a well-formed cell alongside a broken one', function () {
+        const json = '{"mode":"selected","cells":[null,{"source":"osv","ecosystem":"npm"}]}'
+        expect(corrupt({ sourceScopeJson: json })?.sourceScope.cells).toEqual([{ source: 'osv', ecosystem: 'npm' }])
+    })
+
+    // Anything that is not literally mode 'selected' means "fire for every cell", so an unparseable
+    // or unrecognised blob fails open rather than muting the target.
+    it.each(['{ broken', '{"mode":"everything"}', 'null', '[]'])('falls open to mode all for %s', function (json) {
+        expect(corrupt({ sourceScopeJson: json })?.sourceScope).toEqual({ mode: 'all', cells: [] })
+    })
+})
+
+describe('updateNotificationTarget partial patches', function () {
+    // Every field is optional, so each `!== undefined` guard is a separate way to leave a column
+    // alone. Patching one field must not reset the others to their defaults.
+    it('leaves the config untouched when the patch omits it', function () {
+        insertNotificationTarget(db, target())
+        updateNotificationTarget(db, { id: 'target-1', enabled: false })
+        const updated = getNotificationTargetById(db, 'target-1')
+        expect(updated?.enabled).toBe(false)
+        expect(updated?.config).toEqual({ webhookUrl: 'https://hooks.slack.com/services/T/B/X' })
+        expect(updated?.severityFilter).toEqual(['critical', 'high'])
+    })
+
+    it('replaces only the config when that is all the patch carries', function () {
+        insertNotificationTarget(db, target())
+        updateNotificationTarget(db, { id: 'target-1', config: { webhookUrl: 'https://hooks.slack.com/services/T/B/Y' } })
+        const updated = getNotificationTargetById(db, 'target-1')
+        expect(updated?.config).toEqual({ webhookUrl: 'https://hooks.slack.com/services/T/B/Y' })
+        expect(updated?.enabled).toBe(true)
+    })
+})
+
+describe('hydrateTargets scope joins', function () {
+    // listNotificationTargets resolves root and project scope for every target in two batched
+    // queries. A target with no scope rows is absent from those maps entirely, so both the present
+    // and the absent case have to be listed together for the join to be proven.
+    it('hydrates a scoped target and an unscoped one in the same listing', function () {
+        insertNotificationTarget(db, target({ id: 'scoped' }))
+        insertNotificationTarget(db, target({ id: 'unscoped' }))
+        setTargetRoots(db, 'scoped', [ROOT_ID])
+        setTargetProjects(db, 'scoped', [PROJECT_ID])
+
+        const listed = listNotificationTargets(db)
+        const scoped = listed.find(function byId(t) { return t.id === 'scoped' })
+        const unscoped = listed.find(function byId(t) { return t.id === 'unscoped' })
+
+        expect(scoped?.rootIds).toEqual([ROOT_ID])
+        expect(scoped?.projectIds).toEqual([PROJECT_ID])
+        expect(unscoped?.rootIds).toEqual([])
+        expect(unscoped?.projectIds).toEqual([])
     })
 })

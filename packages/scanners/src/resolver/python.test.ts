@@ -164,6 +164,20 @@ describe('parsePythonLock Pipfile.lock', function () {
         expect(result.status === 'partial' && result.details.join(' ')).toContain('1 Pipfile.lock')
     })
 
+    // `develop` gets its own ambiguity callback, separate from `default`'s. Exercising only the
+    // default group leaves the dev-side counter unproven — a swapped or dropped argument in the
+    // second collectPipfileGroup call would still pass every test above.
+    it('reports partial when a develop entry is not pinned', async function () {
+        const text = JSON.stringify({
+            default: { a: { version: '==1.0.0' } },
+            develop: { b: { version: '*' } }
+        })
+        const result = await parse('Pipfile.lock', text)
+        expect(result.status).toBe('partial')
+        expect(names(result)).toEqual(['a'])
+        expect(result.status === 'partial' && result.details.join(' ')).toContain('1 Pipfile.lock')
+    })
+
     it.each(['==1.2.*', '>=1.0', '', '~=1.0'])('treats the version %j as unpinned', async function (version) {
         const text = JSON.stringify({ default: { a: { version: '==1.0.0' }, b: { version } } })
         expect(names(await parse('Pipfile.lock', text))).toEqual(['a'])
