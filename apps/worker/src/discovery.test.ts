@@ -2,7 +2,13 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+    countScansForProject,
+    insertMute,
+    insertScan,
+    listActiveMutes,
+    listFindingsForProject,
     listProjects,
+    mergeFindingsForScan,
     projectId as makeProjectId,
     setProjectAlias,
     setProjectTags,
@@ -183,20 +189,16 @@ describe('discoverProjects — re-discovery', function () {
         expect(ids()).toContain(makeProjectId(OTHER_ROOT_ID, 'tool'))
     })
 
-    // KNOWN BUG — this test pins what the code does, NOT what it should do.
+    // The regression this file exists for. `walkedRootIds` used to be built from `input.roots` rather
+    // than from the roots that passed the existsSync check, so a root that was PASSED IN but not mounted
+    // got reconciled against an empty walk — and every project under it was hard-deleted. Three call
+    // sites reach here with roots straight out of listRoots(db): scheduler.ts (the cron sweep),
+    // scan-request-poller.ts runFullSweep, and runRootSweep, which is the "Scan this root" button and
+    // the likeliest trigger of the three. A volume that failed to mount destroyed that root's history.
     //
-    // Two comments assert the opposite invariant: discovery.ts ("An unmounted root never reaches here —
-    // it is skipped above and excluded from `existing`, so its projects survive") and
-    // cascadeDeleteProjects ("under a root it actually walked — an unmounted root is skipped, never
-    // reconciled"). Neither holds. `walkedRootIds` is built from `input.roots`, not from the roots that
-    // passed the existsSync check, so an unmounted root IS reconciled — against an empty walk — and every
-    // project under it is hard-deleted along with its scans, findings, mutes and notification history.
-    //
-    // It is reachable from both scan entry points: scheduler.ts and scan-request-poller.ts each pass the
-    // unfiltered listRoots(db). A volume that fails to mount therefore destroys that root's history on the
-    // next sweep. The fix is one line — derive walkedRootIds from the roots that actually existed — at
-    // which point this test flips to the assertion its title describes.
-    it('CURRENTLY deletes projects when their root is passed but unmounted', async function () {
+    // Distinct from 'skips a root whose path does not exist' above: that root has no rows, so it passes
+    // either way. This one has two projects on record, which is what makes it load-bearing.
+    it('leaves projects untouched when their root is passed but unmounted', async function () {
         await rm(rootPath, { recursive: true, force: true })
         const result = discoverProjects({
             db: handle.db,
@@ -204,8 +206,78 @@ describe('discoverProjects — re-discovery', function () {
             globalIgnore: [],
             at: T0 + 1000
         })
-        expect(result.deletedProjectIds).toHaveLength(2)
-        expect(ids()).toEqual([])
+        expect(result.deletedProjectIds).toEqual([])
+        expect(ids()).toEqual([makeProjectId('root-1', 'api'), makeProjectId('root-1', 'web')].sort())
+    })
+
+    // Surviving as a projects row is not the property that matters — deleteProject cascades through
+    // notification deliveries/events, findings, scans, scan_requests and mutes, so the damage was the
+    // history rather than the row. Asserting the cascade stayed shut is what pins that.
+    it('leaves the scans, findings and mutes of an unmounted root intact', async function () {
+        const id = makeProjectId('root-1', 'web')
+        insertScan(handle.db, {
+            id: 'scan-1',
+            projectId: id,
+            startedAt: T0,
+            finishedAt: T0 + 500,
+            scanner: 'npm-audit',
+            source: 'npm-audit',
+            ecosystem: 'npm',
+            status: 'ok',
+            reasonCode: 'ok',
+            durationMs: 500,
+            errorText: null,
+            rawJson: ''
+        } as Parameters<typeof insertScan>[1])
+        mergeFindingsForScan(handle.db, {
+            projectId: id,
+            scanner: 'npm-audit',
+            scanId: 'scan-1',
+            scanFinishedAt: T0 + 500,
+            incoming: [{
+                projectId: id,
+                scanner: 'npm-audit',
+                source: 'npm-audit',
+                ecosystem: 'npm',
+                advisoryId: 'CVE-2024-1',
+                advisoryTitle: 'Prototype pollution',
+                advisoryUrl: 'https://example.test/CVE-2024-1',
+                packageName: 'lodash',
+                installedVersion: '4.17.11',
+                vulnerableRange: '<4.17.21',
+                severity: 'high',
+                fixAvailable: true,
+                fixVersion: '4.17.21',
+                depPath: ['lodash'],
+                isProd: true,
+                isDev: false
+            }]
+        })
+        insertMute(handle.db, {
+            id: 'mute-1',
+            scope: 'finding',
+            projectId: id,
+            scanner: 'npm-audit',
+            ecosystem: 'npm',
+            advisoryId: 'CVE-2024-1',
+            packageName: 'lodash',
+            reason: 'accepted',
+            author: 'tester',
+            createdAt: T0,
+            expiresAt: null
+        })
+
+        await rm(rootPath, { recursive: true, force: true })
+        discoverProjects({
+            db: handle.db,
+            roots: [root('root-1', rootPath)],
+            globalIgnore: [],
+            at: T0 + 1000
+        })
+
+        expect(countScansForProject(handle.db, id)).toBe(1)
+        expect(listFindingsForProject(handle.db, id)).toHaveLength(1)
+        expect(listActiveMutes(handle.db, T0 + 1000).map(function muteId(m) { return m.id })).toEqual(['mute-1'])
     })
 
     // An ignore rule added later removes the project exactly as a deleted directory would — that is the
