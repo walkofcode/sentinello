@@ -395,6 +395,20 @@ describe('syncProgress', function () {
         expect(out()).not.toContain('%')
     })
 
+    // The very first chunk can land in the same millisecond the ui was constructed, which makes the
+    // elapsed time zero. Dividing by it would print "Infinity/s" and an "Infinity left" estimate, so
+    // both the rate and the ETA have to be suppressed until there is a measurable interval.
+    it('omits the rate and the estimate when no time has elapsed yet', function () {
+        const u = ui()
+        u.syncProgress(planItem(), 512 * 1024, 1024 * 1024)
+        const text = out()
+        expect(text).toContain('50%')
+        expect(text).not.toContain('/s')
+        expect(text).not.toContain('left')
+        expect(text).not.toContain('Infinity')
+        expect(text).not.toContain('NaN')
+    })
+
     // Writing on every chunk would spend more time emitting escape codes than doing work.
     it('throttles to roughly 20fps', function () {
         const u = ui()
@@ -536,6 +550,25 @@ describe('summary', function () {
         expect(text).not.toContain('high')
         expect(text.indexOf('critical')).toBeLessThan(text.indexOf('moderate'))
         expect(text.indexOf('moderate')).toBeLessThan(text.indexOf('low'))
+    })
+
+    // The total is pluralised independently of the clean-project count above, so it needs its own
+    // singular case — "1 findings" is the kind of thing nobody notices until it ships.
+    it('singularises a lone finding', function () {
+        ui().summary(summary({
+            totalFindings: 1,
+            counts: { critical: 0, high: 1, moderate: 0, low: 0, info: 0 },
+            projects: []
+        }), null)
+        expect(out()).toContain('1 finding ')
+        expect(out()).not.toContain('1 findings')
+    })
+
+    // The "hand it to your agent" hint shortens the destination to its basename. A path ending in a
+    // separator has no basename, and printing the empty string would leave `cat ` with no argument.
+    it('falls back to the whole path when the destination has no basename', function () {
+        ui().summary(summary(), '/srv/code/')
+        expect(out()).toContain('cat /srv/code/')
     })
 
     // A bare total hides which repository in a folder of twenty actually needs the work.
