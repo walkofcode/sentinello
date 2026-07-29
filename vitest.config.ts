@@ -37,6 +37,11 @@ export default defineConfig({
             ],
             exclude: [
                 '**/*.test.ts',
+                // Shared test harnesses that live beside the code they set up (so they can import
+                // `@sentinello/db` and `@/lib/*` exactly as the modules under test do) rather than
+                // under tests/. They are test scaffolding, not shipped code — measuring them would
+                // credit coverage to the harness itself.
+                '**/*.fixture.ts',
                 '**/*.d.ts',
                 '**/dist/**',
                 '**/.next/**',
