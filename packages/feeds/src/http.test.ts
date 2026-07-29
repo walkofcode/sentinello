@@ -279,6 +279,14 @@ describe('getTextOrNull', function () {
         const { error } = await runWithBackoff(function call() { return getTextOrNull(URL_UNDER_TEST) })
         expect(error).toBeDefined()
     })
+
+    // A 500 is retried by fetchWithRetry and never reaches this function's own status check. A 403
+    // is not retryable, so it arrives here — and must be distinguished from the 404 above, which is
+    // a normal state rather than a failure.
+    it('throws with the status for a non-retryable failure that is not a 404', async function () {
+        fetchMock.mockResolvedValue(respond('nope', { status: 403 }))
+        await expect(getTextOrNull(URL_UNDER_TEST)).rejects.toThrow(/HTTP 403/)
+    })
 })
 
 describe('headFile', function () {

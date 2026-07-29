@@ -73,6 +73,18 @@ describe('gemnasiumFeedDisabled', function () {
         vi.unstubAllEnvs()
         expect(gemnasiumFeedDisabled()).toBe(false)
     })
+
+    // The archive URL and the API base read separate env vars, and only the archive one has a
+    // fallback test above. An API base that silently stayed on a stale override would send the
+    // incremental sync somewhere the archive never points.
+    it('falls back to the real gitlab api when the override is unset', async function () {
+        vi.unstubAllEnvs()
+        fetchMock.mockResolvedValue(respond(JSON.stringify([{ id: 'a'.repeat(40) }])))
+        await fetchGemnasiumHeadSha()
+        expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+            'https://gitlab.com/api/v4/projects/gitlab-org%2Fsecurity-products%2Fgemnasium-db'
+        )
+    })
 })
 
 describe('fetchGemnasiumHeadSha', function () {
@@ -158,6 +170,23 @@ describe('fetchGemnasiumChangedPaths', function () {
         fetchMock.mockResolvedValue(compare([{ new_path: 'npm/CVE-2024-1.yml' }]))
         const result = await fetchGemnasiumChangedPaths('a', 'b')
         expect(result.status === 'ok' && result.changed).toEqual([])
+    })
+
+    // A leading slash makes the package-type segment the empty string, which is long enough to pass
+    // the segment-count check but names no ecosystem. Reading it as a type would key every advisory
+    // under a prefix of "/" and match nothing.
+    it('rejects a path whose package-type segment is empty', async function () {
+        fetchMock.mockResolvedValue(compare([{ new_path: '/lodash/CVE-2024-1.yml' }]))
+        const result = await fetchGemnasiumChangedPaths('a', 'b')
+        expect(result.status === 'ok' && result.changed).toEqual([])
+    })
+
+    // getJson can reject with something that is not an Error — an abort, or a thrown string from a
+    // fetch polyfill. The reason string has to survive that rather than reading "undefined".
+    it('reports a non-Error rejection in the reason', async function () {
+        fetchMock.mockRejectedValue('socket hang up')
+        const result = await fetchGemnasiumChangedPaths('a', 'b')
+        expect(result).toMatchObject({ status: 'unavailable', reason: 'compare request failed: socket hang up' })
     })
 
     // A truncated diff would silently under-report changes and leave the cache subtly stale.
@@ -261,6 +290,24 @@ describe('streamGemnasiumArchive', function () {
     function zipResponse(files: Record<string, string>): Response {
         return respond(makeZip(files), { headers: { 'last-modified': 'Wed, 01 Jul 2026 00:00:00 GMT' } })
     }
+
+    // The streamer must hand rows back in fixed-size batches rather than accumulating the whole
+    // archive. The real one carries well over 100k advisories, so buffering it is the difference
+    // between a seed that completes and one that exhausts memory. BATCH_SIZE is 2000.
+    it('yields in batches rather than accumulating the whole archive', async function () {
+        const files: Record<string, string> = {}
+        for (let i = 0; i < 2001; i++) {
+            files['gemnasium-db-master/npm/pkg' + i + '/CVE-2024-' + i + '.yml'] = advisoryYaml({
+                identifier: 'CVE-2024-' + i,
+                package_slug: 'npm/pkg' + i
+            })
+        }
+        fetchMock.mockResolvedValue(zipResponse(files))
+        const batches = await collect(streamGemnasiumArchive())
+        expect(batches).toHaveLength(2)
+        expect(batches[0]?.rows).toHaveLength(2000)
+        expect(batches[1]?.rows).toHaveLength(1)
+    })
 
     it('normalizes advisories nested under the archive root folder', async function () {
         fetchMock.mockResolvedValue(zipResponse({

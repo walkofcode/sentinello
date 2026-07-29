@@ -14,6 +14,13 @@ function record(overrides: Record<string, unknown> = {}) {
     }
 }
 
+// One affected entry for the npm package under test. Entries with no matchable range AND no
+// enumerated version are dropped outright for non-malware, so anything probing range parsing has to
+// carry a `versions` entry to keep the row alive long enough to inspect.
+function affected(patch: Record<string, unknown>) {
+    return [{ package: { name: 'lodash', ecosystem: 'npm' }, versions: ['1.0.0'], ...patch }]
+}
+
 describe('normalizeOsvRecord — record gating', function () {
     it('rejects anything that is not an object with an id and an affected array', function () {
         expect(normalizeOsvRecord(null, 'npm')).toEqual([])
@@ -104,6 +111,27 @@ describe('normalizeOsvRecord — range extraction', function () {
         )
         expect(rows[0]?.ranges).toEqual([])
         expect(rows[0]?.versions).toEqual(['1.0.0'])
+    })
+
+    // A range object with no events array bounds nothing. Dropping it is the safe reading: the row
+    // survives on its enumerated versions instead of contributing an unbounded interval.
+    it('drops a range whose events are missing or not an array', function () {
+        expect(normalizeOsvRecord(record({ affected: affected({ ranges: [{ type: 'SEMVER' }] }) }), 'npm')[0]?.ranges).toEqual([])
+        expect(
+            normalizeOsvRecord(record({ affected: affected({ ranges: [{ type: 'SEMVER', events: {} }] }) }), 'npm')[0]?.ranges
+        ).toEqual([])
+    })
+
+    // last_affected only bounds an interval that is already open. Honouring one with no `introduced`
+    // before it would invent a lower bound the advisory never stated.
+    it('ignores a last_affected event that opens no interval', function () {
+        const ranges = [{ type: 'SEMVER', events: [{ last_affected: '1.0.0' }] }]
+        expect(normalizeOsvRecord(record({ affected: affected({ ranges }) }), 'npm')[0]?.ranges).toEqual([])
+    })
+
+    it('ignores a fixed event that closes no interval', function () {
+        const ranges = [{ type: 'SEMVER', events: [{ fixed: '1.0.0' }] }]
+        expect(normalizeOsvRecord(record({ affected: affected({ ranges }) }), 'npm')[0]?.ranges).toEqual([])
     })
 
     it('defaults an untyped range to SEMVER', function () {
@@ -228,6 +256,23 @@ describe('normalizeOsvRecord — metadata', function () {
         expect(normalizeOsvRecord(record(), 'npm')[0]?.withdrawn).toBeNull()
     })
 
+    // An unparseable string is treated as "not withdrawn" rather than as NaN. A NaN here would be
+    // written straight into the withdrawn column, and the lookup filters on `withdrawn IS NULL` —
+    // so the advisory would silently stop matching anything.
+    it.each(['whenever', '', 'yesterday'])('nulls the unparseable withdrawn value %j', function (withdrawn) {
+        expect(normalizeOsvRecord(record({ withdrawn }), 'npm')[0]?.withdrawn).toBeNull()
+    })
+
+    it('keeps a string summary and nulls anything else', function () {
+        expect(normalizeOsvRecord(record({ summary: 'Prototype pollution' }), 'npm')[0]?.summary).toBe('Prototype pollution')
+        expect(normalizeOsvRecord(record({ summary: 42 }), 'npm')[0]?.summary).toBeNull()
+    })
+
+    it('keeps only non-empty string versions', function () {
+        const rows = normalizeOsvRecord(record({ affected: affected({ versions: ['1.0.0', '', 42, null, '2.0.0'] }) }), 'npm')
+        expect(rows[0]?.versions).toEqual(['1.0.0', '2.0.0'])
+    })
+
     it('prefers an ADVISORY reference for the url', function () {
         const rows = normalizeOsvRecord(
             record({ references: [{ type: 'WEB', url: 'https://web.test' }, { type: 'ADVISORY', url: 'https://advisory.test' }] }),
@@ -241,5 +286,23 @@ describe('normalizeOsvRecord — metadata', function () {
             'https://web.test'
         )
         expect(normalizeOsvRecord(record(), 'npm')[0]?.url).toBe('https://osv.dev/vulnerability/GHSA-1')
+    })
+
+    // A references array that exists but carries no usable url must keep falling through rather than
+    // resolving to an empty string — the url is rendered as a link in the portal.
+    it('ignores references that carry no usable url', function () {
+        const rows = normalizeOsvRecord(record({ references: [{ type: 'WEB' }, { type: 'PACKAGE', url: '' }] }), 'npm')
+        expect(rows[0]?.url).toBe('https://osv.dev/vulnerability/GHSA-1')
+    })
+
+    it('prefers database_specific.source over the permalink', function () {
+        const rows = normalizeOsvRecord(record({ database_specific: { source: 'https://source.test/GHSA-1.json' } }), 'npm')
+        expect(rows[0]?.url).toBe('https://source.test/GHSA-1.json')
+    })
+
+    it('skips an empty database_specific.source', function () {
+        expect(normalizeOsvRecord(record({ database_specific: { source: '' } }), 'npm')[0]?.url).toBe(
+            'https://osv.dev/vulnerability/GHSA-1'
+        )
     })
 })

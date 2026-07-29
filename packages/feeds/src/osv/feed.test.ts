@@ -134,6 +134,20 @@ describe('streamOsvSeed', function () {
         return respond(makeZip(files), { headers: { 'last-modified': 'Wed, 01 Jul 2026 00:00:00 GMT' } })
     }
 
+    // Nothing here may accumulate the full corpus: the unpacked npm export alone is ~860 MB across
+    // ~220k files. BATCH_SIZE is 2000, so 2001 records must arrive as two batches rather than one.
+    it('yields in batches rather than accumulating the whole export', async function () {
+        const files: Record<string, string> = {}
+        for (let i = 0; i < 2001; i++) {
+            files['GHSA-' + i + '.json'] = JSON.stringify(osvRecord({ id: 'GHSA-' + i }))
+        }
+        fetchMock.mockResolvedValue(zipResponse(files))
+        const batches = await collect(streamOsvSeed('npm'))
+        expect(batches).toHaveLength(2)
+        expect(batches[0]?.rows).toHaveLength(2000)
+        expect(batches[1]?.rows).toHaveLength(1)
+    })
+
     it('normalizes every .json entry in the archive', async function () {
         fetchMock.mockResolvedValue(zipResponse({
             'GHSA-1.json': JSON.stringify(osvRecord()),

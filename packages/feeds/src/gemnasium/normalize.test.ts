@@ -200,6 +200,40 @@ describe('normalizeGemnasiumRecord — metadata', function () {
         )
         expect(rows[0]?.url).toBe('https://a.test/1')
     })
+
+    // gemnasium ships some advisories with only a v2 vector, so the v3-then-v2 preference has to
+    // reach the v2 arm when v3 is absent rather than giving up at the first null.
+    it('derives severity from the CVSS v2 vector when there is no v3', function () {
+        const rows = normalizeGemnasiumRecord(record({ cvss_v2: 'AV:N/AC:L/Au:N/C:C/I:C/A:C' }), 'npm', 'npm/')
+        expect(rows[0]?.severity).toBe('high')
+    })
+
+    it('ignores a CVSS field that is not a string', function () {
+        const rows = normalizeGemnasiumRecord(record({ cvss_v3: 42, cvss_v2: { vector: 'AV:N' } }), 'npm', 'npm/')
+        expect(rows[0]?.severity).toBeNull()
+    })
+
+    // YAML happily produces a number where a version string is expected (`fixed_versions: [2]`),
+    // and dropping those would silently widen the advisory to every version of the package.
+    it('coerces a numeric entry in a string list', function () {
+        const rows = normalizeGemnasiumRecord(
+            record({ affected_range: '', fixed_versions: [2, '3.0.0', '', null] }),
+            'npm',
+            'npm/'
+        )
+        expect(rows[0]?.ranges).toEqual([{ introduced: '0', fixed: '2' }])
+    })
+
+    // An affected_range that is not a string is read as absent, which hands the decision to
+    // fixed_versions rather than throwing on the parse.
+    it('treats a non-string affected_range as absent', function () {
+        const rows = normalizeGemnasiumRecord(record({ affected_range: 42 }), 'npm', 'npm/')
+        expect(rows[0]?.ranges).toEqual([{ introduced: '0', fixed: '4.17.21' }])
+    })
+
+    it('skips a record whose affected_range is unusable and has no fixed versions', function () {
+        expect(normalizeGemnasiumRecord(record({ affected_range: 42, fixed_versions: [] }), 'npm', 'npm/')).toEqual([])
+    })
 })
 
 describe('parseAffectedRange — no machine-readable range', function () {
@@ -257,6 +291,33 @@ describe('parseAffectedRange — comparator form', function () {
             ],
             versions: []
         })
+    })
+
+    // "<=X" says X itself is affected, but the half-open [introduced, fixed) model cannot express
+    // that without X's successor. With no authoritative fix to override it, falling back to fixed=X
+    // under-includes only the boundary — far safer than null, which would flag every version forever.
+    it('reads a bare <= bound as fixed at that version', function () {
+        expect(parseAffectedRange('<=2.0.0', [])).toEqual({
+            ranges: [{ introduced: '0', fixed: '2.0.0' }],
+            versions: []
+        })
+    })
+
+    // A token that is nothing but a version prefix strips to the empty string. Skipping it keeps the
+    // rest of the disjunct usable instead of pinning the advisory to an empty exact version.
+    it('skips a token that strips to nothing', function () {
+        expect(parseAffectedRange('>=1.0.0 v <2.0.0', [])).toEqual({
+            ranges: [{ introduced: '1.0.0', fixed: '2.0.0' }],
+            versions: []
+        })
+    })
+
+    it('drops an empty disjunct rather than emitting an unbounded range', function () {
+        expect(parseAffectedRange('>=1 <2 || ', [])).toEqual({
+            ranges: [{ introduced: '1', fixed: '2' }],
+            versions: []
+        })
+        expect(parseAffectedRange('||', [])).toEqual({ ranges: [], versions: [] })
     })
 
     it('strips a leading v from either bound', function () {
