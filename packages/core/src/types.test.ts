@@ -1,28 +1,70 @@
 import { describe, expect, it } from 'vitest'
-import { SEVERITY_RANK, findingIdentity, maxSeverity, severityRank } from './types'
+import { SEVERITY_ORDER, compareSeverity, findingIdentity, maxSeverity, meetsSeverityFloor, severityWeight } from './types'
 import type { Severity } from './types'
 
-describe('severityRank', function () {
-    it('orders severities most-severe-first, so a lower rank is worse', function () {
-        expect(severityRank('critical')).toBe(0)
-        expect(severityRank('high')).toBe(1)
-        expect(severityRank('moderate')).toBe(2)
-        expect(severityRank('low')).toBe(3)
-        expect(severityRank('info')).toBe(4)
+// There used to be four SEVERITY_RANK tables in this repo — one here, one in merge-findings.ts, and one
+// in each of two filter components — and the first two pointed in OPPOSITE directions under the same
+// name. These tests pin the single replacement contract: one order, higher weight = worse.
+
+describe('severityWeight', function () {
+    it('ranks the declared severities worst-first', function () {
+        const weights = SEVERITY_ORDER.map(severityWeight)
+        expect(weights).toEqual([...weights].sort(function descending(a, b) { return b - a }))
+        expect(new Set(weights).size).toBe(SEVERITY_ORDER.length)
     })
 
-    it('agrees with the SEVERITY_RANK table for every declared severity', function () {
-        for (const [severity, rank] of Object.entries(SEVERITY_RANK)) {
-            expect(severityRank(severity)).toBe(rank)
-        }
+    it('weighs critical above info', function () {
+        expect(severityWeight('critical')).toBeGreaterThan(severityWeight('info'))
     })
 
-    // The function takes `string`, not `Severity` — advisory feeds hand us whatever they like, so
-    // an unrecognised value must degrade to the least-severe bucket rather than throw or return NaN.
-    it('treats an unknown severity as info rather than throwing', function () {
-        expect(severityRank('catastrophic')).toBe(4)
-        expect(severityRank('')).toBe(4)
-        expect(severityRank('CRITICAL')).toBe(4)
+    // Takes `string`, not `Severity`: advisory feeds hand us whatever they like and findings.severity is
+    // a plain TEXT column. Moderate, not info — an unknown advisory must never be silently downgraded,
+    // and it must never fall outside the five weights the SQL buckets sum over.
+    it('weighs an unrecognized severity as moderate', function () {
+        expect(severityWeight('catastrophic')).toBe(severityWeight('moderate'))
+        expect(severityWeight('')).toBe(severityWeight('moderate'))
+    })
+
+    it('normalizes case and whitespace rather than treating them as unknown', function () {
+        expect(severityWeight('CRITICAL')).toBe(severityWeight('critical'))
+        expect(severityWeight(' High ')).toBe(severityWeight('high'))
+    })
+})
+
+describe('compareSeverity', function () {
+    it('sorts most severe first', function () {
+        const shuffled: string[] = ['low', 'critical', 'info', 'high', 'moderate']
+        expect(shuffled.sort(compareSeverity)).toEqual(['critical', 'high', 'moderate', 'low', 'info'])
+    })
+
+    it('reports equal severities as tied so callers can fall through to their next key', function () {
+        expect(compareSeverity('high', 'high')).toBe(0)
+    })
+})
+
+describe('meetsSeverityFloor', function () {
+    it('admits a severity at the floor', function () {
+        expect(meetsSeverityFloor('high', 'high')).toBe(true)
+    })
+
+    it('admits anything worse than the floor', function () {
+        expect(meetsSeverityFloor('critical', 'high')).toBe(true)
+    })
+
+    it('rejects anything below the floor', function () {
+        expect(meetsSeverityFloor('low', 'high')).toBe(false)
+    })
+
+    // The old ascending scale ranked critical as 0, so any `&&`/`||` defaulting on the cutoff silently
+    // dropped criticals — the exact inversion this API exists to make unrepresentable.
+    it('never drops criticals when the floor is itself critical', function () {
+        expect(meetsSeverityFloor('critical', 'critical')).toBe(true)
+        expect(meetsSeverityFloor('high', 'critical')).toBe(false)
+    })
+
+    it('admits an unrecognized severity at a moderate floor rather than discarding it', function () {
+        expect(meetsSeverityFloor('bogus', 'moderate')).toBe(true)
+        expect(meetsSeverityFloor('bogus', 'high')).toBe(false)
     })
 })
 
@@ -40,10 +82,14 @@ describe('maxSeverity', function () {
         expect(maxSeverity(['bogus', 'high'])).toBe('high')
     })
 
-    // An all-unknown list ranks 4 across the board, and nothing ever beats the initial best, so the
-    // seeded 'info' is returned rather than the unrecognised input being echoed back.
+    // maxSeverity's return type promises a declared Severity, so an unrecognised input must never be
+    // echoed back out — it would flow into badges and filters typed as though it were valid.
     it('falls back to info when nothing is recognised', function () {
         expect(maxSeverity(['bogus', 'nonsense'])).toBe('info')
+    })
+
+    it('normalizes the casing of the winner rather than returning the raw string', function () {
+        expect(maxSeverity(['CRITICAL', 'low'])).toBe('critical')
     })
 
     it('is order-independent', function () {

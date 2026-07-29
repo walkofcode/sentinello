@@ -1,5 +1,5 @@
 import type { CurrentFindingRow } from '@sentinello/db'
-import type { Severity } from '@sentinello/core'
+import { compareSeverity, severityWeight, type Severity } from '@sentinello/core'
 import { parseJsonArray } from '@/lib/format'
 
 // A findings row collapsed across sources and dependency paths. The raw table stores one row per
@@ -33,11 +33,6 @@ export type MergedFinding = {
     identities: { source: string; ecosystem: string; scanner: string; advisoryId: string }[]
 }
 
-const SEVERITY_RANK: Record<string, number> = { critical: 5, high: 4, moderate: 3, low: 2, info: 1 }
-// Rank for a severity string outside the five known values. Matches the ELSE branch of
-// severityRankSql in packages/db so this merge and the SQL aggregates agree on which row wins a group;
-// see that function for why an unknown ranks as moderate rather than below 'info'.
-const UNKNOWN_SEVERITY_RANK = 3
 // npm audit before OSV before gemnasium before anything else, so the source tags read consistently across rows.
 const SCANNER_ORDER: Record<string, number> = { 'npm-audit': 0, osv: 1, gemnasium: 2 }
 
@@ -112,7 +107,7 @@ function mergeBucket(key: string, bucket: CurrentFindingRow[]): MergedFinding {
     const depPathKeys = new Set<string>()
     const depPaths: string[][] = []
     for (const r of bucket) {
-        if ((SEVERITY_RANK[r.severity] ?? UNKNOWN_SEVERITY_RANK) > (SEVERITY_RANK[severity] ?? UNKNOWN_SEVERITY_RANK)) severity = r.severity
+        if (severityWeight(r.severity) > severityWeight(severity)) severity = r.severity
         if (r.advisoryId.startsWith('MAL-')) malicious = true
         if (r.isProd) isProd = true
         if (r.isDev) isDev = true
@@ -179,8 +174,8 @@ export function mergeFindings(rows: CurrentFindingRow[]): MergedFinding[] {
     }
     // Keep the worst first; stable tiebreak on name/version so paging is deterministic.
     out.sort(function bySeverityThenName(a, b) {
-        const rank = (SEVERITY_RANK[b.severity] ?? UNKNOWN_SEVERITY_RANK) - (SEVERITY_RANK[a.severity] ?? UNKNOWN_SEVERITY_RANK)
-        if (rank !== 0) return rank
+        const sev = compareSeverity(a.severity, b.severity)
+        if (sev !== 0) return sev
         return a.packageName.localeCompare(b.packageName) || a.installedVersion.localeCompare(b.installedVersion)
     })
     return out

@@ -1,4 +1,4 @@
-import { severityRank, type Severity } from './types'
+import { compareSeverity, type Severity } from './types'
 
 // The built-in remediation prompt prepended to every advisory export. Operators can override this
 // in Settings → Export; the override is stored in app_config under the key 'markdownExportPrompt'.
@@ -194,8 +194,9 @@ function formatFinding(index: number, f: ExportFinding): string {
     let paths: string[][] = []
     if (f.depPaths && f.depPaths.length > 0) paths = f.depPaths
     else if (f.depPath.length > 0) paths = [f.depPath]
-    if (paths.length === 1) {
-        lines.push('- **Dependency path:** `' + paths[0].map(escapeForMarkdown).join(' › ') + '`')
+    const [onlyPath] = paths
+    if (paths.length === 1 && onlyPath) {
+        lines.push('- **Dependency path:** `' + onlyPath.map(escapeForMarkdown).join(' › ') + '`')
     } else if (paths.length > 1) {
         lines.push('- **Dependency paths:**')
         for (const p of paths) {
@@ -213,9 +214,8 @@ function formatFinding(index: number, f: ExportFinding): string {
 // where page 1 stopped. Do not make this order depend on anything that varies between calls.
 function sortForExport(findings: ExportFinding[]): ExportFinding[] {
     return [...findings].sort(function bySeverityThenName(a, b) {
-        const ra = severityRank(a.severity)
-        const rb = severityRank(b.severity)
-        if (ra !== rb) return ra - rb
+        const sev = compareSeverity(a.severity, b.severity)
+        if (sev !== 0) return sev
         const nameCmp = a.packageName.localeCompare(b.packageName)
         if (nameCmp !== 0) return nameCmp
         return a.advisoryId.localeCompare(b.advisoryId)
@@ -332,10 +332,12 @@ export function buildPaginatedAdvisoryMarkdown(args: {
     let used = preamble.join('\n').length + 512
     const page: ExportFinding[] = []
     for (let i = offset; i < sorted.length; i++) {
-        const size = formatFinding(i + 1, sorted[i]).length + 1
+        const finding = sorted[i]
+        if (!finding) break
+        const size = formatFinding(i + 1, finding).length + 1
         if (page.length > 0 && used + size > byteBudget) break
         used = used + size
-        page.push(sorted[i])
+        page.push(finding)
     }
     const nextIndex = offset + page.length
     const nextOffset = nextIndex < sorted.length ? nextIndex : null

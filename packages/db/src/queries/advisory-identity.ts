@@ -12,8 +12,9 @@ export function advisoryIdentitySql(alias: string = 'f'): SQL {
     )
 }
 
-// Numeric severity rank mirroring merge-findings.ts:SEVERITY_RANK, so a merged group's severity is
-// the worst (MAX) across its rows.
+// Numeric severity weight mirroring severityWeight in @sentinello/core, so a merged group's severity is
+// the worst (MAX) across its rows and the SQL aggregates always agree with the JS merge. Keep the two
+// in lockstep: the weights, the case/whitespace normalization, and the unknown fallback all match.
 //
 // An unrecognized severity ranks as 'moderate' (3), NOT as its own out-of-band value. Callers bucket
 // ranks 5..1 into critical/high/moderate/low/info and sum them; a rank outside that range would put a

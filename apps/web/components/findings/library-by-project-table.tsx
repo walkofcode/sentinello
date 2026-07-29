@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react'
 import type { LibraryProjectUsage } from '@sentinello/db'
-import { severityRank, type Mute, type Severity } from '@sentinello/core'
+import { compareSeverity, severityWeight, type Mute, type Severity } from '@sentinello/core'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { SeverityPill } from '@/components/ui/severity-pill'
@@ -44,7 +44,7 @@ function groupByProject(usages: LibraryProjectUsage[]): ProjectGroup[] {
         const installedVersions = Array.from(new Set(rows.map(function pickVer(r) { return r.installedVersion })))
         let maxSev: Severity = rows[0].severity as Severity
         for (const r of rows) {
-            if (severityRank(r.severity) < severityRank(maxSev)) {
+            if (severityWeight(r.severity) > severityWeight(maxSev)) {
                 maxSev = r.severity as Severity
             }
         }
@@ -174,9 +174,8 @@ function ProjectCard({ packageName, group, activeMutes, isOpen, onToggle, now }:
     const sortedUsages = useMemo(function sort() {
         const copy = group.usages.slice()
         copy.sort(function order(a, b) {
-            const ra = severityRank(a.severity)
-            const rb = severityRank(b.severity)
-            if (ra !== rb) return ra - rb
+            const sev = compareSeverity(a.severity, b.severity)
+            if (sev !== 0) return sev
             return a.advisoryId.localeCompare(b.advisoryId)
         })
         return copy
@@ -287,9 +286,8 @@ function ExpandedAdvisories({ packageName, group, activeMutes, now }: ExpandedPr
     const sorted = useMemo(function sort() {
         const copy = group.usages.slice()
         copy.sort(function order(a, b) {
-            const ra = severityRank(a.severity)
-            const rb = severityRank(b.severity)
-            if (ra !== rb) return ra - rb
+            const sev = compareSeverity(a.severity, b.severity)
+            if (sev !== 0) return sev
             return a.advisoryId.localeCompare(b.advisoryId)
         })
         return copy

@@ -12,7 +12,7 @@ import {
     listRoots,
     listScansForProject
 } from '@sentinello/db'
-import { SEVERITY_RANK, buildPaginatedAdvisoryMarkdown, severityRank } from '@sentinello/core'
+import { buildPaginatedAdvisoryMarkdown, meetsSeverityFloor } from '@sentinello/core'
 import { getDb } from '@/lib/db'
 import { buildProjectAdvisoryParts } from '@/lib/project-advisory-export'
 import { buildAdvisoryToolResult } from '@/lib/mcp/advisory-result'
@@ -151,16 +151,12 @@ export function registerReadTools(server: McpServer): void {
         },
         async function handler({ projectId, minSeverity, depType, ecosystem, source, includeMuted }) {
             const all = listCurrentFindingsForProject(getDb(), projectId, Date.now(), depType || 'all')
-            // Lower rank = more severe. Keep findings at or above the requested floor. Note: must NOT
-            // use `&&`/`||` here — `critical` ranks 0, and a falsy-zero would silently drop criticals
-            // and invert `minSeverity: 'critical'`. severityRank() always returns a valid number.
-            let cutoff = 4
-            if (minSeverity) cutoff = SEVERITY_RANK[minSeverity]
             const filtered = all.filter(function keep(f) {
                 if (!includeMuted && f.isMuted) return false
                 if (ecosystem && f.ecosystem !== ecosystem) return false
                 if (source && f.source !== source) return false
-                return severityRank(f.severity) <= cutoff
+                if (minSeverity) return meetsSeverityFloor(f.severity, minSeverity)
+                return true
             })
             return {
                 content: [{ type: 'text', text: JSON.stringify(filtered, null, 2) }],
@@ -309,13 +305,12 @@ export function registerReadTools(server: McpServer): void {
             if (!parts) {
                 return { isError: true, content: [{ type: 'text', text: 'Project not found: ' + projectId }] }
             }
-            // Same severity-floor logic as list_findings. Must NOT use `&&`/`||` on the cutoff —
-            // `critical` ranks 0, and a falsy-zero would silently drop criticals.
-            let cutoff = 4
-            if (minSeverity) cutoff = SEVERITY_RANK[minSeverity]
-            const findings = parts.findings.filter(function keep(f) {
-                return severityRank(f.severity) <= cutoff
-            })
+            let findings = parts.findings
+            if (minSeverity) {
+                findings = findings.filter(function keep(f) {
+                    return meetsSeverityFloor(f.severity, minSeverity)
+                })
+            }
             // A continuation page repeats none of the 10 KB remediation prompt by default — the agent
             // asking for offset > 0 already read it on page 1.
             let withPrompt = resolvedOffset === 0

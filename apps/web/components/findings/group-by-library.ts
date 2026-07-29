@@ -1,5 +1,5 @@
 import type { CurrentFindingRow } from '@sentinello/db'
-import { maxSeverity, severityRank, type Severity } from '@sentinello/core'
+import { compareSeverity, maxSeverity, type Severity } from '@sentinello/core'
 
 export type LibraryGroup = {
     ecosystem: string
@@ -59,9 +59,8 @@ export function groupByLibrary(findings: CurrentFindingRow[]): LibraryGroup[] {
         })
     })
     groups.sort(function order(a, b) {
-        const ra = severityRank(a.maxSeverity)
-        const rb = severityRank(b.maxSeverity)
-        if (ra !== rb) return ra - rb
+        const sev = compareSeverity(a.maxSeverity, b.maxSeverity)
+        if (sev !== 0) return sev
         return a.packageName.localeCompare(b.packageName) || a.ecosystem.localeCompare(b.ecosystem)
     })
     return groups
