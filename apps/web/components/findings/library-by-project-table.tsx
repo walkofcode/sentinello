@@ -31,16 +31,16 @@ type ProjectGroup = {
 }
 
 function groupByProject(usages: LibraryProjectUsage[]): ProjectGroup[] {
-    const byProject = new Map<string, LibraryProjectUsage[]>()
+    // Non-empty tuple: see groupByLibrary for why the buckets are seeded rather than pushed-into.
+    const byProject = new Map<string, [LibraryProjectUsage, ...LibraryProjectUsage[]]>()
     for (const u of usages) {
-        const bucket = byProject.get(u.projectId) || []
-        bucket.push(u)
-        byProject.set(u.projectId, bucket)
+        const bucket = byProject.get(u.projectId)
+        if (bucket) bucket.push(u)
+        else byProject.set(u.projectId, [u])
     }
     const groups: ProjectGroup[] = []
     byProject.forEach(function build(rows) {
         const [head] = rows
-        if (!head) return
         const devOnly = rows.every(function isDevOnly(r) { return r.isDev && !r.isProd })
         const installedVersions = Array.from(new Set(rows.map(function pickVer(r) { return r.installedVersion })))
         let maxSev: Severity = head.severity as Severity

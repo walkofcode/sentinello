@@ -37,18 +37,18 @@ type AdvisoryGroup = {
 }
 
 function groupByAdvisory(usages: LibraryProjectUsage[]): AdvisoryGroup[] {
-    const byAdvisory = new Map<string, LibraryProjectUsage[]>()
+    // Non-empty tuple: see groupByLibrary for why the buckets are seeded rather than pushed-into.
+    const byAdvisory = new Map<string, [LibraryProjectUsage, ...LibraryProjectUsage[]]>()
     for (const u of usages) {
         const key = advisoryIdentity(u.advisoryTitle, u.advisoryId)
-        const bucket = byAdvisory.get(key) || []
-        bucket.push(u)
-        byAdvisory.set(key, bucket)
+        const bucket = byAdvisory.get(key)
+        if (bucket) bucket.push(u)
+        else byAdvisory.set(key, [u])
     }
     const groups: AdvisoryGroup[] = []
     byAdvisory.forEach(function build(rows, identityKey) {
         // Worst severity wins (higher weight = more severe), so a critical from either source surfaces.
         const [first] = rows
-        if (!first) return
         let head = first
         for (const r of rows) {
             if (severityWeight(r.severity) > severityWeight(head.severity)) head = r

@@ -23,18 +23,18 @@ export type LibraryGroup = {
 // underlying findings on the group for the expanded sub-row and just summarize at the top. The ecosystem
 // is part of the key so an npm `requests` and a PyPI `requests` stay distinct libraries (issue-019).
 export function groupByLibrary(findings: CurrentFindingRow[]): LibraryGroup[] {
-    const byLibrary = new Map<string, CurrentFindingRow[]>()
+    // Buckets are typed non-empty: seeding with the first row instead of an empty array means every
+    // rows[0] below is definite, with no unreachable emptiness guard to write or to leave uncovered.
+    const byLibrary = new Map<string, [CurrentFindingRow, ...CurrentFindingRow[]]>()
     for (const f of findings) {
         const key = f.ecosystem + '\x00' + f.packageName
-        const bucket = byLibrary.get(key) || []
-        bucket.push(f)
-        byLibrary.set(key, bucket)
+        const bucket = byLibrary.get(key)
+        if (bucket) bucket.push(f)
+        else byLibrary.set(key, [f])
     }
     const groups: LibraryGroup[] = []
     byLibrary.forEach(function buildGroup(rows) {
-        // Buckets are only ever created by pushing a row, so they are never empty.
         const [head] = rows
-        if (!head) return
         const ecosystem = head.ecosystem
         const packageName = head.packageName
         const installedVersions = uniq(rows.map(function pickVer(r) { return r.installedVersion }))

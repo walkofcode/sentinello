@@ -92,11 +92,10 @@ function preferAdvisory(candidate: CurrentFindingRow, current: CurrentFindingRow
     return false
 }
 
-function mergeBucket(key: string, bucket: CurrentFindingRow[]): MergedFinding {
-    // A bucket is only ever created by pushing a row into it, so it is never empty. Narrowing here once
-    // lets every field below read from a definite row instead of re-asserting on each access.
+// The bucket is typed non-empty, so `first` is definite and every field below reads from a real row
+// without an unreachable emptiness guard.
+function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingRow[]]): MergedFinding {
     const [first] = bucket
-    if (!first) throw new Error('mergeBucket received an empty bucket for key ' + key)
     let severity = first.severity
     let malicious = false
     let isProd = false
@@ -165,7 +164,7 @@ function mergeBucket(key: string, bucket: CurrentFindingRow[]): MergedFinding {
 }
 
 export function mergeFindings(rows: CurrentFindingRow[]): MergedFinding[] {
-    const groups = new Map<string, CurrentFindingRow[]>()
+    const groups = new Map<string, [CurrentFindingRow, ...CurrentFindingRow[]]>()
     for (const row of rows) {
         const key = row.ecosystem + '\x00' + row.packageName + '\x00' + advisoryKey(row)
         const bucket = groups.get(key)
