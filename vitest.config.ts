@@ -53,26 +53,29 @@ export default defineConfig({
             // is no arbitrary number to game. Raise these as coverage grows; never lower them to
             // make a build pass.
             //
-            // What still holds the global figures down, and what it would actually take to move each:
+            // What still holds the global figures down. Only three files are materially uncovered now,
+            // and each needs a production change rather than a better test:
             //
-            //  - apps/worker/src/index.ts, now the only uncovered file left in the worker. Unlike the
-            //    rest of the shell it needs a refactor rather than a stub: the module calls main() as
-            //    an import side effect, then acquires the single-instance lockfile, installs SIGTERM/
-            //    SIGINT handlers and calls process.exit — none of which a test process can host.
-            //    Covering it means exporting main() and makeShutdown() instead of running them on
-            //    import.
-            //  - The npm-audit spawn path. This one is a genuine seam problem, but a small one:
-            //    spawnAndCapture() is already a single private function, so lifting it into a deps
-            //    object (mirroring createOsvScanner) opens the whole result-shaping surface.
-            //  - apps/cli's ui/sync/doctor layer, which closes over process.stderr and isTTY.
-            //  - The two feed.ts downloaders (osv, gemnasium) and apps/web/lib/version.ts, whose
-            //    uncovered half is the GitHub update-check — both are network clients whose HTTP
-            //    layer (packages/feeds/src/http.ts) is already covered beneath them.
+            //  - packages/scanners/src/npm-audit.ts (~190 lines, the largest remaining gap). `spawn` is
+            //    a static ESM import used inside a private function, so nothing can substitute it.
+            //    spawnAndCapture() is already a single choke point: lifting it into a deps object —
+            //    mirroring createOsvScanner({ lookup, isSeeded, isEnabled }) — opens the entire
+            //    result-shaping surface (timeout, ENOENT classification, nvm wrapping, schema variants),
+            //    all of whose pure half is already covered in npm-audit-parse.ts.
+            //  - apps/worker/src/index.ts and apps/cli/src/cli.ts. Both call main() as an import side
+            //    effect, so importing either one boots a worker or parses argv. Neither exports
+            //    anything. Covering them means moving the body to a sibling module and leaving a thin
+            //    bin behind — the filenames must stay put, because ecosystem.config.js launches
+            //    src/index.ts directly (see the SIGTERM note there) and tsup's entry is src/cli.ts.
+            //
+            // Everything else uncovered is either a type-only module, a re-export barrel, or
+            // apps/web/components/ui/use-anchored-panel.ts, a React hook that needs a DOM environment
+            // this suite does not install.
             thresholds: {
-                statements: 76,
-                branches: 72,
-                functions: 79,
-                lines: 76,
+                statements: 88,
+                branches: 83,
+                functions: 91,
+                lines: 89,
                 // Per-path floors for the areas that are now well covered. Without these, a global
                 // floor alone would let a well-covered module regress to zero as long as some other
                 // area improved enough to compensate.
@@ -163,13 +166,40 @@ export default defineConfig({
                 'packages/db/src/queries/scans.ts': { statements: 99, branches: 93, functions: 99, lines: 99 },
                 'packages/db/src/queries/config.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'packages/db/src/queries/ecosystem-backfill.ts': { statements: 96, branches: 85, functions: 99, lines: 96 },
-                // findings.ts and options.ts each have a substantial branch set still uncovered:
-                // the finding backfills and list queries here, and applyConfigFile there. Both are
-                // next in line, and these floors exist to stop them sliding backwards meanwhile.
-                'packages/db/src/queries/findings.ts': { statements: 70, branches: 41, functions: 56, lines: 74 },
+                // Owns finding-episode lifecycle: which episode continues, which closes, and which of
+                // several duplicate rows survives a collapse (the earliest-detected one, so a finding's
+                // age is not silently reset). Was the weakest floor in this list at 70/41/56/74.
+                'packages/db/src/queries/findings.ts': { statements: 98, branches: 89, functions: 99, lines: 99 },
+                // applyConfigFile is the remaining uncovered branch set in options.ts.
                 'apps/cli/src/options.ts': { statements: 81, branches: 69, functions: 90, lines: 82 },
-                'apps/cli/src/cache/store.ts': { statements: 85, branches: 73, functions: 85, lines: 85 },
-                'apps/cli/src/cache/meta.ts': { statements: 97, branches: 96, functions: 99, lines: 97 }
+                'apps/cli/src/cache/store.ts': { statements: 88, branches: 73, functions: 92, lines: 92 },
+                'apps/cli/src/cache/meta.ts': { statements: 98, branches: 97, functions: 99, lines: 97 },
+                // The advisory-feed downloaders. Both are driven through a real ZIP generated in
+                // memory (packages/feeds/src/zip.fixture.ts) so unzipper, the entry filter and the
+                // normalizers all run for real. The trap they guard is silent rather than loud:
+                // gemnasium's rootOffset and OSV's canonical-vs-lowercase feed directory both match
+                // NOTHING when wrong, which reads as a clean upstream rather than a bug.
+                'packages/feeds/src/osv/feed.ts': { statements: 97, branches: 97, functions: 99, lines: 96 },
+                'packages/feeds/src/gemnasium/feed.ts': { statements: 96, branches: 92, functions: 99, lines: 96 },
+                // The CLI's terminal and cache layers. ui.ts writes exclusively to stderr because
+                // stdout carries the advisory document a user may pipe straight into an agent, and
+                // confirmSeed refuses on a non-TTY rather than pulling ~100 MB onto a build machine
+                // unattended. sync.ts owns seed-vs-refresh, where a wrong answer costs either a
+                // needless full re-download or a silently stale cache.
+                'apps/cli/src/ui.ts': { statements: 99, branches: 94, functions: 99, lines: 99 },
+                'apps/cli/src/doctor.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
+                'apps/cli/src/cache/sync.ts': { statements: 96, branches: 91, functions: 99, lines: 98 },
+                'apps/cli/src/cache/lookup.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
+                'apps/cli/src/scan.ts': { statements: 93, branches: 93, functions: 99, lines: 94 },
+                // The optional portal login gate — the only thing in front of the whole portal when it
+                // is enabled. Total floors: the cookie must never contain the raw token, and the login
+                // and cookie paths must stay distinct HMACs so a cookie is not a valid submission.
+                'apps/web/lib/portal-auth.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
+                'apps/web/lib/filter-defaults.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
+                'apps/web/lib/home-url-memory.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
+                // The update check. Its two TTLs are the point: 6h on success, but only 15min on
+                // failure so a transient GitHub outage does not lock the check out for six hours.
+                'apps/web/lib/version.ts': { statements: 93, branches: 86, functions: 99, lines: 93 }
             }
         }
     }
