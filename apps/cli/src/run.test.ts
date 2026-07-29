@@ -160,25 +160,20 @@ describe('config file', function () {
         expect(err()).toContain('sentinello.config.json is not valid JSON')
     })
 
+    // The array cases are the regression guard: `typeof [] === 'object'`, so the object check alone
+    // let a JSON array through and every setting silently fell back to its default. A non-empty array
+    // is listed too — an empty one would also pass a `length > 0` style fix that missed the real point.
     it.each([
         ['a bare string', '"just a string"'],
         ['a number', '42'],
-        ['null', 'null']
+        ['null', 'null'],
+        ['an empty array', '[]'],
+        ['a populated array', '[{"depth":3}]']
     ])('rejects a config file containing %s', async function (_label, body) {
         await writeFile(join(dir, 'sentinello.config.json'), body as string, 'utf8')
         argv(dir, '--cache-dir', join(dir, '.cache'))
         expect(await main()).toBe(EXIT_ERROR)
         expect(err()).toContain('must contain an object')
-    })
-
-    // The guard is `typeof parsed !== 'object'`, and an array satisfies that — so a JSON array is
-    // accepted rather than rejected. Harmless in practice (it carries none of the recognised keys, so
-    // every setting falls back to its default), but it is not what the error message implies, and a
-    // reader checking whether arrays are handled deserves the answer without running it.
-    it('CURRENTLY accepts a JSON array, which the object guard does not catch', async function () {
-        await writeFile(join(dir, 'sentinello.config.json'), '[]', 'utf8')
-        argv(...scanArgs())
-        expect(await main()).toBe(EXIT_OK)
     })
 })
 
