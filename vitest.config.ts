@@ -46,36 +46,47 @@ export default defineConfig({
                 '**/dist/**',
                 '**/.next/**',
                 '**/drizzle*/**',
-                'tests/fixtures/**'
+                'tests/fixtures/**',
+                // The two process entry points. Each is now a bin that does nothing but import its
+                // sibling and run it — worker.ts and run.ts respectively, both of which are covered.
+                // They are excluded rather than tested because importing either one IS the side
+                // effect: apps/worker/src/index.ts boots a worker (takes the single-instance lock,
+                // opens the database, arms cron) and apps/cli/src/cli.ts parses process.argv and sets
+                // the process exit code. Their filenames cannot move — ecosystem.config.js launches
+                // src/index.ts directly and tsup's entry is src/cli.ts — so the bodies moved instead.
+                'apps/worker/src/index.ts',
+                'apps/cli/src/cli.ts'
             ],
             // A ratchet, not a target. Each floor sits just under what the suite actually covers
             // today, so coverage can only go up — a change that removes tests fails CI, while there
             // is no arbitrary number to game. Raise these as coverage grows; never lower them to
             // make a build pass.
             //
-            // What still holds the global figures down. Only three files are materially uncovered now,
-            // and each needs a production change rather than a better test:
+            // The three files this list used to name are done. npm-audit.ts took an injected `spawn`
+            // (NpmAuditDeps, mirroring createOsvScanner), and the two entry points moved their bodies
+            // into siblings — worker.ts and run.ts — leaving bins that are excluded above.
             //
-            //  - packages/scanners/src/npm-audit.ts (~190 lines, the largest remaining gap). `spawn` is
-            //    a static ESM import used inside a private function, so nothing can substitute it.
-            //    spawnAndCapture() is already a single choke point: lifting it into a deps object —
-            //    mirroring createOsvScanner({ lookup, isSeeded, isEnabled }) — opens the entire
-            //    result-shaping surface (timeout, ENOENT classification, nvm wrapping, schema variants),
-            //    all of whose pure half is already covered in npm-audit-parse.ts.
-            //  - apps/worker/src/index.ts and apps/cli/src/cli.ts. Both call main() as an import side
-            //    effect, so importing either one boots a worker or parses argv. Neither exports
-            //    anything. Covering them means moving the body to a sibling module and leaving a thin
-            //    bin behind — the filenames must stay put, because ecosystem.config.js launches
-            //    src/index.ts directly (see the SIGTERM note there) and tsup's entry is src/cli.ts.
+            // What is left, and why it stays:
             //
-            // Everything else uncovered is either a type-only module, a re-export barrel, or
-            // apps/web/components/ui/use-anchored-panel.ts, a React hook that needs a DOM environment
-            // this suite does not install.
+            //  - apps/web/components/ui/use-anchored-panel.ts, a React hook. Needs jsdom and
+            //    @testing-library/react, neither of which is installed. Worth noting for whoever adds
+            //    them: jsdom has no layout engine, so getBoundingClientRect returns zeros and the
+            //    flip-above / clamp-to-viewport branches only mean something if it is stubbed —
+            //    otherwise the tests pass while asserting nothing.
+            //  - The residue in worker.ts (the branch floor is the lowest here at 64): the arms that
+            //    need a database already holding scans, plus the force-exit timer, which only fires
+            //    when a graceful shutdown overruns its 35s deadline.
+            //  - packages/db/src/client.ts, migrate.ts and schema.ts, which are exercised indirectly by
+            //    every query test but have no direct one.
+            //
+            // Also worth knowing before chasing the last few points: the v8 text reporter OMITS files
+            // that are at 100% on all four metrics, so a file vanishing from the table is success, not
+            // absence. Check coverage/lcov.info to confirm.
             thresholds: {
-                statements: 88,
-                branches: 83,
-                functions: 91,
-                lines: 89,
+                statements: 95,
+                branches: 89,
+                functions: 95,
+                lines: 96,
                 // Per-path floors for the areas that are now well covered. Without these, a global
                 // floor alone would let a well-covered module regress to zero as long as some other
                 // area improved enough to compensate.
@@ -199,7 +210,20 @@ export default defineConfig({
                 'apps/web/lib/home-url-memory.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 // The update check. Its two TTLs are the point: 6h on success, but only 15min on
                 // failure so a transient GitHub outage does not lock the check out for six hours.
-                'apps/web/lib/version.ts': { statements: 93, branches: 86, functions: 99, lines: 93 }
+                'apps/web/lib/version.ts': { statements: 93, branches: 86, functions: 99, lines: 93 },
+                // The two entry-point bodies, extracted out of their bins so they could be reached at
+                // all. worker.ts owns the boot order — notably that the signal handlers are installed
+                // BEFORE the initial sweep, because sweepActiveProjects runs synchronous discovery
+                // before its first await and a SIGTERM in that window would otherwise hit a process
+                // with no handlers. run.ts owns the exit codes, which are the CLI's CI contract.
+                'apps/worker/src/worker.ts': { statements: 89, branches: 64, functions: 80, lines: 88 },
+                'apps/cli/src/run.ts': { statements: 97, branches: 90, functions: 99, lines: 98 },
+                // The subprocess half of npm-audit. Every branch here returns "no findings", but they
+                // mean entirely different things to an operator — pm_missing is "install pnpm",
+                // audit_schema_mismatch is "Sentinello needs updating", and ok-with-zero-findings is
+                // "your project is clean". Picking the wrong one is silent, because the scan still
+                // succeeds, which is what makes these floors worth carrying.
+                'packages/scanners/src/npm-audit.ts': { statements: 88, branches: 78, functions: 99, lines: 92 }
             }
         }
     }

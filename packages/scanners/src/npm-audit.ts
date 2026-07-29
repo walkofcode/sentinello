@@ -246,7 +246,19 @@ function onSpawnClose(ctx: SpawnFinalizeContext, code: number | null): void {
     finalizeSpawn(ctx, code)
 }
 
+// The one seam this scanner needs. `spawn` is otherwise a static ESM import called from inside a
+// private function, which leaves the entire result-shaping surface below — timeout, ENOENT
+// classification, nvm-wrapper failures, the three audit output schemas — unreachable without actually
+// running a package manager. Injecting it mirrors createOsvScanner({ lookup, isSeeded, isEnabled }) in
+// ./osv.ts, and defaults to the real thing so no caller changes.
+export type NpmAuditDeps = {
+    spawn: typeof spawn
+}
+
+const REAL_DEPS: NpmAuditDeps = { spawn }
+
 type SpawnExecutorInput = {
+    deps: NpmAuditDeps
     cmd: string
     args: string[]
     opts: { cwd: string; timeoutMs: number; abortSignal?: AbortSignal; stdin?: string }
@@ -260,7 +272,7 @@ function executeSpawnAndCapture(input: SpawnExecutorInput, resolve: (result: Spa
         spawnError: null,
         settled: false
     }
-    const child = spawn(input.cmd, input.args, {
+    const child = input.deps.spawn(input.cmd, input.args, {
         cwd: input.opts.cwd,
         shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -286,11 +298,12 @@ function executeSpawnAndCapture(input: SpawnExecutorInput, resolve: (result: Spa
 }
 
 function spawnAndCapture(
+    deps: NpmAuditDeps,
     cmd: string,
     args: string[],
     opts: { cwd: string; timeoutMs: number; abortSignal?: AbortSignal; stdin?: string }
 ): Promise<SpawnResult> {
-    return new Promise(executeSpawnAndCapture.bind(null, { cmd, args, opts }))
+    return new Promise(executeSpawnAndCapture.bind(null, { deps, cmd, args, opts }))
 }
 
 async function detectYarnMajor(projectPath: string, lockfile: DetectedLockfile): Promise<number | null> {
@@ -324,7 +337,7 @@ function logCrossCheckDrops(result: { droppedCount: number; droppedAdvisoryIds: 
     process.stderr.write(`[${SCANNER_NAME}] lockfile cross-check (${packageManager}): dropped ${result.droppedCount} finding(s) out of vulnerable range [${head.join(', ')}${tail}]\n`)
 }
 
-export async function runNpmAudit(projectPath: string, ctx: ScanContext): Promise<ScanResult> {
+export async function runNpmAudit(projectPath: string, ctx: ScanContext, deps: NpmAuditDeps = REAL_DEPS): Promise<ScanResult> {
     const startedAt = Date.now()
     const lockfile = await detectLockfile(projectPath)
     if (!lockfile) {
@@ -365,7 +378,7 @@ export async function runNpmAudit(projectPath: string, ctx: ScanContext): Promis
         execArgs = parts.slice(1)
     }
 
-    const spawnResult = await spawnAndCapture(execCmd, execArgs, {
+    const spawnResult = await spawnAndCapture(deps, execCmd, execArgs, {
         cwd: projectPath,
         timeoutMs: ctx.timeoutMs,
         abortSignal: ctx.abortSignal
@@ -470,7 +483,16 @@ export async function runNpmAudit(projectPath: string, ctx: ScanContext): Promis
     }
 }
 
-export const npmAuditPlugin: ScannerPlugin = {
-    name: SCANNER_NAME,
-    scan: runNpmAudit
+// Binds a deps object into a plugin, the same shape createOsvScanner returns. The production plugin
+// below is this with the real spawn; a test builds one with a fake and drives the whole
+// result-shaping surface without a package manager on PATH.
+export function createNpmAuditScanner(deps: NpmAuditDeps): ScannerPlugin {
+    return {
+        name: SCANNER_NAME,
+        scan: function scan(projectPath: string, ctx: ScanContext): Promise<ScanResult> {
+            return runNpmAudit(projectPath, ctx, deps)
+        }
+    }
 }
+
+export const npmAuditPlugin: ScannerPlugin = createNpmAuditScanner(REAL_DEPS)
