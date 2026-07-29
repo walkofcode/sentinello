@@ -249,6 +249,65 @@ describe('notifyForCompletedScan — dispatch', function () {
         await notify(outcome([finding()]))
         expect(send.mock.calls[0]?.[1].webhook.root).toMatchObject({ id: ROOT_ID, label: 'Repos' })
     })
+
+    // A scan that failed before it could produce findings still has to page someone — that is the case
+    // the whole scan_failure event type exists for. The findings branch must be skipped entirely rather
+    // than sending an empty "0 findings" message alongside it.
+    it('dispatches a failure with no findings as a single message', async function () {
+        insertNotificationTarget(db, target())
+        await notify(outcome([], { status: 'error', reasonCode: 'audit_unknown_failure', errorText: 'boom' }))
+
+        expect(send).toHaveBeenCalledTimes(1)
+        expect(send.mock.calls[0]?.[1].webhook.event).toBe('scan_failure')
+    })
+
+    // The mirror of the findings case above: Slack and Telegram render from the text, so building the
+    // structured payload for them would ship failure detail they never read.
+    it('omits the webhook payload from a failure sent to a non-webhook target', async function () {
+        insertNotificationTarget(db, target({ id: 'slack-1', kind: 'slack', config: { webhookUrl: 'https://hooks.example.test/s' } }))
+        await notify(outcome([], { status: 'error', reasonCode: 'audit_unknown_failure', errorText: 'boom' }))
+
+        expect(send).toHaveBeenCalledTimes(1)
+        expect(send.mock.calls[0]?.[1].webhook).toBeUndefined()
+    })
+})
+
+// The ledger row and the scan's own findings are matched on the identity tuple, and both of the null
+// columns below are states the Phase 2 backfill exists to repair (see backfillEcosystemIdentity, whose
+// own SELECT filters on `advisory_id IS NOT NULL`). A dispatch landing in that window must degrade to
+// "no findings matched" rather than throwing or sending a message naming the wrong package.
+describe('notifyForCompletedScan — matching events to findings', function () {
+    // Driven through the raw handle rather than the query layer: no exported mutation can produce these
+    // rows, which is the point — they only exist on a database that has been schema-migrated but not yet
+    // backfilled. apps/worker does not depend on drizzle-orm, so this is also the only SQL seam it has.
+    async function seedEventThenRedispatch(mutate: string): Promise<void> {
+        insertNotificationTarget(db, target())
+        // First pass records the ledger row and dispatches it.
+        await notify(outcome([finding()]))
+        sqlite.exec(mutate)
+        // Undo the dispatch bookkeeping so the same event is selected again on the second pass.
+        sqlite.exec('DELETE FROM notification_deliveries')
+        sqlite.exec('UPDATE notification_events SET first_notified_at = NULL')
+        send.mockClear()
+        await notify(outcome([finding()]))
+    }
+
+    it('skips an event whose advisory id was never backfilled', async function () {
+        await seedEventThenRedispatch('UPDATE notification_events SET advisory_id = NULL')
+
+        expect(send).toHaveBeenCalledTimes(1)
+        expect(send.mock.calls[0]?.[1].webhook.findings).toEqual([])
+    })
+
+    // ecosystem joined the identity tuple in Phase 2, so a legacy row carries NULL there. It falls back
+    // to '' rather than 'npm' on purpose: '' cannot collide with a real ecosystem id, so the row simply
+    // fails to match instead of being attributed to npm's findings.
+    it('does not match a legacy event with no ecosystem against an npm finding', async function () {
+        await seedEventThenRedispatch('UPDATE notification_events SET ecosystem = NULL')
+
+        expect(send).toHaveBeenCalledTimes(1)
+        expect(send.mock.calls[0]?.[1].webhook.findings).toEqual([])
+    })
 })
 
 describe('notifyForCompletedScan — delivery bookkeeping', function () {
