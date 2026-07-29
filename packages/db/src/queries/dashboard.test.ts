@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { sql } from 'drizzle-orm'
 import { sourceEnabledKey } from '@sentinello/core'
 import { openDb } from '../client'
 import type { DrizzleDb, SqliteDb } from '../client'
@@ -13,7 +14,13 @@ import { insertScan } from './scans'
 import { mergeFindingsForScan, type IncomingFinding } from './findings'
 import { insertMute } from './mutes'
 import { upsertFindingEvent } from './notification-events'
-import { getDashboardSummary, listProjectCatalog, listVulnTrendForProject } from './dashboard'
+import { enqueueScanRequest } from './scan-requests'
+import {
+    getDashboardSummary,
+    listCurrentFindingsForProject,
+    listProjectCatalog,
+    listVulnTrendForProject
+} from './dashboard'
 
 // These are the portal's headline numbers, so wrongness here is wrongness an operator acts on: a
 // severity tile that counts muted findings makes accepted risk look unresolved, and one that misses
@@ -407,5 +414,52 @@ describe('listVulnTrendForProject', function () {
         scanProject('project-1', [finding()], { at: T0 + HOUR })
         scanProject('project-2', [finding()], { at: T0 + 2 * HOUR })
         expect(listVulnTrendForProject(db, 'project-1')).toHaveLength(1)
+    })
+})
+
+// "Last scan" must not tick upward while a user-triggered sweep is running: the projects finish
+// one-by-one, so an unfrozen MAX(finished_at) would advance several times during a single sweep and
+// read as several separate scans. The freeze applies only to request-driven sweeps — a scheduled one
+// writes no scan_requests row, and nobody is watching the number for it.
+describe('getDashboardSummary — the in-flight scan freeze', function () {
+    it('reports the newest scan when nothing is in flight', function () {
+        scanProject('project-1', [finding()], { at: T0 + HOUR })
+        scanProject('project-1', [finding()], { at: T0 + 2 * HOUR })
+
+        expect(getDashboardSummary(db, T0 + DAY).lastScanFinishedAt).toBe(T0 + 2 * HOUR)
+    })
+
+    it('freezes at the last scan that finished before a pending request was queued', function () {
+        scanProject('project-1', [finding()], { at: T0 + HOUR })
+        enqueueScanRequest(db, { projectId: 'project-1' }, T0 + 90 * 60_000)
+        // Finished after the request was queued: part of the sweep the operator is waiting on.
+        scanProject('project-1', [finding()], { at: T0 + 2 * HOUR })
+
+        expect(getDashboardSummary(db, T0 + DAY).lastScanFinishedAt).toBe(T0 + HOUR)
+    })
+
+    // A 'running' request only freezes the number while its heartbeat is fresh. A worker that died
+    // mid-sweep leaves the row behind forever, and honouring it would pin "Last scan" to a stale
+    // timestamp until someone noticed.
+    it('ignores a running request whose heartbeat has gone stale', function () {
+        scanProject('project-1', [finding()], { at: T0 + HOUR })
+        const request = enqueueScanRequest(db, { projectId: 'project-1' }, T0 + 90 * 60_000)
+        db.run(sql`UPDATE scan_requests SET status = 'running', heartbeat_at = ${T0} WHERE id = ${request.id}`)
+        scanProject('project-1', [finding()], { at: T0 + 2 * HOUR })
+
+        expect(getDashboardSummary(db, T0 + DAY).lastScanFinishedAt).toBe(T0 + 2 * HOUR)
+    })
+})
+
+describe('listCurrentFindingsForProject', function () {
+    // Same pre-backfill window as the library pivot: findings.source is null between the Phase 2 schema
+    // migration and the boot backfill, and the project page must still name a source in that window.
+    it('falls back to the scanner name when a legacy row has no source', function () {
+        scanProject('project-1', [finding()])
+        db.run(sql`UPDATE findings SET source = NULL`)
+
+        const rows = listCurrentFindingsForProject(db, 'project-1', T0 + DAY)
+        expect(rows).toHaveLength(1)
+        expect(rows[0]?.source).toBe('npm-audit')
     })
 })

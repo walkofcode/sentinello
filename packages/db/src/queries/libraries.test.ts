@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { sql } from 'drizzle-orm'
 import { sourceEnabledKey } from '@sentinello/core'
 import { openDb } from '../client'
 import type { DrizzleDb, SqliteDb } from '../client'
@@ -364,5 +365,22 @@ describe('listLibraryUsage', function () {
         scanProject('project-1', [finding({ isProd: false, isDev: true })])
         expect(listLibraryUsage(db, 'lodash', AT, 'prod')).toEqual([])
         expect(listLibraryUsage(db, 'lodash', AT, 'dev')).toHaveLength(1)
+    })
+
+    // findings.source is nullable purely for the window between the Phase 2 schema migration and the
+    // boot backfill that sets source = scanner (see backfillEcosystemIdentity). Two separate COALESCEs
+    // have to hold for such a row to appear correctly, and this pins both: the one in
+    // activeSourceCellClause, without which the row fails the source-cell filter and vanishes, and the
+    // one in this query's own SELECT, without which it surfaces with a null source.
+    //
+    // It does NOT reach the `row.source ?? row.scanner` fallback in the mapper below — the SELECT has
+    // already coalesced by the time the row gets there, which is why that arm is permanently uncovered.
+    it('falls back to the scanner name when a legacy row has no source', function () {
+        scanProject('project-1', [finding()])
+        db.run(sql`UPDATE findings SET source = NULL`)
+
+        const usage = listLibraryUsage(db, 'lodash', AT)
+        expect(usage).toHaveLength(1)
+        expect(usage[0]?.source).toBe('npm-audit')
     })
 })

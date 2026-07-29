@@ -348,6 +348,19 @@ describe('mergeFindingsForScan — collapsing duplicates', function () {
         expect(result.active[0]?.id).toBe('dup-dated')
     })
 
+    // The mirror of the case above, with the undated row arriving second. Both orderings have to reach
+    // the same winner: the comparison reads a null date as "newest", so whichever side it lands on it
+    // must lose to a real date. Only testing one order would pass with the fallback applied to just one
+    // operand, which is the shape the bug would actually take.
+    it('prefers a dated row when the undated one arrives second', function () {
+        insertLegacyRow({ id: 'dup-dated', first_detected_at: T0 })
+        insertLegacyRow({ id: 'dup-undated', first_detected_at: null })
+
+        const result = merge('scan-1', T0 + HOUR, [incoming('GHSA-legacy', { scanner: 'npm-audit', source: 'npm-audit' })], 'npm-audit')
+
+        expect(result.active[0]?.id).toBe('dup-dated')
+    })
+
     // ULIDs are chronological, so the smaller id is the older row.
     it('breaks a firstDetectedAt tie on the id', function () {
         insertLegacyRow({ id: 'bbbb', first_detected_at: T0 })
