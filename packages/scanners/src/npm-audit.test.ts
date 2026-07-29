@@ -444,3 +444,403 @@ describe('createNpmAuditScanner', function () {
         expect(calls).toHaveLength(1)
     })
 })
+
+describe('the lockfile snapshot', function () {
+    // The snapshot supplies the installed version for each finding, which is what the lockfile
+    // cross-check later compares against the advisory's vulnerable range. Every failure below has to
+    // degrade to an empty map rather than throw: a scan that cannot read the lockfile should still
+    // report what npm-audit said, just without the version-based filtering.
+    it.each([
+        ['a lockfile that cannot be read', 'package-lock.json', undefined],
+        ['invalid JSON', 'package-lock.json', '{not json'],
+        ['a shape the schema rejects', 'package-lock.json', JSON.stringify({ packages: 'not an object' })]
+    ])('still audits with %s', async function (_label, lock, body) {
+        const { deps } = fakeSpawn({ stdout: MODERN_AUDIT })
+        const path = await project(lock as 'package-lock.json')
+        if (body === undefined) {
+            // A directory where the file should be: readFile throws EISDIR.
+            await rm(join(path, 'package-lock.json'))
+            await mkdir(join(path, 'package-lock.json'))
+        } else {
+            await writeFile(join(path, 'package-lock.json'), body as string, 'utf8')
+        }
+
+        const result = await runNpmAudit(path, ctx(), deps)
+
+        expect(result.status).toBe('ok')
+    })
+
+    // pnpm and yarn locks are not parsed for a snapshot at all — only package-lock.json is — so the
+    // cross-check is skipped for them rather than run against nothing.
+    it('reads no snapshot from a pnpm lockfile', async function () {
+        const { deps } = fakeSpawn({ stdout: PNPM_AUDIT })
+        expect((await runNpmAudit(await project('pnpm-lock.yaml'), ctx(), deps)).status).toBe('ok')
+    })
+
+    it('skips the root "" key and entries with no version', async function () {
+        const { deps } = fakeSpawn({ stdout: MODERN_AUDIT })
+        const path = await project('package-lock.json')
+        await writeFile(join(path, 'package-lock.json'), JSON.stringify({
+            name: 'fixture',
+            lockfileVersion: 3,
+            packages: {
+                // The root project entry has no version and must not be indexed as a package.
+                '': { name: 'fixture' },
+                'node_modules/no-version': {},
+                'node_modules/lodash': { version: '4.17.11' }
+            }
+        }), 'utf8')
+
+        const result = await runNpmAudit(path, ctx(), deps)
+
+        expect(result.status).toBe('ok')
+        expect(result.findings[0]?.installedVersion).toBe('4.17.11')
+    })
+})
+
+describe('the dependency classifier', function () {
+    // Every finding is labelled prod, dev or both, and that label drives the portal's default filter
+    // and the notification env scope. When the resolver graph is available it is authoritative; the
+    // package.json fallback below only runs for lockfiles that have no resolver (yarn, or an
+    // unparseable one).
+    async function auditWith(manifest: Record<string, unknown>, resolvedGraph?: unknown) {
+        const { deps } = fakeSpawn({ stdout: MODERN_AUDIT })
+        const path = await project('package-lock.json')
+        await writeFile(join(path, 'package.json'), JSON.stringify(manifest), 'utf8')
+        return runNpmAudit(path, ctx({ resolvedGraph }), deps)
+    }
+
+    it.each([
+        ['a direct dependency', { dependencies: { lodash: '^4' } }],
+        ['an optional dependency', { optionalDependencies: { lodash: '^4' } }],
+        ['a peer dependency', { peerDependencies: { lodash: '^4' } }]
+    ])('treats %s as production', async function (_label, manifest) {
+        const result = await auditWith({ name: 'f', ...(manifest as object) })
+        expect(result.findings[0]).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    it('treats a devDependency as dev only', async function () {
+        const result = await auditWith({ name: 'f', devDependencies: { lodash: '^4' } })
+        expect(result.findings[0]).toMatchObject({ isProd: false, isDev: true })
+    })
+
+    // Both lists name it, so production wins: shipping to production is the more severe claim, and
+    // labelling it dev-only would hide it behind the portal's default filter.
+    it('resolves a package in both lists as production', async function () {
+        const result = await auditWith({ name: 'f', dependencies: { lodash: '^4' }, devDependencies: { lodash: '^4' } })
+        expect(result.findings[0]).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    // The safe default. A package no signal can place stays visible rather than being filed as dev
+    // tooling and dropped from the default view — a transitive nobody declared is still shipping.
+    it('defaults an unplaceable package to production', async function () {
+        const result = await auditWith({ name: 'f' })
+        expect(result.findings[0]).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    it.each([
+        ['an unparseable package.json', '{not json'],
+        ['a package.json that is not an object', '"a string"']
+    ])('falls through to the default with %s', async function (_label, body) {
+        const { deps } = fakeSpawn({ stdout: MODERN_AUDIT })
+        const path = await project('package-lock.json')
+        await writeFile(join(path, 'package.json'), body as string, 'utf8')
+
+        const result = await runNpmAudit(path, ctx(), deps)
+
+        expect(result.findings[0]).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    // The resolver graph wins outright when present — it knows the whole tree, where package.json
+    // only knows the direct dependencies. Here it contradicts the manifest and must still be obeyed.
+    it('prefers the resolver graph over the package.json fallback', async function () {
+        const graph = {
+            classify: function classify() {
+                return { isProd: false, isDev: true }
+            }
+        }
+        const result = await auditWith({ name: 'f', dependencies: { lodash: '^4' } }, graph)
+        expect(result.findings[0]).toMatchObject({ isProd: false, isDev: true })
+    })
+})
+
+describe('detecting the yarn major from the lockfile', function () {
+    // packageManager in package.json is the preferred signal; these are the fallbacks for a repo that
+    // does not set it. Getting this wrong in the permissive direction is the dangerous one: yarn 1's
+    // audit JSON is a completely different shape, so auditing it silently mis-parses.
+    async function yarnProject(lockBody: string, manifest?: string): Promise<string> {
+        const path = await project('yarn.lock')
+        await writeFile(join(path, 'yarn.lock'), lockBody, 'utf8')
+        if (manifest !== undefined) await writeFile(join(path, 'package.json'), manifest, 'utf8')
+        return path
+    }
+
+    it('reads yarn 1 from the classic lockfile banner', async function () {
+        const { deps } = fakeSpawn({ stdout: MODERN_AUDIT })
+        const path = await yarnProject('# yarn lockfile v1\n\n\nlodash@^4:\n  version "4.17.11"\n', JSON.stringify({ name: 'f' }))
+        expect(await runNpmAudit(path, ctx(), deps)).toMatchObject({ reasonCode: 'yarn_v1_unsupported' })
+    })
+
+    it('reads yarn berry from the __metadata block', async function () {
+        const { deps } = fakeSpawn({ stdout: MODERN_AUDIT })
+        const path = await yarnProject('__metadata:\n  version: 8\n', JSON.stringify({ name: 'f' }))
+        expect((await runNpmAudit(path, ctx(), deps)).status).toBe('ok')
+    })
+
+    // __metadata is matched anywhere in the file, not just the first line, because berry writes a
+    // comment header above it.
+    it('finds __metadata below a comment header', async function () {
+        const { deps } = fakeSpawn({ stdout: MODERN_AUDIT })
+        const path = await yarnProject('# This file is generated by running "yarn install"\n\n__metadata:\n  version: 8\n', JSON.stringify({ name: 'f' }))
+        expect((await runNpmAudit(path, ctx(), deps)).status).toBe('ok')
+    })
+
+    // Neither signal present: refuse rather than guess, since guessing wrong on a yarn 1 lock means
+    // parsing the wrong JSON shape and reporting nonsense.
+    it('refuses when neither package.json nor the lockfile says', async function () {
+        const { deps } = fakeSpawn({ stdout: MODERN_AUDIT })
+        const path = await yarnProject('some: yaml\n', JSON.stringify({ name: 'f' }))
+        expect(await runNpmAudit(path, ctx(), deps)).toMatchObject({ reasonCode: 'unknown_pm' })
+    })
+
+    it('falls back to the lockfile when package.json cannot be parsed', async function () {
+        const { deps } = fakeSpawn({ stdout: MODERN_AUDIT })
+        const path = await yarnProject('__metadata:\n  version: 8\n', '{not json')
+        expect((await runNpmAudit(path, ctx(), deps)).status).toBe('ok')
+    })
+
+    it('reports unknown_pm when the lockfile itself cannot be read', async function () {
+        const { deps } = fakeSpawn({ stdout: MODERN_AUDIT })
+        const path = await project('yarn.lock')
+        await writeFile(join(path, 'package.json'), '{not json', 'utf8')
+        await rm(join(path, 'yarn.lock'))
+        await mkdir(join(path, 'yarn.lock'))
+        expect(await runNpmAudit(path, ctx(), deps)).toMatchObject({ reasonCode: 'unknown_pm' })
+    })
+})
+
+describe('the .nvmrc read', function () {
+    it('ignores a blank .nvmrc rather than wrapping for an empty version', async function () {
+        const { deps, calls } = fakeSpawn({ stdout: MODERN_AUDIT })
+        const path = await project('package-lock.json', { '.nvmrc': '   \n' })
+        await runNpmAudit(path, ctx({ useNvm: true }), deps)
+        expect(calls[0]?.cmd).not.toBe('bash')
+    })
+
+    // A directory named .nvmrc: fileExists says yes, readFile then throws. Both halves have to
+    // degrade to "no nvmrc" rather than failing the scan.
+    it('ignores an unreadable .nvmrc', async function () {
+        const { deps, calls } = fakeSpawn({ stdout: MODERN_AUDIT })
+        const path = await project('package-lock.json')
+        await mkdir(join(path, '.nvmrc'))
+        await runNpmAudit(path, ctx({ useNvm: true }), deps)
+        expect(calls[0]?.cmd).not.toBe('bash')
+    })
+})
+
+describe('spawn failures that mean different things to an operator', function () {
+    // Both are ENOENT, and they need completely different advice: pm_missing means "install pnpm",
+    // bash_missing means the nvm wrapper cannot run at all. Reporting one as the other sends the
+    // operator to fix the wrong thing.
+    it('reports a missing package manager as pm_missing', async function () {
+        const { deps } = fakeSpawn({ error: new Error('spawn pnpm ENOENT') })
+        expect(await runNpmAudit(await project('pnpm-lock.yaml'), ctx(), deps)).toMatchObject({
+            status: 'unauditable',
+            reasonCode: 'pm_missing'
+        })
+    })
+
+    it('reports a missing bash as bash_missing when the nvm wrapper is in play', async function () {
+        const { deps } = fakeSpawn({ error: new Error('spawn bash ENOENT') })
+        const path = await project('package-lock.json', { '.nvmrc': '18.0.0' })
+        expect(await runNpmAudit(path, ctx({ useNvm: true }), deps)).toMatchObject({
+            status: 'error',
+            reasonCode: 'bash_missing'
+        })
+    })
+
+    it('reports any other spawn error distinctly', async function () {
+        const { deps } = fakeSpawn({ error: new Error('EACCES permission denied') })
+        expect(await runNpmAudit(await project('package-lock.json'), ctx(), deps)).toMatchObject({
+            reasonCode: 'audit_spawn_error'
+        })
+    })
+
+    it('tolerates a spawn error with no message', async function () {
+        const { deps } = fakeSpawn({ error: new Error('') })
+        expect(await runNpmAudit(await project('package-lock.json'), ctx(), deps)).toMatchObject({
+            reasonCode: 'audit_spawn_error'
+        })
+    })
+})
+
+describe('the cross-check drop log', function () {
+    // Written to stderr, not stdout, because stdout carries the advisory document a user may pipe
+    // straight into an agent. Silent when nothing was dropped, so quiet scans stay quiet.
+    function stderrLines(): string[] {
+        return vi.mocked(process.stderr.write).mock.calls.map(function first(c) { return String(c[0]) })
+    }
+
+    it('says nothing when the cross-check dropped nothing', async function () {
+        const { deps } = fakeSpawn({ stdout: MODERN_AUDIT })
+        await runNpmAudit(await project('package-lock.json'), ctx(), deps)
+        expect(stderrLines().some(function m(l) { return l.includes('lockfile cross-check') })).toBe(false)
+    })
+
+    // The installed version sits outside the advisory's range, so npm-audit reported a package that
+    // an override has already fixed. Dropping it silently would be worse than not dropping it.
+    it('names the dropped advisory when one is filtered out', async function () {
+        const audit = JSON.stringify({
+            vulnerabilities: {
+                lodash: {
+                    name: 'lodash',
+                    severity: 'high',
+                    isDirect: true,
+                    via: [{ source: 1234, name: 'lodash', title: 'Prototype pollution', url: 'https://example.test/1234', severity: 'high', range: '<4.17.21' }],
+                    effects: [],
+                    range: '<4.17.21',
+                    nodes: ['node_modules/lodash'],
+                    fixAvailable: false
+                }
+            }
+        })
+        const { deps } = fakeSpawn({ stdout: audit })
+        const path = await project('package-lock.json')
+        await writeFile(join(path, 'package-lock.json'), JSON.stringify({
+            name: 'fixture',
+            lockfileVersion: 3,
+            // Already past the vulnerable range — an override upgraded it.
+            packages: { '': { name: 'fixture' }, 'node_modules/lodash': { version: '4.17.21' } }
+        }), 'utf8')
+
+        const result = await runNpmAudit(path, ctx(), deps)
+
+        expect(result.findings).toHaveLength(0)
+        expect(stderrLines().some(function m(l) { return l.includes('lockfile cross-check') && l.includes('1234') })).toBe(true)
+    })
+})
+
+describe('nvm wrapper failures', function () {
+    // When the wrapper fails there is no audit JSON at all, only bash/nvm stderr, and every one of
+    // these reads as "the scan produced nothing" unless it is classified. The distinction the
+    // operator needs is whose problem it is: nvm_missing is theirs to install, nvm_install_failed is
+    // an upstream Node version or download that will not resolve itself.
+    async function wrappedFailure(stderr: string) {
+        const { deps } = fakeSpawn({ stderr, exitCode: 1 })
+        const path = await project('package-lock.json', { '.nvmrc': '18.0.0' })
+        return runNpmAudit(path, ctx({ useNvm: true }), deps)
+    }
+
+    it.each([
+        ['nvm.sh is absent', 'bash: /home/app/.nvm/nvm.sh: No such file or directory'],
+        ['nvm is not a command', 'bash: line 1: nvm: command not found']
+    ])('reports %s as unauditable, not an error', async function (_label, stderr) {
+        expect(await wrappedFailure(stderr as string)).toMatchObject({
+            status: 'unauditable',
+            reasonCode: 'nvm_missing'
+        })
+    })
+
+    it.each([
+        ['an unreleased Node version', 'Version "v18.99.99" not found - try `nvm ls-remote` to browse available versions.'],
+        ['a failed download', 'Binary download failed, trying source.'],
+        ['an install that did not take', 'N/A: version "v18.0.0 -> N/A" is not yet installed.']
+    ])('reports %s as an install error', async function (_label, stderr) {
+        expect(await wrappedFailure(stderr as string)).toMatchObject({
+            status: 'error',
+            reasonCode: 'nvm_install_failed'
+        })
+    })
+
+    // The package manager is missing INSIDE the freshly installed Node, which is a different fix
+    // from "pnpm is not on the host PATH" — corepack or a global install in the new version.
+    it('reports a package manager missing after the nvm install', async function () {
+        const { deps } = fakeSpawn({ stderr: 'bash: line 2: pnpm: command not found', exitCode: 127 })
+        const path = await project('pnpm-lock.yaml', { '.nvmrc': '18.0.0' })
+        expect(await runNpmAudit(path, ctx({ useNvm: true }), deps)).toMatchObject({
+            status: 'unauditable',
+            reasonCode: 'pm_missing'
+        })
+    })
+
+    // Unrecognised stderr still has to say something specific rather than falling through to a bare
+    // "empty output", and it is truncated because bash can emit a great deal of it.
+    it('quotes the first stderr line for an unrecognised wrapper failure', async function () {
+        const result = await wrappedFailure('something entirely unexpected\nand a second line')
+        expect(result).toMatchObject({ status: 'error', reasonCode: 'audit_unknown_failure' })
+        expect(result.errorText).toContain('something entirely unexpected')
+        expect(result.errorText).not.toContain('second line')
+    })
+
+    // Only when there is NO audit output. A wrapper that exits non-zero but still produced JSON has
+    // done its job — npm audit exits 1 whenever it finds anything at all.
+    it('ignores a non-zero exit when the wrapper still produced audit JSON', async function () {
+        const { deps } = fakeSpawn({ stdout: MODERN_AUDIT, stderr: 'nvm: command not found', exitCode: 1 })
+        const path = await project('package-lock.json', { '.nvmrc': '18.0.0' })
+        expect((await runNpmAudit(path, ctx({ useNvm: true }), deps)).status).toBe('ok')
+    })
+})
+
+describe('a vulnerability with no concrete advisory', function () {
+    // npm-audit's `via` can hold plain strings (naming another vulnerable package) instead of
+    // advisory objects. A report made entirely of those has told us a package is affected but not by
+    // what, which is not something the portal can display, dedupe or link — so it is an error rather
+    // than a silent zero-finding pass.
+    it('reports audit_no_advisories rather than a clean scan', async function () {
+        const audit = JSON.stringify({
+            vulnerabilities: {
+                lodash: {
+                    name: 'lodash',
+                    severity: 'high',
+                    isDirect: false,
+                    via: ['some-other-package'],
+                    effects: [],
+                    range: '<4.17.21',
+                    nodes: ['node_modules/lodash'],
+                    fixAvailable: false
+                }
+            }
+        })
+        const { deps } = fakeSpawn({ stdout: audit })
+
+        expect(await runNpmAudit(await project('package-lock.json'), ctx(), deps)).toMatchObject({
+            status: 'error',
+            reasonCode: 'audit_no_advisories'
+        })
+    })
+
+    // The mixed case must NOT error: one concrete advisory is enough to report, and failing the whole
+    // scan because a sibling entry was indirect would lose a real finding.
+    it('keeps a concrete advisory alongside an indirect one', async function () {
+        const audit = JSON.stringify({
+            vulnerabilities: {
+                lodash: {
+                    name: 'lodash',
+                    severity: 'high',
+                    isDirect: true,
+                    via: [{ source: 1234, name: 'lodash', title: 'Prototype pollution', url: 'https://example.test/1234', severity: 'high', range: '<4.17.21' }],
+                    effects: [],
+                    range: '<4.17.21',
+                    nodes: ['node_modules/lodash'],
+                    fixAvailable: false
+                },
+                other: {
+                    name: 'other',
+                    severity: 'high',
+                    isDirect: false,
+                    via: ['lodash'],
+                    effects: [],
+                    range: '*',
+                    nodes: ['node_modules/other'],
+                    fixAvailable: false
+                }
+            }
+        })
+        const { deps } = fakeSpawn({ stdout: audit })
+
+        const result = await runNpmAudit(await project('package-lock.json'), ctx(), deps)
+
+        expect(result.status).toBe('ok')
+        expect(result.findings).toHaveLength(1)
+    })
+})
