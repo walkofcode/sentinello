@@ -63,7 +63,8 @@ function finding(overrides: Partial<Finding> = {}): Finding {
         vulnerableRange: '<4.17.21',
         isProd: true,
         isDev: false,
-        depPath: ['lodash']
+        depPath: ['lodash'],
+        ...overrides
     } as unknown as Finding
 }
 
