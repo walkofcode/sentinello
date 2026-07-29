@@ -191,6 +191,61 @@ snapshots:
         expect(graph?.byName('a')[0]?.depPaths).toHaveLength(2)
     })
 
+    // Collapsing peer variants unions their scope, and optionality is the one field that unions the
+    // other way: a package is only optional if EVERY variant is. One required variant makes the whole
+    // row required, because a build that needs it will fail without it.
+    it('treats a collapsed package as required when any variant is required', async function () {
+        const text = `lockfileVersion: '9.0'
+
+importers:
+  .:
+    dependencies:
+      a:
+        version: 1.0.0
+
+snapshots:
+  a@1.0.0: {}
+  a@1.0.0(react@18.0.0):
+    optional: true
+`
+        const graph = await parsePnpmLock(await write(text))
+        expect(graph?.byName('a')).toHaveLength(1)
+        expect(graph?.byName('a')[0]?.scope.isOptional).toBe(false)
+    })
+
+    // A key with a name and no version cannot be matched against anything, so it contributes no
+    // package rather than one at version "" — which would look clean against every advisory.
+    it('skips a snapshot key with an empty version', async function () {
+        const text = `lockfileVersion: '9.0'
+
+importers:
+  .:
+    dependencies:
+      a:
+        version: 1.0.0
+
+snapshots:
+  'a@': {}
+  a@1.0.0: {}
+`
+        const graph = await parsePnpmLock(await write(text))
+        expect(graph?.packages).toHaveLength(1)
+        expect(graph?.packages[0]?.version).toBe('1.0.0')
+    })
+
+    // A v9 lock with no importers block at all: nothing is reachable, so every snapshot is present
+    // but attributed to neither prod nor dev rather than defaulting to prod.
+    it('reads a lock with no importers block', async function () {
+        const text = `lockfileVersion: '9.0'
+
+snapshots:
+  a@1.0.0: {}
+`
+        const graph = await parsePnpmLock(await write(text))
+        expect(graph?.byName('a')).toHaveLength(1)
+        expect(graph?.byName('a')[0]?.scope).toMatchObject({ isProd: false, isDev: false })
+    })
+
     it('handles a scoped package key', async function () {
         const text = `lockfileVersion: '9.0'
 

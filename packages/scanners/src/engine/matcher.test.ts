@@ -37,6 +37,24 @@ function range(introduced: string, fixed: string | null, overrides: Partial<Cano
     return { type: 'SEMVER', introduced, fixed, ...overrides }
 }
 
+// A lower bound that is not a version at all cannot bound anything. Skipping the range beats
+// treating it as 0, which would flag every installed version of the package as vulnerable.
+describe('matchAdvisories — unusable range bounds', function () {
+    it('skips a range whose introduced bound cannot be normalized', function () {
+        const adv = advisory('GHSA-1', {
+            affected: { ranges: [range('not-a-version', '2.0.0')], exactVersions: [] }
+        })
+        expect(match([pkg('lodash', '1.0.0')], [adv])).toEqual([])
+    })
+
+    it('still matches a usable range alongside an unusable one', function () {
+        const adv = advisory('GHSA-1', {
+            affected: { ranges: [range('not-a-version', '2.0.0'), range('0', '2.0.0')], exactVersions: [] }
+        })
+        expect(match([pkg('lodash', '1.0.0')], [adv])).toHaveLength(1)
+    })
+})
+
 function match(packages: ResolvedPackage[], advisories: CanonicalAdvisory[], acceptedTypes?: string[]) {
     const byPackage = new Map<string, CanonicalAdvisory[]>()
     for (const adv of advisories) {

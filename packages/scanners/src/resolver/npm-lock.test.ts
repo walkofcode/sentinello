@@ -100,7 +100,15 @@ describe('parseNpmLock package extraction', function () {
         ['node_modules/@scope/pkg', '@scope/pkg'],
         ['node_modules/a/node_modules/b', 'b'],
         ['node_modules/a/node_modules/@scope/b', '@scope/b'],
-        ['packages/app/node_modules/dep', 'dep']
+        ['packages/app/node_modules/dep', 'dep'],
+        // A scope with nothing after it. The slash-scan finds no separator, so the whole tail is the
+        // name — malformed, but it must not read past the end of the string.
+        ['node_modules/@scope', '@scope'],
+        // Anything below the package directory is not part of the name. Both the scoped and the
+        // unscoped spelling have to stop at the right separator: the scoped one at the SECOND slash,
+        // the unscoped one at the first. Swapping them yields "@scope" and "" respectively.
+        ['node_modules/@scope/pkg/lib/index.js', '@scope/pkg'],
+        ['node_modules/pkg/lib/index.js', 'pkg']
     ] as Array<[string, string]>)('derives %s as %s', async function (nodePath, expected) {
         const graph = await parseNpmLock(dir, await writeLock({ packages: { [nodePath]: { version: '1.0.0' } } }))
         expect(graph?.packages[0]?.name).toBe(expected)
@@ -108,6 +116,13 @@ describe('parseNpmLock package extraction', function () {
 
     it('skips a node path with no node_modules segment', async function () {
         const graph = await parseNpmLock(dir, await writeLock({ packages: { 'packages/app': { version: '1.0.0' } } }))
+        expect(graph?.packages).toEqual([])
+    })
+
+    // A trailing marker names no package at all. Skipping beats deriving the empty string, which
+    // would key a phantom package that matches every advisory lookup for "".
+    it('skips a node path that ends at the node_modules marker', async function () {
+        const graph = await parseNpmLock(dir, await writeLock({ packages: { 'node_modules/': { version: '1.0.0' } } }))
         expect(graph?.packages).toEqual([])
     })
 

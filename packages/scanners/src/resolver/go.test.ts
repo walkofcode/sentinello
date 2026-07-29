@@ -155,6 +155,15 @@ golang.org/x/text v0.14.0 h1:ghi=
         expect(result.status).toBe('unauditable')
     })
 
+    // Stripping `/go.mod` from a version field that is nothing else leaves an empty version. The
+    // module has to be dropped rather than recorded at version "", which would key a cache lookup
+    // that can never match and report the module as clean.
+    it('drops a module whose version is only the /go.mod marker', async function () {
+        const text = 'github.com/a/b /go.mod h1:abc=\ngolang.org/x/text v0.14.0 h1:ghi=\n'
+        const result = await parseGoMod('go.sum', await write('go.sum', text))
+        expect(names(result).sort()).toEqual(['golang.org/x/text'])
+    })
+
     it('is still classified partial', async function () {
         const result = await parseGoMod('go.sum', await write('go.sum', GO_SUM))
         expect(result.status).toBe('partial')

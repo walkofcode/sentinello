@@ -178,6 +178,14 @@ describe('pep440Comparator ordering', function () {
         expect(pep440Comparator.lt('1.0+abc', '1.0+abc.1')).toBe(true)
     })
 
+    // Equal numeric segments must fall through to the next position rather than deciding the
+    // comparison. Returning early on the first pair would make every local version that shares a
+    // leading segment compare as equal.
+    it('moves past equal numeric local segments to the next one', function () {
+        expect(pep440Comparator.lt('1.0+1.2', '1.0+1.3')).toBe(true)
+        expect(pep440Comparator.lt('1.0+1.3', '1.0+1.2')).toBe(false)
+    })
+
     it('orders an epoch above everything in a lower epoch', function () {
         expect(pep440Comparator.lt('999.0', '1!0.1')).toBe(true)
     })

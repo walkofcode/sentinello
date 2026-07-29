@@ -178,8 +178,15 @@ describe('parsePythonLock Pipfile.lock', function () {
         expect(result.status === 'partial' && result.details.join(' ')).toContain('1 Pipfile.lock')
     })
 
-    it.each(['==1.2.*', '>=1.0', '', '~=1.0'])('treats the version %j as unpinned', async function (version) {
+    it.each(['==1.2.*', '>=1.0', '', '~=1.0', '===', '=='])('treats the version %j as unpinned', async function (version) {
         const text = JSON.stringify({ default: { a: { version: '==1.0.0' }, b: { version } } })
+        expect(names(await parse('Pipfile.lock', text))).toEqual(['a'])
+    })
+
+    // pipenv writes a bare entry for a package it resolved but did not pin. There is no version
+    // string to read at all, which is a different shape from a version string that fails to parse.
+    it.each([null, {}, { version: 42 }] as unknown[])('treats the entry %j as unpinned', async function (entry) {
+        const text = JSON.stringify({ default: { a: { version: '==1.0.0' }, b: entry } })
         expect(names(await parse('Pipfile.lock', text))).toEqual(['a'])
     })
 
