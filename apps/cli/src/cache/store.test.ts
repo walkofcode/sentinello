@@ -238,3 +238,168 @@ describe('corrupt cache handling', function () {
         await expect(readRowsForPackages<Row>(path, new Set(['a']))).rejects.toThrow()
     })
 })
+
+describe('backpressure and streaming failures', function () {
+    // The writer streams into gzip rather than buffering: the npm advisory set is ~6 MB compressed
+    // and several times that in memory, so a rows-in-memory implementation is the thing this design
+    // exists to avoid. That makes drain handling load-bearing rather than theoretical.
+    it('handles a write large enough to need a drain', async function () {
+        const rows: Row[] = []
+        for (let i = 0; i < 20_000; i++) {
+            rows.push(row('pkg-' + i, 'GHSA-' + i, { severity: 'high' }))
+        }
+
+        const written = await writeRows(rows)
+
+        expect(written).toBe(20_000)
+        expect(await countRows(path)).toBe(20_000)
+    })
+
+    it('reads back a row from the far end of a drained write', async function () {
+        const rows: Row[] = []
+        for (let i = 0; i < 20_000; i++) {
+            rows.push(row('pkg-' + i, 'GHSA-' + i, { severity: 'high' }))
+        }
+        await writeRows(rows)
+
+        const found = await readRowsForPackages<Row>(path, new Set(['pkg-19999']))
+
+        expect(found.get('pkg-19999')).toEqual([{ packageName: 'pkg-19999', advisoryId: 'GHSA-19999', severity: 'high' }])
+    })
+
+    // A downstream failure rejects the pipeline. It is captured rather than left to become an
+    // unhandled rejection, and re-thrown from the next write — so the caller sees the real error at
+    // a point it can act on, instead of the process dying.
+    it('surfaces a pipeline failure from the next write rather than crashing', async function () {
+        const writer = createRowWriter(join(dir, 'no', 'such', 'dir', 'out.ndjson.gz'))
+
+        // The first write may or may not have observed the failure yet; the sequence as a whole must
+        // reject rather than resolve, and must not leave an unhandled rejection behind.
+        await expect((async function attempt() {
+            await writer.write([row('lodash', 'GHSA-1')])
+            await writer.write([row('axios', 'GHSA-2')])
+            await writer.commit()
+        })()).rejects.toThrow()
+    })
+
+    it('writes nothing for an empty batch', async function () {
+        const writer = createRowWriter(path)
+        await writer.write([])
+        await writer.writeRaw([])
+        expect(await writer.commit()).toBe(0)
+        expect(await countRows(path)).toBe(0)
+    })
+})
+
+describe('readRowsForPackages — the skipped lines', function () {
+    // Every read filters by package name as a string slice before parsing any JSON, so the field
+    // scanning has its own set of malformed-line cases that never reach safeParse.
+    async function writeRaw(lines: string[]): Promise<void> {
+        const { gzipSync } = await import('node:zlib')
+        await writeFile(path, gzipSync(Buffer.from(lines.join('\n') + '\n', 'utf8')))
+    }
+
+    it('returns an empty map for an empty query rather than reading the file', async function () {
+        await writeRows([row('lodash', 'GHSA-1')])
+        expect(await readRowsForPackages<Row>(path, new Set())).toEqual(new Map())
+    })
+
+    it('returns an empty map when the cache file is absent', async function () {
+        expect(await readRowsForPackages<Row>(join(dir, 'absent.ndjson.gz'), new Set(['lodash']))).toEqual(new Map())
+    })
+
+    it('skips a line with no field separator at all', async function () {
+        await writeRaw(['garbage with no tabs', 'lodash\tGHSA-1\t{"packageName":"lodash","advisoryId":"GHSA-1"}'])
+        const found = await readRowsForPackages<Row>(path, new Set(['lodash']))
+        expect(found.get('lodash')).toHaveLength(1)
+    })
+
+    // The name separator belongs to a LATER line — i.e. this line has none of its own. Scanning has
+    // to notice that the separator it found is past the line end rather than treating the rest of
+    // the file as this line's payload.
+    it('skips a line whose only separator belongs to the next line', async function () {
+        await writeRaw(['no-separator-here', 'lodash\tGHSA-1\t{"packageName":"lodash","advisoryId":"GHSA-1"}'])
+        expect((await readRowsForPackages<Row>(path, new Set(['lodash']))).get('lodash')).toHaveLength(1)
+    })
+
+    it('skips a matching line with no second separator', async function () {
+        await writeRaw(['lodash\tGHSA-1', 'lodash\tGHSA-2\t{"packageName":"lodash","advisoryId":"GHSA-2"}'])
+        const found = await readRowsForPackages<Row>(path, new Set(['lodash']))
+        expect(found.get('lodash')?.map(function id(r) { return r.advisoryId })).toEqual(['GHSA-2'])
+    })
+
+    it('skips a matching line whose JSON does not parse', async function () {
+        await writeRaw(['lodash\tGHSA-1\t{not json', 'lodash\tGHSA-2\t{"packageName":"lodash","advisoryId":"GHSA-2"}'])
+        const found = await readRowsForPackages<Row>(path, new Set(['lodash']))
+        expect(found.get('lodash')?.map(function id(r) { return r.advisoryId })).toEqual(['GHSA-2'])
+    })
+
+    // Several advisories for one package accumulate into the same array rather than the last
+    // overwriting the first — this is the list-vs-create branch of the result map.
+    it('accumulates several advisories under one package name', async function () {
+        await writeRows([row('lodash', 'GHSA-1'), row('lodash', 'GHSA-2'), row('lodash', 'GHSA-3')])
+        const found = await readRowsForPackages<Row>(path, new Set(['lodash']))
+        expect(found.get('lodash')?.map(function id(r) { return r.advisoryId })).toEqual(['GHSA-1', 'GHSA-2', 'GHSA-3'])
+    })
+
+    // A final line with no trailing separator must still be read, not dropped.
+    it('reads a final line with no trailing newline', async function () {
+        const { gzipSync } = await import('node:zlib')
+        await writeFile(path, gzipSync(Buffer.from('lodash\tGHSA-1\t{"packageName":"lodash","advisoryId":"GHSA-1"}', 'utf8')))
+        expect((await readRowsForPackages<Row>(path, new Set(['lodash']))).get('lodash')).toHaveLength(1)
+    })
+})
+
+describe('rewriteRows — the malformed-line skips', function () {
+    // The rewrite filters surviving lines by advisory id, again as a string slice. Lines it cannot
+    // parse are DROPPED rather than carried over, which is the right call for a cache that can be
+    // re-seeded — but it means the field scanning has to be right or good rows go missing.
+    async function writeRaw(lines: string[]): Promise<void> {
+        const { gzipSync } = await import('node:zlib')
+        await writeFile(path, gzipSync(Buffer.from(lines.join('\n') + '\n', 'utf8')))
+    }
+
+    it('drops a line with no separators and keeps the rest', async function () {
+        await writeRaw(['garbage', 'lodash\tGHSA-1\t{"packageName":"lodash","advisoryId":"GHSA-1"}'])
+        const count = await rewriteRows<Row>(path, { dropAdvisoryIds: new Set(), append: [] })
+        expect(count).toBe(1)
+    })
+
+    it('drops a line with only one separator', async function () {
+        await writeRaw(['lodash\tGHSA-1', 'axios\tGHSA-2\t{"packageName":"axios","advisoryId":"GHSA-2"}'])
+        expect(await rewriteRows<Row>(path, { dropAdvisoryIds: new Set(), append: [] })).toBe(1)
+    })
+
+    it('writes only the appended rows when there is no existing cache', async function () {
+        const count = await rewriteRows<Row>(join(dir, 'fresh.ndjson.gz'), {
+            dropAdvisoryIds: new Set(['GHSA-old']),
+            append: [row('lodash', 'GHSA-1')]
+        })
+        expect(count).toBe(1)
+    })
+
+    // Surviving lines are written in 5000-line chunks, so a rewrite that spans several chunks is a
+    // distinct path from the single-chunk case every other test takes.
+    it('rewrites a cache large enough to span several chunks', async function () {
+        const rows: Row[] = []
+        for (let i = 0; i < 12_000; i++) rows.push(row('pkg-' + i, 'GHSA-' + i))
+        await writeRows(rows)
+
+        const count = await rewriteRows<Row>(path, {
+            dropAdvisoryIds: new Set(['GHSA-0', 'GHSA-11999']),
+            append: [row('new-pkg', 'GHSA-new')]
+        })
+
+        expect(count).toBe(12_000 - 2 + 1)
+        expect((await readRowsForPackages<Row>(path, new Set(['pkg-0']))).get('pkg-0')).toBeUndefined()
+        expect((await readRowsForPackages<Row>(path, new Set(['new-pkg']))).get('new-pkg')).toHaveLength(1)
+    })
+
+    it('aborts and rethrows when the rewrite target cannot be written', async function () {
+        await writeRows([row('lodash', 'GHSA-1')])
+        await expect(rewriteRows<Row>(join(dir, 'no', 'such', 'dir', 'out.ndjson.gz'), {
+            dropAdvisoryIds: new Set(),
+            append: [row('lodash', 'GHSA-1')]
+        })).rejects.toThrow()
+    })
+})
