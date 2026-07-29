@@ -215,6 +215,23 @@ describe('mute_finding', function () {
         })
     })
 
+    // projectId is the one identity field a finding-scope mute may omit, and omitting it is a feature
+    // rather than an oversight: a null project_id makes the mute estate-wide, which is how an agent
+    // silences one advisory everywhere at once instead of filing the same mute per project. The
+    // matching SQL reads it as `(m.project_id IS NULL OR m.project_id = ...)`, so the column has to be
+    // a real NULL — an empty string would match no project at all and silence nothing.
+    it('creates an estate-wide mute when no project is named', async function () {
+        await mcp.call('mute_finding', { ...findingArgs, projectId: undefined })
+
+        expect(activeMutes()[0]).toMatchObject({
+            scope: 'finding',
+            projectId: null,
+            scanner: 'npm-audit',
+            advisoryId: 'CVE-2024-1',
+            packageName: 'lodash'
+        })
+    })
+
     // A mute on npm lodash must never silence a same-named PyPI package, so the ecosystem is part of
     // the identity and defaults rather than being left open.
     it('defaults a missing ecosystem to npm', async function () {

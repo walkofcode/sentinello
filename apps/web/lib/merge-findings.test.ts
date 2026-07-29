@@ -384,4 +384,46 @@ describe('mergeFindings — picking the fix version', function () {
         ])
         expect(merged[0]?.fixVersion).toBeNull()
     })
+
+    // Advisory feeds are not required to name a semver. Gemnasium in particular carries ranges like
+    // '4.17.x', and parseInt('x') is NaN — which compares false against everything, so an unguarded
+    // comparison would make the winner depend on arrival order. Reading the segment as 0 keeps the
+    // ordering total, and a numeric fix therefore always beats a wildcard at the same major.minor.
+    it('treats a non-numeric version segment as zero rather than letting NaN decide', function () {
+        const merged = mergeFindings([
+            row({ id: 'a', scanner: 'npm-audit', source: 'npm-audit', fixAvailable: true, fixVersion: '4.17.x' }),
+            row({ id: 'b', scanner: 'osv', source: 'osv', fixAvailable: true, fixVersion: '4.17.21' })
+        ])
+        expect(merged[0]?.fixVersion).toBe('4.17.21')
+    })
+
+    it('picks the same winner when the wildcard arrives second', function () {
+        const merged = mergeFindings([
+            row({ id: 'a', scanner: 'osv', source: 'osv', fixAvailable: true, fixVersion: '4.17.21' }),
+            row({ id: 'b', scanner: 'npm-audit', source: 'npm-audit', fixAvailable: true, fixVersion: '4.17.x' })
+        ])
+        expect(merged[0]?.fixVersion).toBe('4.17.21')
+    })
+})
+
+describe('mergeFindings — the source tag order', function () {
+    // SCANNER_ORDER pins the three known scanners so the tags read the same on every row. Anything
+    // else sorts after them alphabetically rather than landing in an arbitrary spot — a new scanner
+    // added to the engine but not to that map must not silently reorder the existing tags.
+    it('sorts an unknown scanner after the known ones', function () {
+        const merged = mergeFindings([
+            row({ id: 'a', scanner: 'trivy', source: 'trivy' }),
+            row({ id: 'b', scanner: 'osv', source: 'osv' }),
+            row({ id: 'c', scanner: 'npm-audit', source: 'npm-audit' })
+        ])
+        expect(merged[0]?.scanners).toEqual(['npm-audit', 'osv', 'trivy'])
+    })
+
+    it('breaks a tie between two unknown scanners alphabetically', function () {
+        const merged = mergeFindings([
+            row({ id: 'a', scanner: 'zgrep', source: 'zgrep' }),
+            row({ id: 'b', scanner: 'trivy', source: 'trivy' })
+        ])
+        expect(merged[0]?.scanners).toEqual(['trivy', 'zgrep'])
+    })
 })

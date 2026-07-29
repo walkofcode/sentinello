@@ -139,6 +139,15 @@ describe('upsertRootAction', function () {
         expect(getRootById(handle.db, result.id)?.label).toBeNull()
     })
 
+    // The update path normalizes separately from the insert path above, so clearing the label of a root
+    // that already exists needs its own case: leaving '' in the column renders as a blank name in the
+    // roots list rather than falling back to the path.
+    it('clears an existing root label back to null when blanked', async function () {
+        await upsertRootAction('/srv/code', '   ')
+
+        expect(getRootById(handle.db, ROOT_ID)?.label).toBeNull()
+    })
+
     it('preserves the original createdAt when updating an existing root', async function () {
         await upsertRootAction('/srv/code', 'Renamed')
 
