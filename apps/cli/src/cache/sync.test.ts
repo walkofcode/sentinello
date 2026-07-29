@@ -120,7 +120,7 @@ beforeEach(async function setup() {
     feeds.streamOsvSeed.mockImplementation(streamOf([{ rows: [osvRow()], lastModified: '2026-07-01T00:00:00Z' }]))
     feeds.streamGemnasiumArchive.mockImplementation(streamOf([{ rows: [gemRow()] }]))
     feeds.fetchGemnasiumHeadSha.mockResolvedValue('a'.repeat(40))
-    feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'changed', ids: [], etag: 'etag-1', newestIso: null })
+    feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: [], etag: 'etag-1', newestIso: null })
     feeds.fetchOsvAdvisoryRows.mockResolvedValue([])
     feeds.fetchGemnasiumChangedPaths.mockResolvedValue({ status: 'ok', changed: [], deleted: [] })
     feeds.fetchGemnasiumFileRows.mockResolvedValue([])
@@ -296,7 +296,7 @@ describe('runSync — OSV', function () {
     it('records the new etag when nothing changed but the cursor moved', async function () {
         await seedFile('osv', [osvRow()])
         await seedState('osv', { recordCount: 5, etag: 'etag-0' })
-        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'changed', ids: [], etag: 'etag-1', newestIso: null })
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: [], etag: 'etag-1', newestIso: null })
         const outcomes = await runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
         expect(outcomes[0]?.status).toBe('unchanged')
         expect((await stateOf('osv'))?.etag).toBe('etag-1')
@@ -305,7 +305,7 @@ describe('runSync — OSV', function () {
     it('applies an incremental update by dropping and re-appending the changed advisories', async function () {
         await seedFile('osv', [osvRow({ advisoryId: 'GHSA-keep' }), osvRow({ advisoryId: 'GHSA-change' })])
         await seedState('osv', { recordCount: 2 })
-        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'changed', ids: ['GHSA-change'], etag: 'etag-2', newestIso: '2026-07-02T00:00:00Z' })
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-change'], etag: 'etag-2', newestIso: '2026-07-02T00:00:00Z' })
         feeds.fetchOsvAdvisoryRows.mockResolvedValue([
             osvRow({ advisoryId: 'GHSA-change', packageName: 'express' }),
             osvRow({ advisoryId: 'GHSA-change', packageName: 'lodash' })
@@ -337,7 +337,7 @@ describe('runSync — OSV', function () {
     it('drops an advisory that fails to fetch and keeps the rest of the pass', async function () {
         await seedFile('osv', [osvRow({ advisoryId: 'GHSA-keep' })])
         await seedState('osv')
-        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'changed', ids: ['GHSA-bad', 'GHSA-good'], etag: null, newestIso: null })
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-bad', 'GHSA-good'], etag: null, newestIso: null })
         feeds.fetchOsvAdvisoryRows.mockImplementation(async function fetchRows(id: string) {
             if (id === 'GHSA-bad') throw new Error('404')
             return [osvRow({ advisoryId: 'GHSA-good' })]
@@ -350,7 +350,7 @@ describe('runSync — OSV', function () {
     it('keeps the previous cursor when the refresh reports no newer one', async function () {
         await seedFile('osv', [osvRow()])
         await seedState('osv', { cursorIso: '2026-06-01T00:00:00Z' })
-        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'changed', ids: ['GHSA-x'], etag: null, newestIso: null })
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-x'], etag: null, newestIso: null })
         feeds.fetchOsvAdvisoryRows.mockResolvedValue([osvRow({ advisoryId: 'GHSA-x' })])
         await runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
         expect((await stateOf('osv'))?.cursorIso).toBe('2026-06-01T00:00:00Z')
@@ -360,7 +360,7 @@ describe('runSync — OSV', function () {
         await seedFile('osv', [osvRow()])
         await seedState('osv')
         const controller = new AbortController()
-        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'changed', ids: ['a', 'b', 'c'], etag: null, newestIso: null })
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['a', 'b', 'c'], etag: null, newestIso: null })
         feeds.fetchOsvAdvisoryRows.mockImplementation(async function fetchRows() {
             controller.abort()
             return [osvRow({ advisoryId: 'a' })]
