@@ -489,3 +489,63 @@ describe('cacheRowCount', function () {
         expect(await cacheRowCount(dir, 'gemnasium', 'npm')).toBe(0)
     })
 })
+
+describe('runSync — the cursor and record-count fallbacks', function () {
+    // A state row that exists but carries no cursor (written by an older CLI, or by a seed that never
+    // saw a modified date) has to refresh from zero rather than NaN. Date.parse of an unparseable
+    // string returns NaN, and passing that upstream as a cursor asks for everything-since-NaN.
+    it.each([
+        ['no cursor at all', undefined],
+        ['an unparseable cursor', 'not-a-date']
+    ])('refreshes from zero with %s', async function (_label, cursorIso) {
+        await seedFile('osv', [osvRow()])
+        await seedState('osv', { cursorIso: cursorIso as string | undefined, recordCount: 1 })
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: [], etag: null, newestIso: null })
+
+        await runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
+
+        expect(feeds.fetchOsvChangedIds.mock.calls[0]?.[1]).toBe(0)
+    })
+
+    it('passes the parsed cursor when the state has one', async function () {
+        await seedFile('osv', [osvRow()])
+        await seedState('osv', { cursorIso: '2026-07-01T00:00:00Z', recordCount: 1 })
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: [], etag: null, newestIso: null })
+
+        await runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
+
+        expect(feeds.fetchOsvChangedIds.mock.calls[0]?.[1]).toBe(Date.parse('2026-07-01T00:00:00Z'))
+    })
+
+    it('sends no etag when the state has none', async function () {
+        await seedFile('osv', [osvRow()])
+        await seedState('osv', { etag: undefined, recordCount: 1 })
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: [], etag: null, newestIso: null })
+
+        await runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
+
+        expect(feeds.fetchOsvChangedIds.mock.calls[0]?.[2]).toBeNull()
+    })
+})
+
+describe('runSync — gemnasium paths that are not advisories', function () {
+    // advisoryIdFromPath returns null only when the last path segment is empty — a directory entry,
+    // which is how a rename or a subtree delete appears in a git compare. The loop building the drop
+    // set has to skip it rather than adding null and then matching rows against it.
+    it('ignores a deleted directory entry that carries no advisory id', async function () {
+        await seedFile('gemnasium', [gemRow({ advisoryId: 'GMS-keep' }), gemRow({ advisoryId: 'GMS-change' })])
+        await seedState('gemnasium', { headSha: 'b'.repeat(40), recordCount: 2 })
+        feeds.fetchGemnasiumChangedPaths.mockResolvedValue({
+            status: 'ok',
+            changed: ['npm/lodash/GMS-change.yml'],
+            deleted: ['npm/lodash/']
+        })
+        feeds.fetchGemnasiumFileRows.mockResolvedValue([gemRow({ advisoryId: 'GMS-change', packageName: 'lodash' })])
+
+        const outcomes = await runSync(options({ sources: ['gemnasium'] }), await planSync(options({ sources: ['gemnasium'] })))
+
+        // The directory entry dropped nothing, so the untouched advisory survives alongside the
+        // rewritten one.
+        expect(outcomes[0]).toMatchObject({ status: 'refreshed', rowCount: 2 })
+    })
+})
