@@ -419,8 +419,18 @@ function rowToFinding(row: FindingRow): Finding {
     }
 }
 
+// Degrades rather than throws, in line with the two checks below it. dep_path_json is display-only
+// provenance ("which dependency pulled this in"), so a row whose column was corrupted — by a partial
+// write, a hand-edited database, or a future writer with a different shape — is worth showing without
+// its dep path. Letting JSON.parse escape would instead take down every findings query that touched
+// the row, and with it the whole page listing that project.
 function parseDepPath(json: string): string[] {
-    const parsed = JSON.parse(json) as unknown
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(json)
+    } catch {
+        return []
+    }
     if (!Array.isArray(parsed)) return []
     return parsed.filter(function isString(value): value is string {
         return typeof value === 'string'

@@ -582,16 +582,31 @@ describe('depPath decoding', function () {
         expect(listFindingsForProject(db, PROJECT_ID)[0]?.depPath).toEqual(['a', 'b'])
     })
 
-    // FLAGGED, NOT FIXED — parseDepPath calls JSON.parse unguarded, so a malformed dep_path_json throws
-    // out of what is otherwise a pure read. Every other malformed-input path in this module degrades
-    // (a non-array becomes [], a non-string element is dropped); this one takes down the whole query,
-    // and with it any page listing the project's findings. The fix is a try/catch returning [], which
-    // matches the surrounding behaviour — but it is a production change and belongs in its own commit,
-    // so this pins the current behaviour rather than asserting the desired one.
-    it('CURRENTLY throws when dep_path_json is not valid JSON', function () {
+    // Regression guard. parseDepPath used to call JSON.parse unguarded, so a corrupted dep_path_json
+    // threw out of what is otherwise a pure read — taking down the whole query, and with it any page
+    // listing the project's findings, over a display-only column. It now degrades like the two cases
+    // above it. Asserted on the row rather than just the absence of a throw, so a "fix" that swallowed
+    // the finding entirely would still fail here.
+    it('degrades invalid JSON to an empty path instead of throwing', function () {
         insertLegacyRow({ dep_path_json: '{not json' })
-        expect(function read() {
-            listFindingsForProject(db, PROJECT_ID)
-        }).toThrow(SyntaxError)
+        const rows = listFindingsForProject(db, PROJECT_ID)
+        expect(rows).toHaveLength(1)
+        expect(rows[0]?.depPath).toEqual([])
+        expect(rows[0]?.packageName).toBe('lodash')
+    })
+
+    // The second decode path: listFindingsForProject reads a raw SQL row, findFindingByIdentity goes
+    // through rowToFinding. Both call parseDepPath, and only one of them was reachable from the test
+    // above — a try/catch added to just one call site would pass that test and still crash here.
+    it('degrades invalid JSON on the rowToFinding path too', function () {
+        insertLegacyRow({ dep_path_json: 'undefined' })
+        const found = findFindingByIdentity(db, {
+            projectId: PROJECT_ID,
+            source: 'npm-audit',
+            ecosystem: 'npm',
+            advisoryId: 'GHSA-legacy',
+            packageName: 'lodash'
+        })
+        expect(found?.depPath).toEqual([])
     })
 })
