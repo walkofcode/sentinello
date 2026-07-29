@@ -34,6 +34,25 @@ vi.mock('@sentinello/feeds', async function mockFeeds(importOriginal) {
     return { ...actual, ...feeds }
 })
 
+// The one scanner that shells out. Everything else in @sentinello/scanners — discovery, the resolvers,
+// the feed scanners — runs for real; only this plugin is replaced, and only so the npm-audit-only run
+// below does not invoke `npm audit` as a subprocess against the network.
+const npmAudit = vi.hoisted(function makeNpmAuditDouble() {
+    return {
+        npmAuditPlugin: {
+            name: 'npm-audit',
+            scan: vi.fn(async function scan() {
+                return { status: 'ok', reasonCode: 'ok', findings: [], rawJson: '{}', errorText: null, durationMs: 1 }
+            })
+        }
+    }
+})
+
+vi.mock('@sentinello/scanners', async function mockScanners(importOriginal) {
+    const actual = await importOriginal<typeof import('@sentinello/scanners')>()
+    return { ...actual, ...npmAudit }
+})
+
 const { main, resolveDestination } = await import('./run')
 
 const EXIT_OK = 0
@@ -233,6 +252,21 @@ describe('scanning', function () {
         expect(feeds.fetchOsvChangedIds).not.toHaveBeenCalled()
     })
 
+    // `--source npm-audit` selects the subprocess scanner and NO advisory feed, because the source list
+    // replaces rather than appends. There is then nothing to sync: the run must go straight to scanning
+    // without touching the network and without printing the offline notice, which belongs to --offline
+    // alone. This is the config for someone who wants a scan but not a multi-hundred-megabyte download.
+    it('syncs nothing when npm-audit is the only source', async function () {
+        await makeProject('web')
+        argv(dir, '--cache-dir', join(dir, '.cache'), '--source', 'npm-audit')
+
+        expect(await main()).toBe(EXIT_OK)
+        expect(feeds.fetchOsvChangedIds).not.toHaveBeenCalled()
+        expect(feeds.headOsvSeed).not.toHaveBeenCalled()
+        expect(err()).not.toContain('offline')
+        expect(npmAudit.npmAuditPlugin.scan).toHaveBeenCalled()
+    })
+
     // Declining the first seed must leave the run clean rather than scanning against an empty cache
     // and reporting a false all-clear.
     it('exits clean without scanning when the seed is declined', async function () {
@@ -258,20 +292,97 @@ describe('scanning', function () {
         expect(await main()).toBe(EXIT_OK)
         expect(feeds.streamOsvSeed).toHaveBeenCalled()
     })
+
+    // The interactive half of the same decision, and the one a first-time user actually hits: they are
+    // asked, they answer yes, the seed runs. --yes above skips confirmSeed entirely rather than
+    // approving it, so it exercises a different branch and cannot stand in for this. Driven through
+    // runScan's injected Ui because the real prompt reads from a TTY stdin no test process has.
+    it('proceeds through the seed when the prompt is approved interactively', async function () {
+        await makeProject('web')
+        feeds.streamOsvSeed.mockImplementation(async function* stream() {})
+        const approving = new Proxy({} as Ui, {
+            get: function get(_target, prop: string) {
+                return function respond(): unknown {
+                    return prop === 'confirmSeed' ? Promise.resolve(true) : undefined
+                }
+            }
+        })
+        const { runScan } = await import('./run')
+        const { parseArgs } = await import('./options')
+        const parsed = parseArgs([dir, '--cache-dir', join(dir, '.cache'), '--source', 'osv'])
+        if (parsed.kind !== 'options') throw new Error('expected options')
+
+        expect(await runScan(parsed.options, join(dir, '.cache'), approving)).toBe(EXIT_OK)
+        expect(feeds.streamOsvSeed).toHaveBeenCalled()
+    })
 })
 
 describe('exit codes', function () {
+    // Seeds the real ndjson cache through the real seed path — only the network call is a double — so
+    // the scan below finds a genuine advisory rather than one injected past the matcher. Without this
+    // every test in this suite scans a clean tree, which is why the threshold code was never exercised
+    // end-to-end before: the gate can only fire when something is actually found.
+    async function seedVulnerableLodash(): Promise<void> {
+        feeds.streamOsvSeed.mockImplementation(async function* stream() {
+            yield {
+                rows: [{
+                    advisoryId: 'GHSA-vulnerable-lodash',
+                    ecosystem: 'npm',
+                    packageName: 'lodash',
+                    aliases: [],
+                    ranges: [{ type: 'SEMVER', introduced: '0', fixed: '4.17.21', lastAffected: null }],
+                    versions: [],
+                    severity: 'high',
+                    summary: 'Prototype pollution',
+                    url: 'https://example.test/GHSA-vulnerable-lodash',
+                    malicious: false,
+                    withdrawn: null
+                }],
+                lastModified: '2026-07-01T00:00:00Z'
+            }
+        })
+    }
+
+    // The gate is what makes the CLI usable in CI, so the distinct code matters more than the message.
+    function seededScanArgs(...extra: string[]): string[] {
+        return [dir, '--cache-dir', join(dir, '.cache'), '--source', 'osv', '--yes', ...extra]
+    }
+
     it('exits 0 for a clean scan with no gate configured', async function () {
         await makeProject('web')
         argv(...scanArgs())
         expect(await main()).toBe(EXIT_OK)
     })
 
-    // The gate is what makes the CLI usable in CI, so the distinct code matters more than the message.
     it('exits 0 when a --fail-on gate is set but nothing meets it', async function () {
         await makeProject('web')
         argv(...scanArgs('--fail-on', 'critical'))
         expect(await main()).toBe(EXIT_OK)
+    })
+
+    // The CI contract: a real finding at or above the gate must produce exit 2, distinct from the 1 an
+    // internal failure produces, so a pipeline can tell "your dependencies are vulnerable" apart from
+    // "the scanner broke". Asserted through main() rather than against the constant, because a gate
+    // that silently stopped firing would still satisfy an assertion about the constant's value.
+    it('exits 2 when a finding meets the --fail-on gate', async function () {
+        await makeProject('web')
+        await seedVulnerableLodash()
+        argv(...seededScanArgs('--fail-on', 'high'))
+
+        expect(await main()).toBe(EXIT_THRESHOLD)
+        expect(out()).toContain('GHSA-vulnerable-lodash')
+    })
+
+    // Same finding, stricter gate: high does not satisfy critical, so the run reports the vulnerability
+    // and still exits clean. This is the pair that proves the gate compares severities rather than just
+    // counting findings.
+    it('exits 0 when the same finding sits below the gate', async function () {
+        await makeProject('web')
+        await seedVulnerableLodash()
+        argv(...seededScanArgs('--fail-on', 'critical'))
+
+        expect(await main()).toBe(EXIT_OK)
+        expect(out()).toContain('GHSA-vulnerable-lodash')
     })
 
     it('reserves a distinct code for the threshold, separate from an error', function () {
