@@ -415,6 +415,29 @@ describe('startOsvRuntime', function () {
         expect(errorLines().some(function m(l) { return l.includes('initial sync failed: no disk') })).toBe(true)
     })
 
+    // Not every rejection is an Error. An abort, a thrown string from a fetch polyfill, or a
+    // rejected non-Error from a transitive dependency all reach the same handler, and the log line
+    // has to name the cause rather than reading "[osv] scheduled sync failed: undefined".
+    it.each([
+        ['a string', 'socket hang up', 'socket hang up'],
+        ['a number', 500, '500'],
+        ['null', null, 'null']
+    ] as Array<[string, unknown, string]>)('reports %s rejection from the scheduled sync', async function (_label, thrown, expected) {
+        startOsvRuntime(handle.db, runtime)
+        await Promise.allSettled(Array.from(runtime.inFlight))
+        sync.seedOsv.mockRejectedValueOnce(thrown)
+        await cron.tasks[0]?.fn()
+        await Promise.allSettled(Array.from(runtime.inFlight))
+        expect(errorLines().some(function m(l) { return l === '[osv] scheduled sync failed: ' + expected })).toBe(true)
+    })
+
+    it('reports a non-Error rejection from the initial sync', async function () {
+        sync.seedOsv.mockRejectedValueOnce('socket hang up')
+        startOsvRuntime(handle.db, runtime)
+        await Promise.allSettled(Array.from(runtime.inFlight))
+        expect(errorLines()).toContain('[osv] initial sync failed: socket hang up')
+    })
+
     it('exposes runSyncNow for the refresh path', async function () {
         const rt = startOsvRuntime(handle.db, runtime)
         await Promise.allSettled(Array.from(runtime.inFlight))

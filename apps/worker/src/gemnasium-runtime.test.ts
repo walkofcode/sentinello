@@ -320,6 +320,24 @@ describe('startGemnasiumRuntime', function () {
         expect(errorLines().some(function m(l) { return l.includes('initial sync failed: no disk') })).toBe(true)
     })
 
+    // The archive sync reaches the network through unzipper and undici, neither of which promises to
+    // reject with an Error. The log line has to name the cause rather than reading "undefined".
+    it('reports a non-Error rejection from the scheduled sync', async function () {
+        startGemnasiumRuntime(handle.db, runtime)
+        await Promise.allSettled(Array.from(runtime.inFlight))
+        sync.syncGemnasium.mockRejectedValueOnce('socket hang up')
+        await cron.tasks[0]?.fn()
+        await Promise.allSettled(Array.from(runtime.inFlight))
+        expect(errorLines()).toContain('[gemnasium] scheduled sync failed: socket hang up')
+    })
+
+    it('reports a non-Error rejection from the initial sync', async function () {
+        sync.syncGemnasium.mockRejectedValueOnce(null)
+        startGemnasiumRuntime(handle.db, runtime)
+        await Promise.allSettled(Array.from(runtime.inFlight))
+        expect(errorLines()).toContain('[gemnasium] initial sync failed: null')
+    })
+
     it('exposes runSyncNow for the refresh path', async function () {
         const rt = startGemnasiumRuntime(handle.db, runtime)
         await Promise.allSettled(Array.from(runtime.inFlight))
