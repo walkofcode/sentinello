@@ -12,12 +12,21 @@ export function advisoryIdentitySql(alias: string = 'f'): SQL {
     )
 }
 
-// Numeric severity rank mirroring merge-findings.ts:SEVERITY_RANK, so a merged group's severity is
-// the worst (MAX) across its rows. Unknown severities sort to 0 (below 'info').
+// Numeric severity weight mirroring severityWeight in @sentinello/core, so a merged group's severity is
+// the worst (MAX) across its rows and the SQL aggregates always agree with the JS merge. Keep the two
+// in lockstep: the weights, the case/whitespace normalization, and the unknown fallback all match.
+//
+// An unrecognized severity ranks as 'moderate' (3), NOT as its own out-of-band value. Callers bucket
+// ranks 5..1 into critical/high/moderate/low/info and sum them; a rank outside that range would put a
+// group in the deduped set while adding to no bucket, so the severity counts would silently undercount
+// and a project whose only finding had a bad severity string would render as clean. Moderate matches
+// the deliberate fallback in scanners/engine/matcher.ts:mapSeverity — an unknown advisory is never
+// silently downgraded. findings.severity is `text NOT NULL` with no CHECK constraint (the enum is
+// compile-time only in the Drizzle type), so this is a real if currently unreachable input.
 export function severityRankSql(alias: string = 'f'): SQL {
     return sql.raw(
-        `CASE ${alias}.severity WHEN 'critical' THEN 5 WHEN 'high' THEN 4 WHEN 'moderate' THEN 3 ` +
-        `WHEN 'low' THEN 2 WHEN 'info' THEN 1 ELSE 0 END`
+        `CASE lower(trim(${alias}.severity)) WHEN 'critical' THEN 5 WHEN 'high' THEN 4 WHEN 'moderate' THEN 3 ` +
+        `WHEN 'low' THEN 2 WHEN 'info' THEN 1 ELSE 3 END`
     )
 }
 

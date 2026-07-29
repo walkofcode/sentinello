@@ -44,8 +44,9 @@ function stripVPrefix(s: string): string {
 }
 
 function compareSemVer(a: string, b: string): number {
-    const pa = stripVPrefix(a).split('-')[0].split('.').map(parseSegment)
-    const pb = stripVPrefix(b).split('-')[0].split('.').map(parseSegment)
+    // split() always yields at least one element, but noUncheckedIndexedAccess cannot see that.
+    const pa = (stripVPrefix(a).split('-')[0] ?? '').split('.').map(parseSegment)
+    const pb = (stripVPrefix(b).split('-')[0] ?? '').split('.').map(parseSegment)
     const len = Math.max(pa.length, pb.length)
     for (let i = 0; i < len; i++) {
         const da = pa[i] || 0

@@ -25,6 +25,15 @@ function activeMutes(): Mute[] {
     return listActiveMutes(handle.db, T0)
 }
 
+// Asserting on the mute that was just created, without every caller narrowing the index. When no mute
+// exists the failure is that the action created none — say so, rather than reporting a TypeError on
+// undefined from whichever property the test happened to read.
+function firstMute(): Mute {
+    const [mute] = activeMutes()
+    if (!mute) throw new Error('expected the action to have created a mute, but none is active')
+    return mute
+}
+
 function seedMute(id: string, overrides: Partial<Mute> = {}): void {
     insertMute(handle.db, {
         id,
@@ -106,7 +115,7 @@ describe('muteAction', function () {
     it('trims the stored reason', async function () {
         await muteAction({ ...findingInput, reason: '  accepted risk  ' })
 
-        expect(activeMutes()[0].reason).toBe('accepted risk')
+        expect(firstMute().reason).toBe('accepted risk')
     })
 
     // A project-scope mute silences the whole project, so carrying an advisory identity would be
@@ -137,13 +146,13 @@ describe('muteAction', function () {
     it('defaults a missing ecosystem to npm', async function () {
         await muteAction(findingInput)
 
-        expect(activeMutes()[0].ecosystem).toBe('npm')
+        expect(firstMute().ecosystem).toBe('npm')
     })
 
     it('honours an explicit ecosystem', async function () {
         await muteAction({ ...findingInput, ecosystem: 'PyPI' })
 
-        expect(activeMutes()[0].ecosystem).toBe('PyPI')
+        expect(firstMute().ecosystem).toBe('PyPI')
     })
 
     it('records the operator from ME_NAME', async function () {
@@ -151,7 +160,7 @@ describe('muteAction', function () {
 
         await muteAction(findingInput)
 
-        expect(activeMutes()[0].author).toBe('betty')
+        expect(firstMute().author).toBe('betty')
     })
 
     it('falls back to anonymous when ME_NAME is unset', async function () {
@@ -159,13 +168,13 @@ describe('muteAction', function () {
 
         await muteAction(findingInput)
 
-        expect(activeMutes()[0].author).toBe('anonymous')
+        expect(firstMute().author).toBe('anonymous')
     })
 
     it('stores an expiry when one is given', async function () {
         await muteAction({ ...findingInput, expiresAt: T0 + 86_400_000 })
 
-        expect(activeMutes()[0].expiresAt).toBe(T0 + 86_400_000)
+        expect(firstMute().expiresAt).toBe(T0 + 86_400_000)
     })
 
     it('busts the project page, the projects list and the dashboard', async function () {

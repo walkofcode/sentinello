@@ -162,7 +162,10 @@ describe('list_projects', function () {
         const all = jsonOf<Record<string, unknown>[]>(await mcp.call('list_projects'))
         const scoped = jsonOf<Record<string, unknown>[]>(await mcp.call('list_projects', { rootId: ROOT_ID }))
 
-        expect(Object.keys(all[0]).sort()).toEqual(Object.keys(scoped[0]).sort())
+        // Guarded so the `?? {}` below cannot make the shape comparison pass vacuously on empty lists.
+        expect(all.length).toBeGreaterThan(0)
+        expect(scoped.length).toBeGreaterThan(0)
+        expect(Object.keys(all[0] ?? {}).sort()).toEqual(Object.keys(scoped[0] ?? {}).sort())
         expect(scoped[0]).toHaveProperty('rootPath', ROOT_PATH)
     })
 
@@ -366,6 +369,65 @@ describe('list_libraries', function () {
     })
 })
 
+describe('list_mutes', function () {
+    function mutedIds(result: Awaited<ReturnType<typeof mcp.call>>): string[] {
+        return jsonOf<{ id: string }[]>(result).map(function idOf(m) {
+            return m.id
+        })
+    }
+
+    it('returns the mutes in force', async function () {
+        seedMute('mute-1')
+
+        expect(mutedIds(await mcp.call('list_mutes', {}))).toEqual(['mute-1'])
+    })
+
+    // The mute id is the only way to reach the unmute tool, and it exists nowhere else in the agent's
+    // view of the estate — a row without it is a mute the agent can read but never lift.
+    it('carries the id the unmute tool needs', async function () {
+        seedMute('mute-1')
+
+        expect(jsonOf<{ id: string }[]>(await mcp.call('list_mutes', {}))[0]).toMatchObject({
+            id: 'mute-1',
+            scope: 'finding',
+            advisoryId: 'CVE-2024-1',
+            packageName: 'lodash'
+        })
+    })
+
+    // An expired mute is a lapsed decision. Returning it would tell the agent a finding is accepted
+    // when the dashboard has already put it back on the board.
+    it('omits a mute that has expired', async function () {
+        seedMute('expired', { expiresAt: T0 })
+
+        expect(mutedIds(await mcp.call('list_mutes', {}))).toEqual([])
+    })
+
+    it('filters to the mutes affecting one project', async function () {
+        seedProject(handle.db, 'project-2')
+        seedMute('mine', { projectId: 'project-1' })
+        seedMute('theirs', { projectId: 'project-2' })
+
+        expect(mutedIds(await mcp.call('list_mutes', { projectId: 'project-1' }))).toEqual(['mine'])
+    })
+
+    // A finding-scope mute with no projectId silences that identity everywhere, so it belongs in a
+    // per-project view too — filtering it out would show an agent a finding as live in the one place
+    // it looked, while the mute keeps it off the dashboard.
+    it('includes global mutes in a per-project view', async function () {
+        seedMute('global', { projectId: null })
+
+        expect(mutedIds(await mcp.call('list_mutes', { projectId: 'project-1' }))).toEqual(['global'])
+    })
+
+    it('returns an empty list for a project with nothing muted', async function () {
+        seedProject(handle.db, 'project-2')
+        seedMute('mine', { projectId: 'project-1' })
+
+        expect(mutedIds(await mcp.call('list_mutes', { projectId: 'project-2' }))).toEqual([])
+    })
+})
+
 describe('get_dashboard_summary', function () {
     it('returns the headline counts', async function () {
         scanProject(handle.db, 'project-1', [finding({ severity: 'critical' })])
@@ -409,13 +471,16 @@ describe('get_project_advisory', function () {
         expect(function parse() { return JSON.parse(textOf(result)) }).toThrow()
     })
 
-    // structuredContent carries metadata only — duplicating the document there would double the
-    // frame for a field most clients ignore.
-    it('carries only metadata in structuredContent, not the document', async function () {
+    // The document travels on one channel only. Clients prefer structuredContent over content
+    // whenever both are present, so even a metadata-only structuredContent here would win and the
+    // document would never reach the model. advisory-result.test.ts pins that shaping directly; this
+    // pins that the registered tool actually routes through it — the missing seam is why the bug
+    // shipped in the first place.
+    it('sends no structuredContent, which would win over the document', async function () {
         const result = await mcp.call('get_project_advisory', { projectId: 'project-1' })
 
-        expect(result.structuredContent).toMatchObject({ projectId: 'project-1', findingCount: 2 })
-        expect(result.structuredContent).not.toHaveProperty('markdown')
+        expect(result.structuredContent).toBeUndefined()
+        expect(result.content).toHaveLength(1)
     })
 
     it('reports an error for an unknown project', async function () {
@@ -427,23 +492,24 @@ describe('get_project_advisory', function () {
 
     // Without the note the document can render "no current findings" under a prompt whose whole point
     // is that a silent zero is not success. The note also tells the agent not to act on the mutes,
-    // because a mute is a human's accepted-risk decision.
-    it('appends a note when findings were excluded for being muted', async function () {
+    // because a mute is a human's accepted-risk decision. It counts advisories, matching the grain of
+    // the document itself rather than the underlying per-source rows.
+    it('appends a note when advisories were excluded for being muted', async function () {
         seedMute('mute-1', { advisoryId: 'CVE-2024-1', packageName: 'lodash' })
 
         const result = await mcp.call('get_project_advisory', { projectId: 'project-1' })
 
-        expect(textOf(result)).toContain('1 finding is excluded from this document because it is muted')
+        expect(textOf(result)).toContain('1 advisory is excluded from this document because it is muted')
         expect(textOf(result)).toContain('do not unmute or act on it')
     })
 
-    it('pluralizes the muted note for more than one finding', async function () {
+    it('pluralizes the muted note for more than one advisory', async function () {
         seedMute('mute-1', { advisoryId: 'CVE-2024-1', packageName: 'lodash' })
         seedMute('mute-2', { advisoryId: 'CVE-2024-2', packageName: 'axios' })
 
         const result = await mcp.call('get_project_advisory', { projectId: 'project-1' })
 
-        expect(textOf(result)).toContain('2 findings are excluded from this document because they are muted')
+        expect(textOf(result)).toContain('2 advisories are excluded from this document because they are muted')
         expect(textOf(result)).toContain('do not unmute or act on them')
     })
 
@@ -467,5 +533,96 @@ describe('get_project_advisory', function () {
 
         expect(textOf(all)).toContain('devtool')
         expect(textOf(prod)).not.toContain('devtool')
+    })
+
+    // The remediation prompt is ~10 KB of instructions, so it is sent once and then suppressed on
+    // continuation pages. The agent asking for offset > 0 already read it on page 1, and repeating it
+    // would spend most of the next response's budget re-sending what the agent is already following.
+    describe('remediation prompt', function () {
+        beforeEach(function seedThree() {
+            scanProject(handle.db, 'project-1', [
+                finding({ advisoryId: 'CVE-A', packageName: 'apkg' }),
+                finding({ advisoryId: 'CVE-B', packageName: 'bpkg' }),
+                finding({ advisoryId: 'CVE-C', packageName: 'cpkg' })
+            ])
+        })
+
+        it('includes the prompt on the first page', async function () {
+            const result = await mcp.call('get_project_advisory', { projectId: 'project-1' })
+
+            expect(textOf(result)).toContain('plan mode')
+        })
+
+        it('omits the prompt on a continuation page', async function () {
+            const result = await mcp.call('get_project_advisory', { projectId: 'project-1', offset: 1 })
+
+            expect(textOf(result)).not.toContain('plan mode')
+        })
+
+        // Both overrides are explicit, so an agent that wants the opposite of the default on either
+        // page can say so rather than being stuck with the offset-derived guess.
+        it('drops the prompt from page one when the caller opts out', async function () {
+            const result = await mcp.call('get_project_advisory', {
+                projectId: 'project-1',
+                includePrompt: false
+            })
+
+            expect(textOf(result)).not.toContain('plan mode')
+            expect(textOf(result)).toContain('apkg')
+        })
+
+        it('restores the prompt on a continuation page when the caller asks for it', async function () {
+            const result = await mcp.call('get_project_advisory', {
+                projectId: 'project-1',
+                offset: 1,
+                includePrompt: true
+            })
+
+            expect(textOf(result)).toContain('plan mode')
+        })
+    })
+
+    // The floor is the agent's way of asking for the urgent subset. It has to cut from the bottom:
+    // a floor that dropped the critical rows would hand back a document that reads as the whole job.
+    describe('severity floor', function () {
+        beforeEach(function seedSeverities() {
+            scanProject(handle.db, 'project-1', [
+                finding({ advisoryId: 'CVE-CRIT', packageName: 'critpkg', severity: 'critical' }),
+                finding({ advisoryId: 'CVE-HIGH', packageName: 'highpkg', severity: 'high' }),
+                finding({ advisoryId: 'CVE-LOW', packageName: 'lowpkg', severity: 'low' })
+            ])
+        })
+
+        it('includes everything when no floor is given', async function () {
+            const result = await mcp.call('get_project_advisory', { projectId: 'project-1' })
+
+            expect(textOf(result)).toContain('critpkg')
+            expect(textOf(result)).toContain('highpkg')
+            expect(textOf(result)).toContain('lowpkg')
+        })
+
+        // Documented on the tool itself: "'high' yields critical + high."
+        it('keeps the severities at or above the floor', async function () {
+            const result = await mcp.call('get_project_advisory', { projectId: 'project-1', minSeverity: 'high' })
+
+            expect(textOf(result)).toContain('critpkg')
+            expect(textOf(result)).toContain('highpkg')
+        })
+
+        it('drops the severities below the floor', async function () {
+            const result = await mcp.call('get_project_advisory', { projectId: 'project-1', minSeverity: 'high' })
+
+            expect(textOf(result)).not.toContain('lowpkg')
+        })
+
+        it('narrows to critical alone at the top floor', async function () {
+            const result = await mcp.call('get_project_advisory', {
+                projectId: 'project-1',
+                minSeverity: 'critical'
+            })
+
+            expect(textOf(result)).toContain('critpkg')
+            expect(textOf(result)).not.toContain('highpkg')
+        })
     })
 })

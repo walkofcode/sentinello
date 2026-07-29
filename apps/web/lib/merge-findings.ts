@@ -1,5 +1,5 @@
 import type { CurrentFindingRow } from '@sentinello/db'
-import type { Severity } from '@sentinello/core'
+import { compareSeverity, severityWeight, type Severity } from '@sentinello/core'
 import { parseJsonArray } from '@/lib/format'
 
 // A findings row collapsed across sources and dependency paths. The raw table stores one row per
@@ -33,7 +33,6 @@ export type MergedFinding = {
     identities: { source: string; ecosystem: string; scanner: string; advisoryId: string }[]
 }
 
-const SEVERITY_RANK: Record<string, number> = { critical: 5, high: 4, moderate: 3, low: 2, info: 1 }
 // npm audit before OSV before gemnasium before anything else, so the source tags read consistently across rows.
 const SCANNER_ORDER: Record<string, number> = { 'npm-audit': 0, osv: 1, gemnasium: 2 }
 
@@ -93,14 +92,17 @@ function preferAdvisory(candidate: CurrentFindingRow, current: CurrentFindingRow
     return false
 }
 
-function mergeBucket(key: string, bucket: CurrentFindingRow[]): MergedFinding {
-    let severity = bucket[0].severity
+// The bucket is typed non-empty, so `first` is definite and every field below reads from a real row
+// without an unreachable emptiness guard.
+function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingRow[]]): MergedFinding {
+    const [first] = bucket
+    let severity = first.severity
     let malicious = false
     let isProd = false
     let isDev = false
     let firstDetectedAt: number | null = null
     let lastSeenAt: number | null = null
-    let advisoryRow = bucket[0]
+    let advisoryRow = first
     let fixRow: CurrentFindingRow | null = null
     const scannerSet = new Set<string>()
     const identityKeys = new Set<string>()
@@ -108,7 +110,7 @@ function mergeBucket(key: string, bucket: CurrentFindingRow[]): MergedFinding {
     const depPathKeys = new Set<string>()
     const depPaths: string[][] = []
     for (const r of bucket) {
-        if ((SEVERITY_RANK[r.severity] ?? 0) > (SEVERITY_RANK[severity] ?? 0)) severity = r.severity
+        if (severityWeight(r.severity) > severityWeight(severity)) severity = r.severity
         if (r.advisoryId.startsWith('MAL-')) malicious = true
         if (r.isProd) isProd = true
         if (r.isDev) isDev = true
@@ -140,8 +142,8 @@ function mergeBucket(key: string, bucket: CurrentFindingRow[]): MergedFinding {
     depPaths.sort(function byLength(a, b) { return a.length - b.length })
     return {
         key,
-        ecosystem: bucket[0].ecosystem,
-        packageName: bucket[0].packageName,
+        ecosystem: first.ecosystem,
+        packageName: first.packageName,
         installedVersion: unionInstalledVersions(bucket),
         severity: severity as Severity,
         malicious,
@@ -162,7 +164,7 @@ function mergeBucket(key: string, bucket: CurrentFindingRow[]): MergedFinding {
 }
 
 export function mergeFindings(rows: CurrentFindingRow[]): MergedFinding[] {
-    const groups = new Map<string, CurrentFindingRow[]>()
+    const groups = new Map<string, [CurrentFindingRow, ...CurrentFindingRow[]]>()
     for (const row of rows) {
         const key = row.ecosystem + '\x00' + row.packageName + '\x00' + advisoryKey(row)
         const bucket = groups.get(key)
@@ -175,8 +177,8 @@ export function mergeFindings(rows: CurrentFindingRow[]): MergedFinding[] {
     }
     // Keep the worst first; stable tiebreak on name/version so paging is deterministic.
     out.sort(function bySeverityThenName(a, b) {
-        const rank = (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0)
-        if (rank !== 0) return rank
+        const sev = compareSeverity(a.severity, b.severity)
+        if (sev !== 0) return sev
         return a.packageName.localeCompare(b.packageName) || a.installedVersion.localeCompare(b.installedVersion)
     })
     return out

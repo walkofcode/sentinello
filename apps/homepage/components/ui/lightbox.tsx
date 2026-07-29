@@ -45,6 +45,8 @@ export function Lightbox({ shots, index, onClose, onNavigate }: Props) {
         }
     }, [go, onClose])
     const shot = shots[index]
+    // index is clamped by go(), so this only trips if the lightbox is opened over an empty list.
+    if (!shot) return null
     return (
         <div
             role="dialog"

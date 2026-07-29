@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { ShieldCheck } from 'lucide-react'
-import { reasonCodeLabel, type DepTypeFilter, type Locale, type ReasonCode, type Severity } from '@sentinello/core'
+import { reasonCodeLabel, severityWeight, type DepTypeFilter, type Locale, type ReasonCode, type Severity } from '@sentinello/core'
 import type { ProjectCatalogRow } from '@sentinello/db'
 import { Badge } from '@/components/ui/badge'
 import { ExportAdvisoryButton } from '@/components/triage/export-advisory-button'
@@ -25,14 +25,6 @@ import { OverviewSection } from '@/components/home/overview-section'
 type SortKey = 'name' | 'severity'
 
 type MinSeverity = '' | Severity
-
-const SEVERITY_RANK: Record<Severity, number> = {
-    critical: 0,
-    high: 1,
-    moderate: 2,
-    low: 3,
-    info: 4
-}
 
 const MIN_SEVERITY_OPTIONS: { value: MinSeverity; labelKey: string }[] = [
     { value: '', labelKey: 'severityAny' },
@@ -116,7 +108,7 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
 
     const filtered = useMemo(function applyFilters() {
         const q = query.trim().toLowerCase()
-        const maxRank = minSeverity ? SEVERITY_RANK[minSeverity] : 99
+        const floor = minSeverity ? severityWeight(minSeverity) : 0
         const matched = rows.filter(function predicate(row): boolean {
             if (root && row.rootPath !== root) return false
             if (tag) {
@@ -132,7 +124,7 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                 const haystack = (row.name + ' ' + (row.alias || '')).toLowerCase()
                 if (!haystack.includes(q)) return false
             }
-            if (minSeverity && topSeverityRank(row) > maxRank) return false
+            if (minSeverity && topSeverityWeight(row) < floor) return false
             return true
         })
         return sortRows(matched, sort)
@@ -346,14 +338,16 @@ function isHealthy(row: ProjectCatalogRow): boolean {
     return row.lastScanStatus === 'ok' && totalNonMutedFindings(row) === 0
 }
 
-function topSeverityRank(row: ProjectCatalogRow): number {
+// Weight of the project's worst finding; 0 when it has none, which sorts below every real severity.
+// Higher = worse, matching severityWeight in @sentinello/core.
+function topSeverityWeight(row: ProjectCatalogRow): number {
     const c = row.severityCounts
-    if (c.critical > 0) return SEVERITY_RANK.critical
-    if (c.high > 0) return SEVERITY_RANK.high
-    if (c.moderate > 0) return SEVERITY_RANK.moderate
-    if (c.low > 0) return SEVERITY_RANK.low
-    if (c.info > 0) return SEVERITY_RANK.info
-    return 99
+    if (c.critical > 0) return severityWeight('critical')
+    if (c.high > 0) return severityWeight('high')
+    if (c.moderate > 0) return severityWeight('moderate')
+    if (c.low > 0) return severityWeight('low')
+    if (c.info > 0) return severityWeight('info')
+    return 0
 }
 
 function sortRows(rows: ProjectCatalogRow[], sort: SortKey): ProjectCatalogRow[] {

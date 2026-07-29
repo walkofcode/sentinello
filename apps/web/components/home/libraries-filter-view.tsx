@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useTranslations } from 'next-intl'
 import type { LibrarySummary } from '@sentinello/db'
-import type { DepTypeFilter, Severity } from '@sentinello/core'
+import { maxSeverity, severityWeight, type DepTypeFilter, type Severity } from '@sentinello/core'
 import { Card } from '@/components/ui/card'
 import { SeverityPill } from '@/components/ui/severity-pill'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -19,14 +19,6 @@ import { rememberLibrariesUrl } from '@/lib/home-url-memory'
 type SortKey = 'severity' | 'name' | 'projects' | 'advisories'
 
 type MinSeverity = '' | Severity
-
-const SEVERITY_RANK: Record<string, number> = {
-    critical: 0,
-    high: 1,
-    moderate: 2,
-    low: 3,
-    info: 4
-}
 
 const MIN_SEVERITY_OPTIONS: { value: MinSeverity; labelKey: string }[] = [
     { value: '', labelKey: 'severityAny' },
@@ -95,12 +87,11 @@ export function LibrariesFilterView({ libraries, depType, defaultDepType }: Prop
 
     const filtered = useMemo(function applyFilters() {
         const q = query.trim().toLowerCase()
-        const maxRank = minSeverity ? SEVERITY_RANK[minSeverity] : 99
+        const floor = minSeverity ? severityWeight(minSeverity) : 0
         const matched = libraries.filter(function predicate(lib): boolean {
             if (q && !lib.packageName.toLowerCase().includes(q)) return false
             if (minSeverity) {
-                const rank = topSeverityRank(lib.severities)
-                if (rank > maxRank) return false
+                if (topSeverityWeight(lib.severities) < floor) return false
             }
             return true
         })
@@ -260,27 +251,23 @@ function upsertParam(params: URLSearchParams, key: string, value: string | false
     else params.delete(key)
 }
 
-function topSeverityRank(severities: string[]): number {
-    let best = 99
+// Weight of the most severe entry; 0 when the list is empty, which sorts below every real severity.
+// Higher = worse, matching severityWeight in @sentinello/core.
+function topSeverityWeight(severities: string[]): number {
+    let best = 0
     for (const sev of severities) {
-        const rank = SEVERITY_RANK[sev]
-        if (rank !== undefined && rank < best) best = rank
+        const weight = severityWeight(sev)
+        if (weight > best) best = weight
     }
     return best
 }
 
+// The badge shown for a library. maxSeverity only ever returns one of the five declared severities, so
+// an unrecognized value can never reach the badge — but it returns 'info' for an empty list, which here
+// must stay null so a library with no severities renders no badge at all.
 function topSeverity(severities: string[]): Severity | null {
-    let best: Severity | null = null
-    let bestRank = 99
-    for (const sev of severities) {
-        const rank = SEVERITY_RANK[sev]
-        if (rank === undefined || rank >= bestRank) continue
-        if (sev === 'critical' || sev === 'high' || sev === 'moderate' || sev === 'low' || sev === 'info') {
-            best = sev
-            bestRank = rank
-        }
-    }
-    return best
+    if (severities.length === 0) return null
+    return maxSeverity(severities)
 }
 
 function sortRows(rows: LibrarySummary[], sort: SortKey): LibrarySummary[] {
@@ -304,7 +291,7 @@ function sortRows(rows: LibrarySummary[], sort: SortKey): LibrarySummary[] {
         return copy
     }
     copy.sort(function bySeverity(a, b) {
-        const sevDiff = topSeverityRank(a.severities) - topSeverityRank(b.severities)
+        const sevDiff = topSeverityWeight(b.severities) - topSeverityWeight(a.severities)
         if (sevDiff !== 0) return sevDiff
         const projDiff = b.distinctProjects - a.distinctProjects
         if (projDiff !== 0) return projDiff

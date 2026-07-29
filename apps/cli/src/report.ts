@@ -3,7 +3,7 @@ import {
     DEFAULT_EXPORT_PROMPT,
     buildAdvisoryMarkdown,
     buildExportFilename,
-    severityRank,
+    meetsSeverityFloor,
     type ExportFinding,
     type ExportScope,
     type Severity
@@ -53,13 +53,12 @@ export function summarize(results: readonly ProjectScanResult[], options: CliOpt
     const findings: ExportFinding[] = []
     const total = emptyCounts()
     let totalFindings = 0
-    const minRank = severityRank(options.minSeverity)
     for (const result of results) {
         const counts = emptyCounts()
         let projectFindings = 0
         for (const finding of result.findings) {
             if (!matchesDepType(finding, options.depType)) continue
-            if (severityRank(finding.severity) > minRank) continue
+            if (!meetsSeverityFloor(finding.severity, options.minSeverity)) continue
             counts[finding.severity]++
             total[finding.severity]++
             projectFindings++
@@ -157,9 +156,8 @@ export function renderJson(summary: RunSummary, options: CliOptions, generatedAt
 export function shouldFail(summary: RunSummary, failOn: CliOptions['failOn']): boolean {
     if (failOn === 'none') return false
     if (failOn === 'any') return summary.totalFindings > 0
-    const threshold = severityRank(failOn)
     for (const severity of Object.keys(summary.counts) as Severity[]) {
-        if (summary.counts[severity] > 0 && severityRank(severity) <= threshold) return true
+        if (summary.counts[severity] > 0 && meetsSeverityFloor(severity, failOn)) return true
     }
     return false
 }

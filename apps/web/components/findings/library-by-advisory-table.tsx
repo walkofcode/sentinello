@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react'
 import type { LibraryProjectUsage } from '@sentinello/db'
-import { severityRank, type Mute, type Severity } from '@sentinello/core'
+import { compareSeverity, severityWeight, type Mute, type Severity } from '@sentinello/core'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { SeverityPill } from '@/components/ui/severity-pill'
@@ -37,19 +37,21 @@ type AdvisoryGroup = {
 }
 
 function groupByAdvisory(usages: LibraryProjectUsage[]): AdvisoryGroup[] {
-    const byAdvisory = new Map<string, LibraryProjectUsage[]>()
+    // Non-empty tuple: see groupByLibrary for why the buckets are seeded rather than pushed-into.
+    const byAdvisory = new Map<string, [LibraryProjectUsage, ...LibraryProjectUsage[]]>()
     for (const u of usages) {
         const key = advisoryIdentity(u.advisoryTitle, u.advisoryId)
-        const bucket = byAdvisory.get(key) || []
-        bucket.push(u)
-        byAdvisory.set(key, bucket)
+        const bucket = byAdvisory.get(key)
+        if (bucket) bucket.push(u)
+        else byAdvisory.set(key, [u])
     }
     const groups: AdvisoryGroup[] = []
     byAdvisory.forEach(function build(rows, identityKey) {
-        // Worst severity wins (lower rank = more severe), so a critical from either source surfaces.
-        let head = rows[0]
+        // Worst severity wins (higher weight = more severe), so a critical from either source surfaces.
+        const [first] = rows
+        let head = first
         for (const r of rows) {
-            if (severityRank(r.severity as Severity) < severityRank(head.severity as Severity)) head = r
+            if (severityWeight(r.severity) > severityWeight(head.severity)) head = r
         }
         const withUrl = rows.find(function hasUrl(r) { return Boolean(r.advisoryUrl) })
         groups.push({
@@ -63,9 +65,8 @@ function groupByAdvisory(usages: LibraryProjectUsage[]): AdvisoryGroup[] {
         })
     })
     groups.sort(function order(a, b) {
-        const ra = severityRank(a.severity)
-        const rb = severityRank(b.severity)
-        if (ra !== rb) return ra - rb
+        const sev = compareSeverity(a.severity, b.severity)
+        if (sev !== 0) return sev
         return a.identityKey.localeCompare(b.identityKey)
     })
     return groups

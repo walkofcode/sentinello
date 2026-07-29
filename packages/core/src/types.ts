@@ -3,32 +3,60 @@ import type { NotificationSourceScope } from './sources'
 
 export type Severity = 'critical' | 'high' | 'moderate' | 'low' | 'info'
 
-// Severity ordering. Lower rank = more severe. Mirrors the CASE in listCurrentFindingsForProject
-// so client-side grouping/sorting agrees with what the SQL produces.
-export const SEVERITY_RANK: Record<Severity, number> = {
-    critical: 0,
-    high: 1,
-    moderate: 2,
-    low: 3,
-    info: 4
+// The one severity ordering, worst first. Everything that sorts, compares or filters by severity goes
+// through the helpers below rather than indexing a rank table, so no call site can get the direction
+// wrong. There used to be two rank scales pointing in OPPOSITE directions — an ascending one here
+// (critical = 0) and a descending one in apps/web/lib/merge-findings.ts (critical = 5), both exported
+// under the name SEVERITY_RANK. Moving a comparison between the two silently reversed it, and the
+// ascending scale's critical = 0 was a standing falsy-zero trap for `&&`/`||` defaulting.
+export const SEVERITY_ORDER: readonly Severity[] = ['critical', 'high', 'moderate', 'low', 'info']
+
+// Higher weight = more severe, so "the worst of a group" is a plain MAX. Mirrors severityRankSql in
+// packages/db exactly, including the unknown fallback, so JS grouping and SQL aggregates always agree.
+const SEVERITY_WEIGHT: Record<Severity, number> = {
+    critical: 5,
+    high: 4,
+    moderate: 3,
+    low: 2,
+    info: 1
 }
 
-export function severityRank(severity: string): number {
-    if (severity === 'critical') return 0
-    if (severity === 'high') return 1
-    if (severity === 'moderate') return 2
-    if (severity === 'low') return 3
-    return 4
+// An unrecognized severity weighs as 'moderate', never as its own out-of-band value: callers bucket
+// the five known weights and sum them, so anything outside that range would be counted as a finding
+// while landing in no bucket. Moderate rather than info because an unknown advisory must not be
+// silently downgraded — same policy as scanners/engine/matcher.ts:mapSeverity.
+const UNKNOWN_SEVERITY_WEIGHT = SEVERITY_WEIGHT.moderate
+
+// Accepts `string`, not `Severity`: advisory feeds hand us whatever they like, and findings.severity is
+// a plain TEXT column with no CHECK constraint. Case and surrounding whitespace are normalized so a
+// source emitting 'HIGH' is not treated as unknown.
+export function severityWeight(severity: string): number {
+    const normalized = severity.trim().toLowerCase() as Severity
+    return SEVERITY_WEIGHT[normalized] ?? UNKNOWN_SEVERITY_WEIGHT
 }
 
+// Comparator for Array.prototype.sort: most severe first.
+export function compareSeverity(a: string, b: string): number {
+    return severityWeight(b) - severityWeight(a)
+}
+
+// "Is this finding at or above the floor the caller asked for?" — the shape every minSeverity filter
+// wants, without exposing a number for a caller to compare in the wrong direction.
+export function meetsSeverityFloor(severity: string, floor: string): boolean {
+    return severityWeight(severity) >= severityWeight(floor)
+}
+
+// Always returns a declared Severity: an unrecognized input can tie on weight but never wins, so the
+// raw string is never echoed back out as though it were a valid severity.
 export function maxSeverity(severities: string[]): Severity {
     let best: Severity = 'info'
-    let bestRank = 4
+    let bestWeight = 0
     for (const s of severities) {
-        const r = severityRank(s)
-        if (r < bestRank) {
-            bestRank = r
-            best = s as Severity
+        const normalized = s.trim().toLowerCase() as Severity
+        const known = SEVERITY_WEIGHT[normalized]
+        if (known !== undefined && known > bestWeight) {
+            bestWeight = known
+            best = normalized
         }
     }
     return best

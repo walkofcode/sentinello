@@ -15,6 +15,14 @@ function queued(): ScanRequest[] {
     return listRecentScanRequests(handle.db)
 }
 
+// The request the queue is holding, without every caller narrowing the index. An empty queue means
+// nothing was enqueued at all, which is a more useful failure than a TypeError on undefined.
+function firstQueued(): ScanRequest {
+    const [request] = queued()
+    if (!request) throw new Error('expected a scan request to be queued, but the queue is empty')
+    return request
+}
+
 function bustedPaths(): string[] {
     return vi.mocked(revalidatePath).mock.calls.map(function first(call) { return call[0] })
 }
@@ -74,7 +82,7 @@ describe('requestScanForProject', function () {
         await requestScanForProject('project-1')
 
         expect(queued()).toHaveLength(1)
-        expect(queued()[0].rootId).toBe(ROOT_ID)
+        expect(firstQueued().rootId).toBe(ROOT_ID)
     })
 
     it('is covered by a pending full sweep', async function () {
@@ -176,7 +184,7 @@ describe('requestFullSweep', function () {
         await requestFullSweep()
 
         expect(queued()).toHaveLength(1)
-        expect(queued()[0].projectId).toBe('project-1')
+        expect(firstQueued().projectId).toBe('project-1')
     })
 
     it('is blocked by a pending root sweep', async function () {

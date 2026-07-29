@@ -72,7 +72,7 @@ export function parseJsonArray(json: string): string[] {
 export function rootDisplayLabel(label: string | null, path: string): string {
     if (label) return label
     const segments = path.split('/').filter(Boolean)
-    return segments.length > 0 ? segments[segments.length - 1] : path
+    return segments[segments.length - 1] ?? path
 }
 
 export function pluralize(n: number, singular: string, plural?: string): string {

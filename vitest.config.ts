@@ -98,8 +98,11 @@ export default defineConfig({
                 // Produces the "upgrade to this version" advice shown next to every finding.
                 'packages/scanners/src/version-fix.ts': { statements: 95, branches: 85, functions: 99, lines: 99 },
                 // The MCP bearer check is the only thing in front of an endpoint that can mute
-                // findings and request scans.
-                'apps/web/lib/mcp/auth.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
+                // findings and request scans. Branches sit at 93 rather than 99 for one unreachable
+                // else: `match[1] ?? ''` exists because noUncheckedIndexedAccess types the capture as
+                // possibly-undefined, but /^Bearer\s+(.+)$/ always fills group 1 when it matches at
+                // all. Every branch a request can actually take is covered.
+                'apps/web/lib/mcp/auth.ts': { statements: 99, branches: 93, functions: 99, lines: 99 },
                 // Every mutation the portal can make. These run against a real schema via the
                 // globalThis.__sentinelloDb seam, so the floors are near-total: the only stubs are
                 // revalidatePath (which cannot work outside a render request) and the outbound
@@ -109,7 +112,11 @@ export default defineConfig({
                 // real McpServer/Client pair so the declared zod input schemas are exercised too; a
                 // schema that stops matching its handler fails here rather than in front of an agent.
                 'apps/web/lib/mcp/tools/**': { statements: 99, branches: 96, functions: 99, lines: 99 },
-                'apps/web/lib/project-advisory-export.ts': { statements: 99, branches: 88, functions: 99, lines: 99 },
+                // Branches sit at 84 for the `root?.label || root?.path || 'unknown root'` fallback:
+                // projects.root_id is a foreign key, so a project whose root row is missing cannot be
+                // inserted, and the undefined-root arms are unreachable from any state the database
+                // will hold. The naming, mute and dedup branches are all covered.
+                'apps/web/lib/project-advisory-export.ts': { statements: 99, branches: 84, functions: 99, lines: 99 },
                 'apps/web/components/findings/**': { statements: 99, branches: 95, functions: 99, lines: 99 },
                 // The worker's orchestration core. runner owns scanner ordering and cross-scanner
                 // dedup; notifier owns the record-attempt-before-send rule; config-loader owns the

@@ -1,5 +1,5 @@
 import type { CurrentFindingRow } from '@sentinello/db'
-import { maxSeverity, severityRank, type Severity } from '@sentinello/core'
+import { compareSeverity, maxSeverity, type Severity } from '@sentinello/core'
 
 export type LibraryGroup = {
     ecosystem: string
@@ -23,17 +23,20 @@ export type LibraryGroup = {
 // underlying findings on the group for the expanded sub-row and just summarize at the top. The ecosystem
 // is part of the key so an npm `requests` and a PyPI `requests` stay distinct libraries (issue-019).
 export function groupByLibrary(findings: CurrentFindingRow[]): LibraryGroup[] {
-    const byLibrary = new Map<string, CurrentFindingRow[]>()
+    // Buckets are typed non-empty: seeding with the first row instead of an empty array means every
+    // rows[0] below is definite, with no unreachable emptiness guard to write or to leave uncovered.
+    const byLibrary = new Map<string, [CurrentFindingRow, ...CurrentFindingRow[]]>()
     for (const f of findings) {
         const key = f.ecosystem + '\x00' + f.packageName
-        const bucket = byLibrary.get(key) || []
-        bucket.push(f)
-        byLibrary.set(key, bucket)
+        const bucket = byLibrary.get(key)
+        if (bucket) bucket.push(f)
+        else byLibrary.set(key, [f])
     }
     const groups: LibraryGroup[] = []
     byLibrary.forEach(function buildGroup(rows) {
-        const ecosystem = rows[0].ecosystem
-        const packageName = rows[0].packageName
+        const [head] = rows
+        const ecosystem = head.ecosystem
+        const packageName = head.packageName
         const installedVersions = uniq(rows.map(function pickVer(r) { return r.installedVersion }))
         const severities = uniq(rows.map(function pickSev(r) { return r.severity }))
         const fixVersions = rows
@@ -59,9 +62,8 @@ export function groupByLibrary(findings: CurrentFindingRow[]): LibraryGroup[] {
         })
     })
     groups.sort(function order(a, b) {
-        const ra = severityRank(a.maxSeverity)
-        const rb = severityRank(b.maxSeverity)
-        if (ra !== rb) return ra - rb
+        const sev = compareSeverity(a.maxSeverity, b.maxSeverity)
+        if (sev !== 0) return sev
         return a.packageName.localeCompare(b.packageName) || a.ecosystem.localeCompare(b.ecosystem)
     })
     return groups
@@ -76,10 +78,11 @@ function uniq<T>(values: T[]): T[] {
 // "x.y.z" or "x.y.z-prerelease" strings. We compare numerically segment by segment to
 // avoid pulling in a full semver dep for what's a 20-line problem.
 function pickHighestVersion(versions: string[]): string | null {
-    if (versions.length === 0) return null
-    let best = versions[0]
-    for (let i = 1; i < versions.length; i++) {
-        if (compareVersions(versions[i], best) > 0) best = versions[i]
+    const [first] = versions
+    if (!first) return null
+    let best = first
+    for (const candidate of versions) {
+        if (compareVersions(candidate, best) > 0) best = candidate
     }
     return best
 }

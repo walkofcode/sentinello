@@ -5,17 +5,30 @@ import {
     getProjectById,
     getProjectEcosystemCoverage,
     getRootById,
+    listActiveMutes,
     listCurrentFindingsForProject,
     listLibraries,
     listProjectCatalog,
     listRoots,
     listScansForProject
 } from '@sentinello/db'
-import { SEVERITY_RANK, severityRank } from '@sentinello/core'
+import { buildPaginatedAdvisoryMarkdown, meetsSeverityFloor } from '@sentinello/core'
 import { getDb } from '@/lib/db'
-import { buildProjectAdvisoryExport } from '@/lib/project-advisory-export'
+import { buildProjectAdvisoryParts } from '@/lib/project-advisory-export'
+import { buildAdvisoryToolResult } from '@/lib/mcp/advisory-result'
 
-const depTypeSchema = z.enum(['all', 'prod', 'dev']).optional()
+const depTypeSchema = z
+    .enum(['all', 'prod', 'dev'])
+    .optional()
+    .describe(
+        "Which dependencies to count: 'all' (default) covers production and dev dependencies, 'prod' only production, 'dev' only dev."
+    )
+
+// Advisory documents are prose and can run to hundreds of KB on a large monorepo, while a tool result
+// has to fit in the client's context. ~90 KB sits under a 25k-token cap with room for the header, the
+// prompt and the continuation notice. Paging past this is honest and explicit; silently overflowing
+// the client's limit is not — a truncated security document reads as a clean one.
+const ADVISORY_BYTE_BUDGET = 90_000
 
 // Thin wrappers around packages/db query helpers. Each tool returns structured JSON via
 // `structuredContent` so MCP clients with schema-aware UIs render it nicely, plus a text fallback
@@ -25,7 +38,8 @@ export function registerReadTools(server: McpServer): void {
         'list_roots',
         {
             title: 'List roots',
-            description: 'Lists all configured Sentinello scan roots (project directories).'
+            description:
+                'Lists all configured Sentinello scan roots — the directories mounted into the container that Sentinello discovers projects under. Start here when you do not yet know what this instance is watching; use list_projects for the projects found inside them.'
         },
         async function handler() {
             const rows = listRoots(getDb()).map(function toOut(r) {
@@ -42,7 +56,7 @@ export function registerReadTools(server: McpServer): void {
         'get_root',
         {
             title: 'Get root',
-            description: 'Fetches a single root by id.',
+            description: 'Fetches a single scan root by id, as listed by list_roots.',
             inputSchema: { id: z.string().min(1).describe('Root id (sha256 of the path)') }
         },
         async function handler({ id }) {
@@ -64,7 +78,8 @@ export function registerReadTools(server: McpServer): void {
         'list_projects',
         {
             title: 'List projects',
-            description: 'Lists projects discovered under all (or one) root, with severity counts and last-scan status.',
+            description:
+                'Lists projects discovered under all (or one) root, each with severity counts and last-scan status. Severity counts are DISTINCT ADVISORIES, deduplicated across reporting sources — so they are lower than the row count list_findings returns for the same project, and they match get_project_advisory. This is the usual starting point for finding a projectId.',
             inputSchema: {
                 rootId: z.string().min(1).optional().describe('Limit to one root by id'),
                 depType: depTypeSchema.describe('Filter findings by dependency type (default: all)')
@@ -94,8 +109,9 @@ export function registerReadTools(server: McpServer): void {
         'get_project',
         {
             title: 'Get project',
-            description: 'Fetches a single project by id, including its detected ecosystems and per-ecosystem resolver coverage (ok / partial / unauditable with a reason code).',
-            inputSchema: { id: z.string().min(1) }
+            description:
+                "Fetches a single project by id, including its detected ecosystems and per-ecosystem resolver coverage (ok / partial / unauditable, each with a reason code). Check coverage before concluding a project is clean: 'unauditable' means that ecosystem was never successfully scanned, so zero findings there means unknown, not safe.",
+            inputSchema: { id: z.string().min(1).describe('Project id, as returned by list_projects (a 26-char hex string)') }
         },
         async function handler({ id }) {
             const db = getDb()
@@ -117,10 +133,16 @@ export function registerReadTools(server: McpServer): void {
         'list_findings',
         {
             title: 'List current findings for a project',
-            description: 'Returns the active (unresolved) vulnerability findings for one project, ordered by severity. Optionally filter by minimum severity, ecosystem, or source.',
+            description:
+                'Returns the active (unresolved) vulnerability findings for one project, ordered by severity, as RAW PER-SOURCE ROWS: one row per reporting source, so a vulnerability that npm-audit and OSV both report appears twice under their different advisory ids. This count is therefore expected to EXCEED the distinct-advisory counts from list_projects, get_dashboard_summary and get_project_advisory — that is the intended difference in grain, not a bug. Use this when you want the underlying rows or need to mute a specific (source, advisory, package) identity; use get_project_advisory when you want the deduplicated work document.',
             inputSchema: {
-                projectId: z.string().min(1),
-                minSeverity: z.enum(['critical', 'high', 'moderate', 'low', 'info']).optional(),
+                projectId: z.string().min(1).describe('Project id, as returned by list_projects (a 26-char hex string)'),
+                minSeverity: z
+                    .enum(['critical', 'high', 'moderate', 'low', 'info'])
+                    .optional()
+                    .describe(
+                        "Only return findings at or above this severity (default: no floor, everything is returned). 'high' yields critical + high."
+                    ),
                 depType: depTypeSchema,
                 ecosystem: z.string().min(1).optional().describe("Filter to one ecosystem id ('npm', 'PyPI', 'Go', 'crates.io')"),
                 source: z.string().min(1).optional().describe("Filter to one source id ('npm-audit', 'osv', 'gemnasium')"),
@@ -129,16 +151,12 @@ export function registerReadTools(server: McpServer): void {
         },
         async function handler({ projectId, minSeverity, depType, ecosystem, source, includeMuted }) {
             const all = listCurrentFindingsForProject(getDb(), projectId, Date.now(), depType || 'all')
-            // Lower rank = more severe. Keep findings at or above the requested floor. Note: must NOT
-            // use `&&`/`||` here — `critical` ranks 0, and a falsy-zero would silently drop criticals
-            // and invert `minSeverity: 'critical'`. severityRank() always returns a valid number.
-            let cutoff = 4
-            if (minSeverity) cutoff = SEVERITY_RANK[minSeverity]
             const filtered = all.filter(function keep(f) {
                 if (!includeMuted && f.isMuted) return false
                 if (ecosystem && f.ecosystem !== ecosystem) return false
                 if (source && f.source !== source) return false
-                return severityRank(f.severity) <= cutoff
+                if (minSeverity) return meetsSeverityFloor(f.severity, minSeverity)
+                return true
             })
             return {
                 content: [{ type: 'text', text: JSON.stringify(filtered, null, 2) }],
@@ -151,10 +169,17 @@ export function registerReadTools(server: McpServer): void {
         'list_scans',
         {
             title: 'List recent scans for a project',
-            description: 'Returns the most recent scan rows for a project.',
+            description:
+                "Returns the most recent scan rows for a project, newest first — each with its status, timing and any error. Use this to confirm a scan requested via request_scan has actually finished, and to tell 'no findings' apart from 'never successfully scanned'.",
             inputSchema: {
-                projectId: z.string().min(1),
-                limit: z.number().int().min(1).max(200).optional()
+                projectId: z.string().min(1).describe('Project id, as returned by list_projects (a 26-char hex string)'),
+                limit: z
+                    .number()
+                    .int()
+                    .min(1)
+                    .max(200)
+                    .optional()
+                    .describe('How many scan rows to return, newest first (default: 50, maximum: 200).')
             }
         },
         async function handler({ projectId, limit }) {
@@ -170,7 +195,8 @@ export function registerReadTools(server: McpServer): void {
         'list_libraries',
         {
             title: 'List libraries (packages) with their vulnerability footprint',
-            description: 'Returns a summary of every (ecosystem, package) observed across scanned projects with its severity counts. Each row carries its ecosystem so same-named packages in different ecosystems stay distinct. Optionally filter by ecosystem.',
+            description:
+                "Returns a summary of every (ecosystem, package) observed across scanned projects with its severity counts and how many projects use it. Each row carries its ecosystem, so an npm 'requests' and a PyPI 'requests' never collapse into one row. Use this for fleet-wide questions — 'which vulnerable package is most widespread' — rather than per-project triage.",
             inputSchema: {
                 depType: depTypeSchema,
                 ecosystem: z.string().min(1).optional().describe("Filter to one ecosystem id ('npm', 'PyPI', 'Go', 'crates.io')")
@@ -187,10 +213,44 @@ export function registerReadTools(server: McpServer): void {
     )
 
     server.registerTool(
+        'list_mutes',
+        {
+            title: 'List active mutes',
+            description:
+                'Lists the mutes currently in force — the accepted-risk decisions a human recorded to keep a finding off the dashboard. Expired mutes are not returned. Each row carries the mute id needed by the unmute tool, which is otherwise unobtainable. A project-scope mute silences every finding on that project; a finding-scope mute silences one (source, ecosystem, advisory, package) identity.',
+            inputSchema: {
+                projectId: z
+                    .string()
+                    .min(1)
+                    .optional()
+                    .describe(
+                        'Limit to mutes affecting one project (default: every active mute). Includes global finding-scope mutes, which have no projectId and apply everywhere.'
+                    )
+            }
+        },
+        async function handler({ projectId }) {
+            const all = listActiveMutes(getDb(), Date.now())
+            let rows = all
+            if (projectId) {
+                // A finding-scope mute with a null projectId is global — it silences that identity in
+                // every project, so it belongs in a per-project view too.
+                rows = all.filter(function affects(m) {
+                    return m.projectId === projectId || m.projectId === null
+                })
+            }
+            return {
+                content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
+                structuredContent: { mutes: rows }
+            }
+        }
+    )
+
+    server.registerTool(
         'get_dashboard_summary',
         {
             title: 'Get dashboard summary',
-            description: 'High-level counts (projects with findings, severity totals, last scan timestamp) that drive the home page.',
+            description:
+                "High-level counts across every project — projects with findings, severity totals, and the last scan timestamp — the same numbers the portal home page shows. Severity totals count distinct advisories (deduped across reporting sources), matching list_projects. Use this for 'how bad is it overall', and list_projects when you need the per-project breakdown.",
             inputSchema: { depType: depTypeSchema }
         },
         async function handler({ depType }) {
@@ -207,47 +267,68 @@ export function registerReadTools(server: McpServer): void {
         {
             title: 'Get the advisory export document for a project',
             description:
-                "Returns the full Markdown advisory export for one project — the same document the portal's Download .md button produces: a remediation prompt followed by every active finding. This is a complete work document (tens of KB), not a data query; use list_findings when you only need the finding rows. Muted findings are excluded. Note the default depType here is 'all', while the portal page defaults to 'prod' — pass 'prod' to match a download taken from the default view.",
+                "Returns the Markdown advisory work document for one project — the same document the portal's Download .md button produces: a remediation prompt followed by the active vulnerabilities. This is a work document to act on, not a data query; use list_findings when you only need finding rows.\n\n" +
+                'GRAIN: one entry per distinct advisory, with every reporting source merged into it. A vulnerability that npm-audit and OSV both report is ONE entry here but TWO rows in list_findings, so this count is deliberately lower — that is not a discrepancy. It matches the severity totals from list_projects and the dashboard.\n\n' +
+                'SIZE: the response is paginated by byte size, not by a fixed count. If the document does not fit, the last line tells you it is incomplete and gives you the exact follow-up call to make; keep calling until it stops doing so. Never treat a page that ends early as the full list.\n\n' +
+                "Muted findings are excluded, and a note states how many. Default depType is 'all' here, while the portal page defaults to 'prod' — pass 'prod' to match a download taken from the default view.",
             inputSchema: {
-                projectId: z.string().min(1),
-                depType: depTypeSchema.describe('Dependency-type filter baked into the document (default: all)')
+                projectId: z.string().min(1).describe('Project id, as returned by list_projects (a 26-char hex string)'),
+                depType: depTypeSchema.describe(
+                    "Dependency-type filter baked into the document. 'all' (default) covers prod + dev; 'prod' matches the portal page's own default view."
+                ),
+                offset: z
+                    .number()
+                    .int()
+                    .min(0)
+                    .optional()
+                    .describe(
+                        'Index of the first advisory to render, for continuing a paginated document (default: 0). Pass the value the previous response told you to use — do not guess or increment it yourself.'
+                    ),
+                minSeverity: z
+                    .enum(['critical', 'high', 'moderate', 'low', 'info'])
+                    .optional()
+                    .describe(
+                        "Only include advisories at or above this severity (default: no floor, everything is included). 'high' yields critical + high."
+                    ),
+                includePrompt: z
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Include the ~10 KB remediation prompt that explains how to approach the fixes. Defaults to true on the first page and false when offset > 0, since a continuation page would only repeat it. Set false to save space when you already have the ground rules.'
+                    )
             }
         },
-        async function handler({ projectId, depType }) {
-            const result = buildProjectAdvisoryExport(getDb(), projectId, depType || 'all', Date.now())
-            if (!result) {
+        async function handler({ projectId, depType, offset, minSeverity, includePrompt }) {
+            const resolvedDepType = depType || 'all'
+            const resolvedOffset = offset || 0
+            const parts = buildProjectAdvisoryParts(getDb(), projectId, resolvedDepType, Date.now())
+            if (!parts) {
                 return { isError: true, content: [{ type: 'text', text: 'Project not found: ' + projectId }] }
             }
-            // Returned as raw Markdown rather than JSON.stringify'd like the other tools: the payload
-            // is prose, and stringifying it would escape every newline and backtick in a document
-            // whose native form is already a text content block. structuredContent carries metadata
-            // only — the SDK puts it on the wire whether or not an outputSchema is declared, so
-            // duplicating the document there would double the frame for a field most clients ignore.
-            let markdown = result.markdown
-            if (result.mutedExcludedCount > 0) {
-                // Without this the document can render "_No current findings._" under a prompt that
-                // says the goal is zero — exactly the silent zero that prompt warns against.
-                const one = result.mutedExcludedCount === 1
-                const clause = one
-                    ? '1 finding is excluded from this document because it is muted'
-                    : result.mutedExcludedCount + ' findings are excluded from this document because they are muted'
-                markdown =
-                    markdown +
-                    '\n> Note: ' + clause + ' in Sentinello. Muting records a human\'s accepted-risk decision — ' +
-                    'do not unmute or act on ' + (one ? 'it' : 'them') + ' as part of this work.\n'
+            let findings = parts.findings
+            if (minSeverity) {
+                findings = findings.filter(function keep(f) {
+                    return meetsSeverityFloor(f.severity, minSeverity)
+                })
             }
-            return {
-                content: [{ type: 'text', text: markdown }],
-                structuredContent: {
-                    filename: result.filename,
-                    projectId: result.projectId,
-                    projectName: result.projectName,
-                    depType: result.depType,
-                    findingCount: result.findingCount,
-                    mutedExcludedCount: result.mutedExcludedCount,
-                    generatedAt: result.generatedAt
-                }
-            }
+            // A continuation page repeats none of the 10 KB remediation prompt by default — the agent
+            // asking for offset > 0 already read it on page 1.
+            let withPrompt = resolvedOffset === 0
+            if (includePrompt !== undefined) withPrompt = includePrompt
+            const page = buildPaginatedAdvisoryMarkdown({
+                scope: parts.scope,
+                prompt: withPrompt ? parts.prompt : '',
+                findings,
+                generatedAt: parts.generatedAt,
+                offset: resolvedOffset,
+                byteBudget: ADVISORY_BYTE_BUDGET
+            })
+            return buildAdvisoryToolResult({
+                page,
+                mutedExcludedCount: parts.mutedExcludedCount,
+                projectId: parts.projectId,
+                depType: resolvedDepType
+            })
         }
     )
 }

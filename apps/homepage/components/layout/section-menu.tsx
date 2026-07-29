@@ -8,7 +8,11 @@ import { cn } from '@/lib/cn'
 
 // Section ids in page order. The label for each is the section's own heading key, so the bar and the
 // menu always read exactly what's printed on the page (single source of truth).
-const SECTIONS: { id: string; titleKey: string }[] = [
+type Section = { id: string; titleKey: string }
+
+// Typed as a non-empty tuple, not an array: the menu falls back to the first section in three places,
+// and this states that there always is one instead of guarding for an empty literal at each use.
+const SECTIONS: [Section, ...Section[]] = [
     { id: 'features', titleKey: 'Features.title' },
     { id: 'screenshots', titleKey: 'Screenshots.title' },
     { id: 'comparison', titleKey: 'Comparison.title' },

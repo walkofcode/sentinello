@@ -34,6 +34,15 @@ function activeMutes(): Mute[] {
     return listActiveMutes(handle.db, T0)
 }
 
+// Asserting on the mute the tool just created, without every caller narrowing the index. When no mute
+// exists the failure is that the tool created none — say so, rather than reporting a TypeError on
+// undefined from whichever property the test happened to read.
+function firstMute(): Mute {
+    const [mute] = activeMutes()
+    if (!mute) throw new Error('expected the tool to have created a mute, but none is active')
+    return mute
+}
+
 beforeEach(async function setup() {
     handle = await openPortalTestDb('mcp-actions')
     seedRoot(handle.db)
@@ -173,13 +182,13 @@ describe('mute_finding', function () {
     it('accepts the legacy scanner alias for source', async function () {
         await mcp.call('mute_finding', { ...findingArgs, source: undefined, scanner: 'npm-audit' })
 
-        expect(activeMutes()[0].scanner).toBe('npm-audit')
+        expect(firstMute().scanner).toBe('npm-audit')
     })
 
     it('prefers source over the legacy scanner alias when both are given', async function () {
         await mcp.call('mute_finding', { ...findingArgs, source: 'osv', scanner: 'npm-audit' })
 
-        expect(activeMutes()[0].scanner).toBe('osv')
+        expect(firstMute().scanner).toBe('osv')
     })
 
     it.each([['source'], ['advisoryId'], ['packageName']])(
@@ -211,13 +220,13 @@ describe('mute_finding', function () {
     it('defaults a missing ecosystem to npm', async function () {
         await mcp.call('mute_finding', findingArgs)
 
-        expect(activeMutes()[0].ecosystem).toBe('npm')
+        expect(firstMute().ecosystem).toBe('npm')
     })
 
     it('honours an explicit ecosystem', async function () {
         await mcp.call('mute_finding', { ...findingArgs, ecosystem: 'PyPI' })
 
-        expect(activeMutes()[0].ecosystem).toBe('PyPI')
+        expect(firstMute().ecosystem).toBe('PyPI')
     })
 
     // The portal records the operator's name; an MCP-created mute is attributed to 'mcp' so the audit
@@ -225,7 +234,7 @@ describe('mute_finding', function () {
     it('attributes the mute to mcp when ME_NAME is unset', async function () {
         await mcp.call('mute_finding', findingArgs)
 
-        expect(activeMutes()[0].author).toBe('mcp')
+        expect(firstMute().author).toBe('mcp')
     })
 
     it('records ME_NAME as the author when set', async function () {
@@ -233,25 +242,25 @@ describe('mute_finding', function () {
 
         await mcp.call('mute_finding', findingArgs)
 
-        expect(activeMutes()[0].author).toBe('betty')
+        expect(firstMute().author).toBe('betty')
     })
 
     it('trims the reason', async function () {
         await mcp.call('mute_finding', { ...findingArgs, reason: '  accepted risk  ' })
 
-        expect(activeMutes()[0].reason).toBe('accepted risk')
+        expect(firstMute().reason).toBe('accepted risk')
     })
 
     it('stores an expiry when given', async function () {
         await mcp.call('mute_finding', { ...findingArgs, expiresAt: T0 + 86_400_000 })
 
-        expect(activeMutes()[0].expiresAt).toBe(T0 + 86_400_000)
+        expect(firstMute().expiresAt).toBe(T0 + 86_400_000)
     })
 
     it('treats a null expiry as permanent', async function () {
         await mcp.call('mute_finding', { ...findingArgs, expiresAt: null })
 
-        expect(activeMutes()[0].expiresAt).toBeNull()
+        expect(firstMute().expiresAt).toBeNull()
     })
 
     // The reason is the audit trail for an accepted-risk decision, so the schema requires it rather

@@ -337,6 +337,14 @@ describe('updateScheduleAction', function () {
 
 // --- Notifications ---
 
+// The target the action just saved, without every caller narrowing the index. No target at all means
+// the upsert did not persist, which is a clearer failure than a TypeError on undefined.
+function firstTarget(): NotificationTarget {
+    const [target] = listNotificationTargets(handle.db)
+    if (!target) throw new Error('expected the action to have saved a notification target, but none exists')
+    return target
+}
+
 describe('upsertNotificationTargetAction', function () {
     const slackInput = {
         kind: 'slack' as const,
@@ -361,7 +369,7 @@ describe('upsertNotificationTargetAction', function () {
     ])('creates a %s target', async function (kind, config) {
         await upsertNotificationTargetAction({ ...slackInput, kind: kind as never, config: config as never })
 
-        expect(listNotificationTargets(handle.db)[0].kind).toBe(kind)
+        expect(firstTarget().kind).toBe(kind)
     })
 
     // Each kind has its own required credential shape; a target saved without it would fail silently
@@ -388,7 +396,7 @@ describe('upsertNotificationTargetAction', function () {
     it('defaults the source scope to every cell', async function () {
         await upsertNotificationTargetAction(slackInput)
 
-        expect(listNotificationTargets(handle.db)[0].sourceScope).toEqual({ mode: 'all', cells: [] })
+        expect(firstTarget().sourceScope).toEqual({ mode: 'all', cells: [] })
     })
 
     it('stores an explicit source scope', async function () {
@@ -397,7 +405,7 @@ describe('upsertNotificationTargetAction', function () {
             sourceScope: { mode: 'selected', cells: [{ source: 'osv', ecosystem: 'PyPI' }] }
         })
 
-        expect(listNotificationTargets(handle.db)[0].sourceScope).toEqual({
+        expect(firstTarget().sourceScope).toEqual({
             mode: 'selected',
             cells: [{ source: 'osv', ecosystem: 'PyPI' }]
         })
@@ -643,7 +651,10 @@ describe('testSendNotificationTargetAction', function () {
 
         await testSendNotificationTargetAction('target-1')
 
-        expect(send.mock.calls[0][1]).toMatchObject({ title: '[Sentinello] Test send' })
+        expect(send).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ title: '[Sentinello] Test send' })
+        )
     })
 })
 

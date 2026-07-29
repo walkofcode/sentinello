@@ -44,9 +44,14 @@ export async function connectMcp(): Promise<McpHarness> {
 // Every tool returns its payload as JSON in the first text content block (get_project_advisory is the
 // documented exception — it returns raw Markdown).
 export function jsonOf<T>(result: ToolResult): T {
-    return JSON.parse(result.content[0].text as string) as T
+    return JSON.parse(textOf(result)) as T
 }
 
+// A result carrying no content block is a bug in the tool under test, so say that. Letting the
+// undefined through would surface as `JSON.parse(undefined)` or an assertion against "undefined"
+// several frames from the tool that actually returned nothing.
 export function textOf(result: ToolResult): string {
-    return result.content[0].text as string
+    const first = result.content[0]
+    if (!first) throw new Error('tool result carried no content block')
+    return first.text as string
 }
