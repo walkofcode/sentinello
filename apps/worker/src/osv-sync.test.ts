@@ -57,6 +57,23 @@ vi.mock('@sentinello/feeds', function mockFeeds() {
     }
 })
 
+// statfs is the only way to drive the free-space guard: it reports the real volume, which on any
+// machine that can run this suite has room. Partial so mkdtemp/rm keep working.
+const statfsResult = vi.hoisted(function makeStatfs() {
+    return { override: null as { bavail: number; bsize: number } | null }
+})
+
+vi.mock('node:fs/promises', async function mockFsPromises(importOriginal) {
+    const actual = await importOriginal<typeof import('node:fs/promises')>()
+    return {
+        ...actual,
+        statfs: async function statfs(path: string) {
+            if (statfsResult.override) return statfsResult.override as unknown as Awaited<ReturnType<typeof actual.statfs>>
+            return actual.statfs(path)
+        }
+    }
+})
+
 const { checkOsvFreeSpace, incrementalSyncOsv, seedOsv } = await import('./osv-sync')
 
 const ECO = 'npm'
@@ -103,6 +120,7 @@ function meta<T>(key: string): T | null {
 
 beforeEach(async function setup() {
     feeds.feedDisabled = false
+    statfsResult.override = null
     feeds.streamOsvSeed.mockReset()
     feeds.fetchOsvChangedIds.mockReset()
     feeds.fetchOsvAdvisoryRows.mockReset()
@@ -136,6 +154,42 @@ describe('checkOsvFreeSpace', function () {
     it('reports unknown rather than blocking when the volume cannot be stat-ed', async function () {
         process.env.SENTINELLO_OSV_DB_PATH = join(dir, 'no', 'such', 'place', 'osv.db')
         expect(await checkOsvFreeSpace()).toEqual({ freeBytes: 0, sufficient: true })
+    })
+
+    it('reports insufficient when the volume is below the required headroom', async function () {
+        statfsResult.override = { bavail: 10, bsize: 4096 }
+        expect(await checkOsvFreeSpace()).toMatchObject({ freeBytes: 40_960, sufficient: false })
+    })
+})
+
+// The seed pulls roughly 100 MB per ecosystem and expands it into the cache. Refusing up front is the
+// difference between "OSV did not update" and filling the volume the operator's SQLite database and
+// its WAL also live on — at which point the worker cannot write a scan either. The message carries
+// both numbers because "need more space" without an amount is not actionable.
+describe('seedOsv — the free-space guard', function () {
+    beforeEach(function tinyVolume() {
+        statfsResult.override = { bavail: 10, bsize: 4096 }
+    })
+
+    it('refuses to seed and never starts the download', async function () {
+        const result = await seedOsv(db, ECO)
+        expect(result).toMatchObject({ status: 'error', upserted: 0 })
+        expect(result.message).toMatch(/insufficient free space for OSV seed: need ~\d+ MiB, have 0 MiB/)
+        expect(feeds.streamOsvSeed).not.toHaveBeenCalled()
+    })
+
+    // Recorded on the meta row, not just returned, so Settings → Sources shows why the seed did not
+    // happen rather than leaving the source looking merely un-seeded.
+    it('records the reason as the source last error', async function () {
+        await seedOsv(db, ECO)
+        expect(getOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ECO))).toMatch(/insufficient free space/)
+    })
+
+    // Checked after the feed-disabled short-circuit: an operator who turned the source off should not
+    // be told about disk space for a download that was never going to run.
+    it('yields to the feed-disabled check', async function () {
+        feeds.feedDisabled = true
+        expect(await seedOsv(db, ECO)).toMatchObject({ status: 'skipped', message: 'feed disabled' })
     })
 })
 

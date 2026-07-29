@@ -15,7 +15,28 @@ import {
 } from '@sentinello/db'
 import type { Project } from '@sentinello/core'
 import type { RawFinding, ScanContext, ScannerPlugin, ScanResult } from '@sentinello/scanners'
-import { runBatch } from './runner'
+
+// Partial: notifyForCompletedScan runs for real in every test below (it writes the discovery ledger
+// against the same database), and is only diverted for the one case that needs it to fail.
+const notifier = vi.hoisted(function makeNotifier() {
+    return { failOnce: false }
+})
+
+vi.mock('./notifier', async function mockNotifier(importOriginal) {
+    const actual = await importOriginal<typeof import('./notifier')>()
+    return {
+        ...actual,
+        notifyForCompletedScan: async function notifyForCompletedScan(input: Parameters<typeof actual.notifyForCompletedScan>[0]) {
+            if (notifier.failOnce) {
+                notifier.failOnce = false
+                throw new Error('slack is down')
+            }
+            return actual.notifyForCompletedScan(input)
+        }
+    }
+})
+
+const { runBatch } = await import('./runner')
 
 // runBatch already takes db, sqlite, scanners and projects as an injected object, so this drives the
 // real orchestration with fake ScannerPlugins and a real database — no seam was needed.
@@ -103,6 +124,7 @@ function batch(scanners: ScannerPlugin[], projects: Project[], abortSignal?: Abo
 }
 
 beforeEach(async function setup() {
+    notifier.failOnce = false
     dir = await mkdtemp(join(tmpdir(), 'sentinello-runner-'))
     projectDir = join(dir, 'repo')
     const opened = openDb({ dbPath: join(dir, 'test.sqlite') })
@@ -462,5 +484,148 @@ describe('runBatch — abort', function () {
             abortSignal: controller.signal
         })
         expect(outcomes).toEqual([])
+    })
+})
+
+describe('runBatch — the git branch refresh', function () {
+    // The branch is re-read at scan time rather than trusted from the last discovery sweep, because
+    // the checkout can move between the two — and the notification built later in this same pass
+    // reads it off the in-memory project, so a stale value would page an operator about "main" for
+    // findings that came from a feature branch.
+    async function makeGitDir(head: string): Promise<void> {
+        const { mkdir, writeFile } = await import('node:fs/promises')
+        await mkdir(join(projectDir, '.git'), { recursive: true })
+        await writeFile(join(projectDir, '.git', 'HEAD'), head, 'utf8')
+    }
+
+    function storedBranch(): string | null {
+        return (sqlite.prepare('SELECT git_branch AS b FROM projects WHERE id = ?').get(PROJECT_ID) as { b: string | null }).b
+    }
+
+    it('records a branch that discovery had not seen', async function () {
+        await makeGitDir('ref: refs/heads/release/2.7\n')
+        const p = project({ gitBranch: null })
+
+        await batch([fakeScanner('osv', okResult([]))], [p])
+
+        expect(storedBranch()).toBe('release/2.7')
+        // Mutated in place, not just persisted — this is the copy the notifier reads.
+        expect(p.gitBranch).toBe('release/2.7')
+    })
+
+    it('updates a branch that has moved since the last sweep', async function () {
+        await makeGitDir('ref: refs/heads/main\n')
+        await batch([fakeScanner('osv', okResult([]))], [project({ gitBranch: 'old-branch' })])
+        expect(storedBranch()).toBe('main')
+    })
+
+    // The short-circuit: an unchanged branch costs one file read and no write. Asserted by watching
+    // updated_at, which setProjectGitBranch would bump.
+    it('writes nothing when the branch is unchanged', async function () {
+        await makeGitDir('ref: refs/heads/main\n')
+        await batch([fakeScanner('osv', okResult([]))], [project({ gitBranch: 'main' })])
+
+        const row = sqlite.prepare('SELECT git_branch AS b, updated_at AS u FROM projects WHERE id = ?').get(PROJECT_ID) as { b: string | null; u: number }
+        expect(row.b).toBeNull()
+        expect(row.u).toBe(T0)
+    })
+
+    it('leaves a non-git project on a null branch', async function () {
+        await batch([fakeScanner('osv', okResult([]))], [project({ gitBranch: null })])
+        expect(storedBranch()).toBeNull()
+    })
+})
+
+describe('runBatch — the notifier', function () {
+    // Notification is the last step and is explicitly best-effort: the scan, its findings and the
+    // lifecycle merge are already committed by the time it runs. A webhook timeout must not discard
+    // that work or mark the scan failed, because the data is what the portal shows and the
+    // notification is only how the operator hears about it.
+    it('keeps the scan and its findings when notification fails', async function () {
+        notifier.failOnce = true
+        const errors: string[] = []
+        vi.spyOn(console, 'error').mockImplementation(function capture(...args: unknown[]) {
+            errors.push(String(args[0]))
+        })
+
+        const outcomes = await batch([fakeScanner('osv', okResult([rawFinding()]))], [project()])
+
+        expect(outcomes).toHaveLength(1)
+        expect(outcomes[0]?.findings).toHaveLength(1)
+        expect(listScansForProject(db, PROJECT_ID)).toHaveLength(1)
+        expect(listFindingsForScan(db, outcomes[0]!.scan.id)).toHaveLength(1)
+        expect(errors.some(function m(l) { return l.includes('notifier failed for project ' + PROJECT_ID + ': slack is down') })).toBe(true)
+        vi.restoreAllMocks()
+    })
+})
+
+describe('runBatch — ecosystem coverage', function () {
+    // Coverage is what makes a clean scan honest: it records, per ecosystem, whether the dependency
+    // graph was fully resolved. Without it a project whose lockfile could not be parsed reports zero
+    // findings exactly like a project that genuinely has none, and the feed scanners have no way to
+    // say "I could not see your dependencies" rather than "you are fine".
+    //
+    // Only the feed scanners receive it. npm-audit is handed undefined because it derives its own
+    // reachability from the lockfile it just parsed, and stamping the resolver's view on top would
+    // report the same gap twice.
+    // projectDir is the ROOT path; the project itself lives at <root>/<relPath>, which is where the
+    // runner resolves manifests from.
+    async function writeManifest(files: Record<string, string>): Promise<void> {
+        const { mkdir, writeFile } = await import('node:fs/promises')
+        const path = join(projectDir, 'app')
+        await mkdir(path, { recursive: true })
+        for (const [name, body] of Object.entries(files)) {
+            await writeFile(join(path, name), body, 'utf8')
+        }
+    }
+
+    function coverageOf(scanner: { contexts: ScanContext[] }): unknown {
+        return (scanner.contexts[0] as unknown as { coverage?: unknown }).coverage
+    }
+
+    it('reports ok coverage for a fully resolved graph', async function () {
+        await writeManifest({
+            'package.json': JSON.stringify({ name: 'app', dependencies: { lodash: '4.17.11' } }),
+            'package-lock.json': JSON.stringify({
+                lockfileVersion: 3,
+                packages: { '': { name: 'app' }, 'node_modules/lodash': { version: '4.17.11' } }
+            })
+        })
+        const osv = fakeScanner('osv', okResult([]))
+
+        await batch([osv], [project()])
+
+        expect(coverageOf(osv)).toEqual([{ ecosystem: 'npm', status: 'ok' }])
+    })
+
+    // yarn.lock is detected as the npm manifest but deliberately not parsed, so the graph is
+    // unauditable rather than empty. Carrying the reasonCode and details through is the difference
+    // between the portal saying "we could not read your yarn.lock" and it saying nothing at all
+    // while showing zero findings.
+    it('carries the reason code through for a graph that could not be resolved', async function () {
+        await writeManifest({
+            'package.json': JSON.stringify({ name: 'app', dependencies: { lodash: '^4.17.11' } }),
+            'yarn.lock': '# yarn lockfile v1\n'
+        })
+        const osv = fakeScanner('osv', okResult([]))
+
+        await batch([osv], [project()])
+
+        const coverage = coverageOf(osv) as Array<{ ecosystem: string; status: string; reasonCode?: string; details?: string[] }>
+        expect(coverage).toHaveLength(1)
+        expect(coverage[0]).toMatchObject({ ecosystem: 'npm', status: 'unauditable', reasonCode: 'unsupported_lockfile' })
+        expect(coverage[0]?.details?.[0]).toContain('yarn.lock')
+    })
+
+    it('withholds coverage from npm-audit, which derives its own', async function () {
+        await writeManifest({
+            'package.json': JSON.stringify({ name: 'app', dependencies: { lodash: '^4.17.11' } }),
+            'yarn.lock': '# yarn lockfile v1\n'
+        })
+        const audit = fakeScanner('npm-audit', okResult([]))
+
+        await batch([audit], [project()])
+
+        expect(coverageOf(audit)).toBeUndefined()
     })
 })

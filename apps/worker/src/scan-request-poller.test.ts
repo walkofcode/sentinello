@@ -73,6 +73,17 @@ function input(overrides: Record<string, unknown> = {}) {
     }
 }
 
+// A drizzle handle that rejects every call with a bare string rather than an Error. better-sqlite3
+// only ever throws Errors, so this is the only way to reach the String(err) arm of the message
+// extraction that every log line in this module goes through.
+function throwingDb() {
+    return new Proxy({}, {
+        get() {
+            throw 'database exploded'
+        }
+    }) as unknown as WorkerTestDb['db']
+}
+
 function lastBatch() {
     return runBatch.mock.calls[runBatch.mock.calls.length - 1]?.[0] as {
         projects: { id: string; relPath: string }[]
@@ -240,6 +251,23 @@ describe('pollOnce — root sweep', function () {
         expect(runBatch).not.toHaveBeenCalled()
         expect(statusOf(request.id)).toBe('done')
     })
+
+    // This is the "Scan this root" button's log line — the likeliest thing an operator reads after
+    // pressing it — and its project count is pluralised inline.
+    it.each([
+        ['a single project', { 'only/package.json': PKG_JSON }, '1 project,'],
+        ['several projects', { 'a/package.json': PKG_JSON, 'b/package.json': PKG_JSON }, '2 projects,']
+    ])('reports %s in the finished log', async function (_label, tree, expected) {
+        const path = await makeTree(handle.dir, 'counted-' + String(expected).replace(/\W/g, ''), tree as Record<string, string>)
+        upsertRoot(handle.db, { id: 'root-count', path, label: null, createdAt: T0 })
+        enqueueScanRequest(handle.db, { rootId: 'root-count' }, T0)
+
+        await pollOnce(input())
+
+        expect(logLines().some(function m(l) {
+            return l.includes('root sweep finished') && l.includes(expected as string)
+        })).toBe(true)
+    })
 })
 
 describe('pollOnce — failure handling', function () {
@@ -300,6 +328,110 @@ describe('pollOnce — the heartbeat', function () {
         await vi.advanceTimersByTimeAsync(30_000)
         const later = listRecentScanRequests(handle.db).find(function m(r) { return r.id === request.id })
         expect(later?.heartbeatAt).toBe(settled?.heartbeatAt ?? null)
+        vi.useRealTimers()
+    })
+
+    // The ping runs on its own interval, outside the try/catch that wraps the scan, so a throwing
+    // ping is an unhandled exception inside a timer callback — which takes the process down and
+    // loses the scan that was actually going fine. It has its own catch for exactly that reason.
+    //
+    // The fault is injected by closing the connection mid-scan, which is the real shape of the
+    // failure: the ping keeps firing on its interval after a shutdown has already closed the
+    // database, and better-sqlite3 throws rather than returning an error.
+    it('survives a heartbeat ping that throws', async function () {
+        vi.useFakeTimers()
+        let release = function release() {}
+        runBatch.mockImplementationOnce(function slow() {
+            handle.sqlite.close()
+            return new Promise(function executor(resolve) {
+                release = function () { resolve([]) }
+            })
+        })
+        enqueueScanRequest(handle.db, {}, T0)
+
+        const work = pollOnce(input())
+        await vi.advanceTimersByTimeAsync(5_000)
+
+        // The ping failed and was logged, and the scan promise is still pending — that is the whole
+        // property: a dead heartbeat does not interrupt the scan it was reporting on.
+        expect(errorLines().some(function m(l) { return l.includes('heartbeat ping failed') })).toBe(true)
+
+        // Once the batch finishes, the same closed connection defeats the terminal-status write too,
+        // and pollOnce rejects — which is correct and is the caller's problem: startScanRequestPoller
+        // catches it (covered below). Asserted rather than awaited bare so the cascade is stated
+        // rather than showing up as an unhandled rejection in some later test.
+        release()
+        await expect(work).rejects.toThrow(/database connection is not open/)
+        vi.useRealTimers()
+    })
+})
+
+describe('pollOnce — when the database itself is unavailable', function () {
+    // Everything above injects failure at the scanner. These two inject it at the database, which is
+    // the shape a shutdown race actually takes: the connection closes while a tick is in flight.
+    // Both paths have to degrade to a log rather than an unhandled rejection, because an unhandled
+    // rejection inside setInterval takes the whole worker down over a transient.
+
+    it('logs a failing signal claim and returns rather than throwing', async function () {
+        enqueueWorkerSignal(handle.db, 'reload-schedule', T0)
+        handle.sqlite.close()
+
+        // drainWorkerSignals swallows its own failure and returns; what rejects is the request claim
+        // immediately after it. So the assertion below is specifically about the drain arm having
+        // logged and moved on, not about pollOnce surviving.
+        await expect(pollOnce(input())).rejects.toThrow()
+
+        expect(errorLines().some(function m(l) { return l.includes('signal claim failed') })).toBe(true)
+        expect(scheduler.reload).not.toHaveBeenCalled()
+    })
+
+    it('renders a non-Error signal-claim failure as a string', async function () {
+        await expect(pollOnce(input({ db: throwingDb() }))).rejects.toBe('database exploded')
+        expect(errorLines().some(function m(l) { return l.includes('signal claim failed: database exploded') })).toBe(true)
+    })
+
+    it('catches a rejected tick inside the interval instead of crashing the worker', async function () {
+        vi.useFakeTimers()
+        const handles = startScanRequestPoller(input({ intervalMs: 100 }))
+        handle.sqlite.close()
+
+        await vi.advanceTimersByTimeAsync(100)
+
+        expect(errorLines().some(function m(l) { return l.includes('tick failed') })).toBe(true)
+        handles.stop()
+        vi.useRealTimers()
+    })
+
+    // A non-Error rejection cannot come from the database layer — better-sqlite3 throws Errors — so
+    // the String(err) arm of the tick's handler is reached with a db double that throws a bare
+    // string. It is the same arm a `throw 'msg'` anywhere below pollOnce would take, and the cost of
+    // getting it wrong is "[object Object]" in the only line that says the poller stopped working.
+    it('renders a non-Error tick rejection as a string', async function () {
+        vi.useFakeTimers()
+        const handles = startScanRequestPoller(input({ db: throwingDb(), intervalMs: 100 }))
+
+        await vi.advanceTimersByTimeAsync(100)
+
+        expect(errorLines().some(function m(l) { return l.includes('tick failed: database exploded') })).toBe(true)
+        handles.stop()
+        vi.useRealTimers()
+    })
+
+    // Falls back to POLL_INTERVAL_MS when the caller passes none — which is how the worker starts it.
+    // Every other test here passes an explicit interval to keep the fake clock short, so the real
+    // production value had never been exercised.
+    it('defaults to a five-second interval when none is given', async function () {
+        vi.useFakeTimers()
+        const handles = startScanRequestPoller(input())
+        enqueueScanRequest(handle.db, {}, T0)
+
+        await vi.advanceTimersByTimeAsync(4_999)
+        expect(runBatch).not.toHaveBeenCalled()
+
+        await vi.advanceTimersByTimeAsync(1)
+        expect(runBatch).toHaveBeenCalledTimes(1)
+
+        handles.stop()
         vi.useRealTimers()
     })
 })
@@ -400,6 +532,28 @@ describe('worker signals', function () {
         await pollOnce(input())
         expect(errorLines().some(function m(l) { return l.includes('signal dispatch failed') && l.includes('reload-schedule') })).toBe(true)
         expect(osvController.reload).toHaveBeenCalledTimes(1)
+    })
+
+    // Every message in this module is built with `err instanceof Error && err.message || String(err)`.
+    // The second arm is what a `throw 'string'` or a rejected non-Error takes, and getting it wrong
+    // prints "[object Object]" in the one log line an operator has to diagnose from.
+    it('renders a non-Error dispatch failure as a string', async function () {
+        scheduler.reload.mockImplementationOnce(function boom() { throw 'reload blew up' })
+        enqueueWorkerSignal(handle.db, 'reload-schedule', T0)
+        await pollOnce(input())
+        expect(errorLines().some(function m(l) { return l.includes('signal dispatch failed') && l.includes('reload blew up') })).toBe(true)
+    })
+
+    it.each([
+        ['OSV', 'refresh-osv', 'OSV refresh failed: feed down'],
+        ['gemnasium', 'refresh-gemnasium', 'gemnasium refresh failed: feed down']
+    ])('renders a non-Error %s refresh rejection as a string', async function (_label, kind, expected) {
+        const target = kind === 'refresh-osv' ? osvController : gemnasiumController
+        target.refresh.mockRejectedValueOnce('feed down')
+        enqueueWorkerSignal(handle.db, kind as string, T0)
+        await pollOnce(input())
+        await Promise.allSettled(Array.from(runtime.inFlight))
+        expect(errorLines().some(function m(l) { return l.includes(expected as string) })).toBe(true)
     })
 })
 

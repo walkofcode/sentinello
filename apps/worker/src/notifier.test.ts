@@ -359,4 +359,62 @@ describe('normalizeFailureSignature', function () {
     it('handles a missing error text', function () {
         expect(typeof normalizeFailureSignature('error', 'audit_unknown_failure', null)).toBe('string')
     })
+
+    // Everything above takes the structured-reasonCode arm, which short-circuits before any scrubbing
+    // happens. The scrubbing arm below is the legacy path: rows that pre-date the reason_code column
+    // have only free-text errorText to key on, and that text carries a timestamp, a pid and a path
+    // that all differ run to run. Unscrubbed, every retry of the same failure mints a NEW event row
+    // and pages the operator again — the exact failure mode the signature exists to prevent.
+    describe('the legacy errorText fallback', function () {
+        it.each([
+            ['no reason code at all', null],
+            ['a reason code of ok', 'ok' as const]
+        ])('scrubs errorText when there is %s', function (_label, reasonCode) {
+            const signature = normalizeFailureSignature('error', reasonCode, 'spawn failed at 1767225600123')
+            expect(signature).toBe('error: spawn failed at <ts>')
+        })
+
+        it.each([
+            ['a unix-millisecond timestamp', 'failed at 1767225600123', 'error: failed at <ts>'],
+            ['a pid written with a space', 'killed pid 41234', 'error: killed pid=<n>'],
+            ['a pid written with an equals', 'killed pid=41234', 'error: killed pid=<n>'],
+            ['a duration', 'gave up after 30000 ms', 'error: gave up after Nms'],
+            ['a duration with no space', 'gave up after 30000ms', 'error: gave up after Nms'],
+            ['an absolute path', 'ENOENT /srv/code/app/package.json', 'error: ENOENT <path>']
+        ])('replaces %s', function (_label, errorText, expected) {
+            expect(normalizeFailureSignature('error', null, errorText)).toBe(expected)
+        })
+
+        // All four substitutions in one string, which is what a real spawn failure looks like.
+        it('collapses two runs of the same failure onto one signature', function () {
+            const first = normalizeFailureSignature('error', null, 'pid 411 died after 30000 ms running /srv/a/node_modules/.bin/npm at 1767225600123')
+            const second = normalizeFailureSignature('error', null, 'pid 987 died after 45000 ms running /srv/b/node_modules/.bin/npm at 1767225999999')
+            expect(first).toBe(second)
+            expect(first).toBe('error: pid=<n> died after Nms running <path> at <ts>')
+        })
+
+        // Bounded so a stack trace pasted into errorText cannot become a multi-kilobyte dedupe key
+        // stored on every event row.
+        it('truncates a very long error text', function () {
+            const signature = normalizeFailureSignature('error', null, 'x'.repeat(500))
+            expect(signature).toBe('error: ' + 'x'.repeat(200))
+        })
+
+        it('trims surrounding whitespace', function () {
+            expect(normalizeFailureSignature('error', null, '   boom   ')).toBe('error: boom')
+        })
+
+        // Distinct from the reasonCode arm's output shape: 'error: text' with a space, versus
+        // 'error:no_lockfile' without one. Keeping them distinguishable means a legacy row and a
+        // structured row for the same failure never collide on one event.
+        it('returns the bare status when there is no error text either', function () {
+            expect(normalizeFailureSignature('unauditable', null, null)).toBe('unauditable')
+            expect(normalizeFailureSignature('error', 'ok', '')).toBe('error')
+        })
+
+        it('keeps the structured and legacy shapes distinguishable', function () {
+            expect(normalizeFailureSignature('error', 'no_lockfile', null)).toBe('error:no_lockfile')
+            expect(normalizeFailureSignature('error', null, 'no_lockfile')).toBe('error: no_lockfile')
+        })
+    })
 })

@@ -204,3 +204,37 @@ describe('waitForInFlight', function () {
         await expect(waiting).resolves.toBeUndefined()
     })
 })
+
+describe('waitForInFlight — the settled race', function () {
+    // The one ordering the guards exist for: the grace expires, shutdown proceeds, and THEN the
+    // abandoned scan finishes anyway. Without the flag, its allSettled handler would resolve an
+    // already-resolved promise — harmless in itself — but the guard is also what stops a second
+    // "grace period exceeded" line being attributed to work that did eventually complete.
+    //
+    // This is a real sequence, not a theoretical one: the grace period is bounded precisely because
+    // a scanner subprocess can outlive it, and abort() only asks it to stop.
+    it('ignores work that settles after the grace period already expired', async function () {
+        vi.useFakeTimers()
+        const warn = vi.spyOn(console, 'error').mockImplementation(function silence() {})
+        try {
+            const runtime = createWorkerRuntime()
+            const late = deferred()
+            runtime.track(late.promise)
+
+            const waiting = waitForInFlight(runtime, 1000)
+            await vi.advanceTimersByTimeAsync(1001)
+            await waiting
+            expect(warn).toHaveBeenCalledTimes(1)
+
+            // The straggler lands after shutdown has already moved on.
+            late.resolve()
+            await vi.advanceTimersByTimeAsync(0)
+
+            expect(warn).toHaveBeenCalledTimes(1)
+            expect(runtime.inFlight.size).toBe(0)
+        } finally {
+            warn.mockRestore()
+            vi.useRealTimers()
+        }
+    })
+})

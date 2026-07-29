@@ -67,6 +67,23 @@ vi.mock('@sentinello/feeds', function mockFeeds() {
     }
 })
 
+// statfs is the only way to drive the free-space guard: it reports the real volume, which on any
+// machine that can run this suite has room. Partial so mkdtemp/rm keep working.
+const statfsResult = vi.hoisted(function makeStatfs() {
+    return { override: null as { bavail: number; bsize: number } | null }
+})
+
+vi.mock('node:fs/promises', async function mockFsPromises(importOriginal) {
+    const actual = await importOriginal<typeof import('node:fs/promises')>()
+    return {
+        ...actual,
+        statfs: async function statfs(path: string) {
+            if (statfsResult.override) return statfsResult.override as unknown as Awaited<ReturnType<typeof actual.statfs>>
+            return actual.statfs(path)
+        }
+    }
+})
+
 const { checkGemnasiumFreeSpace, syncGemnasium } = await import('./gemnasium-sync')
 
 let dir: string
@@ -115,6 +132,7 @@ function markSeeded(sha = 'sha-old'): void {
 
 beforeEach(async function setup() {
     feeds.feedDisabled = false
+    statfsResult.override = null
     feeds.fetchGemnasiumHeadSha.mockReset()
     feeds.fetchGemnasiumChangedPaths.mockReset()
     feeds.fetchGemnasiumFileRows.mockReset()
@@ -149,6 +167,46 @@ describe('checkGemnasiumFreeSpace', function () {
     it('reports unknown rather than blocking when the volume cannot be stat-ed', async function () {
         process.env.SENTINELLO_GEMNASIUM_DB_PATH = join(dir, 'no', 'such', 'place', 'gemnasium.db')
         expect(await checkGemnasiumFreeSpace()).toEqual({ freeBytes: 0, sufficient: true })
+    })
+
+    it('reports insufficient when the volume is below the required headroom', async function () {
+        statfsResult.override = { bavail: 10, bsize: 4096 }
+        expect(await checkGemnasiumFreeSpace()).toMatchObject({ freeBytes: 40_960, sufficient: false })
+    })
+})
+
+// The rebuild pulls the full ~80 MB archive and expands it. The guard sits on the REBUILD path only,
+// not on the incremental one — an incremental catch-up applies a handful of files and needs no
+// headroom, so gating it on disk space would refuse cheap work for an expensive reason.
+describe('syncGemnasium — the free-space guard on the rebuild path', function () {
+    beforeEach(function tinyVolume() {
+        statfsResult.override = { bavail: 10, bsize: 4096 }
+        feeds.fetchGemnasiumHeadSha.mockResolvedValue('sha-1')
+    })
+
+    it('refuses to rebuild and never opens the archive', async function () {
+        const result = await syncGemnasium(db)
+        expect(result).toMatchObject({ status: 'error', upserted: 0 })
+        expect(result.message).toMatch(/insufficient free space for gemnasium seed: need ~\d+ MiB, have 0 MiB/)
+        expect(feeds.streamGemnasiumArchive).not.toHaveBeenCalled()
+    })
+
+    // Surfaced in Settings → Sources rather than only returned, so the source does not just look
+    // permanently un-seeded with no stated reason.
+    it('records the reason as the source last error', async function () {
+        await syncGemnasium(db)
+        expect(getGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastError)).toMatch(/insufficient free space/)
+    })
+
+    // The cache is left exactly as it was: refusing to start is the whole point, and a guard that
+    // purged first would turn a full disk into an empty advisory database.
+    it('leaves the existing cache intact', async function () {
+        upsertGemnasiumAdvisories(db, [row()])
+        const before = countGemnasiumAdvisories(db)
+
+        await syncGemnasium(db)
+
+        expect(countGemnasiumAdvisories(db)).toBe(before)
     })
 })
 
