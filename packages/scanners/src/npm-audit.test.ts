@@ -27,6 +27,9 @@ type FakeSpawnOptions = {
     exitCode?: number | null
     // Emit an error instead of closing — how ENOENT actually surfaces.
     error?: Error
+    // Emit 'close' as well as 'error'. Node makes no promise that a failed spawn emits only one of
+    // them, so the capture has to survive both.
+    alsoClose?: boolean
     // Never close, so the timeout or the abort signal is what settles the promise.
     hang?: boolean
 }
@@ -58,6 +61,13 @@ function fakeSpawn(behaviour: FakeSpawnOptions = {}) {
         setImmediate(function deliver() {
             if (behaviour.error) {
                 child.emit('error', behaviour.error)
+                if (behaviour.alsoClose) {
+                    child.stdout.end()
+                    child.stderr.end()
+                    setImmediate(function close() {
+                        child.emit('close', behaviour.exitCode === undefined ? null : behaviour.exitCode)
+                    })
+                }
                 return
             }
             if (behaviour.stdout) child.stdout.write(behaviour.stdout)
@@ -477,6 +487,24 @@ describe('the lockfile snapshot', function () {
         expect((await runNpmAudit(await project('pnpm-lock.yaml'), ctx(), deps)).status).toBe('ok')
     })
 
+    // lockfileVersion 1 predates the `packages` map entirely — it carried `dependencies` instead. The
+    // schema accepts the file, so the absent map has to default to empty rather than being indexed;
+    // the audit then runs with no installed versions and the cross-check simply has nothing to filter.
+    it('reads an empty snapshot from a lockfile with no packages map', async function () {
+        const { deps } = fakeSpawn({ stdout: MODERN_AUDIT })
+        const path = await project('package-lock.json')
+        await writeFile(join(path, 'package-lock.json'), JSON.stringify({
+            name: 'fixture',
+            lockfileVersion: 1,
+            dependencies: { lodash: { version: '4.17.11' } }
+        }), 'utf8')
+
+        const result = await runNpmAudit(path, ctx(), deps)
+
+        expect(result.status).toBe('ok')
+        expect(result.findings).toHaveLength(1)
+    })
+
     it('skips the root "" key and entries with no version', async function () {
         const { deps } = fakeSpawn({ stdout: MODERN_AUDIT })
         const path = await project('package-lock.json')
@@ -620,6 +648,42 @@ describe('detecting the yarn major from the lockfile', function () {
 })
 
 describe('the .nvmrc read', function () {
+    // The decision the read feeds: a pin that differs from the running Node re-executes the audit
+    // through `bash -lc 'nvm use … && …'`, and one that matches runs the package manager directly.
+    // Getting this backwards is silent — the audit still runs, just under the wrong Node.
+    it('wraps the audit through bash when .nvmrc names a different version', async function () {
+        const { deps, calls } = fakeSpawn({ stdout: MODERN_AUDIT })
+        const path = await project('package-lock.json', { '.nvmrc': '18.0.0' })
+        await runNpmAudit(path, ctx({ useNvm: true }), deps)
+        expect(calls[0]?.cmd).toBe('bash')
+        expect(calls[0]?.args.join(' ')).toContain('nvm')
+    })
+
+    it('runs the audit directly when .nvmrc matches the running version', async function () {
+        const { deps, calls } = fakeSpawn({ stdout: MODERN_AUDIT })
+        const path = await project('package-lock.json', { '.nvmrc': process.version })
+        await runNpmAudit(path, ctx({ useNvm: true }), deps)
+        expect(calls[0]?.cmd).toBe('npm')
+    })
+
+    // The common case: nvm support is on, but the project pins nothing. No pin means no wrapper — the
+    // audit must not be routed through bash on the strength of the flag alone.
+    it('runs the audit directly when the project has no .nvmrc at all', async function () {
+        const { deps, calls } = fakeSpawn({ stdout: MODERN_AUDIT })
+        await runNpmAudit(await project('package-lock.json'), ctx({ useNvm: true }), deps)
+        expect(calls[0]?.cmd).toBe('npm')
+    })
+
+    // A .nvmrc holding nothing but 'v' survives the read (it is non-empty after trimming) but strips to
+    // an empty version when compared. That comparison has to be false: treating '' as a match would skip
+    // the wrapper and audit under whatever Node happens to be present, silently ignoring the pin.
+    it('does not treat a degenerate .nvmrc as matching the running version', async function () {
+        const { deps, calls } = fakeSpawn({ stdout: MODERN_AUDIT })
+        const path = await project('package-lock.json', { '.nvmrc': 'v' })
+        await runNpmAudit(path, ctx({ useNvm: true }), deps)
+        expect(calls[0]?.cmd).toBe('bash')
+    })
+
     it('ignores a blank .nvmrc rather than wrapping for an empty version', async function () {
         const { deps, calls } = fakeSpawn({ stdout: MODERN_AUDIT })
         const path = await project('package-lock.json', { '.nvmrc': '   \n' })
@@ -672,6 +736,20 @@ describe('spawn failures that mean different things to an operator', function ()
             reasonCode: 'audit_spawn_error'
         })
     })
+
+    // A failed child can emit BOTH 'error' and 'close'; the capture promise resolves once and the second
+    // event must be ignored. The visible consequence of losing that guard is not a crash — resolving an
+    // already-resolved promise is a no-op — but the clean-up it fronts running twice: a second
+    // clearTimeout and a second removeEventListener on a listener that is already gone. The assertion is
+    // on the outcome that survives, which is the FIRST event's classification, not the close code.
+    it('settles once when the child both errors and closes', async function () {
+        const { deps } = fakeSpawn({ error: new Error('EACCES permission denied'), alsoClose: true, exitCode: 0 })
+
+        const result = await runNpmAudit(await project('package-lock.json'), ctx(), deps)
+
+        expect(result).toMatchObject({ status: 'error', reasonCode: 'audit_spawn_error' })
+        expect(result.errorText).toContain('EACCES')
+    })
 })
 
 describe('the cross-check drop log', function () {
@@ -717,6 +795,43 @@ describe('the cross-check drop log', function () {
 
         expect(result.findings).toHaveLength(0)
         expect(stderrLines().some(function m(l) { return l.includes('lockfile cross-check') && l.includes('1234') })).toBe(true)
+    })
+
+    // One override can cascade through a large dependency graph and drop dozens of advisories at once.
+    // The line names the first ten and counts the rest, because a single stderr line listing a hundred
+    // advisory ids is not something anyone reads.
+    it('truncates the advisory list and counts the remainder past ten', async function () {
+        const vulnerabilities: Record<string, unknown> = {}
+        for (let i = 1; i <= 13; i++) {
+            const name = 'pkg' + i
+            vulnerabilities[name] = {
+                name,
+                severity: 'high',
+                isDirect: true,
+                via: [{ source: i, name, title: 'Issue ' + i, url: 'https://example.test/' + i, severity: 'high', range: '<2.0.0' }],
+                effects: [],
+                range: '<2.0.0',
+                nodes: ['node_modules/' + name],
+                fixAvailable: false
+            }
+        }
+        const { deps } = fakeSpawn({ stdout: JSON.stringify({ vulnerabilities }) })
+        const path = await project('package-lock.json')
+        const packages: Record<string, unknown> = { '': { name: 'fixture' } }
+        // Every one already past its vulnerable range, so all thirteen are dropped.
+        for (let i = 1; i <= 13; i++) packages['node_modules/pkg' + i] = { version: '2.5.0' }
+        await writeFile(join(path, 'package-lock.json'), JSON.stringify({
+            name: 'fixture',
+            lockfileVersion: 3,
+            packages
+        }), 'utf8')
+
+        const result = await runNpmAudit(path, ctx(), deps)
+
+        expect(result.findings).toHaveLength(0)
+        const line = stderrLines().find(function m(l) { return l.includes('lockfile cross-check') })
+        expect(line).toContain('dropped 13 finding(s)')
+        expect(line).toContain('+3 more')
     })
 })
 
@@ -770,6 +885,15 @@ describe('nvm wrapper failures', function () {
         expect(result).toMatchObject({ status: 'error', reasonCode: 'audit_unknown_failure' })
         expect(result.errorText).toContain('something entirely unexpected')
         expect(result.errorText).not.toContain('second line')
+    })
+
+    // The wrapper exited non-zero having said nothing on either stream. There is no signature to quote,
+    // so the reason has to fall back to a placeholder: an errorText of '' renders in the portal as a
+    // failed scan with no explanation at all, which is the one outcome worse than a vague one.
+    it('names a silent wrapper failure rather than reporting an empty reason', async function () {
+        const result = await wrappedFailure('')
+        expect(result).toMatchObject({ status: 'error', reasonCode: 'audit_unknown_failure' })
+        expect(result.errorText).toContain('unknown failure')
     })
 
     // Only when there is NO audit output. A wrapper that exits non-zero but still produced JSON has
