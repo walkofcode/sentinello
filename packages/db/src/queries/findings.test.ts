@@ -10,7 +10,13 @@ import { upsertRoot } from './config'
 import { upsertProject } from './projects'
 import { insertScan } from './scans'
 import {
+    backfillFindingsLifecycle,
+    countResolvedFindingsForProject,
+    findFindingByIdentity,
+    listFindingsForProject,
     listFindingsForScan,
+    listFindingsResolvedInScan,
+    listResolvedFindingsForLibrary,
     listResolvedFindingsForProject,
     mergeFindingsForScan
 } from './findings'
@@ -257,5 +263,335 @@ describe('mergeFindingsForScan — empty and idempotent cases', function () {
         expect(third.active).toHaveLength(1)
         expect(third.active[0]?.firstDetectedAt).toBe(T0)
         expect(listResolvedFindingsForProject(db, PROJECT_ID)).toEqual([])
+    })
+})
+
+// Rows that predate the lifecycle and polyglot migrations. Written with raw SQL on purpose: the typed
+// insert path cannot produce them (it always stamps source and the lifecycle timestamps), and they are
+// exactly the rows whose fallbacks the code below is full of. A backfill runs on every worker boot, but
+// there is a window before it lands, and these rows must read correctly during it.
+//
+// Note `source` is the only genuinely nullable half of the pair. Migration 0004 added `source text`
+// (nullable) but `ecosystem text DEFAULT 'npm' NOT NULL`, so a null ecosystem is impossible in this
+// table — which makes rowToFinding's `row.ecosystem ?? 'npm'` and the SQL `COALESCE(f.ecosystem, 'npm')`
+// unreachable defensive code rather than live fallbacks. Only the source arm is tested below, because
+// only the source arm can happen.
+function insertLegacyRow(overrides: Record<string, unknown> = {}): string {
+    // findings.scan_id is a real foreign key, so the originating scan has to exist. Created on demand
+    // (and only once) so each test can state just the finding it cares about.
+    const existing = sqlite.prepare('SELECT 1 FROM scans WHERE id = ?').get('scan-legacy')
+    if (!existing) scan('scan-legacy', T0)
+    const row = {
+        id: 'legacy-1',
+        scan_id: 'scan-legacy',
+        project_id: PROJECT_ID,
+        scanner: 'npm-audit',
+        source: null,
+        ecosystem: 'npm',
+        advisory_id: 'GHSA-legacy',
+        advisory_title: 'Legacy advisory',
+        advisory_url: null,
+        package_name: 'lodash',
+        installed_version: '4.17.11',
+        vulnerable_range: '<4.17.21',
+        severity: 'high',
+        fix_available: 1,
+        fix_version: '4.17.21',
+        dep_path_json: '["lodash"]',
+        is_prod: 1,
+        is_dev: 0,
+        first_detected_at: null,
+        last_seen_at: null,
+        resolved_at: null,
+        resolved_scan_id: null,
+        ...overrides
+    }
+    const columns = Object.keys(row).join(', ')
+    const placeholders = Object.keys(row).map(function q() { return '?' }).join(', ')
+    sqlite.prepare('INSERT INTO findings (' + columns + ') VALUES (' + placeholders + ')').run(...Object.values(row))
+    return String(row.id)
+}
+
+describe('mergeFindingsForScan — collapsing duplicates', function () {
+    // Duplicates should never have coexisted, but rows written before the identity was enforced can.
+    // The merge keeps ONE as the continuing episode and closes the rest, so the duplication heals rather
+    // than persisting forever.
+    it('keeps one row per identity and resolves the others', function () {
+        insertLegacyRow({ id: 'dup-a', first_detected_at: T0 - HOUR })
+        insertLegacyRow({ id: 'dup-b', first_detected_at: T0 })
+
+        const result = merge('scan-1', T0 + HOUR, [incoming('GHSA-legacy', { scanner: 'npm-audit', source: 'npm-audit' })], 'npm-audit')
+
+        expect(result.active).toHaveLength(1)
+        expect(result.resolved.map(function id(f) { return f.id })).toEqual(['dup-b'])
+    })
+
+    // The earliest-detected row survives, so the finding's age is not reset by the collapse.
+    it('keeps the earliest-detected row so firstDetectedAt survives', function () {
+        insertLegacyRow({ id: 'dup-newer', first_detected_at: T0 })
+        insertLegacyRow({ id: 'dup-older', first_detected_at: T0 - HOUR })
+
+        const result = merge('scan-1', T0 + HOUR, [incoming('GHSA-legacy', { scanner: 'npm-audit', source: 'npm-audit' })], 'npm-audit')
+
+        expect(result.active[0]?.id).toBe('dup-older')
+        expect(result.active[0]?.firstDetectedAt).toBe(T0 - HOUR)
+    })
+
+    // A null firstDetectedAt is treated as POSITIVE_INFINITY — "newest" — so a row that carries a real
+    // date always wins. Reading null as 0 would have had exactly the opposite effect.
+    it('prefers a dated row over one with no firstDetectedAt', function () {
+        insertLegacyRow({ id: 'dup-undated', first_detected_at: null })
+        insertLegacyRow({ id: 'dup-dated', first_detected_at: T0 })
+
+        const result = merge('scan-1', T0 + HOUR, [incoming('GHSA-legacy', { scanner: 'npm-audit', source: 'npm-audit' })], 'npm-audit')
+
+        expect(result.active[0]?.id).toBe('dup-dated')
+    })
+
+    // ULIDs are chronological, so the smaller id is the older row.
+    it('breaks a firstDetectedAt tie on the id', function () {
+        insertLegacyRow({ id: 'bbbb', first_detected_at: T0 })
+        insertLegacyRow({ id: 'aaaa', first_detected_at: T0 })
+
+        const result = merge('scan-1', T0 + HOUR, [incoming('GHSA-legacy', { scanner: 'npm-audit', source: 'npm-audit' })], 'npm-audit')
+
+        expect(result.active[0]?.id).toBe('aaaa')
+    })
+
+    it('resolves every row of an identity the scan no longer reports', function () {
+        insertLegacyRow({ id: 'dup-a', first_detected_at: T0 - HOUR })
+        insertLegacyRow({ id: 'dup-b', first_detected_at: T0 })
+
+        const result = merge('scan-1', T0 + HOUR, [], 'npm-audit')
+
+        expect(result.active).toEqual([])
+        expect(result.resolved.map(function id(f) { return f.id }).sort()).toEqual(['dup-a', 'dup-b'])
+    })
+})
+
+describe('legacy row fallbacks', function () {
+    // source is NULL on a pre-polyglot row, so identity falls back to the scanner name. Without this the
+    // row would never match its own incoming finding and would resolve-and-reinsert on every scan,
+    // resetting firstDetectedAt each time.
+    it('identifies a source-less row by its scanner and continues the episode', function () {
+        insertLegacyRow({ first_detected_at: T0 - HOUR })
+
+        const result = merge('scan-1', T0, [incoming('GHSA-legacy', { scanner: 'npm-audit', source: 'npm-audit' })], 'npm-audit')
+
+        expect(result.active).toHaveLength(1)
+        expect(result.active[0]?.id).toBe('legacy-1')
+        expect(result.resolved).toEqual([])
+    })
+
+    it('reads a null source as the scanner', function () {
+        insertLegacyRow()
+        const rows = listFindingsForProject(db, PROJECT_ID)
+        expect(rows[0]).toMatchObject({ scanner: 'npm-audit', source: 'npm-audit', ecosystem: 'npm' })
+    })
+
+    it('finds a source-less row by identity through the COALESCE', function () {
+        insertLegacyRow()
+        const found = findFindingByIdentity(db, {
+            projectId: PROJECT_ID,
+            source: 'npm-audit',
+            ecosystem: 'npm',
+            advisoryId: 'GHSA-legacy',
+            packageName: 'lodash'
+        })
+        expect(found?.id).toBe('legacy-1')
+    })
+})
+
+describe('backfillFindingsLifecycle', function () {
+    it('seeds both timestamps from the originating scan', function () {
+        insertLegacyRow()
+
+        expect(backfillFindingsLifecycle(db)).toBe(1)
+        const row = listFindingsForProject(db, PROJECT_ID)[0]
+        expect(row?.firstDetectedAt).toBe(T0)
+        expect(row?.lastSeenAt).toBe(T0)
+    })
+
+    // Runs on every worker boot, so re-running it must be free and must not touch healed rows.
+    it('is idempotent and leaves already-stamped rows alone', function () {
+        insertLegacyRow({ first_detected_at: T0 - HOUR, last_seen_at: T0 - HOUR })
+
+        expect(backfillFindingsLifecycle(db)).toBe(0)
+        expect(listFindingsForProject(db, PROJECT_ID)[0]?.firstDetectedAt).toBe(T0 - HOUR)
+    })
+
+    it('fills only the missing half when one timestamp is already set', function () {
+        insertLegacyRow({ first_detected_at: T0 - HOUR, last_seen_at: null })
+
+        expect(backfillFindingsLifecycle(db)).toBe(1)
+        const row = listFindingsForProject(db, PROJECT_ID)[0]
+        expect(row?.firstDetectedAt).toBe(T0 - HOUR)
+        expect(row?.lastSeenAt).toBe(T0)
+    })
+
+    it('reports nothing changed on an empty table', function () {
+        expect(backfillFindingsLifecycle(db)).toBe(0)
+    })
+})
+
+describe('list queries', function () {
+    it('returns the episodes a scan first detected', function () {
+        merge('scan-1', T0, [incoming('GHSA-1'), incoming('GHSA-2')])
+        expect(listFindingsForScan(db, 'scan-1')).toHaveLength(2)
+    })
+
+    // Pairs with listFindingsForScan so a historical scan can show what it discovered AND what it closed.
+    it('returns the episodes a scan closed, attributed to the closing scan', function () {
+        merge('scan-1', T0, [incoming('GHSA-1')])
+        merge('scan-2', T0 + HOUR, [])
+
+        expect(listFindingsResolvedInScan(db, 'scan-2').map(function id(f) { return f.advisoryId })).toEqual(['GHSA-1'])
+        expect(listFindingsResolvedInScan(db, 'scan-1')).toEqual([])
+    })
+
+    it('returns every finding of a project, open or resolved', function () {
+        merge('scan-1', T0, [incoming('GHSA-1'), incoming('GHSA-2')])
+        merge('scan-2', T0 + HOUR, [incoming('GHSA-1')])
+        expect(listFindingsForProject(db, PROJECT_ID)).toHaveLength(2)
+    })
+
+    it('orders resolved findings newest-first and counts them', function () {
+        merge('scan-1', T0, [incoming('GHSA-1'), incoming('GHSA-2')])
+        merge('scan-2', T0 + HOUR, [incoming('GHSA-2')])
+        merge('scan-3', T0 + 2 * HOUR, [])
+
+        expect(listResolvedFindingsForProject(db, PROJECT_ID).map(function id(f) { return f.advisoryId }))
+            .toEqual(['GHSA-2', 'GHSA-1'])
+        expect(countResolvedFindingsForProject(db, PROJECT_ID)).toBe(2)
+    })
+
+    it('pages resolved findings through limit and offset', function () {
+        merge('scan-1', T0, [incoming('GHSA-1'), incoming('GHSA-2')])
+        merge('scan-2', T0 + HOUR, [incoming('GHSA-2')])
+        merge('scan-3', T0 + 2 * HOUR, [])
+
+        expect(listResolvedFindingsForProject(db, PROJECT_ID, 1)).toHaveLength(1)
+        expect(listResolvedFindingsForProject(db, PROJECT_ID, 1, 1).map(function id(f) { return f.advisoryId }))
+            .toEqual(['GHSA-1'])
+        expect(listResolvedFindingsForProject(db, PROJECT_ID, 10, 5)).toEqual([])
+    })
+
+    it('counts zero for a project with nothing resolved', function () {
+        merge('scan-1', T0, [incoming('GHSA-1')])
+        expect(countResolvedFindingsForProject(db, PROJECT_ID)).toBe(0)
+    })
+
+    it('returns null from findFindingByIdentity when nothing matches', function () {
+        expect(findFindingByIdentity(db, {
+            projectId: PROJECT_ID,
+            source: 'osv',
+            ecosystem: 'npm',
+            advisoryId: 'GHSA-nope',
+            packageName: 'lodash'
+        })).toBeNull()
+    })
+
+    // Only OPEN episodes have an identity to find; a resolved one must not be returned or the next scan
+    // would continue an episode the previous scan deliberately closed.
+    it('does not find a resolved episode by identity', function () {
+        merge('scan-1', T0, [incoming('GHSA-1')])
+        merge('scan-2', T0 + HOUR, [])
+
+        expect(findFindingByIdentity(db, {
+            projectId: PROJECT_ID,
+            source: 'osv',
+            ecosystem: 'npm',
+            advisoryId: 'GHSA-1',
+            packageName: 'lodash'
+        })).toBeNull()
+    })
+})
+
+describe('listResolvedFindingsForLibrary', function () {
+    it('returns resolved findings for a package with the project name attached', function () {
+        merge('scan-1', T0, [incoming('GHSA-1')])
+        merge('scan-2', T0 + HOUR, [])
+
+        const rows = listResolvedFindingsForLibrary(db, 'lodash')
+        expect(rows).toHaveLength(1)
+        expect(rows[0]).toMatchObject({ advisoryId: 'GHSA-1', packageName: 'lodash', projectName: 'app' })
+    })
+
+    it('excludes findings that are still open', function () {
+        merge('scan-1', T0, [incoming('GHSA-1')])
+        expect(listResolvedFindingsForLibrary(db, 'lodash')).toEqual([])
+    })
+
+    it('scopes to one package', function () {
+        merge('scan-1', T0, [incoming('GHSA-1'), incoming('GHSA-2', { packageName: 'express' })])
+        merge('scan-2', T0 + HOUR, [])
+        expect(listResolvedFindingsForLibrary(db, 'express').map(function id(f) { return f.advisoryId }))
+            .toEqual(['GHSA-2'])
+    })
+
+    // The ecosystem filter is an optional SQL fragment: supplied it scopes to the cell, omitted it
+    // matches every ecosystem. Both arms are real query text, so both are worth executing.
+    it('scopes to an ecosystem when one is given', function () {
+        merge('scan-1', T0, [
+            incoming('GHSA-1'),
+            incoming('GHSA-py', { ecosystem: 'PyPI', packageName: 'lodash' })
+        ])
+        merge('scan-2', T0 + HOUR, [])
+
+        expect(listResolvedFindingsForLibrary(db, 'lodash', 50, 'npm').map(function id(f) { return f.advisoryId }))
+            .toEqual(['GHSA-1'])
+        expect(listResolvedFindingsForLibrary(db, 'lodash', 50, 'PyPI').map(function id(f) { return f.advisoryId }))
+            .toEqual(['GHSA-py'])
+        expect(listResolvedFindingsForLibrary(db, 'lodash')).toHaveLength(2)
+    })
+
+    // The COALESCE around f.ecosystem is a no-op given the NOT NULL column, but a source-less row still
+    // has to come back through the npm filter and report its scanner as its source.
+    it('returns a source-less legacy row through the npm filter', function () {
+        insertLegacyRow({ resolved_at: T0, resolved_scan_id: 'scan-legacy' })
+
+        const rows = listResolvedFindingsForLibrary(db, 'lodash', 50, 'npm')
+        expect(rows.map(function id(f) { return f.advisoryId })).toEqual(['GHSA-legacy'])
+        expect(rows[0]?.source).toBe('npm-audit')
+    })
+
+    it('honours the limit', function () {
+        merge('scan-1', T0, [incoming('GHSA-1'), incoming('GHSA-2')])
+        merge('scan-2', T0 + HOUR, [])
+        expect(listResolvedFindingsForLibrary(db, 'lodash', 1)).toHaveLength(1)
+    })
+
+    it('returns nothing for a package with no findings', function () {
+        expect(listResolvedFindingsForLibrary(db, 'never-seen')).toEqual([])
+    })
+})
+
+describe('depPath decoding', function () {
+    it('round-trips a nested dependency path', function () {
+        merge('scan-1', T0, [incoming('GHSA-1', { depPath: ['a', 'b', 'lodash'] })])
+        expect(listFindingsForProject(db, PROJECT_ID)[0]?.depPath).toEqual(['a', 'b', 'lodash'])
+    })
+
+    it('degrades a non-array payload to an empty path', function () {
+        insertLegacyRow({ dep_path_json: '{"not":"an array"}' })
+        expect(listFindingsForProject(db, PROJECT_ID)[0]?.depPath).toEqual([])
+    })
+
+    it('drops non-string elements rather than passing them through', function () {
+        insertLegacyRow({ dep_path_json: '["a", 42, null, "b"]' })
+        expect(listFindingsForProject(db, PROJECT_ID)[0]?.depPath).toEqual(['a', 'b'])
+    })
+
+    // FLAGGED, NOT FIXED — parseDepPath calls JSON.parse unguarded, so a malformed dep_path_json throws
+    // out of what is otherwise a pure read. Every other malformed-input path in this module degrades
+    // (a non-array becomes [], a non-string element is dropped); this one takes down the whole query,
+    // and with it any page listing the project's findings. The fix is a try/catch returning [], which
+    // matches the surrounding behaviour — but it is a production change and belongs in its own commit,
+    // so this pins the current behaviour rather than asserting the desired one.
+    it('CURRENTLY throws when dep_path_json is not valid JSON', function () {
+        insertLegacyRow({ dep_path_json: '{not json' })
+        expect(function read() {
+            listFindingsForProject(db, PROJECT_ID)
+        }).toThrow(SyntaxError)
     })
 })
