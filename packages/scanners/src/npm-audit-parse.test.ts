@@ -183,6 +183,12 @@ describe('pickSeverity, pickFixAvailability, pickVulnerableRange', function () {
             fixAvailable: true,
             fixVersion: '4.17.21'
         })
+        // A fix object carrying an empty version still means "a fix exists", but there is no version
+        // to name — the empty string must not reach the UI as the suggested upgrade target.
+        expect(pickFixAvailability({ name: 'lodash', version: '', isSemVerMajor: false })).toEqual({
+            fixAvailable: true,
+            fixVersion: null
+        })
     })
 
     it('prefers the via range over the vulnerability range, defaulting to empty', function () {
@@ -221,6 +227,14 @@ describe('pickInstalledVersion', function () {
         expect(pickInstalledVersion(vuln({ nodes: ['node_modules/lodash'], range: '<4.17.21' }), new Map())).toBe('<4.17.21')
         expect(pickInstalledVersion(vuln({ range: '<4.17.21' }), new Map())).toBe('<4.17.21')
         expect(pickInstalledVersion(vuln(), new Map())).toBe('')
+    })
+
+    // A populated map that simply has no entry for these nodes is a different case from an empty
+    // one: the lookup was possible and found nothing, so the range fallback still has to fire.
+    it('falls back when the map is populated but matches none of the nodes', function () {
+        const versions = new Map([['node_modules/express', '4.0.0']])
+        expect(pickInstalledVersion(vuln({ nodes: ['node_modules/lodash'], range: '<4.17.21' }), versions)).toBe('<4.17.21')
+        expect(pickInstalledVersion(vuln({ nodes: ['node_modules/lodash'] }), versions)).toBe('')
     })
 })
 
@@ -350,6 +364,45 @@ describe('normalizePnpmAuditOutput — the pnpm shape', function () {
         expect(findings[0]?.installedVersion).toBe('')
     })
 
+    // pnpm omits keys rather than emitting empty ones, so a sparse advisory is the normal shape for
+    // an entry it knows little about. Every optional field has to degrade to its empty spelling
+    // instead of reaching the finding as undefined and rendering as "undefined" in the portal.
+    it('fills in every omitted advisory field', function () {
+        const parsed = {
+            advisories: {
+                '7': { id: 7, module_name: 'lodash', findings: [{}] }
+            }
+        } as unknown as PnpmAudit
+        const findings = normalizePnpmAuditOutput(parsed, PROD_CLASSIFIER)
+        expect(findings).toHaveLength(1)
+        expect(findings[0]).toMatchObject({
+            advisoryId: '7',
+            advisoryTitle: null,
+            advisoryUrl: null,
+            packageName: 'lodash',
+            installedVersion: '',
+            vulnerableRange: '',
+            severity: 'info',
+            fixAvailable: false,
+            fixVersion: null,
+            depPath: []
+        })
+    })
+
+    // A findings entry with a version but no paths still describes an installed copy — it just has
+    // no dependency chain to attribute it to. Dropping it would lose the finding entirely.
+    it('emits a finding for a findings entry with no paths', function () {
+        const parsed = {
+            advisories: {
+                '8': { id: 8, module_name: 'lodash', vulnerable_versions: '<4.17.21', findings: [{ version: '4.17.11' }] }
+            }
+        } as unknown as PnpmAudit
+        const findings = normalizePnpmAuditOutput(parsed, PROD_CLASSIFIER)
+        expect(findings).toHaveLength(1)
+        expect(findings[0]?.installedVersion).toBe('4.17.11')
+        expect(findings[0]?.depPath).toEqual([])
+    })
+
     it('returns nothing for an empty advisories map', function () {
         expect(normalizePnpmAuditOutput({ advisories: {} } as unknown as PnpmAudit, PROD_CLASSIFIER)).toEqual([])
     })
@@ -382,6 +435,13 @@ describe('looksLikeLegacyShape — npm 6 detection', function () {
         expect(looksLikeLegacyShape('not json')).toBe(false)
         expect(looksLikeLegacyShape('[]')).toBe(false)
         expect(looksLikeLegacyShape('{ broken')).toBe(false)
+    })
+
+    // An object carrying those key names at the wrong TYPE is some other tool's JSON, not npm 6.
+    // Accepting it would report npm_below_min for a project on a perfectly current npm.
+    it('returns false when the legacy keys are present at the wrong type', function () {
+        expect(looksLikeLegacyShape(JSON.stringify({ actions: 'nope' }))).toBe(false)
+        expect(looksLikeLegacyShape(JSON.stringify({ advisories: 42 }))).toBe(false)
     })
 
     it('tolerates leading whitespace', function () {

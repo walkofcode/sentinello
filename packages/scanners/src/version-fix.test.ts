@@ -200,6 +200,19 @@ describe('pickSafeFixVersion — the range shapes the common cases do not reach'
         it('considers every branch of an or-ed patched range', function () {
             expect(pick({ patched: '>=4.17.21 || >=5.0.0', vulnerable: '<4.17.21' })).toBe('4.17.21')
         })
+
+        // The same conjunction written highest-first. The binding bound is a property of the range,
+        // not of the order the comparators happen to arrive in — reading it positionally would make
+        // the advice depend on how the advisory was typed.
+        it('takes the highest lower bound regardless of the order they appear in', function () {
+            expect(pick({ patched: '>=4.18.0 >=4.17.21', vulnerable: '<4.17.21' })).toBe('4.18.0')
+        })
+
+        // An exclusive bound that is NOT the binding one: >4.17.20 bumps to 4.17.21, which loses to
+        // the 5.0.0 already in hand. The bump must not overwrite a higher candidate.
+        it('keeps the higher bound when an exclusive one bumps below it', function () {
+            expect(pick({ patched: '>=5.0.0 >4.17.20', vulnerable: '<4.17.21' })).toBe('5.0.0')
+        })
     })
 
     // A comparator with no concrete version (the empty range, `*`) contributes no candidate rather
@@ -249,5 +262,24 @@ describe('pickSafeFixVersion — the installed floor', function () {
 
     it('ignores an empty installed string', function () {
         expect(pick({ installed: '', vulnerable: '<4.17.21' })).toBe('4.17.21')
+    })
+
+    // Highest-first rather than ascending. npm reports hoisted copies in tree order, not sorted, so
+    // a floor that just took the last parseable entry would let a downgrade through.
+    it('finds the highest installed version when the list descends', function () {
+        expect(pick({ installed: '5.0.0, 4.17.11', vulnerable: '<4.17.21' })).toBeNull()
+    })
+})
+
+describe('pickSafeFixVersion — version-like text that is not a version', function () {
+    // The literal scanner is a regex, so it matches things semver then rejects. A prerelease with a
+    // leading zero is the realistic one: "1.2.3-01" looks like a version in advisory prose and is
+    // not one. Pushing it through unchecked would name a fix that cannot be installed.
+    it('discards a literal that matches the shape but is not valid semver', function () {
+        expect(pick({ patched: null, vulnerable: 'unknown', recommendation: 'upgrade to 1.2.3-01' })).toBeNull()
+    })
+
+    it('keeps a valid literal alongside a rejected one', function () {
+        expect(pick({ patched: null, vulnerable: 'unknown', recommendation: 'either 1.2.3-01 or 4.17.21' })).toBe('4.17.21')
     })
 })
