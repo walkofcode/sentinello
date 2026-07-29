@@ -111,6 +111,14 @@ export type ExportFinding = {
     // Only set on library-scope exports — the project this finding belongs to. For project-scope
     // exports every row is the same project, so this is omitted from the rendered output.
     projectName?: string
+    // The three fields below are set only on a MERGED entry: one distinct vulnerability that several
+    // sources each reported as their own row. They carry every reporting source, every source-specific
+    // advisory id, and the union of dependency paths. Callers that render one row per finding (the
+    // library-scope export, the CLI, the worker webhook) leave them unset, and the entry then renders
+    // exactly as it always has — that equivalence is asserted in advisory-export.test.ts.
+    sources?: string[]
+    advisoryIds?: string[]
+    depPaths?: string[][]
 }
 
 // Resolve the prompt the export should use. Treats both "no key" and a stored null/empty-string
@@ -159,6 +167,16 @@ function formatFinding(index: number, f: ExportFinding): string {
     } else {
         lines.push('- **Advisory:** ' + title + ' (`' + escapeForMarkdown(f.advisoryId) + '`)')
     }
+    // Sources that reported this same vulnerability under a different id. Listed so a reader can tell
+    // one merged entry from one npm-audit-only entry, and so searching for the CVE they saw elsewhere
+    // still hits this entry.
+    const otherIds = f.advisoryIds ? f.advisoryIds.filter(function notPrimary(id) { return id !== f.advisoryId }) : []
+    if (otherIds.length > 0) {
+        lines.push('- **Also reported as:** ' + otherIds.map(function code(id) { return '`' + escapeForMarkdown(id) + '`' }).join(', '))
+    }
+    if (f.sources && f.sources.length > 0) {
+        lines.push('- **Sources:** ' + f.sources.map(escapeForMarkdown).join(', '))
+    }
     if (f.fixAvailable && f.fixVersion) {
         lines.push('- **Fix:** upgrade to `' + escapeForMarkdown(f.fixVersion) + '`')
     } else if (f.fixAvailable) {
@@ -170,9 +188,19 @@ function formatFinding(index: number, f: ExportFinding): string {
         lines.push('- **Vulnerable range:** `' + escapeForMarkdown(f.vulnerableRange) + '`')
     }
     lines.push('- **Dep type:** ' + depTypeForFinding(f))
-    if (f.depPath.length > 0) {
-        const path = f.depPath.map(escapeForMarkdown).join(' › ')
-        lines.push('- **Dependency path:** `' + path + '`')
+    // A merged entry carries the union of every contributing row's paths. One path still renders in the
+    // singular inline form, so a merged entry with a single route is indistinguishable from an unmerged
+    // one — only genuinely multi-route entries pay for the list.
+    let paths: string[][] = []
+    if (f.depPaths && f.depPaths.length > 0) paths = f.depPaths
+    else if (f.depPath.length > 0) paths = [f.depPath]
+    if (paths.length === 1) {
+        lines.push('- **Dependency path:** `' + paths[0].map(escapeForMarkdown).join(' › ') + '`')
+    } else if (paths.length > 1) {
+        lines.push('- **Dependency paths:**')
+        for (const p of paths) {
+            lines.push('    - `' + p.map(escapeForMarkdown).join(' › ') + '`')
+        }
     }
     if (f.projectName) {
         lines.push('- **Project:** ' + f.projectName)
@@ -180,14 +208,11 @@ function formatFinding(index: number, f: ExportFinding): string {
     return lines.join('\n')
 }
 
-export function buildAdvisoryMarkdown(args: {
-    scope: ExportScope
-    prompt: string
-    findings: ExportFinding[]
-    generatedAt: number
-}): string {
-    const { scope, prompt, findings, generatedAt } = args
-    const sorted = [...findings].sort(function bySeverityThenName(a, b) {
+// The document's finding order. Total and deterministic — severity, then package, then advisory id —
+// which is what makes offset-based paging safe: page 2 of an unchanged data set always resumes exactly
+// where page 1 stopped. Do not make this order depend on anything that varies between calls.
+function sortForExport(findings: ExportFinding[]): ExportFinding[] {
+    return [...findings].sort(function bySeverityThenName(a, b) {
         const ra = severityRank(a.severity)
         const rb = severityRank(b.severity)
         if (ra !== rb) return ra - rb
@@ -195,10 +220,20 @@ export function buildAdvisoryMarkdown(args: {
         if (nameCmp !== 0) return nameCmp
         return a.advisoryId.localeCompare(b.advisoryId)
     })
+}
+
+// `range` is set only by the paginated build, where the count in the subtitle must describe the page
+// rather than the whole set — a header claiming "36 findings" above 24 of them is exactly the silent
+// undercount the remediation prompt warns against.
+function buildHeader(scope: ExportScope, generatedAt: number, count: number, range: { offset: number; total: number } | null): string[] {
     const title = 'Sentinello advisory export — ' + scopeTitle(scope)
     const subtitleParts: string[] = []
     subtitleParts.push('Generated ' + new Date(generatedAt).toISOString())
-    subtitleParts.push(sorted.length + ' ' + (sorted.length === 1 ? 'finding' : 'findings'))
+    if (range) {
+        subtitleParts.push('findings ' + (range.offset + 1) + '–' + (range.offset + count) + ' of ' + range.total)
+    } else {
+        subtitleParts.push(count + ' ' + (count === 1 ? 'finding' : 'findings'))
+    }
     if (scope.kind === 'project') {
         subtitleParts.push('project: `' + escapeForMarkdown(scope.projectPath) + '`')
     } else if (scope.kind === 'library') {
@@ -214,24 +249,106 @@ export function buildAdvisoryMarkdown(args: {
     out.push('')
     out.push('> ' + subtitleParts.join(' · '))
     out.push('')
+    return out
+}
+
+// An empty prompt means the caller deliberately asked for findings alone (the CLI's default, and any
+// continuation page over MCP). Drop the whole section rather than leaving a heading over a blank.
+function buildPromptSection(prompt: string): string[] {
+    if (prompt.trim().length === 0) return []
+    const out: string[] = []
     out.push('## How to approach these fixes')
     out.push('')
     out.push(prompt)
     out.push('')
     out.push('---')
     out.push('')
+    return out
+}
+
+// `startIndex` keeps the printed numbering continuous across pages, so entry 25 is called 25 on page 2
+// rather than restarting at 1.
+function buildFindingsSection(findings: ExportFinding[], startIndex: number): string[] {
+    const out: string[] = []
     out.push('## Findings')
     out.push('')
-    if (sorted.length === 0) {
+    if (findings.length === 0) {
         out.push('_No current findings._')
         out.push('')
-    } else {
-        sorted.forEach(function appendFinding(f, i) {
-            out.push(formatFinding(i + 1, f))
-            out.push('')
-        })
+        return out
     }
+    findings.forEach(function appendFinding(f, i) {
+        out.push(formatFinding(startIndex + i + 1, f))
+        out.push('')
+    })
+    return out
+}
+
+export function buildAdvisoryMarkdown(args: {
+    scope: ExportScope
+    prompt: string
+    findings: ExportFinding[]
+    generatedAt: number
+}): string {
+    const { scope, prompt, findings, generatedAt } = args
+    const sorted = sortForExport(findings)
+    const out = buildHeader(scope, generatedAt, sorted.length, null)
+        .concat(buildPromptSection(prompt))
+        .concat(buildFindingsSection(sorted, 0))
     return out.join('\n')
+}
+
+export type PaginatedAdvisoryMarkdown = {
+    markdown: string
+    offset: number
+    // How many findings this page actually rendered.
+    rendered: number
+    total: number
+    // Index to pass as the next `offset`, or null when this page is the last one.
+    nextOffset: number | null
+}
+
+// Size-bounded variant used by the MCP tool, where the whole document has to fit inside one tool
+// result. The portal download has no such limit and keeps using buildAdvisoryMarkdown above.
+//
+// Entries are rendered until `byteBudget` is reached and the cut always lands on an entry boundary —
+// a half-rendered finding would be worse than an omitted one. At least one finding is always rendered
+// even if it alone exceeds the budget, because returning an empty page with a "call again with the
+// same offset" notice would loop forever.
+export function buildPaginatedAdvisoryMarkdown(args: {
+    scope: ExportScope
+    prompt: string
+    findings: ExportFinding[]
+    generatedAt: number
+    offset: number
+    byteBudget: number
+}): PaginatedAdvisoryMarkdown {
+    const { scope, prompt, findings, generatedAt, byteBudget } = args
+    const sorted = sortForExport(findings)
+    const offset = Math.max(0, Math.min(args.offset, sorted.length))
+    const preamble = buildHeader(scope, generatedAt, 0, { offset, total: sorted.length }).concat(buildPromptSection(prompt))
+    // The header is rebuilt once the page size is known (its subtitle names the range), so only its
+    // size is borrowed here. Leave headroom for that rebuild plus the continuation notice.
+    let used = preamble.join('\n').length + 512
+    const page: ExportFinding[] = []
+    for (let i = offset; i < sorted.length; i++) {
+        const size = formatFinding(i + 1, sorted[i]).length + 1
+        if (page.length > 0 && used + size > byteBudget) break
+        used = used + size
+        page.push(sorted[i])
+    }
+    const nextIndex = offset + page.length
+    const nextOffset = nextIndex < sorted.length ? nextIndex : null
+    const out = buildHeader(scope, generatedAt, page.length, { offset, total: sorted.length })
+        .concat(buildPromptSection(prompt))
+        .concat(buildFindingsSection(page, offset))
+    return {
+        markdown: out.join('\n'),
+        offset,
+        rendered: page.length,
+        total: sorted.length,
+        nextOffset
+    }
 }
 
 // Produce a safe, predictable filename for the downloaded .md. Sanitizes path separators, spaces,

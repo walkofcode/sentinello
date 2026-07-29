@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
     buildAdvisoryMarkdown,
     buildExportFilename,
+    buildPaginatedAdvisoryMarkdown,
     DEFAULT_EXPORT_PROMPT,
     resolveExportPrompt,
     type ExportFinding,
@@ -216,6 +217,164 @@ describe('buildAdvisoryMarkdown finding rendering', function () {
     it('escapes backticks in package names and versions', function () {
         const md = build(PROJECT_SCOPE, [exportFinding({ packageName: 'ev`il' })])
         expect(md).toContain('ev\\`il')
+    })
+})
+
+// A project-scope export now renders one entry per distinct advisory, merging the rows that several
+// sources each reported. The three optional fields carrying that merge must stay optional: the CLI,
+// the worker webhook and the library-scope export all still pass single rows, and their output must
+// not shift underneath them.
+describe('buildAdvisoryMarkdown merged entries', function () {
+    it('renders an entry with no merged fields exactly as it does without the feature', function () {
+        const plain = exportFinding({ depPath: ['app', 'lodash'] })
+        const md = build(PROJECT_SCOPE, [plain])
+        expect(md).toContain('- **Dependency path:** `app › lodash`')
+        expect(md).not.toContain('**Sources:**')
+        expect(md).not.toContain('**Also reported as:**')
+        expect(md).not.toContain('**Dependency paths:**')
+    })
+
+    it('lists every source that reported the vulnerability', function () {
+        const md = build(PROJECT_SCOPE, [exportFinding({ sources: ['npm-audit', 'osv'] })])
+        expect(md).toContain('- **Sources:** npm-audit, osv')
+    })
+
+    it('lists the other sources advisory ids without repeating the primary one', function () {
+        const md = build(PROJECT_SCOPE, [
+            exportFinding({ advisoryId: 'GHSA-1', advisoryIds: ['GHSA-1', 'CVE-2026-1'] })
+        ])
+        expect(md).toContain('- **Also reported as:** `CVE-2026-1`')
+        expect(md).not.toContain('**Also reported as:** `GHSA-1`')
+    })
+
+    it('omits the also-reported-as line when every source used the same id', function () {
+        const md = build(PROJECT_SCOPE, [exportFinding({ advisoryId: 'GHSA-1', advisoryIds: ['GHSA-1'] })])
+        expect(md).not.toContain('**Also reported as:**')
+    })
+
+    // One route through the tree should read the same whether or not the entry happens to be merged;
+    // only a genuinely multi-route entry earns the bullet list.
+    it('keeps the singular inline form when a merged entry has one path', function () {
+        const md = build(PROJECT_SCOPE, [exportFinding({ depPaths: [['app', 'lodash']] })])
+        expect(md).toContain('- **Dependency path:** `app › lodash`')
+        expect(md).not.toContain('**Dependency paths:**')
+    })
+
+    it('lists every route when a merged entry has several', function () {
+        const md = build(PROJECT_SCOPE, [exportFinding({ depPaths: [['app', 'lodash'], ['app', 'express', 'lodash']] })])
+        expect(md).toContain('- **Dependency paths:**')
+        expect(md).toContain('    - `app › lodash`')
+        expect(md).toContain('    - `app › express › lodash`')
+    })
+
+    it('prefers depPaths over the single depPath when both are set', function () {
+        const md = build(PROJECT_SCOPE, [exportFinding({ depPath: ['stale'], depPaths: [['fresh', 'lodash']] })])
+        expect(md).toContain('`fresh › lodash`')
+        expect(md).not.toContain('`stale`')
+    })
+})
+
+// The MCP tool has to fit a document into one tool result. Truncation is acceptable; a truncation the
+// reader cannot detect is not — an agent that sees a document simply stop reads the rest as clean.
+describe('buildPaginatedAdvisoryMarkdown', function () {
+    function findings(n: number): ExportFinding[] {
+        const out: ExportFinding[] = []
+        for (let i = 0; i < n; i++) {
+            out.push(exportFinding({ packageName: 'pkg-' + String(i).padStart(3, '0'), advisoryId: 'GHSA-' + i }))
+        }
+        return out
+    }
+
+    function page(all: ExportFinding[], offset: number, byteBudget: number) {
+        return buildPaginatedAdvisoryMarkdown({
+            scope: PROJECT_SCOPE,
+            prompt: '',
+            findings: all,
+            generatedAt: AT,
+            offset,
+            byteBudget
+        })
+    }
+
+    it('renders everything and reports no next page when it all fits', function () {
+        const result = page(findings(5), 0, 1_000_000)
+        expect(result.rendered).toBe(5)
+        expect(result.total).toBe(5)
+        expect(result.nextOffset).toBeNull()
+    })
+
+    it('stops at the budget and points at the next offset', function () {
+        const result = page(findings(40), 0, 2000)
+        expect(result.rendered).toBeGreaterThan(0)
+        expect(result.rendered).toBeLessThan(40)
+        expect(result.nextOffset).toBe(result.rendered)
+        expect(result.total).toBe(40)
+    })
+
+    // The seam is the part that silently loses data if the arithmetic is off by one.
+    it('walks every page without dropping or repeating an entry', function () {
+        const all = findings(40)
+        const seen: string[] = []
+        let offset: number | null = 0
+        let guard = 0
+        while (offset !== null && guard < 50) {
+            const result = page(all, offset, 2000)
+            for (const f of all) {
+                if (result.markdown.includes('`' + f.packageName + '@')) seen.push(f.packageName)
+            }
+            offset = result.nextOffset
+            guard++
+        }
+        expect(offset).toBeNull()
+        const unique = [...new Set(seen)]
+        expect(unique).toHaveLength(40)
+        expect(seen).toHaveLength(40)
+    })
+
+    it('numbers entries continuously across pages rather than restarting', function () {
+        const all = findings(40)
+        const first = page(all, 0, 2000)
+        const second = page(all, first.rendered, 2000)
+        expect(second.markdown).toContain('### ' + (first.rendered + 1) + '.')
+        expect(second.markdown).not.toContain('### 1.')
+    })
+
+    it('states the page range rather than the whole total in the header', function () {
+        const result = page(findings(40), 0, 2000)
+        expect(result.markdown).toContain('findings 1–' + result.rendered + ' of 40')
+    })
+
+    // Otherwise a single oversized finding would return an empty page pointing at its own offset,
+    // and a client following the continuation notice would loop forever.
+    it('always renders at least one entry even when it alone exceeds the budget', function () {
+        const result = page(findings(5), 0, 1)
+        expect(result.rendered).toBe(1)
+        expect(result.nextOffset).toBe(1)
+    })
+
+    it('clamps an offset past the end instead of throwing', function () {
+        const result = page(findings(3), 99, 1_000_000)
+        expect(result.rendered).toBe(0)
+        expect(result.nextOffset).toBeNull()
+        expect(result.markdown).toContain('_No current findings._')
+    })
+
+    it('drops the prompt section entirely when the prompt is empty', function () {
+        const result = page(findings(1), 0, 1_000_000)
+        expect(result.markdown).not.toContain('## How to approach these fixes')
+    })
+
+    it('keeps the prompt section when one is supplied', function () {
+        const result = buildPaginatedAdvisoryMarkdown({
+            scope: PROJECT_SCOPE,
+            prompt: 'PROMPT-BODY',
+            findings: findings(1),
+            generatedAt: AT,
+            offset: 0,
+            byteBudget: 1_000_000
+        })
+        expect(result.markdown).toContain('## How to approach these fixes')
+        expect(result.markdown).toContain('PROMPT-BODY')
     })
 })
 
