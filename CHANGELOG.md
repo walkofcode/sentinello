@@ -1,5 +1,30 @@
 # Changelog
 
+## [2.6.0](https://github.com/walkofcode/sentinello/compare/v2.5.0...v2.6.0) (2026-07-29)
+
+
+### Features
+
+* **mcp:** deliver the advisory document, paginate it, describe every tool ([4298238](https://github.com/walkofcode/sentinello/commit/4298238038818f38481a5c54588b936ea5f37a63))
+
+
+### Bug Fixes
+
+* **db:** bucket every finding severity so counts cannot undercount ([aeacfb1](https://github.com/walkofcode/sentinello/commit/aeacfb1219fd6ec5e45bf9fbd1ed5244242b1214))
+* **export:** count distinct advisories, not scanner rows ([95c3c03](https://github.com/walkofcode/sentinello/commit/95c3c031f33ee9dbeaef5f5c89b2f077dff90942))
+* **ts:** make the Next apps inherit tsconfig.base, closing a strictness hole ([70dc9f6](https://github.com/walkofcode/sentinello/commit/70dc9f6f79e6ff92e6f39c2eadcb4f11954d4d5b))
+* **web:** type finding buckets non-empty instead of guarding at each use ([4f95c5f](https://github.com/walkofcode/sentinello/commit/4f95c5ffa3ec1e7c8b4828cd6ec0eaf6995914ea))
+
+
+### Refactor
+
+* **core:** collapse four severity scales into one ordering ([26d124e](https://github.com/walkofcode/sentinello/commit/26d124e8491b06d5d35e996bdbddc061ba934679))
+
+
+### Documentation
+
+* **releases:** add the 2.6.0 what's-new entry ([285b842](https://github.com/walkofcode/sentinello/commit/285b8422222363e960bbfbfe7af1af57603b5cb6))
+
 ## [2.5.0](https://github.com/walkofcode/sentinello/compare/v2.4.3...v2.5.0) (2026-07-28)
 
 
