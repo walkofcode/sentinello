@@ -55,11 +55,12 @@ export default defineConfig({
             //
             // What still holds the global figures down, and what it would actually take to move each:
             //
-            //  - apps/worker. The orchestration core (runner, notifier, config-loader, runtime) is
-            //    now covered; what remains is the boot/scheduling shell — index.ts, scheduler.ts,
-            //    watcher.ts, the osv/gemnasium sync runtimes and the scan-request poller. Those
-            //    schedule via node-cron and own process lifecycle, so they need cron stubbing rather
-            //    than a seam.
+            //  - apps/worker/src/index.ts, now the only uncovered file left in the worker. Unlike the
+            //    rest of the shell it needs a refactor rather than a stub: the module calls main() as
+            //    an import side effect, then acquires the single-instance lockfile, installs SIGTERM/
+            //    SIGINT handlers and calls process.exit — none of which a test process can host.
+            //    Covering it means exporting main() and makeShutdown() instead of running them on
+            //    import.
             //  - The npm-audit spawn path. This one is a genuine seam problem, but a small one:
             //    spawnAndCapture() is already a single private function, so lifting it into a deps
             //    object (mirroring createOsvScanner) opens the whole result-shaping surface.
@@ -68,10 +69,10 @@ export default defineConfig({
             //    uncovered half is the GitHub update-check — both are network clients whose HTTP
             //    layer (packages/feeds/src/http.ts) is already covered beneath them.
             thresholds: {
-                statements: 66,
-                branches: 64,
-                functions: 68,
-                lines: 66,
+                statements: 76,
+                branches: 72,
+                functions: 79,
+                lines: 76,
                 // Per-path floors for the areas that are now well covered. Without these, a global
                 // floor alone would let a well-covered module regress to zero as long as some other
                 // area improved enough to compensate.
@@ -125,6 +126,29 @@ export default defineConfig({
                 'apps/worker/src/notifier.ts': { statements: 89, branches: 83, functions: 99, lines: 92 },
                 'apps/worker/src/config-loader.ts': { statements: 97, branches: 96, functions: 99, lines: 99 },
                 'apps/worker/src/runtime.ts': { statements: 92, branches: 66, functions: 99, lines: 99 },
+                // The worker's boot/scheduling shell. Every one of these decides WHETHER work happens
+                // rather than what it produces, so their failure mode is silence: a sweep that never
+                // fires, a request stuck in 'running', a source that stays unauditable. Each is driven
+                // through a node-cron / chokidar double against a real migrated database.
+                //
+                // discovery and watcher carry total floors because both sit at 100%: discovery is the
+                // only thing that hard-deletes a project (and its scans, findings and mutes), and the
+                // watcher is the one component contractually forbidden from calling the runner.
+                'apps/worker/src/discovery.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
+                'apps/worker/src/watcher.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
+                'apps/worker/src/scheduler.ts': { statements: 97, branches: 96, functions: 99, lines: 97 },
+                'apps/worker/src/scan-request-poller.ts': { statements: 92, branches: 79, functions: 92, lines: 93 },
+                'apps/worker/src/mute-expiry.ts': { statements: 99, branches: 88, functions: 99, lines: 99 },
+                // The two advisory-source runtimes: lazy cache open, per-batch scanner selection, and
+                // the scanner closures that gate matching on the live (source, ecosystem) cell AND the
+                // normalizer stamp. A regression there silently reports "no vulnerabilities".
+                'apps/worker/src/osv-runtime.ts': { statements: 99, branches: 92, functions: 99, lines: 99 },
+                'apps/worker/src/gemnasium-runtime.ts': { statements: 99, branches: 91, functions: 99, lines: 99 },
+                // Their persistence halves, where an ordering mistake corrupts the operator's cache:
+                // invalidate only once the download is live, purge only after the full stream succeeds,
+                // advance the cursor/sha only on success.
+                'apps/worker/src/osv-sync.ts': { statements: 95, branches: 93, functions: 85, lines: 95 },
+                'apps/worker/src/gemnasium-sync.ts': { statements: 95, branches: 92, functions: 80, lines: 95 },
                 // The dispatch decision: every filter that decides whether an operator gets paged.
                 'packages/db/src/queries/notification-deliveries.ts': { statements: 93, branches: 83, functions: 99, lines: 97 },
                 // The feed HTTP client. Its retry policy decides whether a transient upstream failure
