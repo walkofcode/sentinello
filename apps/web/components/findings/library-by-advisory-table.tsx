@@ -47,7 +47,9 @@ function groupByAdvisory(usages: LibraryProjectUsage[]): AdvisoryGroup[] {
     const groups: AdvisoryGroup[] = []
     byAdvisory.forEach(function build(rows, identityKey) {
         // Worst severity wins (higher weight = more severe), so a critical from either source surfaces.
-        let head = rows[0]
+        const [first] = rows
+        if (!first) return
+        let head = first
         for (const r of rows) {
             if (severityWeight(r.severity) > severityWeight(head.severity)) head = r
         }

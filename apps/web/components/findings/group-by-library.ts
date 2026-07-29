@@ -32,8 +32,11 @@ export function groupByLibrary(findings: CurrentFindingRow[]): LibraryGroup[] {
     }
     const groups: LibraryGroup[] = []
     byLibrary.forEach(function buildGroup(rows) {
-        const ecosystem = rows[0].ecosystem
-        const packageName = rows[0].packageName
+        // Buckets are only ever created by pushing a row, so they are never empty.
+        const [head] = rows
+        if (!head) return
+        const ecosystem = head.ecosystem
+        const packageName = head.packageName
         const installedVersions = uniq(rows.map(function pickVer(r) { return r.installedVersion }))
         const severities = uniq(rows.map(function pickSev(r) { return r.severity }))
         const fixVersions = rows
@@ -75,10 +78,11 @@ function uniq<T>(values: T[]): T[] {
 // "x.y.z" or "x.y.z-prerelease" strings. We compare numerically segment by segment to
 // avoid pulling in a full semver dep for what's a 20-line problem.
 function pickHighestVersion(versions: string[]): string | null {
-    if (versions.length === 0) return null
-    let best = versions[0]
-    for (let i = 1; i < versions.length; i++) {
-        if (compareVersions(versions[i], best) > 0) best = versions[i]
+    const [first] = versions
+    if (!first) return null
+    let best = first
+    for (const candidate of versions) {
+        if (compareVersions(candidate, best) > 0) best = candidate
     }
     return best
 }

@@ -15,8 +15,11 @@ type Props = {
 }
 
 export function CommandTabs({ tabs }: Props) {
-    const [active, setActive] = useState<string>(tabs[0].id)
-    const current = tabs.find(function match(tab) { return tab.id === active }) || tabs[0]
+    const [active, setActive] = useState<string>(tabs[0]?.id ?? '')
+    const current = tabs.find(function match(tab) { return tab.id === active }) ?? tabs[0]
+    // After the hooks, so the hook order stays unconditional. Renders nothing rather than crashing if
+    // a caller ever passes an empty tab list.
+    if (!current) return null
     return (
         <div>
             <div role="tablist" className="flex gap-1">

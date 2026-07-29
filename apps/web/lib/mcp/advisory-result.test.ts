@@ -26,6 +26,14 @@ function resultOf(overrides: Partial<PaginatedAdvisoryMarkdown> = {}, mutedExclu
     })
 }
 
+// The document is always the first and only content block; asserting that here keeps every test below
+// reading `textOf(...)` instead of re-narrowing content[0].
+function textOf(result: ReturnType<typeof buildAdvisoryToolResult>): string {
+    const [block] = result.content
+    if (!block) throw new Error('result carried no content block')
+    return block.text
+}
+
 describe('buildAdvisoryToolResult', function () {
     // The regression guard for the shipped bug. If this ever fails, the document has stopped reaching
     // MCP clients again, however healthy the handler looks.
@@ -36,31 +44,31 @@ describe('buildAdvisoryToolResult', function () {
     it('returns the document itself as a single text block', function () {
         const result = resultOf()
         expect(result.content).toHaveLength(1)
-        expect(result.content[0].type).toBe('text')
-        expect(result.content[0].text).toContain('### 1. `lodash@4.17.20` — high')
+        expect(result.content[0]?.type).toBe('text')
+        expect(textOf(result)).toContain('### 1. `lodash@4.17.20` — high')
     })
 
     it('says nothing about mutes when nothing is muted', function () {
-        expect(resultOf({}, 0).content[0].text).not.toContain('muted')
+        expect(textOf(resultOf({}, 0))).not.toContain('muted')
     })
 
     // A shorter list with no explanation reads as good news; the count has to be stated.
     it('states how many advisories were withheld as muted', function () {
-        expect(resultOf({}, 3).content[0].text).toContain('3 advisories are excluded')
+        expect(textOf(resultOf({}, 3))).toContain('3 advisories are excluded')
     })
 
     it('uses the singular for exactly one muted advisory', function () {
-        const text = resultOf({}, 1).content[0].text
+        const text = textOf(resultOf({}, 1))
         expect(text).toContain('1 advisory is excluded')
         expect(text).not.toContain('advisories are excluded')
     })
 
     it('adds no continuation notice when the document is complete', function () {
-        expect(resultOf().content[0].text).not.toContain('incomplete')
+        expect(textOf(resultOf())).not.toContain('incomplete')
     })
 
     describe('when the document was cut to fit', function () {
-        const text = resultOf({ rendered: 24, total: 36, nextOffset: 24 }).content[0].text
+        const text = textOf(resultOf({ rendered: 24, total: 36, nextOffset: 24 }))
 
         it('says plainly that the list is not the full set', function () {
             expect(text).toContain('This document is incomplete')
@@ -82,7 +90,7 @@ describe('buildAdvisoryToolResult', function () {
     })
 
     it('reports the range of a later page relative to the whole set', function () {
-        const text = resultOf({ offset: 24, rendered: 6, total: 36, nextOffset: 30 }).content[0].text
+        const text = textOf(resultOf({ offset: 24, rendered: 6, total: 36, nextOffset: 30 }))
         expect(text).toContain('advisories 25–30 of 36')
         expect(text).toContain('offset: 30')
     })

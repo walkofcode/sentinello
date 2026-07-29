@@ -42,7 +42,8 @@ export function verifyMcpAuth(req: Request): AuthResult {
     if (!match) {
         return { ok: false, status: 401, body: { error: 'Missing or malformed Authorization header' } }
     }
-    if (!safeEqual(match[1].trim(), expected)) {
+    const presented = match[1] ?? ''
+    if (!safeEqual(presented.trim(), expected)) {
         return { ok: false, status: 401, body: { error: 'Invalid token' } }
     }
     return { ok: true }

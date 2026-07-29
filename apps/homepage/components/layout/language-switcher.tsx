@@ -49,7 +49,7 @@ export function LanguageSwitcher() {
             >
                 <Globe className="h-5 w-5" />
                 <span className="hidden text-sm font-medium sm:inline">{LOCALE_LABELS[active]}</span>
-                <span className="text-sm font-medium sm:hidden">{active.split('-')[0].toUpperCase()}</span>
+                <span className="text-sm font-medium sm:hidden">{(active.split('-')[0] ?? active).toUpperCase()}</span>
             </Button>
             {open && (
                 <div

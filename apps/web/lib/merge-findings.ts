@@ -93,13 +93,17 @@ function preferAdvisory(candidate: CurrentFindingRow, current: CurrentFindingRow
 }
 
 function mergeBucket(key: string, bucket: CurrentFindingRow[]): MergedFinding {
-    let severity = bucket[0].severity
+    // A bucket is only ever created by pushing a row into it, so it is never empty. Narrowing here once
+    // lets every field below read from a definite row instead of re-asserting on each access.
+    const [first] = bucket
+    if (!first) throw new Error('mergeBucket received an empty bucket for key ' + key)
+    let severity = first.severity
     let malicious = false
     let isProd = false
     let isDev = false
     let firstDetectedAt: number | null = null
     let lastSeenAt: number | null = null
-    let advisoryRow = bucket[0]
+    let advisoryRow = first
     let fixRow: CurrentFindingRow | null = null
     const scannerSet = new Set<string>()
     const identityKeys = new Set<string>()
@@ -139,8 +143,8 @@ function mergeBucket(key: string, bucket: CurrentFindingRow[]): MergedFinding {
     depPaths.sort(function byLength(a, b) { return a.length - b.length })
     return {
         key,
-        ecosystem: bucket[0].ecosystem,
-        packageName: bucket[0].packageName,
+        ecosystem: first.ecosystem,
+        packageName: first.packageName,
         installedVersion: unionInstalledVersions(bucket),
         severity: severity as Severity,
         malicious,

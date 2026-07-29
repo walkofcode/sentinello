@@ -39,10 +39,11 @@ function groupByProject(usages: LibraryProjectUsage[]): ProjectGroup[] {
     }
     const groups: ProjectGroup[] = []
     byProject.forEach(function build(rows) {
-        const head = rows[0]
+        const [head] = rows
+        if (!head) return
         const devOnly = rows.every(function isDevOnly(r) { return r.isDev && !r.isProd })
         const installedVersions = Array.from(new Set(rows.map(function pickVer(r) { return r.installedVersion })))
-        let maxSev: Severity = rows[0].severity as Severity
+        let maxSev: Severity = head.severity as Severity
         for (const r of rows) {
             if (severityWeight(r.severity) > severityWeight(maxSev)) {
                 maxSev = r.severity as Severity
