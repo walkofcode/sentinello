@@ -24,10 +24,19 @@ export function registerActionTools(server: McpServer): void {
         'request_scan',
         {
             title: 'Request a scan',
-            description: 'Enqueues a scan request. Exactly one of projectId or rootId may be set; with neither, requests a full sweep. Dedupes against in-flight scans (returns skipped: true in that case).',
+            description:
+                'QUEUES a scan — it does not perform one. Returns a request id immediately; the worker picks the job up shortly afterwards and results only become visible on a LATER list_scans / list_findings call, so do not read findings straight back and conclude nothing changed. Scope it with exactly one of projectId or rootId; passing neither requests a full sweep of everything. If a scan covering the same ground is already running the request is deduplicated and comes back with skipped: true — that is success, not an error, and the in-flight scan will produce the results.',
             inputSchema: {
-                projectId: z.string().min(1).optional(),
-                rootId: z.string().min(1).optional()
+                projectId: z
+                    .string()
+                    .min(1)
+                    .optional()
+                    .describe('Scan just this project (from list_projects). Mutually exclusive with rootId.'),
+                rootId: z
+                    .string()
+                    .min(1)
+                    .optional()
+                    .describe('Scan every project under this root (from list_roots). Mutually exclusive with projectId.')
             }
         },
         async function handler({ projectId, rootId }) {
@@ -84,18 +93,57 @@ export function registerActionTools(server: McpServer): void {
         'mute_finding',
         {
             title: 'Mute a finding (or all findings on a project)',
-            description: "Creates a mute. Use scope=project to mute every finding for a project; scope=finding requires source, advisoryId, and packageName. Pass ecosystem to target the correct (source, ecosystem) cell — a mute on one ecosystem never silences a same-named package in another. Omitting ecosystem defaults to 'npm'.",
+            description:
+                "Hides a finding from the dashboard and from the advisory export by recording an accepted-risk decision. This is a HUMAN's judgement call, not a remediation step — muting to reach a clean board instead of fixing the vulnerability defeats the purpose of the tool, so do not mute on your own initiative. Use scope=finding (requires source, advisoryId, packageName) for one vulnerability, or scope=project to silence an entire project. Muting one (source, ecosystem) cell never silences the same package in another ecosystem, nor the same advisory reported by a different source — mute each identity you mean to. Reversible with unmute; list_mutes shows what is currently in force.",
             inputSchema: {
-                scope: z.enum(['project', 'finding']),
-                projectId: z.string().min(1).nullable().optional(),
-                // The finding's persisted source identity (finding.source: 'npm-audit' | 'osv' | 'gemnasium').
-                source: z.string().min(1).nullable().optional(),
-                // Back-compat alias for `source` — older callers passed `scanner`. Prefer `source`.
-                scanner: z.string().min(1).nullable().optional(),
+                scope: z
+                    .enum(['project', 'finding'])
+                    .describe(
+                        "'finding' mutes one vulnerability identity and needs source + advisoryId + packageName; 'project' mutes every finding on a project and needs only projectId."
+                    ),
+                projectId: z
+                    .string()
+                    .min(1)
+                    .nullable()
+                    .optional()
+                    .describe(
+                        'Project the mute applies to. Required for scope=project. For scope=finding, omit it to mute that identity across EVERY project.'
+                    ),
+                source: z
+                    .string()
+                    .min(1)
+                    .nullable()
+                    .optional()
+                    .describe(
+                        "Which source reported the finding — 'npm-audit', 'osv' or 'gemnasium' — taken from the finding's `source` field in list_findings. Required for scope=finding."
+                    ),
+                scanner: z
+                    .string()
+                    .min(1)
+                    .nullable()
+                    .optional()
+                    .describe('DEPRECATED alias for `source`, kept so older clients keep working. Pass `source` instead.'),
                 ecosystem: z.string().min(1).nullable().optional().describe("EcosystemId of the finding ('npm', 'PyPI', 'Go', 'crates.io'); defaults to 'npm'"),
-                advisoryId: z.string().min(1).nullable().optional(),
-                packageName: z.string().min(1).nullable().optional(),
-                reason: z.string().min(1),
+                advisoryId: z
+                    .string()
+                    .min(1)
+                    .nullable()
+                    .optional()
+                    .describe(
+                        "The finding's advisoryId exactly as list_findings reports it for that source — the ids differ between sources for the same CVE. Required for scope=finding."
+                    ),
+                packageName: z
+                    .string()
+                    .min(1)
+                    .nullable()
+                    .optional()
+                    .describe('Name of the vulnerable package, as list_findings reports it. Required for scope=finding.'),
+                reason: z
+                    .string()
+                    .min(1)
+                    .describe(
+                        'Why this risk is being accepted. Stored permanently and shown in the portal beside the muted finding, so write the actual justification a reviewer would need months from now — not a placeholder.'
+                    ),
                 expiresAt: z.number().int().nullable().optional().describe('Unix ms timestamp when the mute expires; null = permanent')
             }
         },
@@ -133,8 +181,9 @@ export function registerActionTools(server: McpServer): void {
         'unmute',
         {
             title: 'Remove a mute',
-            description: 'Deletes a mute by id.',
-            inputSchema: { muteId: z.string().min(1) }
+            description:
+                'Deletes a mute, so whatever it was hiding becomes visible on the dashboard and in the advisory export again. Get the id from list_mutes. Note that unmuting reverses a human\'s accepted-risk decision — do not do it to "clean up" while remediating unless you were asked to.',
+            inputSchema: { muteId: z.string().min(1).describe('Id of the mute to delete, as returned by list_mutes (a ULID).') }
         },
         async function handler({ muteId }) {
             deleteMute(getDb(), muteId)
@@ -149,10 +198,13 @@ export function registerActionTools(server: McpServer): void {
         'set_project_alias',
         {
             title: 'Set project alias',
-            description: 'Sets a human-friendly alias for a project (overrides the auto-derived name). Empty string clears the alias.',
+            description:
+                'Sets a display name for a project, overriding the one derived from its directory. Affects how the project is labelled in the portal and in advisory documents; it does not change the projectId or any path.',
             inputSchema: {
-                projectId: z.string().min(1),
-                alias: z.string()
+                projectId: z.string().min(1).describe('Project id, as returned by list_projects (a 26-char hex string)'),
+                alias: z
+                    .string()
+                    .describe('The display name to use. Pass an empty string to clear the alias and fall back to the auto-derived name.')
             }
         },
         async function handler({ projectId, alias }) {
@@ -174,10 +226,15 @@ export function registerActionTools(server: McpServer): void {
         'set_project_tags',
         {
             title: 'Set project tags',
-            description: 'Replaces the project tag set with the given list.',
+            description:
+                'REPLACES a project\'s tags with the list you pass — it does not add to them. To add or remove one tag, read the current set from get_project first and send the full modified list, or you will silently delete the tags you omitted. Passing an empty array clears all tags.',
             inputSchema: {
-                projectId: z.string().min(1),
-                tags: z.array(z.string())
+                projectId: z.string().min(1).describe('Project id, as returned by list_projects (a 26-char hex string)'),
+                tags: z
+                    .array(z.string())
+                    .describe(
+                        'The complete tag set this project should end up with. Existing tags not present here are removed. Blank entries are dropped and surrounding whitespace trimmed.'
+                    )
             }
         },
         async function handler({ projectId, tags }) {

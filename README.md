@@ -361,8 +361,12 @@ environment.
 ## Advisory export
 
 Every project detail page has an **Export advisory** button that copies or downloads a Markdown
-document: a remediation prompt followed by each active finding with its severity, advisory link, fix
-version, vulnerable range, and dependency path. It is written to be handed straight to a coding agent
+document: a remediation prompt followed by each active vulnerability with its severity, advisory link,
+fix version, vulnerable range, and dependency paths. The document holds **one entry per distinct
+advisory**, not one per scanner row — when npm audit and OSV both report the same CVE under their own
+ids, you get a single entry listing both sources and both ids, so an agent working the list does not
+fix the same thing twice. Its count therefore matches the severity totals on the dashboard, and is
+lower than the raw row count `list_findings` returns over MCP. It is written to be handed straight to a coding agent
 — the prompt sets the ground rules (triage before editing, prefer upgrading the parent over an
 `overrides` entry, verify the fix in the lockfile rather than the manifest). Edit the prompt under
 **Settings → Export**, or reset it to the built-in one there.
@@ -376,9 +380,20 @@ plain-text webhook flavour above.
 
 Sentinello exposes a [Model Context Protocol](https://modelcontextprotocol.io) server at
 `POST /api/mcp` so Claude Code, Codex, Cursor, Claude Desktop, and other MCP-aware clients can query
-roots, projects, findings, scans, and libraries, pull the same Markdown advisory export the portal's
-**Download .md** button produces (`get_project_advisory`) — and trigger scans, mute findings, or
-rename projects — without leaving the chat.
+roots, projects, findings, scans, libraries, and active mutes, pull the same Markdown advisory export
+the portal's **Download .md** button produces (`get_project_advisory`) — and trigger scans, mute
+findings, or rename projects — without leaving the chat.
+
+Two things are worth knowing about `get_project_advisory`, because both are stated in the tool's own
+description and agents act on them:
+
+- **It returns deduplicated advisories, `list_findings` returns raw per-source rows.** The same
+  vulnerability reported by npm audit and OSV is one entry in the document and two rows in
+  `list_findings`, so the two counts differ by design.
+- **It paginates by response size.** A large project will not fit in one MCP response, so the document
+  ends with a notice saying it is incomplete and giving the exact follow-up call (`offset`,
+  `includePrompt: false`) to fetch the rest. Pass `minSeverity` to trim it instead. A document that
+  stops early always says so — it never truncates silently.
 
 **The endpoint is off until you generate a token — the bearer token is the on/off switch.** No env
 vars are involved. Go to **Settings → MCP**, click **Generate token**, and the endpoint goes live
