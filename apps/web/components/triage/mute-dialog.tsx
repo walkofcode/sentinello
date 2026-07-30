@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useId, useState, useTransition } from 'react'
 import { useTranslations } from 'next-intl'
 import { Volume2, VolumeX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Dialog } from '@/components/ui/dialog'
 import { Input, Label, Textarea } from '@/components/ui/input'
 import { muteAction, muteLibraryAction, unmuteAction, unmuteManyAction } from '@/lib/actions/mute'
 
@@ -43,6 +44,11 @@ export function MuteDialog({ projectId, finding, merged, label, muteId, iconOnly
     const [reason, setReason] = useState('')
     const [expiresInDays, setExpiresInDays] = useState('')
     const [pending, startTransition] = useTransition()
+    // Generated rather than the literal "reason"/"expires" these three mute components all used to
+    // hard-code. Only one is ever open at a time so the collision was latent, but duplicate ids are
+    // invalid HTML and make every label ambiguous the moment that stops being true.
+    const reasonId = useId()
+    const expiresId = useId()
     const isMergedScope = Boolean(merged)
     const isFindingScope = Boolean(finding) || isMergedScope
     const showUnmute = isMergedScope ? Boolean(merged && merged.muteIds.length > 0) : Boolean(muteId)
@@ -109,10 +115,10 @@ export function MuteDialog({ projectId, finding, merged, label, muteId, iconOnly
             </Button>
         )
     }
-    if (!open) {
-        const triggerLabel = label || (isFindingScope ? t('mute.muteFinding') : t('mute.muteProject'))
-        if (iconOnly) {
-            return (
+    const triggerLabel = label || (isFindingScope ? t('mute.muteFinding') : t('mute.muteProject'))
+    return (
+        <>
+            {iconOnly ? (
                 <Button
                     variant="outline"
                     size={iconSize === 'md' ? 'icon' : 'sm'}
@@ -123,86 +129,77 @@ export function MuteDialog({ projectId, finding, merged, label, muteId, iconOnly
                 >
                     <VolumeX className="h-4 w-4" />
                 </Button>
-            )
-        }
-        return (
-            <Button variant="outline" size={isFindingScope ? 'sm' : 'default'} onClick={function show() { setOpen(true) }}>
-                <VolumeX className="h-4 w-4" />
-                {triggerLabel}
-            </Button>
-        )
-    }
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4">
-            <form
-                onSubmit={submit}
-                className="w-full max-w-md space-y-4 rounded-(--radius-card) border bg-card p-6 shadow-xl"
+            ) : (
+                <Button variant="outline" size={isFindingScope ? 'sm' : 'default'} onClick={function show() { setOpen(true) }}>
+                    <VolumeX className="h-4 w-4" />
+                    {triggerLabel}
+                </Button>
+            )}
+            <Dialog
+                open={open}
+                onClose={function close() { setOpen(false) }}
+                title={isFindingScope ? t('mute.muteFinding') : t('mute.muteProject')}
+                description={isFindingScope ? t('mute.findingDescription') : t('mute.projectDescription')}
+                className="max-w-md"
             >
-                <div>
-                    <h3 className="text-base font-semibold">
-                        {isFindingScope ? t('mute.muteFinding') : t('mute.muteProject')}
-                    </h3>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                        {isFindingScope
-                            ? t('mute.findingDescription')
-                            : t('mute.projectDescription')}
-                    </p>
-                </div>
-                {merged ? (
-                    <div className="rounded-md border bg-muted/30 p-3 text-xs">
-                        <div>
-                            <span className="text-muted-foreground">{t('mute.packageLabel')}</span> {merged.packageName}
+                <form onSubmit={submit} className="space-y-4 p-6">
+                    {merged ? (
+                        <div className="rounded-md border bg-muted/30 p-3 text-xs">
+                            <div>
+                                <span className="text-muted-foreground">{t('mute.packageLabel')}</span> {merged.packageName}
+                            </div>
+                            <div>
+                                <span className="text-muted-foreground">{t('mute.scannerLabel')}</span> {sources}
+                            </div>
+                            <div>
+                                <span className="text-muted-foreground">{t('mute.advisoryLabel')}</span> {merged.advisories.length}
+                            </div>
                         </div>
-                        <div>
-                            <span className="text-muted-foreground">{t('mute.scannerLabel')}</span> {sources}
+                    ) : finding ? (
+                        <div className="rounded-md border bg-muted/30 p-3 text-xs">
+                            <div>
+                                <span className="text-muted-foreground">{t('mute.scannerLabel')}</span> {finding.scanner}
+                            </div>
+                            <div>
+                                <span className="text-muted-foreground">{t('mute.advisoryLabel')}</span> {finding.advisoryId}
+                            </div>
+                            <div>
+                                <span className="text-muted-foreground">{t('mute.packageLabel')}</span> {finding.packageName}
+                            </div>
                         </div>
-                        <div>
-                            <span className="text-muted-foreground">{t('mute.advisoryLabel')}</span> {merged.advisories.length}
-                        </div>
+                    ) : null}
+                    <div className="flex flex-col gap-1">
+                        <Label htmlFor={reasonId}>{t('mute.reasonLabel')}</Label>
+                        <Textarea
+                            id={reasonId}
+                            value={reason}
+                            onChange={function onChange(e) { setReason(e.target.value) }}
+                            placeholder={t('mute.reasonPlaceholderFinding')}
+                            required
+                            autoFocus
+                        />
                     </div>
-                ) : finding ? (
-                    <div className="rounded-md border bg-muted/30 p-3 text-xs">
-                        <div>
-                            <span className="text-muted-foreground">{t('mute.scannerLabel')}</span> {finding.scanner}
-                        </div>
-                        <div>
-                            <span className="text-muted-foreground">{t('mute.advisoryLabel')}</span> {finding.advisoryId}
-                        </div>
-                        <div>
-                            <span className="text-muted-foreground">{t('mute.packageLabel')}</span> {finding.packageName}
-                        </div>
+                    <div className="flex flex-col gap-1">
+                        <Label htmlFor={expiresId}>{t('mute.autoLiftLabel')}</Label>
+                        <Input
+                            id={expiresId}
+                            type="number"
+                            min={1}
+                            value={expiresInDays}
+                            onChange={function onChange(e) { setExpiresInDays(e.target.value) }}
+                            placeholder={t('mute.autoLiftPlaceholder')}
+                        />
                     </div>
-                ) : null}
-                <div className="flex flex-col gap-1">
-                    <Label htmlFor="reason">{t('mute.reasonLabel')}</Label>
-                    <Textarea
-                        id="reason"
-                        value={reason}
-                        onChange={function onChange(e) { setReason(e.target.value) }}
-                        placeholder={t('mute.reasonPlaceholderFinding')}
-                        required
-                    />
-                </div>
-                <div className="flex flex-col gap-1">
-                    <Label htmlFor="expires">{t('mute.autoLiftLabel')}</Label>
-                    <Input
-                        id="expires"
-                        type="number"
-                        min={1}
-                        value={expiresInDays}
-                        onChange={function onChange(e) { setExpiresInDays(e.target.value) }}
-                        placeholder={t('mute.autoLiftPlaceholder')}
-                    />
-                </div>
-                <div className="flex justify-end gap-2">
-                    <Button type="button" variant="ghost" onClick={function close() { setOpen(false) }}>
-                        {tc('cancel')}
-                    </Button>
-                    <Button type="submit" disabled={pending || reason.trim().length === 0}>
-                        {pending ? t('mute.muting') : t('mute.mute')}
-                    </Button>
-                </div>
-            </form>
-        </div>
+                    <div className="flex justify-end gap-2">
+                        <Button type="button" variant="ghost" onClick={function close() { setOpen(false) }}>
+                            {tc('cancel')}
+                        </Button>
+                        <Button type="submit" disabled={pending || reason.trim().length === 0}>
+                            {pending ? t('mute.muting') : t('mute.mute')}
+                        </Button>
+                    </div>
+                </form>
+            </Dialog>
+        </>
     )
 }

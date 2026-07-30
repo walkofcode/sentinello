@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
-import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
 import type { LibraryProjectUsage } from '@sentinello/db'
 import { compareSeverity, severityWeight, type Mute, type Severity } from '@sentinello/core'
 import { Badge } from '@/components/ui/badge'
@@ -14,6 +14,7 @@ import { MuteDialog } from '@/components/triage/mute-dialog'
 import { cn } from '@/lib/cn'
 import { advisoryIdentity } from '@/lib/merge-findings'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
+import { RowDisclosure } from './row-disclosure'
 
 type Props = {
     packageName: string
@@ -145,11 +146,16 @@ type RowProps = {
 }
 
 function AdvisoryRows({ packageName, group, activeMutes, isOpen, onToggle, now }: RowProps) {
+    const t = useTranslations('Findings')
     return (
         <>
             <TableRow className="cursor-pointer">
-                <TableCell onClick={function flip() { onToggle(group.identityKey) }} className="w-8 text-muted-foreground">
-                    {(isOpen && <ChevronDown className="h-4 w-4" />) || <ChevronRight className="h-4 w-4" />}
+                <TableCell className="w-8 text-muted-foreground">
+                    <RowDisclosure
+                        open={isOpen}
+                        label={t('toggleRow', { name: group.advisoryTitle || group.advisoryId })}
+                        onToggle={function flip() { onToggle(group.identityKey) }}
+                    />
                 </TableCell>
                 <TableCell onClick={function flip() { onToggle(group.identityKey) }}>
                     <SeverityPill variant={group.severity} size="sm" />
@@ -199,8 +205,12 @@ function AdvisoryCard({ packageName, group, activeMutes, isOpen, onToggle, now }
                 onClick={function flip() { onToggle(group.identityKey) }}
                 className="flex cursor-pointer items-start gap-2 p-4"
             >
-                <span className="mt-0.5 text-muted-foreground">
-                    {(isOpen && <ChevronDown className="h-4 w-4" />) || <ChevronRight className="h-4 w-4" />}
+                <span className="mt-0.5">
+                    <RowDisclosure
+                        open={isOpen}
+                        label={t('toggleRow', { name: group.advisoryTitle || group.advisoryId })}
+                        onToggle={function flip() { onToggle(group.identityKey) }}
+                    />
                 </span>
                 <SeverityPill variant={group.severity} size="sm" />
                 <div className="min-w-0 flex-1">

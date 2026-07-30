@@ -453,6 +453,7 @@
         "vulnPrefix": "脆弱性:",
         "groupingAriaLabel": "検出のグループ化",
         "libraryGroupingAriaLabel": "ライブラリの検出のグループ化",
+        "toggleRow": "{name} の詳細を表示",
         "filterBySource": "ソースで絞り込み",
         "sourceAll": "すべてのソース",
         "byAdvisory": "アドバイザリ別",

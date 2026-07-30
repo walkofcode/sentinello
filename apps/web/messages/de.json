@@ -453,6 +453,7 @@
         "vulnPrefix": "Schwachstelle:",
         "groupingAriaLabel": "Gruppierung der Funde",
         "libraryGroupingAriaLabel": "Gruppierung der Bibliotheksfunde",
+        "toggleRow": "Details zu {name} anzeigen",
         "filterBySource": "Nach Quelle filtern",
         "sourceAll": "Alle Quellen",
         "byAdvisory": "Nach Advisory",

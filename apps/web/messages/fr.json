@@ -453,6 +453,7 @@
         "vulnPrefix": "vuln :",
         "groupingAriaLabel": "Regroupement des résultats",
         "libraryGroupingAriaLabel": "Regroupement des résultats de bibliothèque",
+        "toggleRow": "Afficher les détails de {name}",
         "filterBySource": "Filtrer par source",
         "sourceAll": "Toutes les sources",
         "byAdvisory": "Par avis",

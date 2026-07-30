@@ -453,6 +453,7 @@
         "vulnPrefix": "漏洞：",
         "groupingAriaLabel": "发现分组",
         "libraryGroupingAriaLabel": "依赖库发现分组",
+        "toggleRow": "显示 {name} 的详细信息",
         "filterBySource": "按来源筛选",
         "sourceAll": "所有来源",
         "byAdvisory": "按通告",
