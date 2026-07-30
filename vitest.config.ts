@@ -102,23 +102,34 @@ export default defineConfig({
             // null over it would silently downgrade every later sync from a conditional request to a
             // full manifest download, erroring nowhere.
             //
-            // So: 100% on branches is still not available by writing tests, but that claim has now
-            // been overstated three times — wave 11 said it, wave 12 said it while missing six, and
-            // wave 12's correction said it while missing a seventh. The pattern is not that the
-            // reasoning is sloppy; it is that "I cannot see how to reach this" and "this cannot be
-            // reached" are different statements, and only the second one belongs in this file. Treat
-            // "the rest are unreachable" as a HYPOTHESIS carrying the shapes below as evidence, not as
-            // a finding — the arms are enumerated by shape precisely so the next reader can falsify it.
-            // Reaching a literal 100% would mean suppressing arms with `/* v8 ignore */` or deleting
-            // the guards, and the shapes below are the argument against the first of those: an ignore
-            // comment blinds a whole LINE, and shape (e) documents lines where one expression is
-            // unreachable while its sibling on the same line is not. A 100% badge earned that way
-            // would be hiding a reachable arm.
+            // WHETHER 100% IS REACHABLE IS NOT SETTLED, and this file should stop implying otherwise.
+            // Two different claims keep getting merged into one:
+            //
+            //   ESTABLISHED — each arm named under the shapes below has been traced to a call site
+            //   that forecloses it. Those are individual findings, and they hold up.
+            //
+            //   NOT ESTABLISHED — that the list is COMPLETE. It has been declared complete three
+            //   times and falsified three times: wave 11 said so, wave 12 said so while missing six,
+            //   and wave 12's correction said so while missing a seventh. Every miss was an arm the
+            //   list never named.
+            //
+            // "I cannot see how to reach this" and "this cannot be reached" are different statements,
+            // and only the second belongs here — attached to a quoted call site. So the honest
+            // position is: no route to 100% is currently known, several arms are individually proven
+            // unreachable, and the completeness of that set is an open question the recipe below
+            // exists to attack.
+            //
+            // What IS settled is the other half: reaching a literal 100% by SUPPRESSION would be
+            // dishonest here specifically. `/* v8 ignore */` blinds a whole LINE, and shape (e)
+            // documents lines where one expression is unreachable while its sibling on the same line
+            // is reachable — so a 100% badge earned that way would be hiding a live arm. That is an
+            // argument about the tool, not about the residue, and it does not depend on the list
+            // above being complete.
             //
             // The residue falls into two kinds, and knowing which kind you are looking at is worth more
             // than any other single fact in this file:
             //
-            //  1. UNREACHABLE defensive arms, which no test can reach through the public API and
+            //  1. Defensive arms CONFIRMED unreachable — each traced to a call site that forecloses it, and
             //     which should NOT be chased. Seven recurring shapes, with confirmed examples:
             //
             //     a. `err instanceof Error && err.message || String(err)` behind a collaborator that
@@ -238,12 +249,14 @@ export default defineConfig({
             //     discovery.ts:162/258/284 all moved to shape (c)/(g) — the previous note here, that
             //     :284 was a reachable "HEAD ref that is whitespace", was WRONG, and :322 turned out to
             //     be the reachable one in that file; cli/cache/sync.ts's seven stay shape (c) per wave
-            //     10. The next arm anyone reaches for should be assumed unreachable until the call site
-            //     says otherwise — that is now the default, not the exception.
+            //     10. Wave 11 closed this bucket by advising that the next arm anyone reaches for be
+            //     "assumed unreachable until the call site says otherwise". That advice is WITHDRAWN:
+            //     it is what produced all seven subsequent misses, and it contradicts the rule below
+            //     that an unnamed arm is unclassified. Assume nothing — go read the call site.
             //
             // Six things worth knowing before chasing the last few points:
             //
-            //  - The shapes above cite CONFIRMED EXAMPLES, not all 99 arms — the list would rot into a
+            //  - The shapes above cite CONFIRMED EXAMPLES, not all 98 arms — the list would rot into a
             //    lie the first time one moved. An arm the list does not name is therefore UNCLASSIFIED,
             //    not unreachable; wave 12's six all came from that gap. To find one, ask lcov which files
             //    still have a gap and go read the call site:

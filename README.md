@@ -675,11 +675,16 @@ with no test fails the build rather than quietly lowering an average.
 persistence core — `packages/*`, the CLI, the worker, and `apps/web/lib`. It does **not**
 include `apps/homepage`, the portal's route handlers and pages under `apps/web/app`, or the
 React components under `apps/web/components` (the coverage glob matches `.ts`, not `.tsx`).
-Those are **partially** covered by the Playwright suite, which is not part of this ratchet: it
-starts the portal only — never `apps/homepage` — and its twelve tests drive the dashboard and
-project pages. The MCP, health, version and login routes, and most components, are not
-exercised by it. So the 100% function floor above is a statement about the unit-tested core,
-and the surface outside it has real gaps rather than coverage by another name.
+Those are **partially** covered by the Playwright suite, which is not part of this ratchet. It
+starts the portal only — `apps/homepage` is never launched — and its seventeen tests cover
+`/api/health`, the dashboard and project detail with real assertions, then smoke-check a few
+more pages for a 200. That catches a schema change turning a server component into a 500,
+which is what it is for, but it is far weaker than the unit suite: about two thirds of the
+routes under `apps/web/app`, `/api/mcp` and `/api/version` among them, are never loaded at all.
+Run `npx playwright test --list` for the current set rather than trusting that count here.
+
+So the 100% function floor above is a statement about the unit-tested core, and the surface
+outside it has real gaps rather than coverage under another name.
 
 The remaining branch residue is mostly defensive arms that no test can reach through the
 public API — `noUncheckedIndexedAccess` fallbacks and error paths behind collaborators that
