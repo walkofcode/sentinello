@@ -40,6 +40,10 @@ telemetry — your code and your findings never leave your machine.
 
 ## Just want the answer, right now?
 
+> **Coming with 3.0.** The CLI is not on npm yet — `npx sentinello` starts working the day 3.0
+> ships. Everything in this section describes it as it will land; until then, use the
+> [portal](#quick-start) below.
+
 You don't have to run anything to use Sentinello. The same scanners are available as a CLI:
 
 ```bash

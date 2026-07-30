@@ -20,14 +20,37 @@
 #   having one is the point.
 #
 #   ONE-TIME SETUP (cannot be done before the package exists on the registry):
+#     Why this is manual at all, so nobody re-litigates it: npm cannot CREATE a package via OIDC.
+#     A trusted publisher is configured on the package's settings page, and that page does not
+#     exist until something has been published — npm/cli#8544, open since 2025-09 and still open
+#     as of 2026-07. PyPI allows pre-registering a publisher for a name that does not exist yet;
+#     npm does not. So version one is published by hand, exactly once, and never again.
+#
 #     1. Publish once manually to claim the name:
+#          npm login
 #          pnpm install && pnpm --filter sentinello build
-#          cd apps/cli && npm pkg set version=$(node -p "require('../../package.json').version")
-#          npm publish --access public
+#          cd apps/cli
+#          npm pkg set version=$(node -p "require('../../package.json').version")
+#          npm publish --access public --no-provenance
+#          git checkout package.json     # undo the stamp — this file stays 0.1.0 in git
+#
+#        --no-provenance is REQUIRED here, not a preference. package.json sets
+#        publishConfig.provenance true, and provenance can only be generated on a cloud CI
+#        runner holding an OIDC token; there is no local equivalent. Without the flag this
+#        publish fails outright rather than falling back. It is the only release that will
+#        ever ship without an attestation — step 2 makes every later one automatic.
+#
+#        The `git checkout` is not tidiness. Every workspace package is pinned at 0.1.0 forever
+#        (see the versioning note above); the stamp is a publish-time mutation that must not be
+#        committed, and this workflow re-applies it on each release.
 #     2. On npmjs.com → sentinello → Settings → Trusted Publisher, add:
 #          repository: walkofcode/sentinello   workflow: .github/workflows/publish-npm.yml
-#     3. Revoke any token used for step 1.
+#     3. If step 1 used a token rather than an interactive login, revoke it now.
 #   Until step 2 is done this workflow will fail to authenticate — that is expected, not a bug.
+#
+#   Also pending until step 1 happens: README.md's "Just want the answer, right now?" section
+#   carries a "Coming with 3.0" callout, because `npx sentinello` 404s until the package exists.
+#   Delete that callout in the same commit that publishes, so the two cannot drift apart.
 
 name: publish-npm
 
