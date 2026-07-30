@@ -70,17 +70,33 @@ export default defineConfig({
             //
             // FUNCTIONS ARE DONE: 1011/1011, and the global floor above is set to 100 to keep them
             // that way. Lines and statements are effectively done too. What is left is branch
-            // residue — 111 arms of 4044, so 97.25%. It falls into two kinds, and knowing which kind
-            // you are looking at is worth more than any other single fact in this file:
+            // residue — 105 arms of 4044, so 97.40%.
+            //
+            // Wave 11 covered the last six arms anyone had classed reachable and then PROVED the rest
+            // of that bucket unreachable, which is why kind 2 below is now empty. 100% on branches is
+            // therefore not available by writing tests — the remaining arms are foreclosed by a regex,
+            // a NOT NULL column, a foreign key, or a caller's own guard. Reaching a literal 100% would
+            // mean suppressing them with `/* v8 ignore */` or deleting the guards, and the shapes below
+            // are the argument against the first of those: an ignore comment blinds a whole LINE, and
+            // shape (e) documents lines where one expression is unreachable while its sibling on the
+            // same line is not. A 100% badge earned that way would be hiding a reachable arm.
+            //
+            // The residue falls into two kinds, and knowing which kind you are looking at is worth more
+            // than any other single fact in this file:
             //
             //  1. UNREACHABLE defensive arms, which no test can reach through the public API and
-            //     which should NOT be chased. Six recurring shapes, with confirmed examples:
+            //     which should NOT be chased. Seven recurring shapes, with confirmed examples:
             //
             //     a. `err instanceof Error && err.message || String(err)` behind a collaborator that
             //        only ever throws Errors — node:fs and better-sqlite3 both do. worker.ts:184
             //        (assertDataDirWritable's catch), mute-expiry.ts:32, runner.ts:232. Where the
             //        collaborator IS mocked the same shape is reachable and is now covered, which is
-            //        why both sync runtimes came off this list.
+            //        why both sync runtimes came off this list. Wave 11 added two more:
+            //        actions/settings.ts:131 (behind a real readdir) and cli/cache/store.ts:63, whose
+            //        collaborator is a node stream pipeline — it rejects with an Error or not at all.
+            //        The reachable HALF of that same writer IS now covered: store.ts:67 re-throws the
+            //        captured failure from the next write, which is what tells a caller its cache
+            //        directory is gone at the row it pushes rather than only at commit.
             //     b. `x[i] ?? fallback` / `!x` guards that exist only to satisfy
             //        noUncheckedIndexedAccess. ssrf.ts:65-68 is the clearest: the four octet
             //        defaults in ipv4ToInt, which is only reached via isBlockedIpv4, which
@@ -91,6 +107,10 @@ export default defineConfig({
             //        read off Object.keys), version.ts:48-49 (whose own comment says so),
             //        findings.ts:285 (`row?.count ?? 0` — a COUNT(*) always returns a row) and
             //        findings.ts:224 (`if (!best) throw` — the loop above assigns on its first pass).
+            //        Wave 11: core/advisory-export.ts:336 (`if (!finding) break` inside
+            //        `for (let i = offset; i < sorted.length; i++)`) and core/releases.ts:1352
+            //        (`RELEASES[0] || null` — RELEASES is a literal array in the same file, and an
+            //        empty one would mean the product has shipped no releases).
             //     c. A guard a caller upstream already made impossible. gemnasium/normalize.ts:164
             //        (parseComparatorForm's empty-token check — line 97 filters empty disjuncts
             //        before it) and :180 (its final else-if, which only `<=` can reach because the
@@ -110,6 +130,33 @@ export default defineConfig({
             //        scope to arrive with them absent); notification-deliveries.ts:187-188
             //        (`targetRootIds.get(id) || []` — the loop immediately above sets an entry for
             //        every row's target id, and an empty array is truthy anyway).
+            //        Wave 11 added eight, every one confirmed by reading the single call site:
+            //        notification-target-roots.ts:36 and notification-target-projects.ts:34 — the SAME
+            //        pre-seeded-map shape as notification-deliveries.ts:187 above, and the reason is
+            //        worth restating because the code reads like the fallback obviously fires: the loop
+            //        seeds `out.set(id, [])` for every requested id and the query is
+            //        `WHERE targetId IN (those ids)`, so `.get()` always hits, and `[]` is truthy;
+            //        engine/matcher.ts:185 (rangesToDisplay's `: '*'` — its only caller, matcher.ts:90,
+            //        sits behind the `hasVersionData` guard at :69, so `parts` always gets at least one
+            //        push, and the no-version malware path hardcodes '*' at :77 rather than routing
+            //        through it, which makes that arm vestigial);
+            //        scanners/osv.ts:112 (`acceptedRangeTypesForEcosystem(ecosystem) ?? []`, whose own
+            //        comment says it guards a comparator shipping without an accepted-types entry);
+            //        cli/scan.ts:138 (pick's cross-ecosystem guard — matchPackages skips an ecosystem
+            //        via isEnabled BEFORE it calls lookup, and the CLI's isEnabled is the very same
+            //        `ecosystem === setup.ecosystem` equality pick re-checks);
+            //        resolver/pnpm.ts:109 (`!existing.depPaths.includes(key)` — sourceKeys comes from
+            //        Object.keys, so no key repeats) and :133 (`!version` — parseDepKey already returns
+            //        null for an empty version at graph.ts:100);
+            //        discovery.ts:162 (`!rel || rel.startsWith('..')` in classifySkip — its one caller
+            //        at :131 passes `join(currentDir, entry.name)` while every layer's baseDir is
+            //        currentDir or an ancestor, so rel is always a non-empty descendant path).
+            //        Two more in discovery.ts are the same story from the other direction: :258
+            //        (basenameOf's `|| abs` needs `resolve(dir) === '/'`, and its one caller passes a
+            //        discovered project directory) and :330 (isFile's catch — both call sites, :245 and
+            //        :302, test existsSync first, and existsSync swallows the errors statSync would
+            //        throw). The sibling catch at :322 IS reachable and is now covered: an unreadable
+            //        `.git` POINTER FILE, which is how a worktree or submodule stores it.
             //     d. A build-time define. help.ts:7 returns __SENTINELLO_VERSION__, which tsup
             //        injects into the published bundle and vitest never defines — under test it is
             //        always undefined, which is the dev path the env fallback exists for.
@@ -131,23 +178,56 @@ export default defineConfig({
             //        which selects `f.*` — the same expression there IS reachable and is now covered.
             //        A legacy-row test through this path is still worth having (libraries.test.ts has
             //        one) but it pins the two COALESCEs, not this arm; the comment there says so.
+            //     g. A guard the GRAMMAR forecloses: the regex that already matched constrains what the
+            //        capture can hold. Reads exactly like shape (b) at the call site but is a different
+            //        check — the type system knows nothing about the pattern, so the guard is redundant
+            //        to the regex and NOT to TypeScript, and deleting it would not compile.
+            //        engine/comparators/pep440.ts is the whole family: :50 (`!g.release`, but PEP440_RE
+            //        cannot match without the release group), :54 (the NaN guard, but release is
+            //        `[0-9]+(?:\.[0-9]+)*`, so parseInt cannot return NaN), and :115/:116
+            //        (`PRE_RANK[letter] ?? 0`, but the pattern admits only a|b|c|rc|alpha|beta|pre|
+            //        preview and foldPreLetter maps every one of those onto a PRE_RANK key). Also
+            //        discovery.ts:284, and — already noted under apps/web/lib/mcp/auth.ts's floor
+            //        below — `match[1] ?? ''` on a regex that fills group 1 whenever it matches at all.
             //
             //  2. Genuinely reachable arms that cost more setup than they have been worth so far.
-            //     Wave 10 emptied most of this bucket. What is left: cli/cache/sync.ts's seven arms —
-            //     RECLASSIFIED as shape (c), since the `state?.recordCount ?? 0` / `if (!state)`
-            //     family only runs on a refresh, which by definition means the source cell exists;
-            //     discovery.ts:162 (a path matched by an ignore rule with a trailing slash but not
-            //     without, or vice versa) and :258/:284 (degenerate paths — resolve('/'), a HEAD ref
-            //     that is whitespace); scan.ts:138/141; cache/store.ts; osv-client.ts:25/36. Those
-            //     last few are fair game, and none is worth much.
+            //     THIS BUCKET IS NOW EMPTY. Wave 11 either covered or disproved everything in it, and
+            //     the disposition of each entry is recorded above rather than dropped silently:
+            //     osv-client.ts:25/36 covered (that module had no test file at all — both resolution
+            //     fallbacks and the first-boot mkdir were cold); cache/store.ts split into a covered
+            //     half (:67) and shape (a) (:63); scan.ts:141 covered and :138 moved to shape (c);
+            //     discovery.ts:162/258/284 all moved to shape (c)/(g) — the previous note here, that
+            //     :284 was a reachable "HEAD ref that is whitespace", was WRONG, and :322 turned out to
+            //     be the reachable one in that file; cli/cache/sync.ts's seven stay shape (c) per wave
+            //     10. The next arm anyone reaches for should be assumed unreachable until the call site
+            //     says otherwise — that is now the default, not the exception.
             //
-            // Four things worth knowing before chasing the last few points:
+            // Six things worth knowing before chasing the last few points:
             //
+            //  - The shapes above cite CONFIRMED EXAMPLES, not all 105 arms — the list would rot into a
+            //    lie the first time one moved. To find an arm it does not name, ask lcov which files
+            //    still have a gap and go read the call site:
+            //      awk -F: '/^SF:/{f=$2} /^BRF:/{a=$2} /^BRH:/{b=$2} /^end_of_record/{if(a>b) print a-b, f}' \
+            //        coverage/lcov.info | sort -rn
+            //    Swap BRF/BRH for LF/LH to do the same for lines. Anything that turns out reachable is a
+            //    test worth writing; anything that does not belongs above, with the call site quoted.
+            //  - A GREEN SUITE IS NOT EVIDENCE A TEST REACHES WHAT ITS NAME CLAIMS. That, not a product
+            //    bug, was wave 11's find, twice over. scan.test.ts had a test called "serves nothing
+            //    when the scanner asks about a different ecosystem" that passed an empty cache and no
+            //    resolvedGraph — so the scanner returned no_lockfile and never called lookup, and the
+            //    guard in its name never ran. store.test.ts asserted that a pipeline failure is
+            //    "re-thrown from the next write" by checking that write-write-commit rejects, which
+            //    commit() alone satisfies. Both passed for years; both now say what they actually pin,
+            //    and the behaviour each one claimed has its own test. The uncovered arm is what exposed
+            //    them, which is the argument for reading this file's list rather than the suite's names.
             //  - The v8 text reporter OMITS files at 100% on all four metrics, so a file vanishing
             //    from the table is success, not absence. Check coverage/lcov.info to confirm.
             //  - v8 reports STATEMENTS and LINES as separate numbers and they are not equal. Deriving
-            //    one from the other silently mis-sets floors; read each from its own field in
-            //    coverage/coverage-summary.json.
+            //    one from the other silently mis-sets floors; read each from its own column in the text
+            //    reporter's table. Note that the two reporters configured above produce neither
+            //    coverage-summary.json nor coverage-final.json — for per-file numbers to compute a floor
+            //    from, ask for one: `pnpm vitest run --coverage --coverage.reporter=json`. lcov.info is
+            //    always there, but it carries LINES and BRANCHES only, never statements.
             //  - jsdom has NO LAYOUT ENGINE. getBoundingClientRect returns zeros, so any new test of
             //    positioning logic must stub it — otherwise the test passes while asserting nothing,
             //    since every branch computes the same numbers from zeros.
@@ -158,7 +238,8 @@ export default defineConfig({
             //    version and silently deleted every npm-audit finding for a project whose
             //    package-lock could not be read. Every one of them reported success while doing
             //    nothing. If a case here is awkward to reach, ask whether the code is right before
-            //    assuming the test is wrong.
+            //    assuming the test is wrong. Wave 11 broke that streak — it found no new product bug,
+            //    which is itself the useful signal: the arms that remain are guards, not gaps.
             //
             // README.md and apps/cli/README.md carry a coverage badge showing the STATEMENTS floor
             // below. It is honest precisely because this is a CI-enforced ratchet — so when you
@@ -178,6 +259,13 @@ export default defineConfig({
                 'packages/core/src/**': { statements: 99, branches: 98, functions: 99, lines: 99 },
                 'packages/scanners/src/resolver/**': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'packages/scanners/src/engine/**': { statements: 99, branches: 98, functions: 99, lines: 99 },
+                // The PyPI comparator, carried individually because it is the one comparator that is a
+                // reimplementation rather than a delegation: semver ordering comes from `semver`, but
+                // PEP 440's epochs, implicit-zero padding, pre/post/dev spellings and local versions are
+                // ordered by hand here. A mistake mis-ORDERS rather than throws, so a Python advisory
+                // silently stops matching. Branches sit at 97 for the shape (g) residue: four guards the
+                // PEP440 grammar itself forecloses.
+                'packages/scanners/src/engine/comparators/pep440.ts': { statements: 98, branches: 97, functions: 99, lines: 99 },
                 'packages/notifications/src/render.ts': { statements: 99, branches: 97, functions: 99, lines: 99 },
                 'packages/notifications/src/redact.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'packages/notifications/src/ssrf.ts': { statements: 98, branches: 91, functions: 99, lines: 99 },
@@ -207,7 +295,7 @@ export default defineConfig({
                 // globalThis.__sentinelloDb seam, so the floors are near-total: the only stubs are
                 // revalidatePath (which cannot work outside a render request) and the outbound
                 // notification sender (the one action that would make a real HTTP call).
-                'apps/web/lib/actions/**': { statements: 99, branches: 98, functions: 99, lines: 99 },
+                'apps/web/lib/actions/**': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 // The MCP tool surface — the same mutations, reachable by an agent. Driven through a
                 // real McpServer/Client pair so the declared zod input schemas are exercised too; a
                 // schema that stops matching its handler fails here rather than in front of an agent.
@@ -250,6 +338,11 @@ export default defineConfig({
                 'apps/worker/src/gemnasium-sync.ts': { statements: 99, branches: 94, functions: 99, lines: 99 },
                 // The dispatch decision: every filter that decides whether an operator gets paged.
                 'packages/db/src/queries/notification-deliveries.ts': { statements: 99, branches: 91, functions: 99, lines: 99 },
+                // Its inputs: the per-target root and project allow-lists. Zero rows means "everything",
+                // so the dangerous regression is a WRITE that drops a row — the scope silently widens
+                // from one root to all of them and the operator is paged for projects they excluded.
+                // Branches sit at 83 for one arm per file, both the pre-seeded-map shape (c) above.
+                'packages/db/src/queries/notification-target-*.ts': { statements: 99, branches: 83, functions: 99, lines: 99 },
                 // The feed HTTP client. Its retry policy decides whether a transient upstream failure
                 // costs one round trip or silently leaves a source unauditable for the whole run.
                 'packages/feeds/src/http.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
@@ -268,7 +361,7 @@ export default defineConfig({
                 'packages/db/src/queries/findings.ts': { statements: 98, branches: 91, functions: 99, lines: 99 },
                 // applyConfigFile is the remaining uncovered branch set in options.ts.
                 'apps/cli/src/options.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
-                'apps/cli/src/cache/store.ts': { statements: 99, branches: 94, functions: 99, lines: 99 },
+                'apps/cli/src/cache/store.ts': { statements: 99, branches: 97, functions: 99, lines: 99 },
                 'apps/cli/src/cache/meta.ts': { statements: 98, branches: 97, functions: 99, lines: 97 },
                 // The advisory-feed downloaders. Both are driven through a real ZIP generated in
                 // memory (packages/feeds/src/zip.fixture.ts) so unzipper, the entry filter and the
@@ -284,9 +377,13 @@ export default defineConfig({
                 // needless full re-download or a silently stale cache.
                 'apps/cli/src/ui.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'apps/cli/src/doctor.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
+                // Renders the advisory document itself. Total floors because stdout is a data channel a
+                // user pipes into an agent: resolvePrompt deciding wrongly prepends several hundred words
+                // of agent instructions to a document the caller asked to contain findings alone.
+                'apps/cli/src/report.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'apps/cli/src/cache/sync.ts': { statements: 96, branches: 93, functions: 99, lines: 98 },
                 'apps/cli/src/cache/lookup.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
-                'apps/cli/src/scan.ts': { statements: 93, branches: 93, functions: 99, lines: 94 },
+                'apps/cli/src/scan.ts': { statements: 98, branches: 96, functions: 99, lines: 99 },
                 // The optional portal login gate — the only thing in front of the whole portal when it
                 // is enabled. Total floors: the cookie must never contain the raw token, and the login
                 // and cookie paths must stay distinct HMACs so a cookie is not a valid submission.
@@ -326,6 +423,12 @@ export default defineConfig({
                 // database and the Scan button silently does nothing.
                 'packages/db/src/schema.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'packages/db/src/client.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
+                // The OSV cache's own path resolution — client.ts's problem a second time, for a second
+                // file. osv.db is defined as the SIBLING of whatever sentinello.sqlite resolves to, and
+                // when that rule disagrees between the worker and the scanner nothing errors: one process
+                // seeds advisories into its osv.db and the other opens an empty one and reports every
+                // project clean. Total floors, and it had no test file at all until wave 11.
+                'packages/db/src/osv-client.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'packages/scanners/src/index.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'apps/web/lib/db.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'apps/web/lib/cn.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
@@ -336,7 +439,7 @@ export default defineConfig({
                 // Walks read-only mounts it does not control, so its unreadable-path handling is not
                 // padding: one bad permission must not abort the scan of every other project under the
                 // same root.
-                'packages/scanners/src/discovery.ts': { statements: 97, branches: 97, functions: 99, lines: 98 },
+                'packages/scanners/src/discovery.ts': { statements: 98, branches: 97, functions: 99, lines: 99 },
                 // The DOM-dependent hook, and the only place in the repo that needs jsdom. Total floors
                 // because it went from zero to 100% in one pass and there is no reason for it to slip:
                 // its flip-above and clamp-to-viewport branches are what stop a panel opening
