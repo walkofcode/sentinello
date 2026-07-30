@@ -139,6 +139,17 @@ describe('readCacheMeta', function () {
         expect(read.sources.gemnasium).toEqual({})
         expect(read.sources.osv.npm).toEqual(state())
     })
+
+    // The same default, for the other source. Worth its own case rather than being assumed symmetric:
+    // this is the shape a cache written before gemnasium existed has on disk, and `osv` missing is what
+    // a user who has only ever run `--sources gemnasium` will have. Reading either as undefined instead
+    // of {} would throw in isSeeded on the next run rather than reporting the source as unseeded.
+    it('defaults a missing osv key to empty just as it does gemnasium', async function () {
+        await writeFile(join(dir, 'meta.json'), JSON.stringify({ schemaVersion: 1, sources: { gemnasium: { npm: state() } } }), 'utf8')
+        const read = await readCacheMeta(dir)
+        expect(read.sources.osv).toEqual({})
+        expect(read.sources.gemnasium.npm).toEqual(state())
+    })
 })
 
 describe('writeCacheMeta', function () {

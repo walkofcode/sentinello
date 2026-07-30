@@ -69,17 +69,38 @@ export default defineConfig({
             // because every other suite wants the `node` default above.
             //
             // FUNCTIONS ARE DONE: 1011/1011, and the global floor above is set to 100 to keep them
-            // that way. Lines and statements are effectively done too. What is left is branch
-            // residue — 105 arms of 4044, so 97.40%.
+            // that way — WITHIN THE `include` GLOBS ABOVE, which is narrower than "the repository" and
+            // must not be quoted as if it were. Not instrumented, and therefore not ratcheted at all:
+            // apps/homepage in its entirety, apps/web/app/** (every route handler and page — MCP,
+            // health, version, login), and — least obvious, because the directory IS named above —
+            // every .tsx under apps/web/components, since the glob is `**/*.ts`. That last one means
+            // the `apps/web/components/**` floors below measure exactly three files, not eighty-one.
+            // A new untested function in any of those places passes CI. Broadening the globs is a
+            // real option but a separate piece of work: it would pull ~150 uninstrumented files into
+            // the denominator at once, which is a coverage project, not a config edit. Until then the
+            // honest phrasing is "the unit-tested surface", and README.md now says exactly that.
             //
-            // Wave 11 covered the last six arms anyone had classed reachable and then PROVED the rest
-            // of that bucket unreachable, which is why kind 2 below is now empty. 100% on branches is
-            // therefore not available by writing tests — the remaining arms are foreclosed by a regex,
-            // a NOT NULL column, a foreign key, or a caller's own guard. Reaching a literal 100% would
-            // mean suppressing them with `/* v8 ignore */` or deleting the guards, and the shapes below
-            // are the argument against the first of those: an ignore comment blinds a whole LINE, and
-            // shape (e) documents lines where one expression is unreachable while its sibling on the
-            // same line is not. A 100% badge earned that way would be hiding a reachable arm.
+            // Lines and statements are effectively done too. What is left is branch residue — 99 arms
+            // of 4044, so 97.55%.
+            //
+            // CORRECTION, WAVE 12 — kind 2 below was declared empty in wave 11 and was not. Six more
+            // reachable arms were found by re-reading the residue rather than trusting that sentence,
+            // and all six are now covered: config-loader.ts:152-153 (a plain file and a dot-entry in
+            // /roots, whose IDENTICAL twin in discoverDockerRoots was already covered — the tell was
+            // right there), gemnasium-client.ts:35 (the first-boot mkdir, byte-identical to the one
+            // wave 11 had just covered in osv-client.ts), scheduler.ts:108 (a sweep of a second or
+            // more), cache/meta.ts:91 (`sources.osv ?? {}`, whose sibling on the very NEXT line was
+            // already covered) and render.ts:12 (a truncated `error:` signature). Four of those six
+            // sat next to an already-covered twin, which is the cheapest tell there is and was missed
+            // anyway. So: 100% on branches is still not available by writing tests, but that claim has
+            // now been overstated twice, and the second time it was this file saying it. Treat "the
+            // rest are unreachable" as a HYPOTHESIS carrying the shapes below as evidence, not as a
+            // finding — the arms are enumerated by shape precisely so the next reader can falsify it.
+            // Reaching a literal 100% would mean suppressing arms with `/* v8 ignore */` or deleting
+            // the guards, and the shapes below are the argument against the first of those: an ignore
+            // comment blinds a whole LINE, and shape (e) documents lines where one expression is
+            // unreachable while its sibling on the same line is not. A 100% badge earned that way
+            // would be hiding a reachable arm.
             //
             // The residue falls into two kinds, and knowing which kind you are looking at is worth more
             // than any other single fact in this file:
@@ -191,8 +212,11 @@ export default defineConfig({
             //        below — `match[1] ?? ''` on a regex that fills group 1 whenever it matches at all.
             //
             //  2. Genuinely reachable arms that cost more setup than they have been worth so far.
-            //     THIS BUCKET IS NOW EMPTY. Wave 11 either covered or disproved everything in it, and
-            //     the disposition of each entry is recorded above rather than dropped silently:
+            //     EMPTY AGAIN AS OF WAVE 12 — and read the correction above before trusting that, because
+            //     wave 11 said the same thing and six arms were reachable. Wave 12's six are covered;
+            //     what stops this being a third false claim is not confidence, it is that anyone can
+            //     re-run the lcov recipe below and check. Do that rather than believing this line.
+            //     Wave 11's own dispositions, kept because each records a call site someone verified:
             //     osv-client.ts:25/36 covered (that module had no test file at all — both resolution
             //     fallbacks and the first-boot mkdir were cold); cache/store.ts split into a covered
             //     half (:67) and shape (a) (:63); scan.ts:141 covered and :138 moved to shape (c);
@@ -204,8 +228,9 @@ export default defineConfig({
             //
             // Six things worth knowing before chasing the last few points:
             //
-            //  - The shapes above cite CONFIRMED EXAMPLES, not all 105 arms — the list would rot into a
-            //    lie the first time one moved. To find an arm it does not name, ask lcov which files
+            //  - The shapes above cite CONFIRMED EXAMPLES, not all 99 arms — the list would rot into a
+            //    lie the first time one moved. An arm the list does not name is therefore UNCLASSIFIED,
+            //    not unreachable; wave 12's six all came from that gap. To find one, ask lcov which files
             //    still have a gap and go read the call site:
             //      awk -F: '/^SF:/{f=$2} /^BRF:/{a=$2} /^BRH:/{b=$2} /^end_of_record/{if(a>b) print a-b, f}' \
             //        coverage/lcov.info | sort -rn
@@ -232,14 +257,19 @@ export default defineConfig({
             //    positioning logic must stub it — otherwise the test passes while asserting nothing,
             //    since every branch computes the same numbers from zeros.
             //  - Grinding these arms is how every real bug on this branch was found: a JSON `null` in
-            //    source_scope_json that threw instead of failing open, a decode crash in
-            //    parseDepPath, a go.sum `/go.mod` version stripped to an unmatchable empty string,
-            //    and — from wave 10 — a lockfile cross-check that coerced a version RANGE into a
-            //    version and silently deleted every npm-audit finding for a project whose
-            //    package-lock could not be read. Every one of them reported success while doing
-            //    nothing. If a case here is awkward to reach, ask whether the code is right before
-            //    assuming the test is wrong. Wave 11 broke that streak — it found no new product bug,
-            //    which is itself the useful signal: the arms that remain are guards, not gaps.
+            //    source_scope_json that threw instead of failing open, a decode crash in parseDepPath,
+            //    a discovery pass that hard-deleted every project under an unmounted root, a config
+            //    file accepted as a JSON ARRAY, and — from wave 10 — a lockfile cross-check that
+            //    coerced a version RANGE into a version and silently deleted every npm-audit finding
+            //    for a project whose package-lock could not be read. Every one of them reported
+            //    success while doing nothing. FIVE, not seven: a go.sum `/go.mod` version and
+            //    deleteRoot's notification_target_roots cascade were both listed here for a while and
+            //    neither was ever broken — addModuleParts already rejected the empty version, and
+            //    deleteRoot already ran that delete inline. Their tests are worth keeping as
+            //    regression pins; they were not fixes, and counting them as such is how a test suite
+            //    starts overstating what it caught. If a case here is awkward to reach, ask whether
+            //    the code is right before assuming the test is wrong. Waves 11 and 12 both found no
+            //    new product bug, which is the useful signal: what remains are guards, not gaps.
             //
             // README.md and apps/cli/README.md carry a coverage badge showing the STATEMENTS floor
             // below. It is honest precisely because this is a CI-enforced ratchet — so when you
@@ -266,7 +296,7 @@ export default defineConfig({
                 // silently stops matching. Branches sit at 97 for the shape (g) residue: four guards the
                 // PEP440 grammar itself forecloses.
                 'packages/scanners/src/engine/comparators/pep440.ts': { statements: 98, branches: 97, functions: 99, lines: 99 },
-                'packages/notifications/src/render.ts': { statements: 99, branches: 97, functions: 99, lines: 99 },
+                'packages/notifications/src/render.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'packages/notifications/src/redact.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'packages/notifications/src/ssrf.ts': { statements: 98, branches: 91, functions: 99, lines: 99 },
                 // The outbound transports. These are where the SSRF guard and secret redaction meet
@@ -281,7 +311,7 @@ export default defineConfig({
                 // range parsing or the purge logic is silent, so each gets its own floor.
                 'packages/feeds/src/gemnasium/normalize.ts': { statements: 99, branches: 98, functions: 99, lines: 99 },
                 'packages/db/src/queries/gemnasium.ts': { statements: 99, branches: 96, functions: 99, lines: 99 },
-                'packages/db/src/gemnasium-client.ts': { statements: 94, branches: 87, functions: 99, lines: 94 },
+                'packages/db/src/gemnasium-client.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'packages/scanners/src/gemnasium.ts': { statements: 97, branches: 94, functions: 99, lines: 99 },
                 // Produces the "upgrade to this version" advice shown next to every finding.
                 'packages/scanners/src/version-fix.ts': { statements: 97, branches: 95, functions: 99, lines: 99 },
@@ -311,7 +341,7 @@ export default defineConfig({
                 // first-boot guard that stops a restart reverting the operator's portal edits.
                 'apps/worker/src/runner.ts': { statements: 99, branches: 97, functions: 99, lines: 99 },
                 'apps/worker/src/notifier.ts': { statements: 97, branches: 95, functions: 99, lines: 99 },
-                'apps/worker/src/config-loader.ts': { statements: 97, branches: 96, functions: 99, lines: 99 },
+                'apps/worker/src/config-loader.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'apps/worker/src/runtime.ts': { statements: 96, branches: 83, functions: 99, lines: 99 },
                 // The worker's boot/scheduling shell. Every one of these decides WHETHER work happens
                 // rather than what it produces, so their failure mode is silence: a sweep that never
@@ -323,7 +353,7 @@ export default defineConfig({
                 // watcher is the one component contractually forbidden from calling the runner.
                 'apps/worker/src/discovery.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'apps/worker/src/watcher.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
-                'apps/worker/src/scheduler.ts': { statements: 97, branches: 96, functions: 99, lines: 97 },
+                'apps/worker/src/scheduler.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'apps/worker/src/scan-request-poller.ts': { statements: 99, branches: 97, functions: 99, lines: 99 },
                 'apps/worker/src/mute-expiry.ts': { statements: 99, branches: 88, functions: 99, lines: 99 },
                 // The two advisory-source runtimes: lazy cache open, per-batch scanner selection, and
@@ -362,7 +392,7 @@ export default defineConfig({
                 // applyConfigFile is the remaining uncovered branch set in options.ts.
                 'apps/cli/src/options.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'apps/cli/src/cache/store.ts': { statements: 99, branches: 97, functions: 99, lines: 99 },
-                'apps/cli/src/cache/meta.ts': { statements: 98, branches: 97, functions: 99, lines: 97 },
+                'apps/cli/src/cache/meta.ts': { statements: 98, branches: 99, functions: 99, lines: 97 },
                 // The advisory-feed downloaders. Both are driven through a real ZIP generated in
                 // memory (packages/feeds/src/zip.fixture.ts) so unzipper, the entry filter and the
                 // normalizers all run for real. The trap they guard is silent rather than loud:

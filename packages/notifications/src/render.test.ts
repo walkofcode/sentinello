@@ -322,6 +322,21 @@ describe('renderScanFailure', function () {
         expect(out.title).toBe('[SCAN FAILED] api — error:not_a_real_code')
     })
 
+    // `'error:'.split(':')` is still two parts, so the length check above lets it through with an EMPTY
+    // reason code. That is a legacy row shape, not an impossible one — a truncated signature reaches
+    // here and must pass through verbatim rather than being looked up as the empty reason code.
+    it('passes a signature with an empty reason code through unchanged', function () {
+        const out = renderScanFailure({
+            projectName: 'api',
+            projectId: 'project-1',
+            gitBranch: null,
+            event: scanFailureEvent({ failureSignature: 'error:' }),
+            errorText: null,
+            portalBaseUrl: null
+        })
+        expect(out.title).toBe('[SCAN FAILED] api — error:')
+    })
+
     it('falls back to a generic signature when the event carries none', function () {
         const out = renderScanFailure({
             projectName: 'api',

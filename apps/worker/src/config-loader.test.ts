@@ -372,6 +372,20 @@ describe('pruneDockerRoots', function () {
         expect(pruneDockerRoots(db)).toEqual({ removed: 2 })
         expect(listRoots(db).map(function p(r) { return r.path })).toEqual(['/roots/b'])
     })
+
+    // The mounted set is built from DIRECTORIES that are not dot-entries, mirroring discoverDockerRoots
+    // exactly. Both filters matter here in a way they do not there: discoverDockerRoots merely declines
+    // to CREATE a root for a stray file or a `.DS_Store`, while this function reads the same set as
+    // "everything still mounted" — so a filter dropped here does not add a root, it stops one from
+    // being recognised and hard-deletes it along with every project, scan and finding underneath.
+    it('treats a plain file and a dot-entry as not mounted', function () {
+        upsertRoot(db, { id: rootId('/roots/notes.txt'), path: '/roots/notes.txt', label: null, createdAt: T0 })
+        upsertRoot(db, { id: rootId('/roots/.hidden'), path: '/roots/.hidden', label: null, createdAt: T0 })
+        upsertRoot(db, { id: rootId('/roots/alpha'), path: '/roots/alpha', label: null, createdAt: T0 })
+        pretendDocker(['alpha', 'notes.txt', '.hidden'])
+        expect(pruneDockerRoots(db)).toEqual({ removed: 2 })
+        expect(listRoots(db).map(function p(r) { return r.path })).toEqual(['/roots/alpha'])
+    })
 })
 
 describe('intervalHoursToCron', function () {

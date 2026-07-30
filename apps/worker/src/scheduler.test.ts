@@ -289,4 +289,25 @@ describe('sweepActiveProjects', function () {
             return l.includes('active sweep finished') && /\d+ms\)/.test(l)
         })).toBe(true)
     })
+
+    // The other half of formatDurationMs, and the one a real sweep almost always takes: anything at or
+    // over a second is reported in seconds to 2dp rather than as a five-digit millisecond count. Reached
+    // by advancing the faked clock from inside the mocked runBatch, which is the only await the sweep
+    // makes between its two Date.now() readings. Timers are faked only for this test — the suite's other
+    // cases assert on real sub-second durations.
+    it('reports a sweep of a second or more in seconds', async function () {
+        vi.useFakeTimers()
+        try {
+            runBatch.mockImplementationOnce(async function slow() {
+                vi.advanceTimersByTime(1500)
+                return []
+            })
+            await sweepActiveProjects(input())
+            expect(logLines().some(function match(l) {
+                return l.includes('active sweep finished') && l.includes('1.50s)')
+            })).toBe(true)
+        } finally {
+            vi.useRealTimers()
+        }
+    })
 })
