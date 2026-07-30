@@ -82,6 +82,9 @@ jobs:
     portal-e2e:
         name: portal end-to-end
         runs-on: ubuntu-latest
+        # Two next start processes plus a real worker means a hang is possible; the default ceiling
+        # is six hours, which would burn a runner rather than fail.
+        timeout-minutes: 30
         steps:
             - uses: actions/checkout@v5
 
@@ -107,10 +110,17 @@ jobs:
             - name: Install Chromium
               run: pnpm exec playwright install --with-deps chromium
 
-            # Runs against a real production build served by `next start`, not the dev server.
+            # Runs against a real production build served by `next start`, not the dev server. Must
+            # stay ahead of the suite: tests/e2e/portal/build-guard.ts fails the run when .next is
+            # older than the sources, so a missing build here is an error rather than a silent pass
+            # against stale output.
             - name: Build
               run: pnpm build
 
+            # Starts three processes of its own: a real apps/worker (so queued scans actually
+            # complete), plus an open portal and a token-gated one. All of them are hermetic —
+            # scanning goes through OSV against a hand-seeded local cache and every feed is off, so
+            # nothing here reaches the network.
             - name: Portal end-to-end
               run: pnpm test:e2e
 
@@ -119,5 +129,7 @@ jobs:
               uses: actions/upload-artifact@v4
               with:
                   name: playwright-report
-                  path: playwright-report/
+                  path: |
+                      playwright-report/
+                      test-results/
                   retention-days: 7

@@ -1,9 +1,15 @@
 import { expect, test } from '@playwright/test'
-import { SEEDED } from './paths'
+import { readFixtureManifest, SEEDED } from './paths'
 import type { Page } from '@playwright/test'
 
 // The portal renders card and table variants of the same data and hides one by viewport, so a bare
 // getByText().first() can resolve to the hidden copy. Always assert against the visible one.
+// Project ids come from the manifest the seed writes rather than from a constant, because the
+// worker's discovery pass is what creates the rows and it derives each id from (rootId, relPath).
+const FIXTURE = readFixtureManifest()
+const PROJECT_ID = FIXTURE.projects[SEEDED.projectName]
+const CLEAN_PROJECT_ID = FIXTURE.projects[SEEDED.cleanProjectName]
+
 function visible(page: Page, text: string | RegExp) {
     return page.getByText(text).filter({ visible: true }).first()
 }
@@ -65,7 +71,7 @@ test.describe('dashboard', function () {
 
 test.describe('project detail', function () {
     test('lists the seeded finding with its package and installed version', async function ({ page }) {
-        await page.goto('/projects/' + SEEDED.projectId)
+        await page.goto('/projects/' + PROJECT_ID)
 
         await expect(visible(page, 'lodash')).toBeVisible()
         await expect(visible(page, '4.17.11')).toBeVisible()
@@ -74,13 +80,13 @@ test.describe('project detail', function () {
     // The view defaults to production dependencies only, so the dev-only minimist finding is
     // correctly hidden until the filter is widened. Asserting both halves pins the default.
     test('hides a dev-only finding under the default production filter', async function ({ page }) {
-        await page.goto('/projects/' + SEEDED.projectId)
+        await page.goto('/projects/' + PROJECT_ID)
         await expect(visible(page, 'lodash')).toBeVisible()
         await expect(visible(page, 'minimist')).toHaveCount(0)
     })
 
     test('shows the fix version for a finding that has one', async function ({ page }) {
-        await page.goto('/projects/' + SEEDED.projectId)
+        await page.goto('/projects/' + PROJECT_ID)
         await expect(visible(page, '4.17.21')).toBeVisible()
     })
 
@@ -89,7 +95,7 @@ test.describe('project detail', function () {
         page.on('pageerror', function record(err) {
             errors.push(err.message)
         })
-        await page.goto('/projects/' + SEEDED.cleanProjectId)
+        await page.goto('/projects/' + CLEAN_PROJECT_ID)
         await expect(visible(page, SEEDED.cleanProjectName)).toBeVisible()
         expect(errors).toEqual([])
     })
@@ -127,7 +133,7 @@ test.describe('triage accessibility', function () {
     // button and advisory links, and the button role is Children Presentational, which would prune
     // them out of the accessibility tree.
     test('a library row exposes a named, stateful disclosure control', async function ({ page }) {
-        await page.goto('/projects/' + SEEDED.projectId)
+        await page.goto('/projects/' + PROJECT_ID)
         await page.getByRole('tab', { name: 'By library' }).click()
         const toggle = page.getByRole('button', { name: 'Show details for lodash' })
         await expect(toggle).toHaveCount(1)
@@ -140,7 +146,7 @@ test.describe('triage accessibility', function () {
     // A native <button> rather than a div with a click handler, so Enter and Space come from the
     // platform rather than a hand-written onKeyDown that can silently rot.
     test('the disclosure control is operable from the keyboard', async function ({ page }) {
-        await page.goto('/projects/' + SEEDED.projectId)
+        await page.goto('/projects/' + PROJECT_ID)
         await page.getByRole('tab', { name: 'By library' }).click()
         const toggle = page.getByRole('button', { name: 'Show details for lodash' })
         await toggle.focus()
@@ -152,7 +158,7 @@ test.describe('triage accessibility', function () {
     // and no Escape — an operator on a screen reader got an unannounced overlay they could not
     // dismiss. They now go through components/ui/dialog.tsx like every other modal.
     test('the mute modal is a real dialog and Escape dismisses it', async function ({ page }) {
-        await page.goto('/projects/' + SEEDED.projectId)
+        await page.goto('/projects/' + PROJECT_ID)
         await page.getByRole('button', { name: 'Mute finding' }).first().click()
         const dialog = page.getByRole('dialog', { name: 'Mute finding' })
         await expect(dialog).toBeVisible()
@@ -166,7 +172,7 @@ test.describe('triage accessibility', function () {
     // Without the restore, focus falls to <body> on close and a keyboard user resumes tabbing from
     // the top of the page — having lost the control they just used.
     test('closing the dialog returns focus to the control that opened it', async function ({ page }) {
-        await page.goto('/projects/' + SEEDED.projectId)
+        await page.goto('/projects/' + PROJECT_ID)
         const trigger = page.getByRole('button', { name: 'Mute finding' }).first()
         await trigger.click()
         await page.keyboard.press('Escape')
