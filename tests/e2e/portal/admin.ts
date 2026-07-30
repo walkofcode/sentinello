@@ -58,6 +58,10 @@ export async function resetDb(): Promise<Counts> {
     return await run(['reset']) as Counts
 }
 
+export async function findingAges(): Promise<Record<string, number>> {
+    return await run(['finding-ages']) as Record<string, number>
+}
+
 export async function insertRunningRequest(projectId: string): Promise<string> {
     const out = await run(['insert-running-request', projectId]) as { id: string }
     return out.id

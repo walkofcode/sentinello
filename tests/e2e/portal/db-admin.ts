@@ -189,6 +189,21 @@ export function insertRunningRequest(projectIdValue: string): string {
     }
 }
 
+// first_detected_at per package — how long an operator has been exposed, and the number a rescan must
+// not disturb. Read from the database rather than the rendered page because the portal shows it as a
+// relative string ("3 days ago") that is identical either side of a bug which resets it to now.
+export function findingAges(): Record<string, number> {
+    const { sqlite } = open()
+    try {
+        const rows = sqlite
+            .prepare('select package_name, first_detected_at from findings order by package_name')
+            .all() as { package_name: string; first_detected_at: number }[]
+        return Object.fromEntries(rows.map(function toEntry(r) { return [r.package_name, r.first_detected_at] }))
+    } finally {
+        sqlite.close()
+    }
+}
+
 export function deleteRequest(id: string): void {
     const { sqlite } = open()
     try {

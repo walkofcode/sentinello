@@ -1,4 +1,12 @@
-import { awaitBaseline, awaitQueueIdle, deleteRequest, insertRunningRequest, reset, state } from './db-admin'
+import {
+    awaitBaseline,
+    awaitQueueIdle,
+    deleteRequest,
+    findingAges,
+    insertRunningRequest,
+    reset,
+    state
+} from './db-admin'
 
 // argv-dispatched entry point for db-admin, run under tsx by admin.ts. Everything it prints on stdout
 // is JSON, so the caller can parse one line and nothing else needs a protocol.
@@ -22,6 +30,10 @@ async function main(): Promise<void> {
     }
     if (sub === 'reset') {
         console.log(JSON.stringify(await reset()))
+        return
+    }
+    if (sub === 'finding-ages') {
+        console.log(JSON.stringify(findingAges()))
         return
     }
     if (sub === 'insert-running-request') {
