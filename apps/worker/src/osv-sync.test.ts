@@ -339,6 +339,20 @@ describe('incrementalSyncOsv', function () {
         expect(meta<string>(OSV_META_KEYS.modifiedIdsEtag)).toBe('etag-1')
     })
 
+    // The other half of that write, and the reason it is guarded at all: fetchOsvChangedIds types etag
+    // as `string | null` because a server is not obliged to send one. Writing it unconditionally would
+    // replace a good cached etag with null, and every later sync would fall back from a conditional
+    // request to a full manifest download — the exact cost this etag exists to avoid. Nothing would
+    // error, the sync would just quietly get more expensive forever, which is why it needs a test
+    // rather than a reviewer noticing.
+    it('keeps the stored etag when the manifest carries none', async function () {
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.modifiedIdsEtag, ECO), 'etag-stored')
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: [], newestIso: null, etag: null })
+        const result = await incrementalSyncOsv(db, ECO)
+        expect(result).toMatchObject({ status: 'ok', message: 'no changes' })
+        expect(meta<string>(OSV_META_KEYS.modifiedIdsEtag)).toBe('etag-stored')
+    })
+
     it('applies each changed advisory and advances the cursor', async function () {
         feeds.fetchOsvChangedIds.mockResolvedValue({
             status: 'ok',

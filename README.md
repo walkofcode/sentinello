@@ -662,7 +662,7 @@ source files it currently covers:
 
 | Statements | Branches | Functions | Lines |
 |-----------:|---------:|----------:|------:|
-| 99.45%     | 97.55%   | 100%      | 99.85% |
+| 99.45%     | 97.57%   | 100%      | 99.85% |
 
 Those are floors, not aspirations. `vitest.config.ts` holds a **ratchet** — a global
 threshold plus a per-path floor for every meaningful module, each sitting just under what
@@ -675,9 +675,11 @@ with no test fails the build rather than quietly lowering an average.
 persistence core — `packages/*`, the CLI, the worker, and `apps/web/lib`. It does **not**
 include `apps/homepage`, the portal's route handlers and pages under `apps/web/app`, or the
 React components under `apps/web/components` (the coverage glob matches `.ts`, not `.tsx`).
-Those are exercised by the Playwright end-to-end suite instead, which asserts behaviour but
-is not part of this ratchet — so the 100% function floor above is a statement about the
-unit-tested core, not about every file in the repository.
+Those are **partially** covered by the Playwright suite, which is not part of this ratchet: it
+starts the portal only — never `apps/homepage` — and its twelve tests drive the dashboard and
+project pages. The MCP, health, version and login routes, and most components, are not
+exercised by it. So the 100% function floor above is a statement about the unit-tested core,
+and the surface outside it has real gaps rather than coverage by another name.
 
 The remaining branch residue is mostly defensive arms that no test can reach through the
 public API — `noUncheckedIndexedAccess` fallbacks and error paths behind collaborators that

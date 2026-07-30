@@ -80,8 +80,8 @@ export default defineConfig({
             // the denominator at once, which is a coverage project, not a config edit. Until then the
             // honest phrasing is "the unit-tested surface", and README.md now says exactly that.
             //
-            // Lines and statements are effectively done too. What is left is branch residue — 99 arms
-            // of 4044, so 97.55%.
+            // Lines and statements are effectively done too. What is left is branch residue — 98 arms
+            // of 4044, so 97.57%.
             //
             // CORRECTION, WAVE 12 — kind 2 below was declared empty in wave 11 and was not. Six more
             // reachable arms were found by re-reading the residue rather than trusting that sentence,
@@ -92,10 +92,23 @@ export default defineConfig({
             // more), cache/meta.ts:91 (`sources.osv ?? {}`, whose sibling on the very NEXT line was
             // already covered) and render.ts:12 (a truncated `error:` signature). Four of those six
             // sat next to an already-covered twin, which is the cheapest tell there is and was missed
-            // anyway. So: 100% on branches is still not available by writing tests, but that claim has
-            // now been overstated twice, and the second time it was this file saying it. Treat "the
-            // rest are unreachable" as a HYPOTHESIS carrying the shapes below as evidence, not as a
-            // finding — the arms are enumerated by shape precisely so the next reader can falsify it.
+            // anyway.
+            //
+            // AND THEN A SEVENTH, found in review of the very commit that wrote the paragraph above:
+            // osv-sync.ts:159, the false arm of `if (changed.etag)`. fetchOsvChangedIds types etag as
+            // `string | null` because a server need not send one, so the guard's whole purpose is a
+            // case the tests never produced — every existing case passed a string. Covered now, with
+            // the assertion that matters: a stored etag SURVIVES a response carrying none. Writing
+            // null over it would silently downgrade every later sync from a conditional request to a
+            // full manifest download, erroring nowhere.
+            //
+            // So: 100% on branches is still not available by writing tests, but that claim has now
+            // been overstated three times — wave 11 said it, wave 12 said it while missing six, and
+            // wave 12's correction said it while missing a seventh. The pattern is not that the
+            // reasoning is sloppy; it is that "I cannot see how to reach this" and "this cannot be
+            // reached" are different statements, and only the second one belongs in this file. Treat
+            // "the rest are unreachable" as a HYPOTHESIS carrying the shapes below as evidence, not as
+            // a finding — the arms are enumerated by shape precisely so the next reader can falsify it.
             // Reaching a literal 100% would mean suppressing arms with `/* v8 ignore */` or deleting
             // the guards, and the shapes below are the argument against the first of those: an ignore
             // comment blinds a whole LINE, and shape (e) documents lines where one expression is
@@ -212,10 +225,12 @@ export default defineConfig({
             //        below — `match[1] ?? ''` on a regex that fills group 1 whenever it matches at all.
             //
             //  2. Genuinely reachable arms that cost more setup than they have been worth so far.
-            //     EMPTY AGAIN AS OF WAVE 12 — and read the correction above before trusting that, because
-            //     wave 11 said the same thing and six arms were reachable. Wave 12's six are covered;
-            //     what stops this being a third false claim is not confidence, it is that anyone can
-            //     re-run the lcov recipe below and check. Do that rather than believing this line.
+            //     Believed empty. That sentence has now been wrong three times running (see the
+            //     correction above), so it is recorded here as a claim awaiting falsification rather
+            //     than a result. The lcov recipe below takes about a minute; run it and read a call
+            //     site before believing this line. If you find one, it belongs in shape (a)-(g) with
+            //     the call site quoted, or covered — not left unclassified, which is where all seven
+            //     of the misses came from.
             //     Wave 11's own dispositions, kept because each records a call site someone verified:
             //     osv-client.ts:25/36 covered (that module had no test file at all — both resolution
             //     fallbacks and the first-boot mkdir were cold); cache/store.ts split into a covered
@@ -364,7 +379,7 @@ export default defineConfig({
                 // Their persistence halves, where an ordering mistake corrupts the operator's cache:
                 // invalidate only once the download is live, purge only after the full stream succeeds,
                 // advance the cursor/sha only on success.
-                'apps/worker/src/osv-sync.ts': { statements: 99, branches: 97, functions: 99, lines: 99 },
+                'apps/worker/src/osv-sync.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'apps/worker/src/gemnasium-sync.ts': { statements: 99, branches: 94, functions: 99, lines: 99 },
                 // The dispatch decision: every filter that decides whether an operator gets paged.
                 'packages/db/src/queries/notification-deliveries.ts': { statements: 99, branches: 91, functions: 99, lines: 99 },
