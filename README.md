@@ -653,11 +653,12 @@ pnpm test:e2e          # Playwright against a built portal
 ```
 
 The suite is **hermetic**: it never touches the network and never shells out to a package
-manager, so it produces the same result on a laptop and in CI. It currently covers:
+manager, so it produces the same result on a laptop and in CI. Across the 130 instrumented
+source files it currently covers:
 
 | Statements | Branches | Functions | Lines |
 |-----------:|---------:|----------:|------:|
-| 99.1%      | 96.6%    | 100%      | 99.7% |
+| 99.45%     | 97.55%   | 100%      | 99.85% |
 
 Those are floors, not aspirations. `vitest.config.ts` holds a **ratchet** — a global
 threshold plus a per-path floor for every meaningful module, each sitting just under what
@@ -666,10 +667,20 @@ on every pull request, which is what makes the badge above worth believing: cove
 up, and CI will not let it come back down. Functions are pinned at 100%, so a new function
 with no test fails the build rather than quietly lowering an average.
 
+**What that covers, and what it does not.** The instrumented surface is the scanning and
+persistence core — `packages/*`, the CLI, the worker, and `apps/web/lib`. It does **not**
+include `apps/homepage`, the portal's route handlers and pages under `apps/web/app`, or the
+React components under `apps/web/components` (the coverage glob matches `.ts`, not `.tsx`).
+Those are exercised by the Playwright end-to-end suite instead, which asserts behaviour but
+is not part of this ratchet — so the 100% function floor above is a statement about the
+unit-tested core, not about every file in the repository.
+
 The remaining branch residue is mostly defensive arms that no test can reach through the
 public API — `noUncheckedIndexedAccess` fallbacks and error paths behind collaborators that
 only ever throw `Error`. They are enumerated, with line references, in the comment above the
-thresholds, so nobody has to rediscover which ones are worth chasing.
+thresholds, so nobody has to rediscover which ones are worth chasing. That comment also
+records where the enumeration has previously been *wrong*, which is the part worth reading
+before trusting it.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md#tests) for where tests live and the two rules that
 keep the suite hermetic.
