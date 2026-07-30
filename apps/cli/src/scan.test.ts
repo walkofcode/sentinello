@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { DiscoveredProject, OsvAdvisory, RawFinding, ScanContext, ScanResult, ScannerPlugin } from '@sentinello/scanners'
+import type { DiscoveredProject, GemnasiumAdvisory, OsvAdvisory, RawFinding, ScanContext, ScanResult, ScannerPlugin } from '@sentinello/scanners'
 import type { LoadedCache } from './cache/lookup'
 import { buildScanners, collectPackageNames, resolveProjects, scanProject, type ResolvedProject, type ScanSetup } from './scan'
 
@@ -139,6 +139,21 @@ function osvAdvisory(overrides: Partial<OsvAdvisory> = {}): OsvAdvisory {
     }
 }
 
+// gemnasium carries no malware flag and uses ranges rather than enumerated versions, so its rows are not
+// interchangeable with the OSV fixture above even though both feed the same matching engine.
+function gemnasiumAdvisory(overrides: Partial<GemnasiumAdvisory> = {}): GemnasiumAdvisory {
+    return {
+        advisoryId: 'GMS-2024-1',
+        aliases: [],
+        ranges: [{ introduced: '0', fixed: '4.17.21' }],
+        versions: [],
+        severity: 'high',
+        summary: 'Prototype pollution',
+        url: null,
+        ...overrides
+    }
+}
+
 async function makeProject(relPath: string, extra: Record<string, string> = {}): Promise<string> {
     const target = join(dir, relPath)
     await mkdir(target, { recursive: true })
@@ -265,13 +280,44 @@ describe('buildScanners', function () {
         expect(scanned.findings.map(function id(f) { return f.advisoryId })).toContain('GHSA-aaaa')
     })
 
-    // The cache was loaded for one ecosystem; a scanner asking about another must get nothing rather
-    // than npm rows mislabelled.
-    it('serves nothing when the scanner asks about a different ecosystem', async function () {
+    // A preloaded cache holding nothing for this project must read as "scanned, clean" — no findings and
+    // no error. NOT a test of pick()'s cross-ecosystem guard: matchPackages skips an ecosystem via
+    // isEnabled before it ever calls lookup, and the CLI's isEnabled is the same equality pick re-checks,
+    // so that guard is unreachable from here. See the shape (c) inventory in vitest.config.ts.
+    it('serves no findings from an empty preloaded cache', async function () {
         await makeProject('web')
         const scanners = buildScanners(setup({ includeNpmAudit: false, sources: ['osv'], ecosystem: 'npm' }), emptyCache())
-        const scanned = await first(scanners, 'scanner').scan(join(dir, 'web'), { timeoutMs: 1000 })
+        const graphs = await resolveProjects([project()])
+        const scanned = await first(scanners, 'scanner').scan(join(dir, 'web'), { timeoutMs: 1000, resolvedGraph: first(graphs, 'resolved project').merged ?? undefined })
+        expect(scanned.status).toBe('ok')
         expect(scanned.findings).toEqual([])
+    })
+
+    // The gemnasium wiring, which was built by every test above but never driven. The CLI and the worker
+    // must bind the same three closures to the same cache semantics, because a CLI run and a portal scan
+    // of one project are supposed to produce identical findings.
+    it('serves matching advisories out of the preloaded gemnasium cache', async function () {
+        await makeProject('web')
+        const cache: LoadedCache = {
+            osv: new Map(),
+            gemnasium: new Map([['lodash', [gemnasiumAdvisory()]]])
+        }
+        const scanners = buildScanners(setup({ includeNpmAudit: false, sources: ['gemnasium'] }), cache)
+        const graphs = await resolveProjects([project()])
+        const scanned = await first(scanners, 'scanner').scan(join(dir, 'web'), { timeoutMs: 1000, resolvedGraph: first(graphs, 'resolved project').merged ?? undefined })
+        expect(scanned.status).toBe('ok')
+        expect(scanned.findings.map(function id(f) { return f.advisoryId })).toContain('GMS-2024-1')
+    })
+
+    // gemnasium's seed flag is global rather than per-ecosystem (one download covers every ecosystem), so
+    // an unseeded cache has to report unauditable rather than zero findings — otherwise a cache that was
+    // never downloaded reads exactly like a clean project.
+    it('reports gemnasium as unseeded when the cache metadata says so', async function () {
+        await makeProject('web')
+        const scanners = buildScanners(setup({ includeNpmAudit: false, sources: ['gemnasium'], seeded: { osv: false, gemnasium: false } }), emptyCache())
+        const scanned = await first(scanners, 'scanner').scan(join(dir, 'web'), { timeoutMs: 1000 })
+        expect(scanned.status).toBe('unauditable')
+        expect(scanned.reasonCode).toBe('gemnasium_db_not_seeded')
     })
 })
 

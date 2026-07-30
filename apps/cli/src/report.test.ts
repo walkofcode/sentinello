@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { defaultOutputFilename, renderJson, shouldFail, summarize } from './report'
+import { DEFAULT_EXPORT_PROMPT } from '@sentinello/core'
+import { defaultOutputFilename, renderJson, resolvePrompt, shouldFail, summarize } from './report'
 import { parseArgs } from './options'
 import type { CliOptions } from './options'
 import type { ProjectScanResult, ScannerOutcome } from './scan'
@@ -238,6 +239,26 @@ describe('renderJson', function () {
         const first = renderJson(summarize(results, options), options, GENERATED_AT)
         const second = renderJson(summarize(results, options), options, GENERATED_AT)
         expect(first).toBe(second)
+    })
+})
+
+// stdout carries the advisory document a user may pipe straight into an agent, so "findings alone"
+// has to mean exactly that. Two spellings clear the flag — `--no-prompt` and `--prompt none` — and a
+// regression in either one prepends several hundred words of agent instructions to a document the
+// caller asked to be data.
+describe('resolvePrompt', function () {
+    it('returns nothing for --no-prompt', async function () {
+        expect(await resolvePrompt(optionsWith(['--no-prompt']))).toBe('')
+    })
+
+    it('returns nothing for --prompt none', async function () {
+        expect(await resolvePrompt(optionsWith(['--prompt', 'none']))).toBe('')
+    })
+
+    // The contrast that makes the two assertions above mean something: absent either flag, the
+    // built-in prompt IS included, so an empty string is a decision rather than the default.
+    it('returns the built-in prompt by default', async function () {
+        expect(await resolvePrompt(optionsWith([]))).toBe(DEFAULT_EXPORT_PROMPT)
     })
 })
 

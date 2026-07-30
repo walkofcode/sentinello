@@ -267,19 +267,40 @@ describe('backpressure and streaming failures', function () {
         expect(found.get('pkg-19999')).toEqual([{ packageName: 'pkg-19999', advisoryId: 'GHSA-19999', severity: 'high' }])
     })
 
-    // A downstream failure rejects the pipeline. It is captured rather than left to become an
-    // unhandled rejection, and re-thrown from the next write — so the caller sees the real error at
-    // a point it can act on, instead of the process dying.
-    it('surfaces a pipeline failure from the next write rather than crashing', async function () {
+    // A downstream failure rejects the pipeline, which is captured rather than left to become an
+    // unhandled rejection. This pins the weaker half of that contract: the write/commit sequence as a
+    // whole rejects rather than resolving, and the process survives. commit() awaiting the pipeline is
+    // enough to satisfy it, so it does NOT prove the re-throw-from-write below.
+    it('surfaces a pipeline failure from the sequence rather than crashing', async function () {
         const writer = createRowWriter(join(dir, 'no', 'such', 'dir', 'out.ndjson.gz'))
 
-        // The first write may or may not have observed the failure yet; the sequence as a whole must
-        // reject rather than resolve, and must not leave an unhandled rejection behind.
         await expect((async function attempt() {
             await writer.write([row('lodash', 'GHSA-1')])
             await writer.write([row('axios', 'GHSA-2')])
             await writer.commit()
         })()).rejects.toThrow()
+    })
+
+    // And the stronger half: once the pipeline has failed, a WRITE re-throws the captured error — the
+    // caller learns at the next row it pushes, not only when it finally commits. It has to be the real
+    // error too, because "ENOENT on the cache directory" is actionable and a generic stream failure is
+    // not. The failure lands asynchronously, so the first write may still succeed; retry until a write
+    // throws rather than sleeping a fixed interval and hoping.
+    it('re-throws the captured pipeline failure from the next write', async function () {
+        const writer = createRowWriter(join(dir, 'no', 'such', 'dir', 'out.ndjson.gz'))
+
+        let message: string | null = null
+        for (let attempt = 0; attempt < 50 && message === null; attempt++) {
+            try {
+                await writer.write([row('lodash', 'GHSA-' + attempt)])
+            } catch (err) {
+                message = err instanceof Error ? err.message : String(err)
+            }
+            if (message === null) await new Promise(function tick(resolve) { setTimeout(resolve, 10) })
+        }
+
+        expect(message).toMatch(/ENOENT/)
+        await writer.abort()
     })
 
     it('writes nothing for an empty batch', async function () {
