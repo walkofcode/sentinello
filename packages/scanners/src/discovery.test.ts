@@ -460,4 +460,18 @@ describe('discoverProjectsInTree — unreadable paths', function () {
         const root = await makeTree({ 'app/package.json': PKG, 'app/.nvmrc': '   \n' })
         expect(discoverProjectsInTree({ rootPath: root })[0]?.nvmrcVersion).toBeNull()
     })
+
+    // In a worktree or submodule, `.git` is a FILE holding `gitdir: <path>` rather than a directory. An
+    // unreadable one has to read as "no branch" — the same posture as the cases above. It cannot be
+    // treated as a directory either, because the walk would then hand a bogus gitDir to the HEAD read.
+    it('reads no branch from an unreadable .git pointer file', async function () {
+        const { chmod } = await import('node:fs/promises')
+        const root = await makeTree({ 'app/package.json': PKG, '.git': 'gitdir: /elsewhere/.git/worktrees/app\n' })
+        await chmod(join(root, '.git'), 0o000)
+        try {
+            expect(readGitBranch(join(root, 'app'), root)).toBeNull()
+        } finally {
+            await chmod(join(root, '.git'), 0o644)
+        }
+    })
 })

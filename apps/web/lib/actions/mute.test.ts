@@ -415,6 +415,27 @@ describe('muteLibraryEverywhereAction', function () {
         expect(bustedPaths()).toContain('/projects/project-2')
     })
 
+    // A wholesale project mute silences the library in THAT project only. Unlike muteLibraryAction,
+    // this action spans projects, so the project check has to be evaluated per row against that row's
+    // own projectId — comparing against anything shared would let one wholesale-muted project
+    // suppress the mutes for every other project in the same submission.
+    it('skips only the row whose project is muted wholesale', async function () {
+        seedMute('mute-project', { scope: 'project', projectId: 'project-1', scanner: null, ecosystem: null, advisoryId: null, packageName: null })
+
+        const result = await muteLibraryEverywhereAction({
+            ...base,
+            rows: [
+                { projectId: 'project-1', source: 'npm-audit', advisoryId: 'CVE-2024-1' },
+                { projectId: 'project-2', source: 'npm-audit', advisoryId: 'CVE-2024-1' }
+            ]
+        })
+
+        expect(result).toEqual({ created: 1, skipped: 1 })
+        expect(activeMutes().filter(function created(m) { return m.scope === 'finding' }).map(function projectOf(m) {
+            return m.projectId
+        })).toEqual(['project-2'])
+    })
+
     // The library page is busted from the row list, but the project pages come from the set of
     // projects actually mutated — a fully-skipped project keeps its cached page.
     it('does not bust the project page of a row it skipped', async function () {
