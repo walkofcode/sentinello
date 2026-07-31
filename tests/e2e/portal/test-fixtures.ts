@@ -71,3 +71,14 @@ export function visible(page: Page, text: string | RegExp): Locator {
 export function visibleRole(page: Page, role: Parameters<Page['getByRole']>[0], name: string | RegExp): Locator {
     return page.getByRole(role, { name }).filter({ visible: true }).first()
 }
+
+// The rejected-write message, wherever a settings form renders one.
+//
+// Never write page.getByRole('alert') directly. Next.js's App Router injects a <next-route-announcer>
+// element into every page for screen-reader route changes, it computes as role="alert", and it is
+// permanently empty — so a bare getByRole('alert') matches it on a page with no error at all, and
+// matches it ALONGSIDE the real one on a page that has one. Filtering on non-whitespace content is
+// what separates the form's message from the framework's furniture.
+export function errorAlert(page: Page): Locator {
+    return page.getByRole('alert').filter({ hasText: /\S/ }).first()
+}

@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { getConfigValue, listLibraryUsage, setConfigValue } from '@sentinello/db'
 import type { DepTypeFilter, Severity } from '@sentinello/core'
 import { getDb } from '@/lib/db'
+import { run, type ActionResult } from '@/lib/actions/action-result'
 import { buildProjectAdvisoryExport } from '@/lib/project-advisory-export'
 import {
     buildAdvisoryMarkdown,
@@ -74,11 +75,13 @@ export async function exportLibraryAdvisoryMarkdownAction(
 
 const promptSchema = z.string().trim().min(1, 'prompt cannot be empty').max(20000)
 
-export async function updateExportPromptAction(prompt: string): Promise<void> {
-    const parsed = promptSchema.parse(prompt)
-    const db = getDb()
-    setConfigValue(db, 'markdownExportPrompt', parsed)
-    revalidatePath('/settings/export')
+export async function updateExportPromptAction(prompt: string): Promise<ActionResult> {
+    return await run(function body() {
+        const parsed = promptSchema.parse(prompt)
+        const db = getDb()
+        setConfigValue(db, 'markdownExportPrompt', parsed)
+        revalidatePath('/settings/export')
+    })
 }
 
 // "Reset to default" — wipe the override by writing null. The resolver in export-markdown.ts treats

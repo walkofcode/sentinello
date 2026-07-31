@@ -347,7 +347,6 @@
                 "name": "Name"
             },
             "sortHelp": "Applied as the starting sort order for project and library tables.",
-            "saved": "Saved.",
             "savedHint": "Changes apply immediately to every page that reads defaults.",
             "saveButton": "Save defaults"
         },
@@ -390,6 +389,8 @@
             "generate": "Generate token",
             "rotate": "Rotate token",
             "clear": "Clear token",
+            "clearConfirmTitle": "Clear the MCP token?",
+            "clearConfirmBody": "The /api/mcp endpoint will stop responding and every configured client will lose access. The token cannot be recovered — generate a new one to turn the endpoint back on.",
             "connectTitle": "Connect a client",
             "connectHintRevealed": "Snippets below include your new token. Copy the one for your client.",
             "connectHintPlaceholder": "Replace {placeholder} with your token (rotate above to reveal a fresh one).",

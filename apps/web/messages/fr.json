@@ -347,7 +347,6 @@
                 "name": "Nom"
             },
             "sortHelp": "Appliqué comme ordre de tri initial pour les tableaux de projets et de bibliothèques.",
-            "saved": "Enregistré.",
             "savedHint": "Les modifications s'appliquent immédiatement à chaque page qui lit les valeurs par défaut.",
             "saveButton": "Enregistrer les valeurs par défaut"
         },
@@ -390,6 +389,8 @@
             "generate": "Générer un jeton",
             "rotate": "Renouveler le jeton",
             "clear": "Supprimer le jeton",
+            "clearConfirmTitle": "Supprimer le jeton MCP ?",
+            "clearConfirmBody": "Le point de terminaison /api/mcp cessera de répondre et tous les clients configurés perdront l’accès. Le jeton est irrécupérable — générez-en un nouveau pour réactiver le point de terminaison.",
             "connectTitle": "Connecter un client",
             "connectHintRevealed": "Les extraits ci-dessous incluent votre nouveau jeton. Copiez celui de votre client.",
             "connectHintPlaceholder": "Remplacez {placeholder} par votre jeton (renouvelez ci-dessus pour en révéler un nouveau).",

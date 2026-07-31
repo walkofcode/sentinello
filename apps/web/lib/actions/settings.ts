@@ -39,6 +39,7 @@ import type {
 import { getEcosystem, sourceEnabledKey, sourceSupportsEcosystem, type EcosystemId, type SourceId } from '@sentinello/core'
 import { senderFor } from '@sentinello/notifications'
 import { getDb } from '@/lib/db'
+import { run, UserFacingError, type ActionResult } from '@/lib/actions/action-result'
 
 const SEVERITY_VALUES = ['critical', 'high', 'moderate', 'low', 'info'] as const
 
@@ -155,14 +156,16 @@ const scheduleSchema = z.object({
     timezone: z.string().min(1).refine(isValidTimezone, { message: 'invalid timezone' }).optional()
 })
 
-export async function updateScheduleAction(intervalHours: number, startHour = 0, timezone?: string): Promise<void> {
-    const parsed = scheduleSchema.parse({ intervalHours, startHour, timezone })
-    const db = getDb()
-    setConfigValue(db, 'schedule', parsed)
-    // Ping the worker via the scan-request-poller mailbox so the running node-cron task is rebuilt
-    // with the new expression/timezone within ~5s instead of waiting for the next process restart.
-    enqueueWorkerSignal(db, 'reload-schedule', Date.now())
-    revalidatePath('/settings/schedule')
+export async function updateScheduleAction(intervalHours: number, startHour = 0, timezone?: string): Promise<ActionResult> {
+    return await run(function body() {
+        const parsed = scheduleSchema.parse({ intervalHours, startHour, timezone })
+        const db = getDb()
+        setConfigValue(db, 'schedule', parsed)
+        // Ping the worker via the scan-request-poller mailbox so the running node-cron task is rebuilt
+        // with the new expression/timezone within ~5s instead of waiting for the next process restart.
+        enqueueWorkerSignal(db, 'reload-schedule', Date.now())
+        revalidatePath('/settings/schedule')
+    })
 }
 
 // --- Notifications ---
@@ -378,21 +381,23 @@ const advancedSchema = z.object({
 
 export type AdvancedSettingsInput = z.infer<typeof advancedSchema>
 
-export async function updateAdvancedSettingsAction(input: AdvancedSettingsInput): Promise<void> {
-    const parsed = advancedSchema.parse(input)
-    const db = getDb()
-    setConfigValue(db, 'parallelism', parsed.parallelism)
-    setConfigValue(db, 'watcherEnabled', parsed.watcherEnabled)
-    setConfigValue(db, 'watcherRoots', parsed.watcherRoots)
-    setConfigValue(db, 'globalIgnore', parsed.globalIgnore)
-    setConfigValue(db, 'dryRunNotify', parsed.dryRunNotify)
-    if (parsed.portalBaseUrl) {
-        setConfigValue(db, 'portalBaseUrl', parsed.portalBaseUrl)
-    }
-    if (isLocale(parsed.notificationLocale)) {
-        setConfigValue(db, 'notificationLocale', parsed.notificationLocale)
-    }
-    revalidatePath('/settings/advanced')
+export async function updateAdvancedSettingsAction(input: AdvancedSettingsInput): Promise<ActionResult> {
+    return await run(function body() {
+        const parsed = advancedSchema.parse(input)
+        const db = getDb()
+        setConfigValue(db, 'parallelism', parsed.parallelism)
+        setConfigValue(db, 'watcherEnabled', parsed.watcherEnabled)
+        setConfigValue(db, 'watcherRoots', parsed.watcherRoots)
+        setConfigValue(db, 'globalIgnore', parsed.globalIgnore)
+        setConfigValue(db, 'dryRunNotify', parsed.dryRunNotify)
+        if (parsed.portalBaseUrl) {
+            setConfigValue(db, 'portalBaseUrl', parsed.portalBaseUrl)
+        }
+        if (isLocale(parsed.notificationLocale)) {
+            setConfigValue(db, 'notificationLocale', parsed.notificationLocale)
+        }
+        revalidatePath('/settings/advanced')
+    })
 }
 
 // --- Sources ---
@@ -403,35 +408,41 @@ export async function updateAdvancedSettingsAction(input: AdvancedSettingsInput)
 // "always a source on" invariant rejects any write that would leave zero active cells anywhere —
 // Sentinello must never go fully blind. The 'reload-sources' signal makes the running worker start/stop
 // the matching runtime within ~5s.
-export async function updateSourceCellAction(input: { source: string; ecosystem: string; enabled: boolean }): Promise<void> {
-    const parsed = z.object({
-        source: z.string().min(1),
-        ecosystem: z.string().min(1),
-        enabled: z.boolean()
-    }).parse(input)
-    const source = parsed.source as SourceId
-    const ecosystem = parsed.ecosystem as EcosystemId
-    if (!getEcosystem(ecosystem)) {
-        throw new Error('Unknown ecosystem: ' + parsed.ecosystem)
-    }
-    if (!sourceSupportsEcosystem(source, ecosystem)) {
-        throw new Error('Source ' + parsed.source + ' does not answer for ecosystem ' + parsed.ecosystem)
-    }
-    const db = getDb()
-    // Enforce the invariant before writing: disabling the last active cell is rejected. getActiveSourceCells
-    // reflects the persisted state with per-cell defaults + legacy fallbacks, so the count is accurate even
-    // for cells that have never been written.
-    if (!parsed.enabled) {
-        const remaining = getActiveSourceCells(db).filter(function notThisCell(cell) {
-            return !(cell.source === source && cell.ecosystem === ecosystem)
-        })
-        if (remaining.length === 0) {
-            throw new Error('At least one vulnerability source must stay enabled — Sentinello cannot run with zero sources.')
+export async function updateSourceCellAction(input: { source: string; ecosystem: string; enabled: boolean }): Promise<ActionResult> {
+    return await run(function body() {
+        const parsed = z.object({
+            source: z.string().min(1),
+            ecosystem: z.string().min(1),
+            enabled: z.boolean()
+        }).parse(input)
+        const source = parsed.source as SourceId
+        const ecosystem = parsed.ecosystem as EcosystemId
+        // Neither of these is reachable from the UI, which builds its cells from the ECOSYSTEMS ×
+        // SOURCES matrix. They stay thrown so they surface as bugs rather than as advice.
+        if (!getEcosystem(ecosystem)) {
+            throw new Error('Unknown ecosystem: ' + parsed.ecosystem)
         }
-    }
-    setConfigValue(db, sourceEnabledKey(source, ecosystem), parsed.enabled)
-    enqueueWorkerSignal(db, 'reload-sources', Date.now())
-    revalidatePath('/settings/sources')
+        if (!sourceSupportsEcosystem(source, ecosystem)) {
+            throw new Error('Source ' + parsed.source + ' does not answer for ecosystem ' + parsed.ecosystem)
+        }
+        const db = getDb()
+        // Enforce the invariant before writing: disabling the last active cell is rejected. getActiveSourceCells
+        // reflects the persisted state with per-cell defaults + legacy fallbacks, so the count is accurate even
+        // for cells that have never been written.
+        if (!parsed.enabled) {
+            const remaining = getActiveSourceCells(db).filter(function notThisCell(cell) {
+                return !(cell.source === source && cell.ecosystem === ecosystem)
+            })
+            if (remaining.length === 0) {
+                // UserFacingError, not Error: this is the one message on the page an operator MUST be
+                // able to read. Thrown, it would reach them as Next.js's production redaction notice.
+                throw new UserFacingError('At least one vulnerability source must stay enabled — Sentinello cannot run with zero sources.')
+            }
+        }
+        setConfigValue(db, sourceEnabledKey(source, ecosystem), parsed.enabled)
+        enqueueWorkerSignal(db, 'reload-sources', Date.now())
+        revalidatePath('/settings/sources')
+    })
 }
 
 // "Refresh now" — asks the worker to re-sync a cache-backed source (OSV or gemnasium) immediately rather
@@ -454,10 +465,12 @@ const filterDefaultsSchema = z.object({
 
 export type FilterDefaultsInput = z.infer<typeof filterDefaultsSchema>
 
-export async function updateFilterDefaultsAction(input: FilterDefaultsInput): Promise<void> {
-    const parsed = filterDefaultsSchema.parse(input)
-    const db = getDb()
-    setConfigValue(db, 'filterDefaults', parsed)
-    revalidatePath('/settings/defaults')
-    revalidatePath('/')
+export async function updateFilterDefaultsAction(input: FilterDefaultsInput): Promise<ActionResult> {
+    return await run(function body() {
+        const parsed = filterDefaultsSchema.parse(input)
+        const db = getDb()
+        setConfigValue(db, 'filterDefaults', parsed)
+        revalidatePath('/settings/defaults')
+        revalidatePath('/')
+    })
 }

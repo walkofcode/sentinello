@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/input'
 import { Dropdown } from '@/components/ui/dropdown'
+import { SaveStatus } from '@/components/settings/save-status'
 import { updateScheduleAction } from '@/lib/actions/settings'
 
 const INTERVALS = [1, 3, 6, 12, 24] as const
@@ -28,16 +29,26 @@ type Props = {
 
 export function ScheduleForm({ initial }: Props) {
     const t = useTranslations('Settings')
-    const tc = useTranslations('Common')
     const [intervalHours, setIntervalHours] = useState<IntervalHours>(initial.intervalHours)
     const [startHour, setStartHour] = useState<number>(initial.startHour)
     const [timezone, setTimezone] = useState<string>(initial.timezone)
     const [pending, startTransition] = useTransition()
     const [savedAt, setSavedAt] = useState<number | null>(null)
+    const [error, setError] = useState<string | null>(null)
     const zones = timezoneOptions(initial.timezone)
     function persist(hours: IntervalHours, anchor: number, tz: string) {
+        setError(null)
         startTransition(async function run() {
-            await updateScheduleAction(hours, anchor, tz)
+            const result = await updateScheduleAction(hours, anchor, tz)
+            if (!result.ok) {
+                // Put the controls back on the persisted values. Leaving them showing a selection the
+                // server refused is how a schedule silently reads as saved when it is not.
+                setIntervalHours(initial.intervalHours)
+                setStartHour(initial.startHour)
+                setTimezone(initial.timezone)
+                setError(result.errorText)
+                return
+            }
             setSavedAt(Date.now())
         })
     }
@@ -121,9 +132,7 @@ export function ScheduleForm({ initial }: Props) {
                     </p>
                 </div>
             ) : null}
-            <div className="h-4 text-xs text-muted-foreground" aria-live="polite">
-                {pending ? tc('saving') : (savedAt ? tc('saved') : '')}
-            </div>
+            <SaveStatus pending={pending} saved={savedAt !== null} error={error} />
         </div>
     )
 }

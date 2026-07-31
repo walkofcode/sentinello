@@ -48,6 +48,7 @@ import {
     upsertNotificationTargetAction,
     upsertRootAction
 } from './settings'
+import type { ActionResult } from './action-result'
 
 vi.mock('next/cache', function stubNextCache() {
     return { revalidatePath: vi.fn() }
@@ -64,6 +65,17 @@ let handle: PortalTestDb
 
 function bustedPaths(): string[] {
     return vi.mocked(revalidatePath).mock.calls.map(function first(call) { return call[0] })
+}
+
+// Validation failures arrive as { ok: false, errorText }, not as a throw. That is not a style choice:
+// a Server Action that throws has its message replaced by Next.js's production redaction notice
+// before the client sees it, so a message written for the operator has to travel as a return value.
+// See lib/actions/action-result.ts. Returning the text lets each caller assert WHICH rule fired,
+// which .rejects.toThrow() never could.
+async function rejection(promise: Promise<ActionResult>): Promise<string> {
+    const result = await promise
+    expect(result.ok).toBe(false)
+    return result.ok ? '' : result.errorText
 }
 
 function signalKinds(): string[] {
@@ -317,22 +329,22 @@ describe('updateScheduleAction', function () {
     })
 
     it.each([[2], [5], [0], [48]])('rejects an unsupported interval of %i hours', async function (hours) {
-        await expect(updateScheduleAction(hours)).rejects.toThrow()
+        expect(await rejection(updateScheduleAction(hours))).toContain('intervalHours')
         expect(getConfigValue(handle.db, 'schedule')).toBeNull()
     })
 
     it.each([[-1], [24], [1.5]])('rejects an out-of-range startHour of %s', async function (startHour) {
-        await expect(updateScheduleAction(6, startHour)).rejects.toThrow()
+        expect(await rejection(updateScheduleAction(6, startHour))).toContain('startHour')
     })
 
     // The timezone is round-tripped through Intl rather than pattern-matched, so a plausible-looking
     // but non-existent zone is caught here instead of crashing the worker's cron builder.
     it('rejects a timezone Intl does not recognize', async function () {
-        await expect(updateScheduleAction(6, 0, 'Europe/Atlantis')).rejects.toThrow()
+        expect(await rejection(updateScheduleAction(6, 0, 'Europe/Atlantis'))).toContain('invalid timezone')
     })
 
     it('does not signal the worker when validation fails', async function () {
-        await expect(updateScheduleAction(5)).rejects.toThrow()
+        await rejection(updateScheduleAction(5))
 
         expect(signalKinds()).toEqual([])
     })
@@ -718,11 +730,11 @@ describe('updateAdvancedSettingsAction', function () {
     })
 
     it.each([[0], [65], [2.5]])('rejects a parallelism of %s', async function (parallelism) {
-        await expect(updateAdvancedSettingsAction({ ...base, parallelism })).rejects.toThrow()
+        expect(await rejection(updateAdvancedSettingsAction({ ...base, parallelism }))).toContain('parallelism')
     })
 
     it.each([[1], [64]])('accepts a parallelism of %i at the boundary', async function (parallelism) {
-        await expect(updateAdvancedSettingsAction({ ...base, parallelism })).resolves.toBeUndefined()
+        await expect(updateAdvancedSettingsAction({ ...base, parallelism })).resolves.toEqual({ ok: true })
     })
 
     // portalBaseUrl and notificationLocale are written only when meaningfully set. An empty submission
@@ -781,18 +793,19 @@ describe('updateSourceCellAction', function () {
 
     // The "always a source on" invariant. npm-audit/npm is enabled by default and is the only active
     // cell on a fresh install, so turning it off would leave Sentinello fully blind.
+    //
+    // Returned rather than thrown, deliberately: this sentence is the only thing that explains to an
+    // operator why the switch flipped back, and a thrown one never reaches them in a production build.
     it('refuses to disable the last active cell', async function () {
-        await expect(
-            updateSourceCellAction({ source: 'npm-audit', ecosystem: 'npm', enabled: false })
-        ).rejects.toThrow('At least one vulnerability source must stay enabled')
+        expect(
+            await rejection(updateSourceCellAction({ source: 'npm-audit', ecosystem: 'npm', enabled: false }))
+        ).toContain('At least one vulnerability source must stay enabled')
 
         expect(getConfigValue(handle.db, sourceEnabledKey('npm-audit', 'npm'))).toBeNull()
     })
 
     it('does not signal the worker when the invariant rejects the write', async function () {
-        await expect(
-            updateSourceCellAction({ source: 'npm-audit', ecosystem: 'npm', enabled: false })
-        ).rejects.toThrow()
+        await rejection(updateSourceCellAction({ source: 'npm-audit', ecosystem: 'npm', enabled: false }))
 
         expect(signalKinds()).toEqual([])
     })
@@ -812,8 +825,8 @@ describe('updateSourceCellAction', function () {
     })
 
     it('rejects an empty source or ecosystem', async function () {
-        await expect(updateSourceCellAction({ source: '', ecosystem: 'npm', enabled: true })).rejects.toThrow()
-        await expect(updateSourceCellAction({ source: 'osv', ecosystem: '', enabled: true })).rejects.toThrow()
+        expect(await rejection(updateSourceCellAction({ source: '', ecosystem: 'npm', enabled: true }))).toContain('source')
+        expect(await rejection(updateSourceCellAction({ source: 'osv', ecosystem: '', enabled: true }))).toContain('ecosystem')
     })
 
     it('busts the sources settings page', async function () {
@@ -866,15 +879,15 @@ describe('updateFilterDefaultsAction', function () {
     })
 
     it('rejects a severity outside the known set', async function () {
-        await expect(
-            updateFilterDefaultsAction({ depType: 'all', minSeverity: 'urgent' as never, sort: 'name' })
-        ).rejects.toThrow()
+        expect(
+            await rejection(updateFilterDefaultsAction({ depType: 'all', minSeverity: 'urgent' as never, sort: 'name' }))
+        ).toContain('minSeverity')
     })
 
     it('rejects an empty sort key', async function () {
-        await expect(
-            updateFilterDefaultsAction({ depType: 'all', minSeverity: '', sort: '' })
-        ).rejects.toThrow()
+        expect(
+            await rejection(updateFilterDefaultsAction({ depType: 'all', minSeverity: '', sort: '' }))
+        ).toContain('sort')
     })
 
     it('busts the defaults page and the dashboard', async function () {

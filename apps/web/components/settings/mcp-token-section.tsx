@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import { Copy, KeyRound, Link2, RefreshCw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { clearMcpTokenAction, generateMcpTokenAction } from '@/lib/actions/mcp'
 
 type Props = {
@@ -96,6 +97,7 @@ export function McpTokenSection({ hasStoredToken, portalBaseUrl }: Props) {
     const [revealed, setRevealed] = useState<string | null>(null)
     const [copied, setCopied] = useState(false)
     const [urlCopied, setUrlCopied] = useState(false)
+    const [confirmingClear, setConfirmingClear] = useState(false)
     const [pending, startTransition] = useTransition()
     // Prefer the configured portal base URL (set under Settings → Advanced); fall back to the
     // origin the operator is actually browsing from. The origin is only available client-side, so
@@ -120,6 +122,7 @@ export function McpTokenSection({ hasStoredToken, portalBaseUrl }: Props) {
     }
 
     function onClear() {
+        setConfirmingClear(false)
         startTransition(async function clr() {
             await clearMcpTokenAction()
             setRevealed(null)
@@ -194,12 +197,32 @@ export function McpTokenSection({ hasStoredToken, portalBaseUrl }: Props) {
                         {hasStoredToken ? t('mcp.rotate') : t('mcp.generate')}
                     </Button>
                     {hasStoredToken ? (
-                        <Button type="button" variant="destructive" onClick={onClear} disabled={pending}>
+                        <Button
+                            type="button"
+                            variant="destructive"
+                            onClick={function ask() { setConfirmingClear(true) }}
+                            disabled={pending}
+                        >
                             <Trash2 className="h-4 w-4" />
                             {t('mcp.clear')}
                         </Button>
                     ) : null}
                 </div>
+                {/* Removing a root and removing a notification target both confirm; this did not, and
+                    it is the more destructive of the three — one click takes /api/mcp to a 404 and
+                    every configured client stops working, with no way to undo it because the token is
+                    never recoverable after it leaves this page. */}
+                <ConfirmDialog
+                    open={confirmingClear}
+                    onClose={function close() { setConfirmingClear(false) }}
+                    onConfirm={onClear}
+                    title={t('mcp.clearConfirmTitle')}
+                    description={t('mcp.clearConfirmBody')}
+                    confirmLabel={t('mcp.clear')}
+                    cancelLabel={tc('cancel')}
+                    destructive
+                    pending={pending}
+                />
             </div>
 
             <div className="space-y-3 border-t pt-4">

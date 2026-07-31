@@ -179,17 +179,27 @@ describe('updateExportPromptAction', function () {
         expect(getConfigValue<string>(handle.db, 'markdownExportPrompt')).toBe('Fix these.')
     })
 
+    // Rejections come back as { ok: false, errorText } rather than as a throw. A thrown Server Action
+    // message is replaced by Next.js's production redaction notice before the client sees it, so
+    // anything written for the operator has to be returned. See lib/actions/action-result.ts.
+    //
+    // Reachable from the UI: Save is gated on the textarea being dirty, and emptying it makes it dirty.
     it('rejects an empty or whitespace-only prompt', async function () {
-        await expect(updateExportPromptAction('   ')).rejects.toThrow()
+        const result = await updateExportPromptAction('   ')
+
+        expect(result).toEqual({ ok: false, errorText: 'prompt cannot be empty' })
         expect(getConfigValue<string>(handle.db, 'markdownExportPrompt')).toBeNull()
     })
 
     it('rejects a prompt longer than 20000 characters', async function () {
-        await expect(updateExportPromptAction('x'.repeat(20_001))).rejects.toThrow()
+        const result = await updateExportPromptAction('x'.repeat(20_001))
+
+        expect(result.ok).toBe(false)
+        expect(getConfigValue<string>(handle.db, 'markdownExportPrompt')).toBeNull()
     })
 
     it('accepts a prompt at exactly the length limit', async function () {
-        await expect(updateExportPromptAction('x'.repeat(20_000))).resolves.toBeUndefined()
+        await expect(updateExportPromptAction('x'.repeat(20_000))).resolves.toEqual({ ok: true })
     })
 
     it('busts the export settings page', async function () {

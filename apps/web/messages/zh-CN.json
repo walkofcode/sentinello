@@ -347,7 +347,6 @@
                 "name": "名称"
             },
             "sortHelp": "作为项目和依赖库表格的初始排序顺序应用。",
-            "saved": "已保存。",
             "savedHint": "更改会立即应用到每个读取默认设置的页面。",
             "saveButton": "保存默认设置"
         },
@@ -390,6 +389,8 @@
             "generate": "生成令牌",
             "rotate": "轮换令牌",
             "clear": "清除令牌",
+            "clearConfirmTitle": "清除 MCP 令牌？",
+            "clearConfirmBody": "/api/mcp 端点将停止响应，所有已配置的客户端都会失去访问权限。令牌无法恢复——请生成新令牌以重新启用该端点。",
             "connectTitle": "连接客户端",
             "connectHintRevealed": "下面的代码片段包含你的新令牌。复制适用于你客户端的那个。",
             "connectHintPlaceholder": "将 {placeholder} 替换为你的令牌（在上方轮换可显示新令牌）。",

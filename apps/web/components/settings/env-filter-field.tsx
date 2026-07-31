@@ -19,13 +19,17 @@ export function EnvFilterField({ value, onChange, disabled }: Props) {
     return (
         <div className="flex flex-col gap-2">
             <label className="text-sm font-medium">{t('notifications.envFilter')}</label>
-            <div className="grid gap-2 sm:grid-cols-3">
+            {/* radiogroup for the same reason as the dep-type cards on Settings → Defaults: exactly one
+                of the three is always active, and before this that fact lived only in a border colour. */}
+            <div role="radiogroup" aria-label={t('notifications.envFilter')} className="grid gap-2 sm:grid-cols-3">
                 {ENV_VALUES.map(function pick(option) {
                     const isSelected = value === option
                     return (
                         <button
                             key={option}
                             type="button"
+                            role="radio"
+                            aria-checked={isSelected}
                             disabled={disabled}
                             onClick={function choose() { onChange(option) }}
                             className={

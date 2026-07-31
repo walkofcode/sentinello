@@ -120,11 +120,17 @@ function SourceCell({ cell, label, help, badge, disclosure }: SourceCellProps) {
         // Optimistic flip; revert if the server rejects (e.g. the invariant blocks disabling the last cell).
         setEnabled(next)
         startTransition(async function persist() {
-            try {
-                await updateSourceCellAction({ source: cell.source, ecosystem: cell.ecosystem, enabled: next })
-            } catch (e) {
+            // The rejection arrives as a VALUE, not a throw. It used to be caught from a throw, which
+            // meant the operator read Next.js's production redaction paragraph instead of the reason —
+            // on the one control whose whole job is to stop Sentinello going blind.
+            const result = await updateSourceCellAction({
+                source: cell.source,
+                ecosystem: cell.ecosystem,
+                enabled: next
+            })
+            if (!result.ok) {
                 setEnabled(!next)
-                setError(e instanceof Error ? e.message : String(e))
+                setError(result.errorText)
             }
         })
     }
@@ -168,7 +174,7 @@ function SourceCell({ cell, label, help, badge, disclosure }: SourceCellProps) {
             </div>
 
             {error ? (
-                <p className="mt-2 text-xs text-[color:var(--color-sev-high)]">{error}</p>
+                <p role="alert" className="mt-2 text-xs text-[color:var(--color-sev-high)]">{error}</p>
             ) : null}
 
             {/* Provisioning disclosure — cache-backed sources only, when off OR not yet seeded. */}
