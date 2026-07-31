@@ -40,6 +40,28 @@ test.describe('concurrent scans', function () {
         await expect(page.getByLabel('Concurrent scans')).toHaveValue('8')
     })
 
+    // The browser's own constraint check is the only thing standing between the operator and this
+    // path, so the server-side rejection is unreachable from the UI as shipped — which is exactly why
+    // it went unnoticed that it used to tear the page down into a Next.js error overlay. Dropping the
+    // max attribute is the smallest way to actually exercise the arm that was fixed rather than assume
+    // it works.
+    test('surfaces a server rejection inline when the browser is not there to stop it', async function ({ page }) {
+        const errors: string[] = []
+        page.on('pageerror', function record(err) { errors.push(err.message) })
+        await page.goto('/settings/advanced')
+
+        await page.getByLabel('Concurrent scans').evaluate(function unbound(el) {
+            el.removeAttribute('max')
+        })
+        await fillStable(page.getByLabel('Concurrent scans'), '100')
+        await page.getByRole('button', { name: 'Save advanced settings' }).click()
+
+        await expect(errorAlert(page)).toContainText('parallelism')
+        expect(errors).toEqual([])
+        await page.reload()
+        await expect(page.getByLabel('Concurrent scans')).not.toHaveValue('100')
+    })
+
     test('accepts the boundary values', async function ({ page }) {
         await page.goto('/settings/advanced')
 
