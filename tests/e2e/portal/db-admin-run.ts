@@ -2,6 +2,7 @@ import {
     awaitBaseline,
     awaitQueueIdle,
     deleteRequest,
+    enqueueScanRequests,
     findingAges,
     insertRunningRequest,
     reset,
@@ -39,6 +40,13 @@ async function main(): Promise<void> {
     if (sub === 'insert-running-request') {
         if (!rest[0]) throw new Error('[e2e] insert-running-request needs a project id')
         console.log(JSON.stringify({ id: insertRunningRequest(rest[0]) }))
+        return
+    }
+    if (sub === 'enqueue-scan-requests') {
+        if (!rest[0]) throw new Error('[e2e] enqueue-scan-requests needs a project id')
+        const count = Number(rest[1])
+        if (!Number.isInteger(count) || count < 1) throw new Error('[e2e] enqueue-scan-requests needs a positive count')
+        console.log(JSON.stringify({ ids: enqueueScanRequests(rest[0], count) }))
         return
     }
     if (sub === 'delete-request') {

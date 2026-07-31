@@ -204,6 +204,41 @@ export function findingAges(): Record<string, number> {
     }
 }
 
+// Queues n PENDING scan requests for one project, which the real worker then claims and executes one
+// per poll tick. The scans are genuine — this only skips clicking the same button n times through a
+// control that disables itself while a scan is in flight.
+//
+// It exists because scan history paginates at 20 and the boot sweep produces exactly one scan per
+// project, so no amount of widening the fixture tree reaches the control. Ids are index-suffixed
+// rather than timestamped: inserting a batch inside one millisecond would otherwise collide on the
+// primary key.
+export function enqueueScanRequests(projectIdValue: string, count: number): string[] {
+    const { sqlite } = open()
+    try {
+        const row = sqlite
+            .prepare('select root_id from projects where id = ?')
+            .get(projectIdValue) as { root_id: string } | undefined
+        if (!row) throw new Error('[e2e] no such project: ' + projectIdValue)
+        const stamp = Date.now()
+        const ids: string[] = []
+        const insert = sqlite.prepare(
+            'insert into scan_requests (id, project_id, root_id, requested_at, picked_up_at, ' +
+            'finished_at, heartbeat_at, status) values (?, ?, ?, ?, null, null, null, ?)'
+        )
+        const insertAll = sqlite.transaction(function batch() {
+            for (let i = 0; i < count; i++) {
+                const id = 'e2e-queued-' + stamp + '-' + String(i).padStart(3, '0')
+                insert.run(id, projectIdValue, row.root_id, stamp + i, 'pending')
+                ids.push(id)
+            }
+        })
+        insertAll()
+        return ids
+    } finally {
+        sqlite.close()
+    }
+}
+
 export function deleteRequest(id: string): void {
     const { sqlite } = open()
     try {

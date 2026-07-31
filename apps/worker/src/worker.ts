@@ -24,6 +24,27 @@ import { createWorkerRuntime, waitForInFlight, type WorkerRuntime } from './runt
 
 const GRACE_PERIOD_MS = 30_000
 
+// How often the scan-request poller looks for queued work. Undefined leaves startScanRequestPoller on
+// its own POLL_INTERVAL_MS default of 5s, which is the right cadence in production — a scan request is
+// a human clicking a button, and five seconds of latency against a scan that may run for minutes is
+// not worth the wakeups.
+//
+// The end-to-end suite overrides it because the poller claims exactly ONE request per tick, so the
+// default puts 21 sequential scans at 105 seconds — past the suite's own timeout, and unrelated to how
+// long the scans take (fixture scans finish in about 3ms). An out-of-range or unparseable value falls
+// back to the default rather than throwing: a malformed env var must not stop a worker from booting.
+function scanPollIntervalMs(): number | undefined {
+    const raw = process.env.SENTINELLO_SCAN_POLL_INTERVAL_MS
+    if (!raw) return undefined
+    const parsed = Number(raw)
+    if (!Number.isFinite(parsed) || parsed < 50 || parsed > 300_000) {
+        console.warn('[worker] ignoring SENTINELLO_SCAN_POLL_INTERVAL_MS=' + raw + ' (want 50..300000)')
+        return undefined
+    }
+    console.log('[worker] scan-request poll interval overridden to ' + parsed + 'ms')
+    return parsed
+}
+
 export async function main(): Promise<void> {
     const dbPath = resolveDbPath()
     assertDataDirWritable(dbPath)
@@ -93,7 +114,10 @@ export async function main(): Promise<void> {
     // 'reload-sources' signal). Passed alongside osvController so selectScanners() can offer both cells.
     const gemnasiumController: GemnasiumController = createGemnasiumController(db, runtime)
     const scheduler = startScheduler({ db, sqlite, runtime, osvController, gemnasiumController })
-    const poller = startScanRequestPoller({ db, sqlite, runtime, scheduler, osvController, gemnasiumController })
+    const poller = startScanRequestPoller({
+        db, sqlite, runtime, scheduler, osvController, gemnasiumController,
+        intervalMs: scanPollIntervalMs()
+    })
     const muteExpiry = startMuteExpirySweep({ db, runtime })
     let watcher: WatcherHandle | null = null
     const watcherEnabled = getConfigValue<boolean>(db, CONFIG_KEYS.watcherEnabled) || false

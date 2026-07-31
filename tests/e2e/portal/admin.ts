@@ -67,6 +67,11 @@ export async function insertRunningRequest(projectId: string): Promise<string> {
     return out.id
 }
 
+export async function enqueueScanRequests(projectId: string, count: number): Promise<string[]> {
+    const out = await run(['enqueue-scan-requests', projectId, String(count)]) as { ids: string[] }
+    return out.ids
+}
+
 export async function deleteRequest(id: string): Promise<void> {
     await run(['delete-request', id])
 }

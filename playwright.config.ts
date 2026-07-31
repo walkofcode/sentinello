@@ -38,7 +38,12 @@ const SHARED_ENV = {
     SENTINELLO_GEMNASIUM_FEED_URL: 'off',
     // Belt and braces on top of the dryRunNotify config the seed writes: blocks private ranges
     // outright if a target ever escapes the dry-run flag.
-    SENTINELLO_WEBHOOK_STRICT: '1'
+    SENTINELLO_WEBHOOK_STRICT: '1',
+    // The poller claims one request per tick, so its 5s production default sets the floor on every
+    // scan assertion in the suite — and makes the 21 scans that scan.history.write.spec.ts needs to
+    // reach a pagination control take 105s, past the write project's own timeout. The scans themselves
+    // are ~3ms against these fixtures; this only removes the wait for the tick.
+    SENTINELLO_SCAN_POLL_INTERVAL_MS: '200'
 }
 
 export default defineConfig({
