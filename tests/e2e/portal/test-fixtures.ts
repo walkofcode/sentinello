@@ -4,12 +4,44 @@ import { test as base, expect, type Locator, type Page } from '@playwright/test'
 import { deleteRequest, insertRunningRequest, resetDb } from './admin'
 import { E2E_FIXTURE_ROOT } from './paths'
 
-// The base test for MUTATING specs (*.write.spec.ts). Read-only specs import @playwright/test
-// directly and never touch the database.
+// The base test for MUTATING specs (*.write.spec.ts). Read-only specs use `readTest` below, which
+// shares the hydration handling and nothing else.
 //
 // Every test starts from the baseline the worker's boot sweep produced, restored in place. There is
 // no write isolation between Playwright workers — one SQLite file, one portal, one worker — so the
 // `write` project runs workers:1 and that is what makes an unconditional per-test reset safe.
+
+// Injected into the DOM by the App Router's client runtime on mount, and absent from the server HTML
+// — verified with curl against `next start`, not assumed. That makes its arrival the moment React has
+// taken over the page.
+const HYDRATION_MARKER = 'next-route-announcer'
+
+// page.goto resolves on 'load', which is BEFORE React hydrates. Every interaction in the window
+// between the two is silently lost, and the resulting failure never names the cause: a fill() writes
+// to a DOM node React then overwrites from its own initial state, and a click on a server-rendered
+// <form>'s submit button runs a NATIVE submission — the form carries no action attribute, so the
+// browser simply reloads the page and the write never happens.
+//
+// It reproduced as roughly one failure in three across settings.export.write.spec.ts, moving between
+// tests run to run, which is exactly the shape that gets written off as "flaky CI".
+//
+// Patching goto/reload rather than exporting a helper each spec must remember: there are well over a
+// hundred navigations across this suite, and a helper that is right only when someone recalls it is
+// not a fix. Both are patched because a reload re-runs hydration in full.
+function hydrateOnNavigation(page: Page): void {
+    const goto = page.goto.bind(page)
+    page.goto = async function gotoThenHydrate(url, options) {
+        const response = await goto(url, options)
+        await page.waitForSelector(HYDRATION_MARKER, { state: 'attached' })
+        return response
+    }
+    const reload = page.reload.bind(page)
+    page.reload = async function reloadThenHydrate(options) {
+        const response = await reload(options)
+        await page.waitForSelector(HYDRATION_MARKER, { state: 'attached' })
+        return response
+    }
+}
 
 type Fixtures = {
     // Auto-used: the reset happens before the test body whether or not the test names it.
@@ -20,7 +52,22 @@ type Fixtures = {
     writeFixtureFile: (relPath: string, contents: string) => void
 }
 
+// Read-only specs that INTERACT with the page need the hydration handling too — a filter dropdown is
+// as unclickable before hydration as a submit button. Specs that only assert server-rendered content
+// can keep importing @playwright/test directly.
+export const readTest = base.extend({
+    page: async function hydratedPage({ page }, use) {
+        hydrateOnNavigation(page)
+        await use(page)
+    }
+})
+
 export const test = base.extend<Fixtures>({
+    page: async function hydratedPage({ page }, use) {
+        hydrateOnNavigation(page)
+        await use(page)
+    },
+
     resetDb: [
         async function reset({}, use) {
             await resetDb()
@@ -70,6 +117,24 @@ export function visible(page: Page, text: string | RegExp): Locator {
 // is exactly as ambiguous as getByText and needs the same filter.
 export function visibleRole(page: Page, role: Parameters<Page['getByRole']>[0], name: string | RegExp): Locator {
     return page.getByRole(role, { name }).filter({ visible: true }).first()
+}
+
+// fill() that survives hydration. Use it for every controlled input in a write spec.
+//
+// Playwright's fill() clears the field and types into the DOM node. If React hydrates that component
+// in the moment between the clear and the type, it restores the value from its OWN state — and the
+// field ends up holding what you typed CONCATENATED with what was already there. Caught in the act:
+// filling '   ' into the export prompt produced a 10,224-character value, three spaces followed by the
+// entire default prompt, which then saved successfully and made a test asserting a rejection fail.
+//
+// It is not fixable by waiting on a document-level hydration signal, because App Router hydration is
+// progressive — the shell can be live while this island is not, and no marker announces the island.
+// Retrying until the field holds exactly what was asked for is what actually converges.
+export async function fillStable(field: Locator, text: string): Promise<void> {
+    await expect(async function typed() {
+        await field.fill(text)
+        expect(await field.inputValue()).toBe(text)
+    }).toPass({ timeout: 15_000 })
 }
 
 // The rejected-write message, wherever a settings form renders one.
