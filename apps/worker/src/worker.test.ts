@@ -107,6 +107,12 @@ function errorLines(): string[] {
     })
 }
 
+function warnLines(): string[] {
+    return vi.mocked(console.warn).mock.calls.map(function first(c) {
+        return String(c[0])
+    })
+}
+
 // Opens the database main() will open, migrates it, hands it to `seed`, and closes. The point of
 // almost every boot-log arm below is that it only fires when the database ALREADY holds a particular
 // shape of row, which no test can arrange after the fact — main() reads it once, on the way up.
@@ -157,6 +163,7 @@ beforeEach(async function setup() {
     collaborators.pruneDockerRoots.mockReturnValue({ removed: 0 })
     vi.spyOn(console, 'log').mockImplementation(function silence() {})
     vi.spyOn(console, 'error').mockImplementation(function silence() {})
+    vi.spyOn(console, 'warn').mockImplementation(function silence() {})
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(function noExit() {
         return undefined as never
     })
@@ -482,6 +489,82 @@ describe('main — boot sequence', function () {
         })
         await main()
         expect(listenersWhenSwept).toBeGreaterThan(0)
+    })
+})
+
+// The scan-request poll interval is the one worker knob that arrives through the environment rather
+// than the database, because the end-to-end suite has to set it before the worker boots — there is no
+// running portal to configure yet. Production leaves it unset and inherits startScanRequestPoller's
+// own 5s default, which is the right cadence when a request is a human clicking a button.
+//
+// Every rejected value falls back to that same default instead of throwing, and that is the whole
+// point of the range check: a typo in a compose file must not stop a worker from booting. These
+// assertions read the value main() actually handed the poller, so they fail if the wiring is dropped
+// as well as if the parse is wrong.
+describe('main — scan-request poll interval override', function () {
+    function pollerIntervalMs(): number | undefined {
+        const options = collaborators.startScanRequestPoller.mock.calls[0]?.[0] as { intervalMs?: number } | undefined
+        return options?.intervalMs
+    }
+
+    it('leaves the poller on its own default when the variable is unset', async function () {
+        vi.stubEnv('SENTINELLO_SCAN_POLL_INTERVAL_MS', undefined)
+        await main()
+        expect(pollerIntervalMs()).toBeUndefined()
+        expect(warnLines()).toEqual([])
+    })
+
+    // `SENTINELLO_SCAN_POLL_INTERVAL_MS=` with nothing after it is how an operator disables an
+    // override they previously set. It means "unset", not "zero", and must not warn.
+    it('treats an empty value as unset rather than as a number', async function () {
+        vi.stubEnv('SENTINELLO_SCAN_POLL_INTERVAL_MS', '')
+        await main()
+        expect(pollerIntervalMs()).toBeUndefined()
+        expect(warnLines()).toEqual([])
+    })
+
+    it('passes a valid override through to the poller and says so', async function () {
+        vi.stubEnv('SENTINELLO_SCAN_POLL_INTERVAL_MS', '200')
+        await main()
+        expect(pollerIntervalMs()).toBe(200)
+        expect(logLines().join('\n')).toContain('scan-request poll interval overridden to 200ms')
+    })
+
+    // Both bounds are inclusive. They are the values most likely to be picked deliberately — 50ms is
+    // the fastest the suite would ever want, 300000ms the slowest a human would tolerate — so an
+    // off-by-one here would reject exactly the settings someone reached for on purpose.
+    it.each([
+        ['the lower bound', '50', 50],
+        ['the upper bound', '300000', 300_000]
+    ])('accepts %s', async function (_label, raw, expected) {
+        vi.stubEnv('SENTINELLO_SCAN_POLL_INTERVAL_MS', raw as string)
+        await main()
+        expect(pollerIntervalMs()).toBe(expected)
+        expect(warnLines()).toEqual([])
+    })
+
+    // Out of range and unparseable are three separate arms of one condition, and all three have to
+    // land on the default rather than on NaN, 0, or a throw — a poller told to tick every NaN ms
+    // would either spin or never fire, and neither failure names itself in a log.
+    it.each([
+        ['below the floor', '49'],
+        ['above the ceiling', '300001'],
+        ['not a number at all', 'soon'],
+        ['infinite', 'Infinity']
+    ])('ignores a value that is %s and keeps the default', async function (_label, raw) {
+        vi.stubEnv('SENTINELLO_SCAN_POLL_INTERVAL_MS', raw as string)
+        await main()
+        expect(pollerIntervalMs()).toBeUndefined()
+        expect(collaborators.startScanRequestPoller).toHaveBeenCalled()
+    })
+
+    // The warning is the only signal an operator gets that their setting was discarded, so it has to
+    // carry both the value they typed and the range they needed.
+    it('names the rejected value and the accepted range', async function () {
+        vi.stubEnv('SENTINELLO_SCAN_POLL_INTERVAL_MS', '5')
+        await main()
+        expect(warnLines().join('\n')).toContain('ignoring SENTINELLO_SCAN_POLL_INTERVAL_MS=5')
+        expect(warnLines().join('\n')).toContain('50..300000')
     })
 })
 
