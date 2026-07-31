@@ -60,7 +60,7 @@ export const E2E_PORTAL_TOKEN = 'e2e-portal-token'
 
 // Bumped whenever seed.ts changes what it produces, so a stale temp directory from an older checkout
 // fails the content guard in global-setup.ts loudly instead of running tests against the wrong shape.
-export const FIXTURE_VERSION = 1
+export const FIXTURE_VERSION = 2
 
 // Printed by apps/worker/src/worker.ts once the scheduler, poller and mute-expiry sweep are armed.
 // Playwright waits on this line to know the worker is up — it exposes no HTTP to probe. A contract
@@ -76,7 +76,57 @@ export const SEEDED = {
     // the directory is exactly the bug this harness was reshaped to make impossible.
     projectName: 'checkout-service',
     cleanProjectName: 'docs-site',
-    unauditableProjectName: 'legacy-yarn'
+    unauditableProjectName: 'legacy-yarn',
+    // Exists for one reason: apps/web/components/ui/pagination.tsx returns null at or below its page
+    // size, so with only checkout-service's two findings NO pagination control renders anywhere in the
+    // portal and four paginated sections are unreachable. 30 findings clears the 25-row page size on
+    // both findings tabs and, once resolved, on the resolved table too.
+    bulkProjectName: 'bulk-deps'
+}
+
+// Every dependency of bulk-deps is a PRODUCTION dependency, and that is load-bearing rather than
+// incidental: the built-in filter default is depType 'prod' (apps/web/lib/filter-defaults.ts), so a
+// dev-typed subset would drop the default view under 26 rows and the pagination control would vanish
+// again. Dep-type filtering is covered by checkout-service, which has one of each.
+export const BULK_DEP_COUNT = 30
+
+// Matches the generated advisories in tests/fixtures/advisories/osv-npm.ndjson: fixture-pkg-01..30 at
+// 1.0.0, each with one advisory fixed in 2.0.0.
+export function bulkDeps(): Record<string, string> {
+    const deps: Record<string, string> = {}
+    for (let i = 1; i <= BULK_DEP_COUNT; i++) deps['fixture-pkg-' + String(i).padStart(2, '0')] = '1.0.0'
+    return deps
+}
+
+// The multi-dependency form of fixture-tree.ts's soloLock. Hand-written for the same reason: resolving
+// a real one needs the network and drifts over time. It lives here rather than beside soloLock because
+// findings.resolved.write.spec.ts writes a replacement lockfile at test time, and specs cannot import
+// fixture-tree.ts across Playwright's CJS loader.
+export function bulkLock(name: string, deps: Record<string, string>): string {
+    const packages: Record<string, unknown> = {
+        '': { name, version: '1.0.0', dependencies: deps }
+    }
+    for (const [dep, version] of Object.entries(deps)) packages['node_modules/' + dep] = { version }
+    return JSON.stringify({ name, version: '1.0.0', lockfileVersion: 3, requires: true, packages }, null, 4) + '\n'
+}
+
+// What bulk-deps' lockfile is swapped to in order to reach the resolved table's pagination. Every
+// vulnerable package is gone, so the next scan matches none of the open identities and resolves all
+// BULK_DEP_COUNT of them in one pass. One innocuous dependency remains rather than none, so the
+// project still resolves as auditable rather than changing category mid-test.
+export function bulkLockResolved(name: string): string {
+    return bulkLock(name, { 'fixture-pkg-safe': '1.0.0' })
+}
+
+// package.json for the same swap. Discovery reads the manifest as well as the lockfile, so leaving the
+// original 30 dependencies declared while the lockfile lists one would be an inconsistent tree.
+export function bulkManifestResolved(name: string): string {
+    return JSON.stringify({
+        name,
+        version: '1.0.0',
+        private: true,
+        dependencies: { 'fixture-pkg-safe': '1.0.0' }
+    }, null, 4) + '\n'
 }
 
 export type FixtureManifest = {

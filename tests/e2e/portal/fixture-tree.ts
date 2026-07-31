@@ -1,7 +1,11 @@
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { E2E_FIXTURE_ROOT, SEEDED } from './paths'
+// bulkLock lives in paths.ts rather than here, even though this is the module that BUILDS the tree:
+// findings.resolved.write.spec.ts has to write a replacement lockfile too, and a spec cannot import
+// this file — the fileURLToPath(import.meta.url) below is exactly the syntax that breaks under
+// Playwright's CJS loader. paths.ts is the half of the harness both loaders can read.
+import { bulkDeps, bulkLock, BULK_DEP_COUNT, E2E_FIXTURE_ROOT, SEEDED } from './paths'
 
 // Builds the on-disk project tree the worker discovers and scans.
 //
@@ -60,6 +64,10 @@ export const FIXTURE_PROJECTS: FixtureProject[] = [
         // yarn.lock is never parsed by the resolver, so this lands as unauditable/unsupported_lockfile
         // — giving the portal's unauditable-coverage UI a real data source rather than a fabricated row.
         purpose: 'unauditable: a yarn lockfile the resolver does not support'
+    },
+    {
+        relPath: SEEDED.bulkProjectName,
+        purpose: BULK_DEP_COUNT + ' findings, all prod: the only project wide enough to render a pagination control'
     }
 ]
 
@@ -93,6 +101,17 @@ export function buildFixtureTree(): string {
     // Contents are irrelevant — its presence is what selects the yarn package manager and makes the
     // resolver decline. Never parsed.
     write(join(legacy, 'yarn.lock'), '# fixture: intentionally unparsed\n')
+
+    const bulk = join(E2E_FIXTURE_ROOT, SEEDED.bulkProjectName)
+    const deps = bulkDeps()
+    write(join(bulk, 'package.json'), JSON.stringify({
+        name: SEEDED.bulkProjectName,
+        version: '1.0.0',
+        private: true,
+        dependencies: deps
+    }, null, 4) + '\n')
+    write(join(bulk, 'package-lock.json'), bulkLock(SEEDED.bulkProjectName, deps))
+    write(join(bulk, '.git', 'HEAD'), 'ref: refs/heads/main\n')
 
     return E2E_FIXTURE_ROOT
 }

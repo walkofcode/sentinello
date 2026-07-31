@@ -1,5 +1,8 @@
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { test as base, expect, type Locator, type Page } from '@playwright/test'
 import { deleteRequest, insertRunningRequest, resetDb } from './admin'
+import { E2E_FIXTURE_ROOT } from './paths'
 
 // The base test for MUTATING specs (*.write.spec.ts). Read-only specs import @playwright/test
 // directly and never touch the database.
@@ -13,6 +16,8 @@ type Fixtures = {
     resetDb: void
     // A scan request already in the running state, for asserting the in-flight UI deterministically.
     inFlightScan: (projectId: string) => Promise<void>
+    // Rewrites a file inside the fixture tree and puts the original back afterwards.
+    writeFixtureFile: (relPath: string, contents: string) => void
 }
 
 export const test = base.extend<Fixtures>({
@@ -32,6 +37,23 @@ export const test = base.extend<Fixtures>({
         // Removed here rather than left to the reset, so a failure inside the test does not leave the
         // scan buttons disabled for whatever runs before the next reset lands.
         for (const id of created) await deleteRequest(id)
+    },
+
+    // resetDb restores DATABASE rows and nothing else, so a spec that edits the on-disk fixture tree
+    // to drive a real rescan would leave every later scan in the run looking at a changed tree. This
+    // restores the bytes on teardown, in reverse order, so nested edits unwind correctly.
+    writeFixtureFile: async function fixtureFile({}, use) {
+        const original: { path: string; contents: string }[] = []
+        await use(function write(relPath: string, contents: string) {
+            const path = join(E2E_FIXTURE_ROOT, relPath)
+            // Read before the first write only. Overwriting the snapshot on a second edit to the same
+            // file would restore the intermediate state rather than the fixture's.
+            if (!original.some(function seen(o) { return o.path === path })) {
+                original.push({ path, contents: readFileSync(path, 'utf8') })
+            }
+            writeFileSync(path, contents, 'utf8')
+        })
+        for (const o of original.reverse()) writeFileSync(o.path, o.contents, 'utf8')
     }
 })
 

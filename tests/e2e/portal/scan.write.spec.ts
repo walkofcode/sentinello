@@ -40,7 +40,11 @@ test.describe('requesting a scan', function () {
     // the number an operator uses to judge how long they have been exposed.
     test('a rescan refreshes the open episode rather than restarting a finding\'s age', async function ({ page }) {
         const before = await adminState()
-        expect(before.counts.findings).toBe(2)
+        // Non-zero rather than a literal count. What this test asserts is that the number does not
+        // MOVE across a rescan, so pinning the fixture's exact total here only bought a second place to
+        // update whenever the tree grows — while the zero guard is what stops the whole thing passing
+        // vacuously against an empty database.
+        expect(before.counts.findings).toBeGreaterThan(0)
         const agesBefore = await findingAges()
 
         await page.goto('/projects/' + PROJECT_ID)
@@ -51,10 +55,10 @@ test.describe('requesting a scan', function () {
             expect(now.inFlight).toBe(0)
         }).toPass({ timeout: 60_000 })
 
-        // Still two findings, not four: the rescan matched the existing episodes rather than opening
-        // new ones alongside them.
+        // Still the same findings, not double: the rescan matched the existing episodes rather than
+        // opening new ones alongside them.
         const after = await adminState()
-        expect(after.counts.findings).toBe(2)
+        expect(after.counts.findings).toBe(before.counts.findings)
 
         // Read from the database rather than the page, because the portal renders this as a relative
         // string ("3 days ago") that would look identical either side of the bug this pins.
