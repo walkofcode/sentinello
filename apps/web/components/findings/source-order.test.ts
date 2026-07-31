@@ -64,6 +64,13 @@ describe('orderEcosystems', function () {
         expect(orderEcosystems(['Hackage', first.id])).toEqual([first.id, 'Hackage'])
     })
 
+    // Two unknowns share the same rank, so the registry order cannot separate them and the name
+    // tie-break is what stops their order depending on which one the caller happened to list first.
+    it('breaks a tie between two unknown ecosystems by name', function () {
+        expect(orderEcosystems(['Pub', 'Hackage'])).toEqual(['Hackage', 'Pub'])
+        expect(orderEcosystems(['Hackage', 'Pub'])).toEqual(['Hackage', 'Pub'])
+    })
+
     it('deduplicates', function () {
         const first = ECOSYSTEMS[0]
         expect(first).toBeDefined()

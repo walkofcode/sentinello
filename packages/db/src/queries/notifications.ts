@@ -134,6 +134,10 @@ function parseSourceScope(json: string): NotificationSourceScope {
     } catch {
         return { mode: 'all', cells: [] }
     }
+    // The catch above only covers invalid syntax. `null` is valid JSON that parses to a non-object,
+    // and reading .mode off it throws — which would take down every read of this target rather than
+    // failing open the way the rest of this function does.
+    if (!parsed || typeof parsed !== 'object') return { mode: 'all', cells: [] }
     const obj = parsed as { mode?: unknown; cells?: unknown }
     if (obj.mode !== 'selected') return { mode: 'all', cells: [] }
     const rawCells = Array.isArray(obj.cells) ? obj.cells : []

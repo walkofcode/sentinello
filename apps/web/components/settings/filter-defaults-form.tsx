@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import type { DepTypeFilter, Severity } from '@sentinello/core'
 import { updateFilterDefaultsAction, type FilterDefaultsInput } from '@/lib/actions/settings'
 import { Dropdown } from '@/components/ui/dropdown'
+import { SaveStatus } from '@/components/settings/save-status'
 
 type MinSeverity = '' | Severity
 
@@ -20,16 +21,24 @@ type Props = {
 
 export function FilterDefaultsForm({ initial }: Props) {
     const t = useTranslations('Settings')
-    const tc = useTranslations('Common')
     const [depType, setDepType] = useState<DepTypeFilter>(initial.depType)
     const [minSeverity, setMinSeverity] = useState<MinSeverity>(initial.minSeverity)
     const [sort, setSort] = useState<string>(initial.sort)
     const [pending, startTransition] = useTransition()
     const [savedAt, setSavedAt] = useState<number | null>(null)
+    const [error, setError] = useState<string | null>(null)
 
     function commit(next: FilterDefaultsInput) {
+        setError(null)
         startTransition(async function persist() {
-            await updateFilterDefaultsAction(next)
+            const result = await updateFilterDefaultsAction(next)
+            if (!result.ok) {
+                setDepType(initial.depType)
+                setMinSeverity(initial.minSeverity)
+                setSort(initial.sort)
+                setError(result.errorText)
+                return
+            }
             setSavedAt(Date.now())
         })
     }
@@ -53,13 +62,20 @@ export function FilterDefaultsForm({ initial }: Props) {
                 <p className="text-xs text-muted-foreground">
                     {t('defaults.depViewHelp')}
                 </p>
-                <div className="grid gap-2 sm:grid-cols-3">
+                {/* radiogroup, not a row of plain buttons: these are mutually exclusive and exactly one
+                    is always chosen, which is what role="radio" + aria-checked says. Before this the
+                    selection existed only as a border colour, so a screen reader read three identical
+                    buttons and a test could only assert on a Tailwind class. Matches the theme and
+                    font-size cards on Settings → Profile. */}
+                <div role="radiogroup" aria-label={t('defaults.depViewTitle')} className="grid gap-2 sm:grid-cols-3">
                     {DEP_TYPE_VALUES.map(function pick(value) {
                         const isSelected = depType === value
                         return (
                             <button
                                 key={value}
                                 type="button"
+                                role="radio"
+                                aria-checked={isSelected}
                                 onClick={function choose() { chooseDepType(value) }}
                                 className={
                                     'rounded-md border px-3 py-3 text-left text-sm transition-colors ' +
@@ -112,9 +128,12 @@ export function FilterDefaultsForm({ initial }: Props) {
                 </div>
             </div>
 
-            <div className="text-xs text-muted-foreground" aria-live="polite">
-                {pending ? tc('saving') : (savedAt ? t('defaults.saved') : t('defaults.savedHint'))}
-            </div>
+            <SaveStatus
+                pending={pending}
+                saved={savedAt !== null}
+                error={error}
+                idleText={t('defaults.savedHint')}
+            />
         </div>
     )
 }

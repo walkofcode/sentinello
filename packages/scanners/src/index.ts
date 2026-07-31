@@ -2,7 +2,7 @@ import type { ScannerPlugin } from './types'
 import { npmAuditPlugin } from './npm-audit'
 
 export * from './types'
-export { npmAuditPlugin, runNpmAudit, detectLockfile } from './npm-audit'
+export { npmAuditPlugin, createNpmAuditScanner, runNpmAudit, detectLockfile, type NpmAuditDeps } from './npm-audit'
 export { filterFindingsByLockfileResolution } from './lockfile-cross-check'
 export type { CrossCheckResult } from './lockfile-cross-check'
 export {

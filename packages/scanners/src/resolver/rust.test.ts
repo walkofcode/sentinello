@@ -126,6 +126,17 @@ describe('parseCargoLock dev classification', function () {
         })
     })
 
+    // A malformed line inside the table must not abort the section or register a nameless dev
+    // dependency — everything after it still has to be read, or one stray line silently reclassifies
+    // the rest of the dev tree as production.
+    it('skips malformed lines inside the dev-dependencies table', async function () {
+        await writeToml('[dev-dependencies]\nnonsense\n= "0.1"\ncriterion = "0.5"\n')
+        const result = await parseCargoLock(dir, await writeLock(entry('criterion', '0.5.1')))
+        expect(result.status !== 'unauditable' && result.graph.classify('criterion', '0.5.1')).toMatchObject({
+            isDev: true
+        })
+    })
+
     it('counts a target-specific dev-dependencies table', async function () {
         await writeToml('[target.\'cfg(unix)\'.dev-dependencies]\ncriterion = "0.5"\n')
         const result = await parseCargoLock(dir, await writeLock(entry('criterion', '0.5.1')))

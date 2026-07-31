@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input, Label, Textarea } from '@/components/ui/input'
 import { Dropdown } from '@/components/ui/dropdown'
 import { locales, LOCALE_LABELS } from '@/i18n/config'
+import { SaveStatus } from '@/components/settings/save-status'
 import { updateAdvancedSettingsAction } from '@/lib/actions/settings'
 
 type RootOption = {
@@ -40,6 +41,8 @@ export function AdvancedForm({ initial, roots, portalBaseUrlEnvManaged }: Props)
     const [portalBaseUrl, setPortalBaseUrl] = useState(initial.portalBaseUrl)
     const [notificationLocale, setNotificationLocale] = useState(initial.notificationLocale)
     const [pending, startTransition] = useTransition()
+    const [savedAt, setSavedAt] = useState<number | null>(null)
+    const [error, setError] = useState<string | null>(null)
     function toggleWatcherRoot(rootPath: string) {
         setWatcherRoots(function next(prev) {
             if (prev.includes(rootPath)) return prev.filter(function notPath(p) { return p !== rootPath })
@@ -48,12 +51,13 @@ export function AdvancedForm({ initial, roots, portalBaseUrlEnvManaged }: Props)
     }
     function submit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault()
+        setError(null)
         startTransition(async function persist() {
             const ignoreLines = globalIgnore
                 .split('\n')
                 .map(function trim(l) { return l.trim() })
                 .filter(function nonEmpty(l) { return l.length > 0 })
-            await updateAdvancedSettingsAction({
+            const result = await updateAdvancedSettingsAction({
                 parallelism: Number(parallelism) || 4,
                 watcherEnabled,
                 watcherRoots,
@@ -62,6 +66,11 @@ export function AdvancedForm({ initial, roots, portalBaseUrlEnvManaged }: Props)
                 portalBaseUrl,
                 notificationLocale
             })
+            if (!result.ok) {
+                setError(result.errorText)
+                return
+            }
+            setSavedAt(Date.now())
         })
     }
     return (
@@ -172,7 +181,8 @@ export function AdvancedForm({ initial, roots, portalBaseUrlEnvManaged }: Props)
                     {t('advanced.dryRunLabel')}
                 </label>
             </div>
-            <div className="flex justify-end">
+            <div className="flex items-center justify-between gap-4">
+                <SaveStatus pending={pending} saved={savedAt !== null} error={error} />
                 <Button type="submit" disabled={pending}>
                     <Save className="h-4 w-4" />
                     {pending ? tc('saving') : t('advanced.saveButton')}

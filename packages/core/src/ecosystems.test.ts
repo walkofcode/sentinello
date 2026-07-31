@@ -117,6 +117,12 @@ describe('sourceSupportsEcosystem', function () {
         expect(sourceSupportsEcosystem('npm-audit', 'crates.io')).toBe(false)
     })
 
+    // Fails closed. An id with no SOURCES entry supports nothing rather than everything, so a
+    // source removed from the registry stops being consulted instead of silently going polyglot.
+    it('reports false for a source that is not registered', function () {
+        expect(sourceSupportsEcosystem('retired-source' as never, 'npm')).toBe(false)
+    })
+
     // A null supportedEcosystems means polyglot — every registered ecosystem.
     it.each(['osv', 'gemnasium'] as Array<'osv' | 'gemnasium'>)('lets %s answer for every ecosystem', function (source) {
         for (const eco of ECOSYSTEMS) {

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { LOCALES, REASON_CODE_VALUES, SCAN_STATUS_VALUES } from './types'
 import { REASON_CODE_LABELS, reasonCodeLabel } from './reason-code-labels'
-import { scanStatusLabel } from './scan-status-labels'
-import { RELEASES, RELEASE_COPY, getLatestRelease, getReleaseCopy, getReleaseFor } from './releases'
+import { SCAN_STATUS_LABELS, scanStatusLabel } from './scan-status-labels'
+import { RELEASES, RELEASE_COPY, getLatestRelease, getReleaseCopy, getReleaseFor, getReleases } from './releases'
 
 // Drift guards. These tables are edited by hand across ten locales, so the realistic failure is a
 // key added to the vocabulary in types.ts and translated in English only. Each test below fails
@@ -46,6 +46,13 @@ describe('reason code labels', function () {
     it('falls back to English for an unrecognised locale', function () {
         expect(reasonCodeLabel('ok', 'kl' as never)).toBe(REASON_CODE_LABELS.en.ok)
     })
+
+    // The last resort: a code with no label in any locale is echoed back rather than rendering as
+    // "undefined". Only reachable through a cast, but it is what keeps the portal readable when the
+    // worker starts emitting a reason code before the label tables catch up.
+    it('echoes back a code that no locale has a label for', function () {
+        expect(reasonCodeLabel('not_a_real_code' as never)).toBe('not_a_real_code')
+    })
 })
 
 describe('scan status labels', function () {
@@ -58,6 +65,14 @@ describe('scan status labels', function () {
             }
         }
         expect(missing).toEqual([])
+    })
+
+    it('falls back to English for an unrecognised locale', function () {
+        expect(scanStatusLabel('ok', 'kl' as never)).toBe(SCAN_STATUS_LABELS.en.ok)
+    })
+
+    it('echoes back a status that no locale has a label for', function () {
+        expect(scanStatusLabel('not_a_real_status' as never)).toBe('not_a_real_status')
     })
 })
 
@@ -100,6 +115,13 @@ describe('release notes', function () {
         expect(getLatestRelease()).toEqual(RELEASES[0])
     })
 
+    // The portal's release-notes list reads through getReleases rather than importing RELEASES, so
+    // the accessor is the contract the UI actually depends on.
+    it('returns the whole list from getReleases', function () {
+        expect(getReleases()).toEqual(RELEASES)
+        expect(getReleases().length).toBeGreaterThan(0)
+    })
+
     it('looks a release up with or without a v prefix', function () {
         const first = RELEASES[0]
         if (!first) throw new Error('expected at least one release')
@@ -120,5 +142,16 @@ describe('release notes', function () {
         for (const locale of LOCALES) {
             expect(getReleaseCopy(locale, first.version)).not.toBeNull()
         }
+    })
+
+    // The other half of that fallback: a locale with no table at all, rather than a locale whose
+    // table is missing one version. Asserting against the English entry — and proving it exists
+    // first — keeps this from passing vacuously on two undefineds.
+    it('falls back to English copy for a locale with no table at all', function () {
+        const first = RELEASES[0]
+        if (!first) throw new Error('expected at least one release')
+        const english = RELEASE_COPY.en[first.version]
+        expect(english).toBeDefined()
+        expect(getReleaseCopy('kl' as never, first.version)).toEqual(english)
     })
 })

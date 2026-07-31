@@ -311,7 +311,7 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                                                             {scanReason}
                                                         </Badge>
                                                     ) : null}
-                                                    {project.muted ? <Badge variant="muted">muted</Badge> : null}
+                                                    {project.muted ? <Badge variant="muted">{t('badgeMuted')}</Badge> : null}
                                                 </div>
                                             </TableCell>
                                             <TableCell className="w-px whitespace-nowrap text-right align-middle">

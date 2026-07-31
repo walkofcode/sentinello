@@ -1,8 +1,10 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { openOsvDb, runOsvMigrations, type OsvDrizzleDb } from '../osv-client'
+import { osvAdvisories } from '../osv-schema'
 import type { OsvAdvisoryRow } from '@sentinello/core'
 import {
     countOsvAdvisories,
@@ -280,5 +282,81 @@ describe('osvMetaKeyFor', function () {
     it('leaves an unseeded ecosystem reading null', function () {
         setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, 'npm'), true)
         expect(getOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, 'Go'))).toBeNull()
+    })
+})
+
+// The JSON text columns are only ever written by upsertOsvAdvisories, so in normal operation they
+// hold well-formed arrays. The parsers below exist for the mid-rebuild read: a normalizer-version
+// bump re-seeds every ecosystem, and until an ecosystem's rows have been rewritten a lookup can
+// still land on a row in the previous shape. Writing the column directly is the only way to reach
+// them, so each case here corrupts one column and reads back through the public lookup.
+describe('defensive column parsing', function () {
+    function seed(): OsvAdvisoryRow | undefined {
+        upsertOsvAdvisories(db, [advisory({ versions: ['1.0.0'] })])
+        return lookupOsvByPackages(db, 'npm', ['lodash']).get('lodash')?.[0]
+    }
+
+    function corrupt(patch: Partial<{ aliasesJson: string; rangesJson: string; versionsJson: string }>): OsvAdvisoryRow | undefined {
+        seed()
+        db.update(osvAdvisories).set(patch).where(eq(osvAdvisories.packageName, 'lodash')).run()
+        return lookupOsvByPackages(db, 'npm', ['lodash']).get('lodash')?.[0]
+    }
+
+    // The seed row is non-empty in all three columns, so every empty result below proves the parser
+    // rejected what it read rather than the row simply having had nothing to report.
+    it('seeds every parsed column non-empty', function () {
+        const row = seed()
+        expect(row?.aliases.length).toBeGreaterThan(0)
+        expect(row?.ranges.length).toBeGreaterThan(0)
+        expect(row?.versions.length).toBeGreaterThan(0)
+    })
+
+    it.each(['{}', 'null', '"a string"', '42'])('reads the non-array aliases_json %s as empty', function (json) {
+        expect(corrupt({ aliasesJson: json })?.aliases).toEqual([])
+    })
+
+    it.each(['{}', 'null', '42'])('reads the non-array versions_json %s as empty', function (json) {
+        expect(corrupt({ versionsJson: json })?.versions).toEqual([])
+    })
+
+    it.each(['{}', 'null', '42'])('reads the non-array ranges_json %s as empty', function (json) {
+        expect(corrupt({ rangesJson: json })?.ranges).toEqual([])
+    })
+
+    it('drops a non-string entry from a string column', function () {
+        expect(corrupt({ aliasesJson: '["CVE-1",7,null,"CVE-2"]' })?.aliases).toEqual(['CVE-1', 'CVE-2'])
+        expect(corrupt({ versionsJson: '[1,"1.0.0",{}]' })?.versions).toEqual(['1.0.0'])
+    })
+
+    // A range with no `introduced` cannot bound anything. Dropping it is the safe reading —
+    // defaulting the lower bound to "0" would make the advisory match every version of the package.
+    it.each(['[null]', '[42]', '["a string"]', '[{"fixed":"1.0.0"}]', '[{"introduced":7}]'])(
+        'drops the unusable range %s',
+        function (json) {
+            expect(corrupt({ rangesJson: json })?.ranges).toEqual([])
+        }
+    )
+
+    // type/fixed/lastAffected were added after the first normalizer shape. A row written before they
+    // existed must read back with defaults rather than undefined, or the matcher compares a bound
+    // that is not there.
+    it('defaults the fields an older normalizer never wrote', function () {
+        expect(corrupt({ rangesJson: '[{"introduced":"0"}]' })?.ranges).toEqual([
+            { type: 'SEMVER', introduced: '0', fixed: null, lastAffected: null }
+        ])
+    })
+
+    it('defaults those fields again when they are present but not strings', function () {
+        const json = '[{"introduced":"0","type":9,"fixed":9,"lastAffected":9}]'
+        expect(corrupt({ rangesJson: json })?.ranges).toEqual([
+            { type: 'SEMVER', introduced: '0', fixed: null, lastAffected: null }
+        ])
+    })
+
+    it('keeps a well-formed range alongside a broken one', function () {
+        const json = '[{"bogus":true},{"introduced":"1.0.0","type":"ECOSYSTEM","fixed":"2.0.0","lastAffected":null}]'
+        expect(corrupt({ rangesJson: json })?.ranges).toEqual([
+            { type: 'ECOSYSTEM', introduced: '1.0.0', fixed: '2.0.0', lastAffected: null }
+        ])
     })
 })

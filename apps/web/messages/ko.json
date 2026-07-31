@@ -347,7 +347,6 @@
                 "name": "이름"
             },
             "sortHelp": "프로젝트 및 라이브러리 테이블의 시작 정렬 순서로 적용됩니다.",
-            "saved": "저장되었습니다.",
             "savedHint": "변경 사항은 기본값을 읽는 모든 페이지에 즉시 적용됩니다.",
             "saveButton": "기본값 저장"
         },
@@ -390,6 +389,8 @@
             "generate": "토큰 생성",
             "rotate": "토큰 교체",
             "clear": "토큰 삭제",
+            "clearConfirmTitle": "MCP 토큰을 삭제할까요?",
+            "clearConfirmBody": "/api/mcp 엔드포인트가 응답을 중단하고 설정된 모든 클라이언트가 접근할 수 없게 됩니다. 토큰은 복구할 수 없으며, 엔드포인트를 다시 켜려면 새 토큰을 생성해야 합니다.",
             "connectTitle": "클라이언트 연결",
             "connectHintRevealed": "아래 스니펫에는 새 토큰이 포함되어 있습니다. 사용하는 클라이언트용을 복사하세요.",
             "connectHintPlaceholder": "{placeholder}를 본인의 토큰으로 바꾸세요(위에서 교체하면 새 토큰이 표시됩니다).",
@@ -453,6 +454,7 @@
         "vulnPrefix": "취약점:",
         "groupingAriaLabel": "발견 항목 그룹화",
         "libraryGroupingAriaLabel": "라이브러리 발견 항목 그룹화",
+        "toggleRow": "{name} 세부 정보 표시",
         "filterBySource": "소스로 필터링",
         "sourceAll": "모든 소스",
         "byAdvisory": "권고별",

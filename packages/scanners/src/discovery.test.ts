@@ -358,3 +358,120 @@ describe('readGitBranch', function () {
         expect(readGitBranch(root, root)).toBeNull()
     })
 })
+
+describe('readGitBranch — the remaining git layouts', function () {
+    // A .git FILE rather than a directory is how worktrees and submodules store their pointer, and
+    // every one of these malformed spellings has to degrade to null rather than throw out of a
+    // discovery sweep that is otherwise fine.
+    it('returns null when the gitdir pointer has no target', async function () {
+        const root = await makeTree({ 'checkout/.git': 'gitdir:\n' })
+        expect(readGitBranch(join(root, 'checkout'), root)).toBeNull()
+    })
+
+    it('returns null when the .git file is not a gitdir pointer at all', async function () {
+        const root = await makeTree({ 'checkout/.git': 'this is not a pointer\n' })
+        expect(readGitBranch(join(root, 'checkout'), root)).toBeNull()
+    })
+
+    // The pointer resolved, but the directory it names has no HEAD — a half-removed worktree.
+    it('returns null when the pointer target has no HEAD', async function () {
+        const root = await makeTree({ 'real/config': '[core]\n', 'checkout/.git': 'gitdir: ../real\n' })
+        expect(readGitBranch(join(root, 'checkout'), root)).toBeNull()
+    })
+
+    // A .git file whose pointer is unusable must not stop the walk: an outer repository above it is
+    // still the right answer.
+    it('keeps walking up past an unusable .git pointer', async function () {
+        const root = await makeTree({
+            '.git/HEAD': 'ref: refs/heads/outer\n',
+            'nested/.git': 'not a pointer\n',
+            'nested/package.json': PKG
+        })
+        expect(readGitBranch(join(root, 'nested'), root)).toBe('outer')
+    })
+
+    it('trims whitespace around a branch name', async function () {
+        const root = await makeTree({ '.git/HEAD': 'ref: refs/heads/  main  \n' })
+        expect(readGitBranch(root, root)).toBe('main')
+    })
+
+    // "ref: refs/heads/" with nothing after it: the capture group matches an empty-ish string, and
+    // the result has to be null rather than an empty branch name rendered as a blank chip.
+    it('returns null for a ref with no branch name', async function () {
+        const root = await makeTree({ '.git/HEAD': 'ref: refs/heads/   \n' })
+        expect(readGitBranch(root, root)).toBeNull()
+    })
+
+    it('returns null for a sha of the wrong length', async function () {
+        const root = await makeTree({ '.git/HEAD': '0123456\n' })
+        expect(readGitBranch(root, root)).toBeNull()
+    })
+
+    // The scan root is not an ancestor of the project at all — the walk must terminate rather than
+    // climbing to the filesystem root looking for a stop that never comes.
+    it('terminates when the scan root is not an ancestor', async function () {
+        const root = await makeTree({ 'a/package.json': PKG, 'b/x': 'x' })
+        expect(readGitBranch(join(root, 'a'), join(root, 'b'))).toBeNull()
+    })
+})
+
+describe('discoverProjectsInTree — unreadable paths', function () {
+    // Discovery walks read-only mounts it does not control. A directory it cannot enumerate has to
+    // yield nothing and let the sweep continue, because the alternative is one bad permission
+    // aborting the scan of every other project under the same root.
+    it('treats an unreadable directory as empty rather than failing the sweep', async function () {
+        const { chmod } = await import('node:fs/promises')
+        const root = await makeTree({ 'good/package.json': PKG, 'locked/keep': 'x' })
+        await chmod(join(root, 'locked'), 0o000)
+        try {
+            expect(discoverProjectsInTree({ rootPath: root }).map(function rel(p) { return p.relPath })).toEqual(['good'])
+        } finally {
+            await chmod(join(root, 'locked'), 0o755)
+        }
+    })
+
+    // An unreadable ignore file is the same story: fall back to "no rules from this layer" instead of
+    // throwing, so a permissions problem cannot silently un-discover a whole subtree either.
+    it('ignores an unreadable ignore file', async function () {
+        const { chmod } = await import('node:fs/promises')
+        const root = await makeTree({ '.gitignore': 'good\n', 'good/package.json': PKG })
+        await chmod(join(root, '.gitignore'), 0o000)
+        try {
+            expect(discoverProjectsInTree({ rootPath: root }).map(function rel(p) { return p.relPath })).toEqual(['good'])
+        } finally {
+            await chmod(join(root, '.gitignore'), 0o644)
+        }
+    })
+
+    it('reads no nvmrc version from an unreadable .nvmrc', async function () {
+        const { chmod, mkdir, writeFile } = await import('node:fs/promises')
+        const root = await makeTree({ 'app/package.json': PKG })
+        await mkdir(join(root, 'app'), { recursive: true })
+        await writeFile(join(root, 'app', '.nvmrc'), '20.0.0\n', 'utf8')
+        await chmod(join(root, 'app', '.nvmrc'), 0o000)
+        try {
+            expect(discoverProjectsInTree({ rootPath: root })[0]?.nvmrcVersion).toBeNull()
+        } finally {
+            await chmod(join(root, 'app', '.nvmrc'), 0o644)
+        }
+    })
+
+    it('reads no nvmrc version from a blank .nvmrc', async function () {
+        const root = await makeTree({ 'app/package.json': PKG, 'app/.nvmrc': '   \n' })
+        expect(discoverProjectsInTree({ rootPath: root })[0]?.nvmrcVersion).toBeNull()
+    })
+
+    // In a worktree or submodule, `.git` is a FILE holding `gitdir: <path>` rather than a directory. An
+    // unreadable one has to read as "no branch" — the same posture as the cases above. It cannot be
+    // treated as a directory either, because the walk would then hand a bogus gitDir to the HEAD read.
+    it('reads no branch from an unreadable .git pointer file', async function () {
+        const { chmod } = await import('node:fs/promises')
+        const root = await makeTree({ 'app/package.json': PKG, '.git': 'gitdir: /elsewhere/.git/worktrees/app\n' })
+        await chmod(join(root, '.git'), 0o000)
+        try {
+            expect(readGitBranch(join(root, 'app'), root)).toBeNull()
+        } finally {
+            await chmod(join(root, '.git'), 0o644)
+        }
+    })
+})

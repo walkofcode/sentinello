@@ -1,6 +1,7 @@
 import { eq, sql } from 'drizzle-orm'
 import type { DrizzleDb } from '../client'
-import { appConfig, notificationTargetRoots, projects, roots, scanRequests } from '../schema'
+import { appConfig, projects, roots, scanRequests } from '../schema'
+import { deleteTargetRootsForRoot } from './notification-target-roots'
 import { cascadeDeleteProjects } from './projects'
 
 export type Root = typeof roots.$inferSelect
@@ -73,8 +74,9 @@ export function deleteRoot(db: DrizzleDb, id: string): void {
         tx.delete(scanRequests).where(eq(scanRequests.rootId, id)).run()
         // Notification-target scope rows referencing this root. A target with an explicit allow-list
         // pointing at a deleted root would otherwise silently match 0 projects without surfacing the
-        // broken reference.
-        tx.delete(notificationTargetRoots).where(eq(notificationTargetRoots.rootId, id)).run()
+        // broken reference. Delegated rather than spelled inline so this cascade and the one in
+        // deleteNotificationTarget stay a single definition.
+        deleteTargetRootsForRoot(tx, id)
         tx.delete(roots).where(eq(roots.id, id)).run()
     })
 }

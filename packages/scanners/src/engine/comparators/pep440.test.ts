@@ -178,6 +178,14 @@ describe('pep440Comparator ordering', function () {
         expect(pep440Comparator.lt('1.0+abc', '1.0+abc.1')).toBe(true)
     })
 
+    // Equal numeric segments must fall through to the next position rather than deciding the
+    // comparison. Returning early on the first pair would make every local version that shares a
+    // leading segment compare as equal.
+    it('moves past equal numeric local segments to the next one', function () {
+        expect(pep440Comparator.lt('1.0+1.2', '1.0+1.3')).toBe(true)
+        expect(pep440Comparator.lt('1.0+1.3', '1.0+1.2')).toBe(false)
+    })
+
     it('orders an epoch above everything in a lower epoch', function () {
         expect(pep440Comparator.lt('999.0', '1!0.1')).toBe(true)
     })
@@ -187,5 +195,115 @@ describe('pep440Comparator ordering', function () {
     it.each(UNCOMPARABLE)('returns false from gte and lt when %j cannot be compared to %j', function (a, b) {
         expect(pep440Comparator.gte(a, b)).toBe(false)
         expect(pep440Comparator.lt(a, b)).toBe(false)
+    })
+})
+
+describe('pep440Comparator — the arms the canonical table does not reach', function () {
+    // The PEP 440 table walks one path through the comparator. These are the branches it never takes,
+    // and each is a real PyPI version string. A comparator that gets one wrong produces a SILENT false
+    // negative — the advisory range simply stops matching the installed version, and the project reads
+    // as clean.
+
+    // The dev/post/local comparisons are each asymmetric in a different direction, which is exactly
+    // what makes them easy to write backwards: absent-post sorts BELOW any post, absent-dev sorts
+    // ABOVE any dev, absent-local sorts BELOW any local.
+    it.each([
+        ['a post release above its final', '1.0', '1.0.post1'],
+        ['a higher post above a lower', '1.0.post1', '1.0.post2'],
+        ['a dev release below its final', '1.0.dev1', '1.0'],
+        ['a higher dev above a lower', '1.0.dev1', '1.0.dev2'],
+        ['a dev of a post below the post', '1.0.post1.dev1', '1.0.post1']
+    ])('orders %s correctly', function (_label, lower, higher) {
+        expect(pep440Comparator.lt(lower as string, higher as string)).toBe(true)
+        expect(pep440Comparator.lt(higher as string, lower as string)).toBe(false)
+    })
+
+    // Same post and dev on both sides: every comparison falls through to equal, which is the arm that
+    // returns 0 rather than picking a side.
+    it.each([
+        ['identical posts', '1.0.post1', '1.0.post1'],
+        ['identical devs', '1.0.dev1', '1.0.dev1'],
+        ['identical locals', '1.0+abc', '1.0+abc'],
+        ['identical pre-releases', '1.0a1', '1.0a1']
+    ])('treats %s as equal', function (_label, a, b) {
+        expect(pep440Comparator.gte(a as string, b as string)).toBe(true)
+        expect(pep440Comparator.lt(a as string, b as string)).toBe(false)
+    })
+
+    // Local version segments compare pairwise, and a shorter prefix sorts below its extension.
+    it.each([
+        ['a longer local above its prefix', '1.0+ubuntu', '1.0+ubuntu.1'],
+        ['a higher numeric local segment', '1.0+build.1', '1.0+build.2'],
+        ['a higher string local segment', '1.0+alpha', '1.0+beta']
+    ])('orders %s', function (_label, lower, higher) {
+        expect(pep440Comparator.lt(lower as string, higher as string)).toBe(true)
+        expect(pep440Comparator.lt(higher as string, lower as string)).toBe(false)
+    })
+
+    // Pre-release letters fold to a/b/rc before ranking, so every spelling of the same stage sorts
+    // together. Missing a spelling would place a "1.0preview1" above a "1.0" rather than below it.
+    it.each([
+        ['alpha', '1.0alpha1'],
+        ['a', '1.0a1'],
+        ['beta', '1.0beta1'],
+        ['b', '1.0b1'],
+        ['c', '1.0c1'],
+        ['rc', '1.0rc1'],
+        ['pre', '1.0pre1'],
+        ['preview', '1.0preview1']
+    ])('sorts the %s spelling below the final release', function (_label, version) {
+        expect(pep440Comparator.lt(version as string, '1.0')).toBe(true)
+    })
+
+    it.each([
+        ['alpha below beta', '1.0alpha1', '1.0beta1'],
+        ['beta below rc', '1.0beta1', '1.0rc1'],
+        ['c ranks as rc', '1.0b9', '1.0c1'],
+        ['pre ranks as rc', '1.0b9', '1.0pre1']
+    ])('ranks %s', function (_label, lower, higher) {
+        expect(pep440Comparator.lt(lower as string, higher as string)).toBe(true)
+    })
+
+    // A pre-release with no number is treated as number 0.
+    it('treats a numberless pre-release as zero', function () {
+        expect(pep440Comparator.lt('1.0a', '1.0a1')).toBe(true)
+    })
+
+    // post/rev/r are the three accepted spellings, plus the bare `-N` shorthand.
+    it.each([
+        ['the post spelling', '1.0.post1'],
+        ['the rev spelling', '1.0.rev1'],
+        ['the r spelling', '1.0.r1'],
+        ['the dash shorthand', '1.0-1']
+    ])('reads %s as a post release above the final', function (_label, version) {
+        expect(pep440Comparator.lt('1.0', version as string)).toBe(true)
+    })
+
+    // Unparseable input must not throw and must not compare as equal-to-everything, which would make
+    // every range match. Returning false in both directions is what keeps a typo from silently
+    // widening an advisory's blast radius.
+    it.each([
+        ['an empty string', ''],
+        ['a non-numeric release', 'not-a-version'],
+        ['a git sha', 'abcdef0'],
+        ['a date-like string', '2026-07-29'],
+        ['a bare pre-release with no release', 'a1']
+    ])('refuses to order %s', function (_label, bad) {
+        expect(pep440Comparator.lt(bad as string, '1.0')).toBe(false)
+        expect(pep440Comparator.lt('1.0', bad as string)).toBe(false)
+    })
+
+    // Not a rejection: the semver spelling of a pre-release is also VALID PEP 440, because the
+    // grammar accepts `-` as a separator and `alpha` as a pre-release letter. So `1.0.0-alpha.1` and
+    // `1.0.0a1` are the same version here, and both sort below `1.0.0`. Worth stating, because it
+    // looks like the sort of input that ought to be rejected.
+    it('reads a semver-style pre-release as the PEP 440 one it happens to be', function () {
+        expect(pep440Comparator.lt('1.0.0-alpha.1', '1.0.0')).toBe(true)
+        expect(pep440Comparator.gte('1.0.0-alpha.1', '1.0.0a1')).toBe(true)
+        expect(pep440Comparator.lt('1.0.0-alpha.1', '1.0.0a1')).toBe(false)
+    })
+
+    it('tolerates surrounding whitespace and a leading v', function () {
+        expect(pep440Comparator.lt('  v1.0  ', '1.1')).toBe(true)
     })
 })

@@ -1,6 +1,8 @@
-import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { ALL_SOURCES, explicitFlagNames, parseArgs, severityAtLeast } from './options'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { ALL_SOURCES, applyConfigFile, explicitFlagNames, parseArgs, severityAtLeast } from './options'
 import type { CliOptions } from './options'
 
 function optionsOf(argv: string[]): CliOptions {
@@ -282,5 +284,234 @@ describe('severityAtLeast', function () {
     it('is false when the value is less severe than the floor', function () {
         expect(severityAtLeast('low', 'critical')).toBe(false)
         expect(severityAtLeast('info', 'moderate')).toBe(false)
+    })
+})
+
+describe('applyConfigFile', function () {
+    // sentinello.config.json lets a team commit its settings once and run `sentinello` bare. The rule
+    // that makes it safe is precedence: the file supplies DEFAULTS, and anything typed on the command
+    // line wins. Every key below is therefore tested twice — applied, and suppressed by its own flag —
+    // because a precedence bug is silent in exactly the direction that matters: the user types a flag,
+    // the committed file quietly overrides it, and the scan they get is not the scan they asked for.
+    //
+    // Reached end to end elsewhere (run.test.ts drives main()); this covers the function directly,
+    // which is the only way to exercise each key in isolation.
+
+    let dir: string
+
+    beforeEach(async function setup() {
+        dir = await mkdtemp(join(tmpdir(), 'sentinello-config-'))
+    })
+
+    afterEach(async function teardown() {
+        await rm(dir, { recursive: true, force: true })
+    })
+
+    async function writeConfig(body: unknown): Promise<void> {
+        await writeFile(join(dir, 'sentinello.config.json'), typeof body === 'string' ? body : JSON.stringify(body), 'utf8')
+    }
+
+    function optionsAt(): CliOptions {
+        const options = optionsOf([])
+        options.rootPath = dir
+        return options
+    }
+
+    async function apply(body: unknown, flags: string[] = []): Promise<{ options: CliOptions; error: string | null }> {
+        await writeConfig(body)
+        const options = optionsAt()
+        const error = await applyConfigFile(options, new Set(flags))
+        return { options, error }
+    }
+
+    describe('reading the file', function () {
+        // Absent is the overwhelmingly common case and must not be an error — most projects have no
+        // config file at all.
+        it('returns null when there is no config file', async function () {
+            const options = optionsAt()
+            expect(await applyConfigFile(options, new Set())).toBeNull()
+            expect(options.maxDepth).toBeNull()
+        })
+
+        it('reports invalid JSON with the parser message', async function () {
+            const { error } = await apply('{not json')
+            expect(error).toMatch(/^sentinello\.config\.json is not valid JSON: /)
+        })
+
+        it.each([
+            ['a bare string', '"just a string"'],
+            ['a number', '42'],
+            ['null', 'null'],
+            ['an empty array', '[]'],
+            ['a populated array', '[{"depth":3}]']
+        ])('rejects %s', async function (_label, body) {
+            const { error } = await apply(body as string)
+            expect(error).toBe('sentinello.config.json must contain an object')
+        })
+
+        it('accepts an empty object and changes nothing', async function () {
+            const { options, error } = await apply({})
+            expect(error).toBeNull()
+            expect(options).toEqual(optionsAt())
+        })
+
+        // Read from options.rootPath, not the working directory, so `sentinello /some/other/repo`
+        // picks up THAT repo's committed settings rather than the one you happen to be standing in.
+        it('reads from the scan root rather than the working directory', async function () {
+            await writeConfig({ depth: 2 })
+            const options = optionsOf([])
+            options.rootPath = join(dir, 'nowhere')
+            expect(await applyConfigFile(options, new Set())).toBeNull()
+            expect(options.maxDepth).toBeNull()
+        })
+    })
+
+    describe('each key applies, and each yields to its own flag', function () {
+        it('applies depth, including the "all" spelling', async function () {
+            expect((await apply({ depth: 3 })).options.maxDepth).toBe(3)
+            expect((await apply({ depth: 'all' })).options.maxDepth).toBeNull()
+            // Numbers are stringified before reuse of the flag parser, so 0 must survive as 0 rather
+            // than being treated as absent.
+            expect((await apply({ depth: 0 })).options.maxDepth).toBe(0)
+        })
+
+        it('reports an invalid depth with the file prefix', async function () {
+            const { error } = await apply({ depth: -1 })
+            expect(error).toBe('sentinello.config.json: --depth expects a non-negative integer or "all"')
+        })
+
+        it('appends excludes, dropping non-strings and blanks', async function () {
+            const { options } = await apply({ exclude: ['dist', '  build  ', '', '   ', 42, null, ['nested']] })
+            expect(options.excludes).toEqual(['dist', 'build'])
+        })
+
+        it('ignores a non-array exclude rather than erroring', async function () {
+            const { options, error } = await apply({ exclude: 'dist' })
+            expect(error).toBeNull()
+            expect(options.excludes).toEqual([])
+        })
+
+        it('applies sources', async function () {
+            const { options } = await apply({ sources: ['osv', 'npm-audit'] })
+            expect(options.sources).toEqual(['osv'])
+            expect(options.includeNpmAudit).toBe(true)
+        })
+
+        it('reports an unknown source with the file prefix', async function () {
+            const { error } = await apply({ sources: ['snyk'] })
+            expect(error).toBe('sentinello.config.json: unknown source "snyk" (expected npm-audit, osv, or gemnasium)')
+        })
+
+        it('ignores a non-array sources', async function () {
+            const { options, error } = await apply({ sources: 'osv' })
+            expect(error).toBeNull()
+            expect(options.sources).toEqual(ALL_SOURCES)
+        })
+
+        it('applies depType and reports an invalid one', async function () {
+            expect((await apply({ depType: 'prod' })).options.depType).toBe('prod')
+            expect((await apply({ depType: 'staging' })).error).toBe('sentinello.config.json: --dep-type expects all, prod, or dev')
+        })
+
+        it('ignores a non-string depType', async function () {
+            const { options, error } = await apply({ depType: 3 })
+            expect(error).toBeNull()
+            expect(options.depType).toBe('all')
+        })
+
+        // Resolved against the config file's directory, so a committed relative path works no matter
+        // where the CLI is invoked from — which is the only way a committed value can be useful.
+        it('resolves a relative prompt against the scan root', async function () {
+            const { options } = await apply({ prompt: 'docs/prompt.md' })
+            expect(options.promptPath).toBe(resolve(dir, 'docs/prompt.md'))
+        })
+
+        it('leaves an absolute prompt alone', async function () {
+            const { options } = await apply({ prompt: '/etc/prompt.md' })
+            expect(options.promptPath).toBe('/etc/prompt.md')
+        })
+
+        it('ignores a non-string prompt', async function () {
+            const { options } = await apply({ prompt: 42 })
+            expect(options.promptPath).toBeNull()
+        })
+
+        it('applies failOn and reports an invalid one', async function () {
+            expect((await apply({ failOn: 'high' })).options.failOn).toBe('high')
+            expect((await apply({ failOn: 'catastrophic' })).error).toMatch(/^sentinello\.config\.json: --fail-on/)
+        })
+
+        it('ignores a non-string failOn', async function () {
+            const { options } = await apply({ failOn: true })
+            expect(options.failOn).toBe('none')
+        })
+
+        // out is stored verbatim rather than resolved, unlike prompt: it is where the run WRITES, and
+        // resolving it against the scan root would put the report inside the repository being scanned.
+        it('applies out verbatim', async function () {
+            const { options } = await apply({ out: 'report.md' })
+            expect(options.outPath).toBe('report.md')
+        })
+
+        it('ignores a non-string out', async function () {
+            const { options } = await apply({ out: ['report.md'] })
+            expect(options.outPath).toBeNull()
+        })
+
+        it.each([
+            ['depth', { depth: 3 }, '--depth', function check(o: CliOptions) { expect(o.maxDepth).toBeNull() }],
+            ['exclude', { exclude: ['dist'] }, '--exclude', function check(o: CliOptions) { expect(o.excludes).toEqual([]) }],
+            ['sources', { sources: ['osv'] }, '--source', function check(o: CliOptions) { expect(o.sources).toEqual(ALL_SOURCES) }],
+            ['depType', { depType: 'prod' }, '--dep-type', function check(o: CliOptions) { expect(o.depType).toBe('all') }],
+            ['prompt', { prompt: 'p.md' }, '--prompt', function check(o: CliOptions) { expect(o.promptPath).toBeNull() }],
+            ['failOn', { failOn: 'high' }, '--fail-on', function check(o: CliOptions) { expect(o.failOn).toBe('none') }],
+            ['out', { out: 'r.md' }, '--out', function check(o: CliOptions) { expect(o.outPath).toBeNull() }]
+        ])('leaves %s alone when its flag was typed', async function (_label, body, flag, check) {
+            const { options, error } = await apply(body, [flag as string])
+            expect(error).toBeNull()
+            ;(check as (o: CliOptions) => void)(options)
+        })
+
+        // An invalid value behind a typed flag is not even parsed, so a committed typo cannot fail a
+        // run that overrode it on the command line.
+        it('does not validate a key whose flag was typed', async function () {
+            const { error } = await apply({ depth: -1, sources: ['snyk'], depType: 'staging' }, ['--depth', '--source', '--dep-type'])
+            expect(error).toBeNull()
+        })
+    })
+
+    describe('applying several keys at once', function () {
+        it('applies every recognised key in one pass', async function () {
+            const { options, error } = await apply({
+                depth: 4,
+                exclude: ['dist', 'vendor'],
+                sources: ['gemnasium'],
+                depType: 'dev',
+                prompt: 'p.md',
+                failOn: 'moderate',
+                out: 'report.md',
+                unrecognised: 'ignored'
+            })
+
+            expect(error).toBeNull()
+            expect(options).toMatchObject({
+                maxDepth: 4,
+                excludes: ['dist', 'vendor'],
+                sources: ['gemnasium'],
+                includeNpmAudit: false,
+                depType: 'dev',
+                promptPath: resolve(dir, 'p.md'),
+                failOn: 'moderate',
+                outPath: 'report.md'
+            })
+        })
+
+        // Stops at the FIRST invalid value in declaration order rather than collecting them, so the
+        // reported error names the key the reader should fix first.
+        it('reports the first invalid key and stops', async function () {
+            const { options, error } = await apply({ depth: -1, depType: 'staging' })
+            expect(error).toContain('--depth')
+            expect(options.depType).toBe('all')
+        })
     })
 })

@@ -347,7 +347,6 @@
                 "name": "Nombre"
             },
             "sortHelp": "Se aplica como orden inicial para las tablas de proyectos y librerías.",
-            "saved": "Guardado.",
             "savedHint": "Los cambios se aplican de inmediato en todas las páginas que leen los predeterminados.",
             "saveButton": "Guardar predeterminados"
         },
@@ -390,6 +389,8 @@
             "generate": "Generar token",
             "rotate": "Rotar token",
             "clear": "Borrar token",
+            "clearConfirmTitle": "¿Borrar el token MCP?",
+            "clearConfirmBody": "El endpoint /api/mcp dejará de responder y todos los clientes configurados perderán el acceso. El token no se puede recuperar: genera uno nuevo para volver a activar el endpoint.",
             "connectTitle": "Conectar un cliente",
             "connectHintRevealed": "Los fragmentos siguientes incluyen tu nuevo token. Copia el de tu cliente.",
             "connectHintPlaceholder": "Sustituye {placeholder} por tu token (rota arriba para revelar uno nuevo).",
@@ -453,6 +454,7 @@
         "vulnPrefix": "vuln:",
         "groupingAriaLabel": "Agrupación de hallazgos",
         "libraryGroupingAriaLabel": "Agrupación de hallazgos por librería",
+        "toggleRow": "Mostrar detalles de {name}",
         "filterBySource": "Filtrar por fuente",
         "sourceAll": "Todas las fuentes",
         "byAdvisory": "Por aviso",

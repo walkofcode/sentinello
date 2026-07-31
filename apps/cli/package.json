@@ -25,7 +25,7 @@
     "author": "Walk of Code LLC <info@sentinello.org> (https://walkofcode.io)",
     "type": "module",
     "bin": {
-        "sentinello": "./dist/cli.cjs"
+        "sentinello": "dist/cli.cjs"
     },
     "files": [
         "dist",

@@ -347,7 +347,6 @@
                 "name": "Name"
             },
             "sortHelp": "Wird als anfängliche Sortierreihenfolge für Projekt- und Bibliothekstabellen angewendet.",
-            "saved": "Gespeichert.",
             "savedHint": "Änderungen gelten sofort für jede Seite, die Standardwerte liest.",
             "saveButton": "Standardwerte speichern"
         },
@@ -390,6 +389,8 @@
             "generate": "Token erstellen",
             "rotate": "Token rotieren",
             "clear": "Token löschen",
+            "clearConfirmTitle": "MCP-Token löschen?",
+            "clearConfirmBody": "Der Endpunkt /api/mcp antwortet dann nicht mehr und alle eingerichteten Clients verlieren den Zugriff. Das Token lässt sich nicht wiederherstellen — erzeuge ein neues, um den Endpunkt wieder zu aktivieren.",
             "connectTitle": "Client verbinden",
             "connectHintRevealed": "Die folgenden Snippets enthalten Ihr neues Token. Kopieren Sie das für Ihren Client.",
             "connectHintPlaceholder": "Ersetzen Sie {placeholder} durch Ihr Token (oben rotieren, um ein neues anzuzeigen).",
@@ -453,6 +454,7 @@
         "vulnPrefix": "Schwachstelle:",
         "groupingAriaLabel": "Gruppierung der Funde",
         "libraryGroupingAriaLabel": "Gruppierung der Bibliotheksfunde",
+        "toggleRow": "Details zu {name} anzeigen",
         "filterBySource": "Nach Quelle filtern",
         "sourceAll": "Alle Quellen",
         "byAdvisory": "Nach Advisory",

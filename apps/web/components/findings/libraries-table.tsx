@@ -3,7 +3,6 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
-import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { CurrentFindingRow } from '@sentinello/db'
 import type { Mute, Severity } from '@sentinello/core'
 import { Badge } from '@/components/ui/badge'
@@ -15,6 +14,7 @@ import { MuteLibraryButton } from '@/components/triage/mute-library-button'
 import { cn } from '@/lib/cn'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { groupByLibrary, type LibraryGroup } from './group-by-library'
+import { RowDisclosure } from './row-disclosure'
 import { VersionChain } from './version-chain'
 import { SourceTags } from './source-tags'
 import { EcosystemBadge } from './ecosystem-badge'
@@ -120,8 +120,12 @@ function LibraryRows({ group, projectId, mutes, isOpen, onToggle, now }: RowProp
     return (
         <>
             <TableRow className={cn('cursor-pointer', group.allMuted && 'opacity-60')}>
-                <TableCell onClick={function flip() { onToggle(groupKey(group)) }} className="w-8 text-muted-foreground">
-                    {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                <TableCell className="w-8 text-muted-foreground">
+                    <RowDisclosure
+                        open={isOpen}
+                        label={t('toggleRow', { name: group.packageName })}
+                        onToggle={function flip() { onToggle(groupKey(group)) }}
+                    />
                 </TableCell>
                 <TableCell onClick={function flip() { onToggle(groupKey(group)) }}>
                     <SeverityPill variant={group.maxSeverity as Severity} size="sm" />
@@ -178,8 +182,12 @@ function LibraryCard({ group, projectId, mutes, isOpen, onToggle, now }: RowProp
                 onClick={function flip() { onToggle(groupKey(group)) }}
                 className="flex cursor-pointer items-start gap-2 p-4"
             >
-                <span className="mt-0.5 text-muted-foreground">
-                    {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                <span className="mt-0.5">
+                    <RowDisclosure
+                        open={isOpen}
+                        label={t('toggleRow', { name: group.packageName })}
+                        onToggle={function flip() { onToggle(groupKey(group)) }}
+                    />
                 </span>
                 <SeverityPill variant={group.maxSeverity as Severity} size="sm" />
                 <div className="min-w-0 flex-1">

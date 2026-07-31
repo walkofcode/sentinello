@@ -347,7 +347,6 @@
                 "name": "名前"
             },
             "sortHelp": "プロジェクトおよびライブラリのテーブルの初期の並べ替え順として適用されます。",
-            "saved": "保存しました。",
             "savedHint": "変更はデフォルトを読み込むすべてのページに即座に適用されます。",
             "saveButton": "デフォルトを保存"
         },
@@ -390,6 +389,8 @@
             "generate": "トークンを生成",
             "rotate": "トークンを再生成",
             "clear": "トークンを削除",
+            "clearConfirmTitle": "MCP トークンを削除しますか？",
+            "clearConfirmBody": "/api/mcp エンドポイントは応答を停止し、設定済みのすべてのクライアントがアクセスできなくなります。トークンは復元できません。エンドポイントを再び有効にするには、新しいトークンを生成してください。",
             "connectTitle": "クライアントを接続",
             "connectHintRevealed": "以下のスニペットには新しいトークンが含まれています。お使いのクライアント用のものをコピーしてください。",
             "connectHintPlaceholder": "{placeholder} をご自分のトークンに置き換えてください（上で再生成すると新しいトークンが表示されます）。",
@@ -453,6 +454,7 @@
         "vulnPrefix": "脆弱性:",
         "groupingAriaLabel": "検出のグループ化",
         "libraryGroupingAriaLabel": "ライブラリの検出のグループ化",
+        "toggleRow": "{name} の詳細を表示",
         "filterBySource": "ソースで絞り込み",
         "sourceAll": "すべてのソース",
         "byAdvisory": "アドバイザリ別",

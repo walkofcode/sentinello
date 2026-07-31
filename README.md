@@ -2,6 +2,13 @@
   <img src="apps/web/public/sentinello-logo.png" alt="Sentinello" width="120" height="120" />
 </p>
 
+<p align="center">
+  <a href="https://github.com/walkofcode/sentinello/actions/workflows/ci.yml"><img src="https://github.com/walkofcode/sentinello/actions/workflows/ci.yml/badge.svg" alt="CI status" /></a>
+  <a href="CONTRIBUTING.md#tests"><img src="https://img.shields.io/badge/coverage-99%25-brightgreen" alt="Statement coverage 99%, enforced by CI" /></a>
+  <a href="https://github.com/walkofcode/sentinello/releases/latest"><img src="https://img.shields.io/github/v/release/walkofcode/sentinello" alt="Latest release" /></a>
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT licensed" />
+</p>
+
 # Sentinello
 
 **An early-warning system for the dependencies you stopped watching.**
@@ -39,6 +46,10 @@ telemetry — your code and your findings never leave your machine.
 ---
 
 ## Just want the answer, right now?
+
+> **Coming with 3.0.** The CLI is not on npm yet — `npx sentinello` starts working the day 3.0
+> ships. Everything in this section describes it as it will land; until then, use the
+> [portal](#quick-start) below.
 
 You don't have to run anything to use Sentinello. The same scanners are available as a CLI:
 
@@ -636,6 +647,54 @@ pnpm dev
 
 Requires Node >= 24.14.0 and pnpm >= 10.33.0. See [`CONTRIBUTING.md`](CONTRIBUTING.md)
 for development setup, contribution conventions, and the release process.
+
+### Tests
+
+```bash
+pnpm test              # unit + integration, offline, ~1s
+pnpm test:coverage     # the same suite, plus a merged report in coverage/
+pnpm test:e2e          # Playwright against a built portal
+```
+
+The suite is **hermetic**: it never touches the network and never shells out to a package
+manager, so it produces the same result on a laptop and in CI. Across the 130 instrumented
+source files it currently covers:
+
+| Statements | Branches | Functions | Lines |
+|-----------:|---------:|----------:|------:|
+| 99.45%     | 97.57%   | 100%      | 99.85% |
+
+Those are floors, not aspirations. `vitest.config.ts` holds a **ratchet** — a global
+threshold plus a per-path floor for every meaningful module, each sitting just under what
+the suite actually covers — and `pnpm test:coverage` fails when any of them slips. It runs
+on every pull request, which is what makes the badge above worth believing: coverage can go
+up, and CI will not let it come back down. Functions are pinned at 100%, so a new function
+with no test fails the build rather than quietly lowering an average.
+
+**What that covers, and what it does not.** The instrumented surface is the scanning and
+persistence core — `packages/*`, the CLI, the worker, and `apps/web/lib`. It does **not**
+include `apps/homepage`, the portal's route handlers and pages under `apps/web/app`, or the
+React components under `apps/web/components` (the coverage glob matches `.ts`, not `.tsx`).
+Those are **partially** covered by the Playwright suite, which is not part of this ratchet. It
+starts the portal only — `apps/homepage` is never launched — and its seventeen tests cover
+`/api/health`, the dashboard and project detail with real assertions, then smoke-check a few
+more pages for a 200. That catches a schema change turning a server component into a 500,
+which is what it is for, but it is far weaker than the unit suite: about two thirds of the
+routes under `apps/web/app`, `/api/mcp` and `/api/version` among them, are never loaded at all.
+Run `npx playwright test --list` for the current set rather than trusting that count here.
+
+So the 100% function floor above is a statement about the unit-tested core, and the surface
+outside it has real gaps rather than coverage under another name.
+
+The remaining branch residue is mostly defensive arms that no test can reach through the
+public API — `noUncheckedIndexedAccess` fallbacks and error paths behind collaborators that
+only ever throw `Error`. They are enumerated, with line references, in the comment above the
+thresholds, so nobody has to rediscover which ones are worth chasing. That comment also
+records where the enumeration has previously been *wrong*, which is the part worth reading
+before trusting it.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md#tests) for where tests live and the two rules that
+keep the suite hermetic.
 
 ## Legal
 

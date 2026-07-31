@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
-import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
 import type { LibraryProjectUsage } from '@sentinello/db'
 import { compareSeverity, severityWeight, type Mute, type Severity } from '@sentinello/core'
 import { Badge } from '@/components/ui/badge'
@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { MuteDialog } from '@/components/triage/mute-dialog'
 import { cn } from '@/lib/cn'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
+import { RowDisclosure } from './row-disclosure'
 
 type Props = {
     packageName: string
@@ -139,8 +140,12 @@ function ProjectRows({ packageName, group, activeMutes, isOpen, onToggle, now }:
     return (
         <>
             <TableRow className="cursor-pointer">
-                <TableCell onClick={function flip() { onToggle(group.projectId) }} className="w-8 text-muted-foreground">
-                    {(isOpen && <ChevronDown className="h-4 w-4" />) || <ChevronRight className="h-4 w-4" />}
+                <TableCell className="w-8 text-muted-foreground">
+                    <RowDisclosure
+                        open={isOpen}
+                        label={t('toggleRow', { name: group.projectName })}
+                        onToggle={function flip() { onToggle(group.projectId) }}
+                    />
                 </TableCell>
                 <TableCell onClick={function flip() { onToggle(group.projectId) }}>
                     <SeverityPill variant={group.maxSeverity} size="sm" />
@@ -187,8 +192,12 @@ function ProjectCard({ packageName, group, activeMutes, isOpen, onToggle, now }:
                 onClick={function flip() { onToggle(group.projectId) }}
                 className="flex cursor-pointer items-start gap-2 p-4"
             >
-                <span className="mt-0.5 text-muted-foreground">
-                    {(isOpen && <ChevronDown className="h-4 w-4" />) || <ChevronRight className="h-4 w-4" />}
+                <span className="mt-0.5">
+                    <RowDisclosure
+                        open={isOpen}
+                        label={t('toggleRow', { name: group.projectName })}
+                        onToggle={function flip() { onToggle(group.projectId) }}
+                    />
                 </span>
                 <SeverityPill variant={group.maxSeverity} size="sm" />
                 <div className="min-w-0 flex-1">

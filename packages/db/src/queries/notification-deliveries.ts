@@ -416,6 +416,9 @@ function parseSourceScope(json: string): NotificationTarget['sourceScope'] {
     } catch {
         return { mode: 'all', cells: [] }
     }
+    // `null` is valid JSON but not an object, so the catch above does not cover it and reading
+    // .mode would throw. Fail open like every other malformed case here.
+    if (!parsed || typeof parsed !== 'object') return { mode: 'all', cells: [] }
     const obj = parsed as { mode?: unknown; cells?: unknown }
     if (obj.mode !== 'selected' || !Array.isArray(obj.cells)) return { mode: 'all', cells: [] }
     const cells = obj.cells.filter(function isCell(c: unknown): c is NotificationTarget['sourceScope']['cells'][number] {

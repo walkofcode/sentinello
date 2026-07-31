@@ -248,6 +248,10 @@ function TargetRow(props: {
                         size="sm"
                         onClick={props.onToggle}
                         disabled={props.pending}
+                        // A toggle whose state was carried by the icon COLOUR alone (1.4.1) and was not
+                        // exposed as a toggle at all (4.1.2). No aria-label: the visible text flips
+                        // between On and Off, so any static label would break 2.5.3 in one state.
+                        aria-pressed={t.enabled}
                     >
                         <Power className={'h-4 w-4 ' + (t.enabled ? 'text-success' : 'text-muted-foreground')} />
                         {t.enabled ? tr('notifications.on') : tr('notifications.off')}
@@ -344,6 +348,7 @@ function TargetCard(props: {
                         onClick={props.onToggle}
                         disabled={props.pending}
                         className="ml-auto"
+                        aria-pressed={t.enabled}
                     >
                         <Power className={'h-4 w-4 ' + (t.enabled ? 'text-success' : 'text-muted-foreground')} />
                         {t.enabled ? tr('notifications.on') : tr('notifications.off')}

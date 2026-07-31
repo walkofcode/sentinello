@@ -72,9 +72,49 @@ describe('filterFindingsByLockfileResolution — fail-open on uncertainty', func
         expect(keptIds([finding('file:../local', '>=1.0.0 <2.0.0')])).toEqual(['GHSA-1'])
     })
 
-    it('coerces loose but recognisable versions rather than giving up', function () {
-        // 'v3.0.0' coerces to 3.0.0, which is outside the range, so this one is safely droppable.
+    // A lockfile can name a package manager's own idea of a version. semver.valid already accepts the
+    // 'v' prefix, so 'v3.0.0' never reaches coerce at all; '3.0' does, and is the case that proves the
+    // coercion path rather than the strict one.
+    it('accepts a v-prefixed version directly', function () {
         expect(keptIds([finding('v3.0.0', '>=1.0.0 <2.0.0')])).toEqual([])
+    })
+
+    it('coerces a partial version rather than giving up', function () {
+        // '3.0' is not strict semver; coerced to 3.0.0 it sits outside the range, so it is droppable.
+        expect(keptIds([finding('3.0', '>=1.0.0 <2.0.0')])).toEqual([])
+        // And the same shape inside the range is kept, so the coercion is not just always-drop.
+        expect(keptIds([finding('1.5', '>=1.0.0 <2.0.0')])).toEqual(['GHSA-1'])
+    })
+
+    // The hoisted-duplicate format is a comma-joined list. A degenerate one that lists no versions at
+    // all leaves nothing to compare, which is uncertainty like any other.
+    it('keeps when the version list has no entries', function () {
+        expect(keptIds([finding(',', '>=1.0.0 <2.0.0')])).toEqual(['GHSA-1'])
+    })
+
+    // Regression guard for a silent false negative. When npm-audit cannot resolve a concrete installed
+    // version — a lockfileVersion 1 package-lock, an unreadable one, or one the schema rejects —
+    // pickInstalledVersion falls back to the vulnerability's own RANGE, so `installedVersion` arrives
+    // here as something like '<4.17.21'. coerce() then reads that as the version 4.17.21, which is the
+    // first FIXED version rather than anything installed, concludes it sits outside its own vulnerable
+    // range, and drops the finding. The scan then reports status ok with zero findings — a clean bill of
+    // health for a vulnerable project, which is precisely the outcome the fail-open rule exists to
+    // prevent. A range is not a version; it is the absence of one.
+    it('keeps when the installed version is a range expression rather than a version', function () {
+        expect(keptIds([finding('<4.17.21', '<4.17.21')])).toEqual(['GHSA-1'])
+    })
+
+    it.each([
+        ['a less-than comparator', '<2.0.0'],
+        ['a compound comparator', '>=1.0.0 <2.0.0'],
+        ['a caret range', '^1.5.0'],
+        ['a tilde range', '~1.5.0'],
+        ['a wildcard patch', '1.5.x'],
+        ['a union', '1.5.0 || 3.0.0'],
+        ['a hyphen range', '1.0.0 - 1.9.0'],
+        ['a bare star', '*']
+    ])('keeps when the installed version is %s', function (_label, installed) {
+        expect(keptIds([finding(installed as string, '>=1.0.0 <2.0.0')])).toEqual(['GHSA-1'])
     })
 })
 

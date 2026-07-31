@@ -33,6 +33,16 @@ describe('severityFromCvss — CVSS v3.1 base vectors', function () {
         expect(severityFromCvss('CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N', null)).toBe('none')
     })
 
+    // CVSS "Roundup" rounds up to one decimal, so almost every real score arrives needing the bump.
+    // These two are the exception — they already sit exactly on a tenth and must pass through
+    // untouched rather than being rounded up to 10.1 and 5.4.
+    it('leaves a score that already lands on a tenth alone', function () {
+        // Scope-changed full compromise: the raw score exceeds 10 and is capped at exactly 10.0.
+        expect(severityFromCvss('CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H', null)).toBe('critical')
+        // Physical-access scope change, confidentiality only: exactly 5.3.
+        expect(severityFromCvss('CVSS:3.1/AV:P/AC:L/PR:N/UI:N/S:C/C:H/I:N/A:N', null)).toBe('moderate')
+    })
+
     it('accepts a 3.0 prefix and a vector with no prefix at all', function () {
         expect(severityFromCvss('CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', null)).toBe('critical')
         expect(severityFromCvss('AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', null)).toBe('critical')
@@ -96,5 +106,26 @@ describe('severityFromCvss — source preference and failure modes', function ()
     // rather than substituting a default weight.
     it('returns null for an unrecognised metric value', function () {
         expect(severityFromCvss('CVSS:3.1/AV:Z/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', null)).toBeNull()
+    })
+
+    // Every v2 metric is required, and each one is a separate way to fail. Dropping them one at a
+    // time proves no single absent metric is quietly defaulted to a weight of zero — which would
+    // score the advisory rather than declining to.
+    it.each([
+        ['AV', 'AC:L/Au:N/C:C/I:C/A:C'],
+        ['AC', 'AV:N/Au:N/C:C/I:C/A:C'],
+        ['Au', 'AV:N/AC:L/C:C/I:C/A:C'],
+        ['C', 'AV:N/AC:L/Au:N/I:C/A:C'],
+        ['I', 'AV:N/AC:L/Au:N/C:C/A:C'],
+        ['A', 'AV:N/AC:L/Au:N/C:C/I:C']
+    ])('returns null for a v2 vector with no %s metric', function (_metric, vector) {
+        expect(severityFromCvss(null, vector)).toBeNull()
+    })
+
+    // A v2 vector that parses into metrics but cannot be scored must fall through to null rather
+    // than bucketing whatever partial number it managed to compute.
+    it('returns null for a v2 vector that parses but cannot be scored', function () {
+        expect(severityFromCvss(null, 'AV:N')).toBeNull()
+        expect(severityFromCvss('CVSS:3.1/AV:N', 'AV:N/AC:L')).toBeNull()
     })
 })

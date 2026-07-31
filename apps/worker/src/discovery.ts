@@ -31,8 +31,14 @@ export type DiscoveryResult = {
 
 export function discoverProjects(input: DiscoveryInput): DiscoveryResult {
     const discoveredByPath = new Map<string, Project>()
+    // Recorded inside the loop, immediately past the existsSync guard, so it holds the roots actually
+    // walked rather than the roots requested. Deriving it from input.roots instead would reconcile an
+    // unmounted root against an empty walk and hard-delete every project under it; re-checking
+    // existsSync further down would reintroduce that on a mount that drops mid-pass.
+    const walkedRootIds = new Set<string>()
     for (const root of input.roots) {
         if (!existsSync(root.path)) continue
+        walkedRootIds.add(root.id)
         const found = discoverProjectsInTree({
             rootPath: root.path,
             excludes: input.globalIgnore,
@@ -58,7 +64,6 @@ export function discoverProjects(input: DiscoveryInput): DiscoveryResult {
     }
     // Reconciliation is scoped to the roots we actually walked. Otherwise a per-root sweep would
     // mark every project under unrelated roots as "missing" just because we didn't visit them.
-    const walkedRootIds = new Set(input.roots.map(function id(r): string { return r.id }))
     const existing = listProjects(input.db).filter(function inScope(p): boolean {
         return walkedRootIds.has(p.rootId)
     })

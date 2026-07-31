@@ -276,7 +276,10 @@ export async function applyConfigFile(options: CliOptions, explicitFlags: Readon
     } catch (err) {
         return 'sentinello.config.json is not valid JSON: ' + (err instanceof Error && err.message || String(err))
     }
-    if (!parsed || typeof parsed !== 'object') return 'sentinello.config.json must contain an object'
+    // Array.isArray is not redundant with the typeof check — `typeof [] === 'object'`, so without it a
+    // JSON array is accepted as a config. It carries none of the recognised keys, so every setting
+    // silently falls back to its default rather than reporting the file the team actually committed.
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return 'sentinello.config.json must contain an object'
     const config = parsed as FileConfig
     if (config.depth !== undefined && !explicitFlags.has('--depth')) {
         const error = applyValueFlag(options, '--depth', String(config.depth))
