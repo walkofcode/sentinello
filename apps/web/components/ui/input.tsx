@@ -1,14 +1,11 @@
-import { forwardRef, type InputHTMLAttributes, type LabelHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { type ComponentProps } from 'react'
 import { cn } from '@/lib/cn'
 
-export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(
-    { className, type, ...props },
-    ref
-) {
+// React 19 passes `ref` through as an ordinary prop, so these need no forwardRef wrapper.
+// ComponentProps<'input'> already includes it, and the spread carries it to the DOM node.
+export function Input({ className, ...props }: ComponentProps<'input'>) {
     return (
         <input
-            ref={ref}
-            type={type}
             className={cn(
                 'flex h-9 w-full rounded-md border bg-card px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50',
                 className
@@ -16,15 +13,11 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
             {...props}
         />
     )
-})
+}
 
-export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea(
-    { className, ...props },
-    ref
-) {
+export function Textarea({ className, ...props }: ComponentProps<'textarea'>) {
     return (
         <textarea
-            ref={ref}
             className={cn(
                 'flex min-h-[80px] w-full rounded-md border bg-card px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50',
                 className
@@ -32,17 +25,8 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
             {...props}
         />
     )
-})
+}
 
-export const Label = forwardRef<HTMLLabelElement, LabelHTMLAttributes<HTMLLabelElement>>(function Label(
-    { className, ...props },
-    ref
-) {
-    return (
-        <label
-            ref={ref}
-            className={cn('text-sm font-medium leading-none peer-disabled:opacity-70', className)}
-            {...props}
-        />
-    )
-})
+export function Label({ className, ...props }: ComponentProps<'label'>) {
+    return <label className={cn('text-sm font-medium leading-none peer-disabled:opacity-70', className)} {...props} />
+}

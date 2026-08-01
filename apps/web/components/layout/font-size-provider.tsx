@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, use, useEffect, useState, type ReactNode } from 'react'
 
 export type FontSize = 'small' | 'normal' | 'large' | 'extra-large'
 
@@ -30,6 +30,7 @@ function readInitial(): FontSize {
 }
 
 export function FontSizeProvider({ children }: { children: ReactNode }) {
+    // eslint-disable-next-line @eslint-react/use-state -- `setSize` below is the exported setter; the raw one is deliberately not called that
     const [size, setSizeState] = useState<FontSize>(FONT_SIZE_DEFAULT)
     // Hydrate from localStorage on mount so React state matches the data-font-size
     // attribute the pre-hydration script already set on <html>. Server renders with
@@ -46,11 +47,11 @@ export function FontSizeProvider({ children }: { children: ReactNode }) {
         }
         document.documentElement.setAttribute('data-font-size', next)
     }
-    return <FontSizeContext.Provider value={{ size, setSize }}>{children}</FontSizeContext.Provider>
+    return <FontSizeContext value={{ size, setSize }}>{children}</FontSizeContext>
 }
 
 export function useFontSize(): Ctx {
-    const ctx = useContext(FontSizeContext)
+    const ctx = use(FontSizeContext)
     if (!ctx) throw new Error('useFontSize must be used within FontSizeProvider')
     return ctx
 }

@@ -1,4 +1,4 @@
-import { forwardRef, type ButtonHTMLAttributes } from 'react'
+import { type ComponentProps } from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/cn'
 
@@ -26,11 +26,10 @@ const buttonVariants = cva(
     }
 )
 
-export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & VariantProps<typeof buttonVariants>
+export type ButtonProps = ComponentProps<'button'> & VariantProps<typeof buttonVariants>
 
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-    { className, variant, size, ...props },
-    ref
-) {
-    return <button ref={ref} className={cn(buttonVariants({ variant, size }), className)} {...props} />
-})
+// React 19 passes `ref` through as an ordinary prop, so this needs no forwardRef wrapper.
+// ComponentProps<'button'> already includes it, and the spread carries it to the DOM node.
+export function Button({ className, variant, size, ...props }: ButtonProps) {
+    return <button className={cn(buttonVariants({ variant, size }), className)} {...props} />
+}
