@@ -66,7 +66,7 @@ function groupByProject(usages: LibraryProjectUsage[]): ProjectGroup[] {
 export function LibraryByProjectTable({ packageName, usages, activeMutes, now }: Props) {
     const t = useTranslations('Findings')
     const groups = useMemo(function build() { return groupByProject(usages) }, [usages])
-    const [expanded, setExpanded] = useState<Set<string>>(new Set())
+    const [expanded, setExpanded] = useState<Set<string>>(function init() { return new Set() })
     function toggle(projectId: string) {
         const next = new Set(expanded)
         if (next.has(projectId)) {

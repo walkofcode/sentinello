@@ -457,10 +457,14 @@ function EditTargetForm({ target, roots, projects, onSaved }: { target: Notifica
     const [enabled, setEnabled] = useState(target.enabled)
     const [filter, setFilter] = useState<Severity[]>(target.severityFilter)
     const [envFilter, setEnvFilter] = useState<DepTypeFilter>(target.envFilter)
-    const [scopeMode, setScopeMode] = useState<RootScopeMode>(modeFromScope(target.rootIds, target.projectIds))
+    const [scopeMode, setScopeMode] = useState<RootScopeMode>(function init() {
+        return modeFromScope(target.rootIds, target.projectIds)
+    })
     const [selectedRootIds, setSelectedRootIds] = useState<string[]>(target.rootIds)
     const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>(target.projectIds)
-    const [sourceScopeMode, setSourceScopeMode] = useState<SourceScopeMode>(sourceScopeModeFrom(target.sourceScope))
+    const [sourceScopeMode, setSourceScopeMode] = useState<SourceScopeMode>(function init() {
+        return sourceScopeModeFrom(target.sourceScope)
+    })
     const [selectedCells, setSelectedCells] = useState<SourceCell[]>(target.sourceScope.cells)
     const [pending, startTransition] = useTransition()
     function toggleSeverity(sev: Severity) {

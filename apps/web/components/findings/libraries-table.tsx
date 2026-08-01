@@ -42,7 +42,7 @@ type Props = {
 export function LibrariesTable({ findings, projectId, mutes, now }: Props) {
     const t = useTranslations('Findings')
     const groups = useMemo(function build() { return groupByLibrary(findings) }, [findings])
-    const [expanded, setExpanded] = useState<Set<string>>(new Set())
+    const [expanded, setExpanded] = useState<Set<string>>(function init() { return new Set() })
     function toggle(key: string) {
         const next = new Set(expanded)
         if (next.has(key)) {
