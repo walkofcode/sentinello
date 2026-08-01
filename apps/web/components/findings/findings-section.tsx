@@ -36,8 +36,6 @@ export function FindingsSection({ findings, projectId, mutes, now, sources, ecos
     const [advisoryPage, setAdvisoryPage] = useState(1)
     const [libraryPage, setLibraryPage] = useState(1)
 
-    const ecosystemUniverse = ecosystems ?? []
-
     // The user's ?src= selection over the enabled sources (empty = all). Filtering is pure presentation
     // over loaded rows — the universe is the enabled sources, not just those present, so "npm only" can
     // resolve to an empty table on a project where only OSV fired.
@@ -46,10 +44,11 @@ export function FindingsSection({ findings, projectId, mutes, now, sources, ecos
     }, [searchParams, sources])
 
     // The user's ?eco= selection over the present ecosystems (empty = all). Same pure-presentation model
-    // as the source filter.
+    // as the source filter. The `?? []` fallback lives inside the memo because as a bare expression it
+    // built a fresh array every render, which changed the dependency identity every time.
     const selectedEcosystems = useMemo(function parse() {
-        return parseEcosystemParam(searchParams.get('eco'), ecosystemUniverse)
-    }, [searchParams, ecosystemUniverse])
+        return parseEcosystemParam(searchParams.get('eco'), ecosystems ?? [])
+    }, [searchParams, ecosystems])
 
     // Collapse duplicate rows (same package@version reported via many dep-paths and by both sources)
     // into one row per vulnerability, carrying every source as a tag. The "by advisory" tab and its
