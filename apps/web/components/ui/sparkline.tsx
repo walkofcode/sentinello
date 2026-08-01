@@ -25,6 +25,9 @@ export function Sparkline({ points, width = 200, height = 40 }: Props) {
             {points.map(function dot(value, index) {
                 const x = index * step
                 const y = height - ((value - min) / range) * height
+                // The index IS this datum's identity — x is derived from it — and the whole series
+                // re-renders together, so there is nothing for a content-based key to stabilise.
+                // eslint-disable-next-line @eslint-react/no-array-index-key -- see above
                 return <circle key={index} cx={x} cy={y} r={2} fill="currentColor" />
             })}
         </svg>

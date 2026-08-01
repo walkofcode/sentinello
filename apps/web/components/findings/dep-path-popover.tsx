@@ -53,6 +53,9 @@ export function DepPathPopover({ paths }: Props) {
                           <div className="flex flex-col gap-1">
                               {real.map(function row(p, i) {
                                   return (
+                                      // Read-only list rendered once per popover open, never reordered or mutated.
+                                      // The joined path is not guaranteed unique across `real`, so it cannot be the key.
+                                      // eslint-disable-next-line @eslint-react/no-array-index-key -- see above
                                       <div key={i} className="font-mono text-xs text-foreground/90">
                                           {p.join(' → ')}
                                       </div>

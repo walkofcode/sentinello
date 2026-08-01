@@ -29,10 +29,14 @@ export function AddRootDialog({ open, onClose, existingPaths }: Props) {
     const [loading, startLoading] = useTransition()
     const [pending, startPending] = useTransition()
     const [error, setError] = useState<string | null>(null)
+    // One-shot bootstrap when the dialog opens. `navigate` is intentionally not a dependency: it closes
+    // over `showHidden`, so listing it would re-run this reset every time the user toggles hidden
+    // directories, throwing them back to the root mid-browse.
     useEffect(function bootstrap() {
         if (!open) return
         setError(null)
         navigate('')
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
     }, [open])
     function navigate(target: string) {
         startLoading(async function load() {

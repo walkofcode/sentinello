@@ -21,6 +21,7 @@ type SearchParams = Promise<{ pdep?: string; ldep?: string }>
 
 export default async function ProjectsPage({ searchParams }: { searchParams: SearchParams }) {
     const db = getDb()
+    // eslint-disable-next-line react-hooks/purity -- async Server Component: renders once, never re-renders
     const now = Date.now()
     const params = await searchParams
     const defaults = getFilterDefaults(db)

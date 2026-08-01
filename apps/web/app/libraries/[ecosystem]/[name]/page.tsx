@@ -33,6 +33,7 @@ export default async function LibraryDetailPage({ params, searchParams }: PagePr
     const resolvedSearchParams = await searchParams
     const t = await getTranslations('Detail')
     const db = getDb()
+    // eslint-disable-next-line react-hooks/purity -- async Server Component: renders once, never re-renders
     const now = Date.now()
     const ecosystem = decodeURIComponent(resolvedParams.ecosystem)
     const packageName = decodeURIComponent(resolvedParams.name)

@@ -40,6 +40,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     return (
         <html lang={locale} data-scroll-behavior="smooth" suppressHydrationWarning>
             <head>
+                {/* Must run before first paint to apply the stored font size, so it cannot be a
+                    component or a deferred <Script>. The content is a build-time constant with no
+                    interpolation — nothing user-controlled reaches it. */}
+                {/* eslint-disable-next-line @eslint-react/dom-no-dangerously-set-innerhtml -- see above */}
                 <script dangerouslySetInnerHTML={{ __html: FONT_SIZE_BOOT_SCRIPT }} />
             </head>
             <body className="min-h-screen bg-background text-foreground antialiased">

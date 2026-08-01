@@ -26,7 +26,7 @@ pnpm test:e2e          # Playwright against a built portal (needs browsers, see 
 
 Tests live **beside the code they cover**, as `src/**/*.test.ts`. That placement is
 deliberate: the existing per-package `tsconfig` already includes `src/**/*.ts`, so
-`pnpm typecheck` checks your tests too, and `eslint src` already lints them.
+`pnpm typecheck` checks your tests too, and `eslint .` already lints them.
 
 The suite is **hermetic** — it never touches the network and never shells out to a
 package manager. Two rules keep it that way, and both are worth knowing before you

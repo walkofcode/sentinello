@@ -37,6 +37,7 @@ const VIEWPORT_MARGIN = 8
 // with these coordinates, flipping above the trigger when there is no room below.
 export function useAnchoredPanel<T extends HTMLElement>(options: Options): AnchoredPanel<T> {
     const { width, flipThreshold, align = 'left', offset = 4, matchTriggerWidth = false } = options
+    // eslint-disable-next-line @eslint-react/use-state -- `setOpen` below is the exported setter; the raw one is deliberately not called that
     const [open, setOpenState] = useState<boolean>(false)
     const [style, setStyle] = useState<CSSProperties | null>(null)
     const triggerRef = useRef<T | null>(null)

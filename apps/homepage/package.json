@@ -9,7 +9,7 @@
         "build": "next build",
         "dev": "PORT=${PORT:-3844} next dev",
         "start": "PORT=${PORT:-3844} next start",
-        "lint": "eslint app components i18n lib",
+        "lint": "eslint . --max-warnings 0",
         "typecheck": "tsc --noEmit",
         "clean": "rm -rf .next .turbo .tsbuildinfo"
     },

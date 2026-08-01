@@ -108,6 +108,10 @@ export function WhatsNewPillClient({ version }: Props) {
                     <ul className="space-y-1.5 text-sm text-muted-foreground">
                         {copy.items.map(function renderItem(item, index) {
                             return (
+                                // Release-note bullets come from a frozen RELEASE_COPY entry: never reordered,
+                                // filtered or appended to at runtime, so the index is a stable identity. The
+                                // strings themselves are not guaranteed unique, so they cannot be the key.
+                                // eslint-disable-next-line @eslint-react/no-array-index-key -- see above
                                 <li key={index} className="flex gap-2">
                                     <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-emerald-500" />
                                     <span>{item}</span>

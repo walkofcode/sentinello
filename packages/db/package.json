@@ -22,7 +22,7 @@
         }
     },
     "scripts": {
-        "lint": "eslint src",
+        "lint": "eslint . --max-warnings 0",
         "typecheck": "tsc -p tsconfig.json --noEmit",
         "db:generate": "drizzle-kit generate",
         "db:generate:osv": "drizzle-kit generate --config drizzle-osv.config.ts",

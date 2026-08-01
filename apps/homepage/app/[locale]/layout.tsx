@@ -96,6 +96,10 @@ export default async function LocaleLayout({ children, params }: LayoutProps) {
     return (
         <html lang={locale} suppressHydrationWarning>
             <body className="min-h-screen bg-background text-foreground antialiased">
+                {/* JSON-LD structured data has to be injected as raw script content for crawlers to
+                    read it. `jsonLd` is built above from repo constants and message-catalogue strings
+                    only — no request or user input reaches it. */}
+                {/* eslint-disable-next-line @eslint-react/dom-no-dangerously-set-innerhtml -- see above */}
                 <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
                 <NextIntlClientProvider>
                     <ThemeProvider>

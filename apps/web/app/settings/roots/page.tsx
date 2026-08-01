@@ -12,6 +12,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function RootsSettingsPage() {
     const db = getDb()
     const sqlite = getSqlite()
+    // eslint-disable-next-line react-hooks/purity -- async Server Component: renders once, never re-renders
     const now = Date.now()
     const roots = listRoots(db)
     const stmt = sqlite.prepare('SELECT root_id AS rootId, COUNT(*) AS n FROM projects GROUP BY root_id')

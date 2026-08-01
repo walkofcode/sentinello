@@ -77,7 +77,7 @@ export function Dropdown(props: Props) {
         if (!open) return
         if (props.searchable && searchRef.current) searchRef.current.focus()
         else if (panelRef.current) panelRef.current.focus()
-    }, [open, props.searchable])
+    }, [open, props.searchable, panelRef])
 
     useEffect(function resetHighlight() {
         setHighlight(0)

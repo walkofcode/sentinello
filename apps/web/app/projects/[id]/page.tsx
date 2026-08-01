@@ -73,6 +73,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     const tTriage = await getTranslations('Triage')
     const locale = (await getLocale()) as Locale
     const db = getDb()
+    // eslint-disable-next-line react-hooks/purity -- async Server Component: renders once, never re-renders
     const now = Date.now()
     const project = getProjectById(db, resolvedParams.id)
     if (!project) {
