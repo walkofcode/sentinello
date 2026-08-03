@@ -17,6 +17,7 @@ function stripVPrefix(value: string): string {
 // Newest first. The locale-independent version index. Adding a release = one entry here plus a
 // RELEASE_COPY entry in every locale below. See CLAUDE.md for the release-please version-sync flow.
 export const RELEASES: ReleaseEntry[] = [
+    { version: '3.0.0', date: '2026-08-03' },
     { version: '2.6.0', date: '2026-07-29' },
     { version: '2.5.0', date: '2026-07-28' },
     { version: '2.4.3', date: '2026-07-26' },
@@ -42,6 +43,17 @@ export const RELEASES: ReleaseEntry[] = [
 // this is plain TS data, not a next-intl message key (next-intl forbids '.' in keys).
 export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     en: {
+        '3.0.0': {
+            title: 'Sentinello now runs without a portal at all',
+            items: [
+                'The scanners ship as a CLI on npm. `npx sentinello` walks a folder, finds every project underneath, checks them against npm audit, OSV and GitLab gemnasium, and writes a markdown advisory with a remediation prompt attached — no install, no account, no database, and nothing about your code leaves the machine',
+                'Piped, the advisory is the only thing on stdout, so `npx sentinello | claude -p "$(cat -)"` hands an agent a complete work list without anything corrupting the document',
+                'A first run no longer loses the gemnasium source to a refused download. GitLab declines its archive for a minute or two at a time, and the old retry gave up after thirteen seconds; the CLI now waits it out, says why it is waiting, and takes `--feed-wait` if the default of three minutes is wrong for you',
+                'Both download estimates were measured rather than guessed: the OSV npm export is quoted at 204 MB rather than 196, and the gemnasium archive at 52 MB rather than 80. The consent prompt marks an estimate with a tilde so it is never mistaken for a size the server reported',
+                'A value that looks like a flag is now rejected instead of taken literally — `--out --` used to write an advisory to a file named `--` inside your project and report success',
+                'The What’s new panel no longer runs off the bottom of the window when a release has a lot to say'
+            ]
+        },
         '2.6.0': {
             title: 'The advisory document actually arrives — and counts what you mean',
             items: [
@@ -175,6 +187,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Initial open-source release', items: ['The first public release of Sentinello'] }
     },
     es: {
+        '3.0.0': {
+            title: 'Sentinello ya funciona sin portal alguno',
+            items: [
+                'Los escáneres se distribuyen como CLI en npm. `npx sentinello` recorre una carpeta, encuentra todos los proyectos que contiene, los contrasta con npm audit, OSV y GitLab gemnasium, y escribe un informe markdown con un prompt de remediación adjunto: sin instalación, sin cuenta, sin base de datos y sin que nada de tu código salga de la máquina',
+                'Canalizado, el informe es lo único que sale por stdout, así que `npx sentinello | claude -p "$(cat -)"` entrega a un agente una lista de trabajo completa sin que nada corrompa el documento',
+                'Una primera ejecución ya no pierde la fuente gemnasium por una descarga rechazada. GitLab rechaza su archivo durante uno o dos minutos seguidos, y el reintento anterior se rendía a los trece segundos; ahora la CLI espera a que pase, explica por qué espera y acepta `--feed-wait` si los tres minutos por defecto no te sirven',
+                'Ambas estimaciones de descarga se midieron en lugar de suponerse: la exportación npm de OSV se indica como 204 MB en vez de 196, y el archivo de gemnasium como 52 MB en vez de 80. El aviso de consentimiento marca las estimaciones con una tilde para que nunca se confundan con un tamaño informado por el servidor',
+                'Un valor con aspecto de opción ahora se rechaza en lugar de tomarse literalmente: `--out --` escribía un informe en un archivo llamado `--` dentro de tu proyecto e informaba de éxito',
+                'El panel de Novedades ya no se sale por la parte inferior de la ventana cuando una versión tiene mucho que contar'
+            ]
+        },
         '2.6.0': {
             title: 'El documento de vulnerabilidades por fin llega — y cuenta lo que debe',
             items: [
@@ -311,6 +334,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primera versión de código abierto', items: ['El primer lanzamiento público de Sentinello'] }
     },
     fr: {
+        '3.0.0': {
+            title: 'Sentinello fonctionne désormais sans portail du tout',
+            items: [
+                'Les scanners sont publiés en CLI sur npm. `npx sentinello` parcourt un dossier, trouve tous les projets qu’il contient, les confronte à npm audit, OSV et GitLab gemnasium, et écrit un avis markdown accompagné d’un prompt de remédiation — sans installation, sans compte, sans base de données, et rien de votre code ne quitte la machine',
+                'En pipe, l’avis est la seule chose sur stdout : `npx sentinello | claude -p "$(cat -)"` remet à un agent une liste de travail complète sans que rien ne corrompe le document',
+                'Une première exécution ne perd plus la source gemnasium à cause d’un téléchargement refusé. GitLab refuse son archive une à deux minutes d’affilée, et l’ancienne logique abandonnait au bout de treize secondes ; la CLI patiente désormais, explique pourquoi, et accepte `--feed-wait` si les trois minutes par défaut ne conviennent pas',
+                'Les deux estimations de téléchargement ont été mesurées plutôt que devinées : l’export npm d’OSV est annoncé à 204 Mo au lieu de 196, et l’archive gemnasium à 52 Mo au lieu de 80. L’invite de consentement marque une estimation d’un tilde pour qu’elle ne soit jamais prise pour une taille annoncée par le serveur',
+                'Une valeur ressemblant à une option est désormais rejetée plutôt que prise au pied de la lettre — `--out --` écrivait un avis dans un fichier nommé `--` au sein de votre projet, en signalant une réussite',
+                'Le panneau Nouveautés ne déborde plus du bas de la fenêtre quand une version a beaucoup à dire'
+            ]
+        },
         '2.6.0': {
             title: 'Le document d’avis arrive enfin — et compte ce qu’il faut',
             items: [
@@ -449,6 +483,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Première version open source', items: ['La première version publique de Sentinello'] }
     },
     de: {
+        '3.0.0': {
+            title: 'Sentinello läuft jetzt ganz ohne Portal',
+            items: [
+                'Die Scanner erscheinen als CLI auf npm. `npx sentinello` durchläuft einen Ordner, findet jedes Projekt darunter, prüft sie gegen npm audit, OSV und GitLab gemnasium und schreibt ein Markdown-Advisory mit angehängtem Remediation-Prompt — ohne Installation, ohne Konto, ohne Datenbank, und nichts von deinem Code verlässt die Maschine',
+                'In einer Pipe ist das Advisory das Einzige auf stdout, sodass `npx sentinello | claude -p "$(cat -)"` einem Agenten eine vollständige Arbeitsliste übergibt, ohne dass irgendetwas das Dokument beschädigt',
+                'Ein erster Lauf verliert die Quelle gemnasium nicht mehr an einen abgelehnten Download. GitLab verweigert sein Archiv ein bis zwei Minuten am Stück, und der alte Retry gab nach dreizehn Sekunden auf; die CLI wartet es nun aus, sagt warum sie wartet, und nimmt `--feed-wait`, falls die drei Minuten Standard für dich falsch sind',
+                'Beide Download-Schätzungen wurden gemessen statt geraten: der npm-Export von OSV wird mit 204 MB statt 196 angegeben, das gemnasium-Archiv mit 52 MB statt 80. Die Zustimmungsabfrage kennzeichnet eine Schätzung mit einer Tilde, damit sie nie mit einer vom Server gemeldeten Größe verwechselt wird',
+                'Ein Wert, der wie eine Option aussieht, wird jetzt abgelehnt statt wörtlich genommen — `--out --` schrieb ein Advisory in eine Datei namens `--` in deinem Projekt und meldete Erfolg',
+                'Das Neuigkeiten-Panel läuft nicht mehr unten aus dem Fenster, wenn ein Release viel zu erzählen hat'
+            ]
+        },
         '2.6.0': {
             title: 'Das Advisory-Dokument kommt jetzt wirklich an — und zählt richtig',
             items: [
@@ -588,6 +633,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         }
     },
     'pt-BR': {
+        '3.0.0': {
+            title: 'O Sentinello agora roda sem portal nenhum',
+            items: [
+                'Os scanners saem como CLI no npm. `npx sentinello` percorre uma pasta, encontra todos os projetos abaixo, confere contra npm audit, OSV e GitLab gemnasium, e escreve um parecer em markdown com um prompt de remediação anexado — sem instalação, sem conta, sem banco de dados, e nada do seu código sai da máquina',
+                'Em pipe, o parecer é a única coisa no stdout, então `npx sentinello | claude -p "$(cat -)"` entrega a um agente uma lista de trabalho completa sem nada corromper o documento',
+                'A primeira execução não perde mais a fonte gemnasium por um download recusado. O GitLab recusa seu arquivo por um ou dois minutos seguidos, e a repetição antiga desistia em treze segundos; agora a CLI espera passar, diz por que está esperando, e aceita `--feed-wait` se os três minutos padrão não servirem',
+                'As duas estimativas de download foram medidas, não chutadas: o export npm do OSV é informado como 204 MB em vez de 196, e o arquivo do gemnasium como 52 MB em vez de 80. O aviso de consentimento marca uma estimativa com um til para que nunca seja confundida com um tamanho informado pelo servidor',
+                'Um valor com cara de flag agora é recusado em vez de aceito ao pé da letra — `--out --` escrevia um parecer em um arquivo chamado `--` dentro do seu projeto e relatava sucesso',
+                'O painel de Novidades não escapa mais pela parte de baixo da janela quando uma versão tem muito a dizer'
+            ]
+        },
         '2.5.0': {
             title: 'O relatório de vulnerabilidades, direto pelo MCP',
             items: [
@@ -714,6 +770,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primeira versão de código aberto', items: ['O primeiro lançamento público do Sentinello'] }
     },
     it: {
+        '3.0.0': {
+            title: 'Sentinello ora funziona anche senza portale',
+            items: [
+                'Gli scanner arrivano come CLI su npm. `npx sentinello` attraversa una cartella, trova ogni progetto al suo interno, li confronta con npm audit, OSV e GitLab gemnasium, e scrive un advisory markdown con un prompt di remediation allegato — nessuna installazione, nessun account, nessun database, e nulla del tuo codice lascia la macchina',
+                'In pipe, l’advisory è l’unica cosa su stdout, così `npx sentinello | claude -p "$(cat -)"` consegna a un agente un elenco di lavoro completo senza che nulla corrompa il documento',
+                'Una prima esecuzione non perde più la fonte gemnasium per un download rifiutato. GitLab rifiuta il suo archivio per uno o due minuti alla volta, e il vecchio retry si arrendeva dopo tredici secondi; ora la CLI aspetta che passi, spiega perché sta aspettando, e accetta `--feed-wait` se i tre minuti predefiniti non vanno bene',
+                'Entrambe le stime di download sono state misurate anziché ipotizzate: l’export npm di OSV è indicato a 204 MB invece di 196, e l’archivio gemnasium a 52 MB invece di 80. Il prompt di consenso segna una stima con una tilde perché non venga mai scambiata per una dimensione dichiarata dal server',
+                'Un valore che sembra un’opzione ora viene rifiutato invece di essere preso alla lettera — `--out --` scriveva un advisory in un file chiamato `--` dentro il tuo progetto e riportava successo',
+                'Il pannello Novità non esce più dal fondo della finestra quando una release ha molto da dire'
+            ]
+        },
         '2.6.0': {
             title: 'Il documento degli avvisi arriva davvero — e conta ciò che serve',
             items: [
@@ -850,6 +917,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Prima versione open source', items: ['La prima versione pubblica di Sentinello'] }
     },
     ja: {
+        '3.0.0': {
+            title: 'Sentinello はポータルなしでも動くようになりました',
+            items: [
+                'スキャナーが npm 上の CLI として提供されます。`npx sentinello` はフォルダーを走査して配下のすべてのプロジェクトを見つけ、npm audit・OSV・GitLab gemnasium と照合し、修正プロンプトを添えた markdown のアドバイザリを書き出します。インストール不要、アカウント不要、データベース不要で、コードがマシンの外に出ることもありません',
+                'パイプで渡すと stdout にはアドバイザリだけが流れるため、`npx sentinello | claude -p "$(cat -)"` は文書を壊すことなく完全な作業リストをエージェントに渡せます',
+                '初回実行でダウンロードを拒否されて gemnasium ソースを失うことがなくなりました。GitLab はアーカイブを 1〜2 分ほどまとめて拒否しますが、以前の再試行は 13 秒で諸めていました。CLI は待機して待ち、待っている理由を表示し、既定の 3 分が合わない場合は `--feed-wait` を受け付けます',
+                'ダウンロード見積もりはどちらも推測ではなく実測しました。OSV の npm エクスポートは 196 MB ではなく 204 MB、gemnasium のアーカイブは 80 MB ではなく 52 MB と表示します。確認プロンプトは見積もりにチルダを付け、サーバーが報告したサイズと取り違えられないようにしています',
+                'オプションのように見える値は、そのまま解釈せず拒否するようになりました。`--out --` は以前、プロジェクト内に `--` という名前のファイルへアドバイザリを書き出し、成功と報告していました',
+                'リリースの内容が多いときに「新着情報」パネルがウィンドウ下部からはみ出さなくなりました'
+            ]
+        },
         '2.6.0': {
             title: 'アドバイザリ文書が実際に届くように — 集計も正確に',
             items: [
@@ -982,6 +1060,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '初のオープンソースリリース', items: ['Sentinello の最初の一般公開リリース'] }
     },
     'zh-CN': {
+        '3.0.0': {
+            title: 'Sentinello 现在完全不用门户也能运行',
+            items: [
+                '扫描器以 CLI 形式发布到 npm。`npx sentinello` 会遍历一个文件夹，找出其下的每个项目，对照 npm audit、OSV 与 GitLab gemnasium 进行核查，并写出一份附带修复提示的 markdown 公告——无需安装、无需账号、无需数据库，你的代码也不会离开本机',
+                '通过管道传递时，stdout 上只有公告，因此 `npx sentinello | claude -p "$(cat -)"` 能把一份完整的工作清单交给代理，而不会有任何东西破坏该文档',
+                '首次运行不会再因下载被拒而丢掉 gemnasium 来源。GitLab 会一次拒绝其归档一到两分钟，而旧的重试十三秒就放弃了；现在 CLI 会等它过去、说明自己为何在等待，并在默认的三分钟不合适时接受 `--feed-wait`',
+                '两个下载大小都是实测而非估猜：OSV 的 npm 导出标为 204 MB 而不是 196，gemnasium 归档标为 52 MB 而不是 80。确认提示会给估算值加上波浪号，以免被误认为服务器报告的大小',
+                '看起来像选项的值现在会被拒绝，而不是照单全收——`--out --` 过去会在你的项目里写出一个名为 `--` 的文件并报告成功',
+                '当某个版本内容较多时，“新变化”面板不会再溢出到窗口底部之外'
+            ]
+        },
         '2.5.0': {
             title: '通过 MCP 直接获取公告导出',
             items: [
@@ -1084,6 +1173,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '首个开源版本', items: ['Sentinello 的首个公开发布版本'] }
     },
     ko: {
+        '3.0.0': {
+            title: '이제 포털 없이도 Sentinello를 쓸 수 있습니다',
+            items: [
+                '스캐너가 npm의 CLI로 제공됩니다. `npx sentinello`는 폴더를 흔어 그 아래 모든 프로젝트를 찾고 npm audit, OSV, GitLab gemnasium과 대조한 뒤 조치 프롬프트가 막부된 markdown 권고문을 작성합니다. 설치도 계정도 데이터베이스도 필요 없고, 코드가 머신 밖으로 나가지도 않습니다',
+                '파이프로 넘기면 stdout에는 권고문만 흐르므로 `npx sentinello | claude -p "$(cat -)"`이 문서를 훼손하지 않고 완전한 작업 목록을 에이전트에 전달합니다',
+                '첫 실행에서 다운로드가 거부되어 gemnasium 소스를 잃는 일이 없어졌습니다. GitLab은 아카이브를 한두 분씩 거부하는데 기존 재시도는 13초 만에 포기했습니다. 이제 CLI는 끝까지 기다리고, 기다리는 이유를 알려주며, 기본값 3분이 맞지 않으면 `--feed-wait`을 받습니다',
+                '두 다운로드 예상치 모두 추측이 아니라 실측했습니다. OSV의 npm 익스포트는 196MB가 아닌 204MB로, gemnasium 아카이브는 80MB가 아닌 52MB로 표시됩니다. 동의 프롬프트는 추정치에 물결표를 붙여 서버가 알려준 크기와 혼동되지 않게 합니다',
+                '옵션처럼 생긴 값은 이제 그대로 받아들이지 않고 거부합니다. `--out --`은 예전에 프로젝트 안에 `--`라는 이름의 파일로 권고문을 쓰고 성공했다고 알렸습니다',
+                '릴리스에 담긴 내용이 많아도 새 소식 패널이 창 아래로 넘치지 않습니다'
+            ]
+        },
         '2.6.0': {
             title: '권고 문서가 실제로 도착합니다 — 집계도 정확하게',
             items: [
@@ -1210,6 +1310,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '첫 오픈 소스 릴리스', items: ['Sentinello의 첫 공개 릴리스'] }
     },
     ru: {
+        '3.0.0': {
+            title: 'Sentinello теперь работает вообще без портала',
+            items: [
+                'Сканеры выходят как CLI в npm. `npx sentinello` обходит папку, находит все проекты внутри, сверяет их с npm audit, OSV и GitLab gemnasium и пишет markdown-сводку с приложенным промптом по устранению — без установки, без аккаунта, без базы данных, и ничего из вашего кода не покидает машину',
+                'В конвейере на stdout попадает только сводка, поэтому `npx sentinello | claude -p "$(cat -)"` передаёт агенту полный список работ, ничем не повредив документ',
+                'Первый запуск больше не теряет источник gemnasium из-за отклонённой загрузки. GitLab отклоняет свой архив на минуту-две подряд, а прежние повторы сдавались через тринадцать секунд; теперь CLI дожидается окончания, объясняет, почему ждёт, и принимает `--feed-wait`, если три минуты по умолчанию вам не подходят',
+                'Обе оценки размера загрузки измерены, а не угаданы: npm-экспорт OSV указан как 204 МБ вместо 196, а архив gemnasium — как 52 МБ вместо 80. В запросе подтверждения оценка помечается тильдой, чтобы её нельзя было принять за размер, сообщённый сервером',
+                'Значение, похожее на флаг, теперь отклоняется, а не понимается буквально: `--out --` раньше писал сводку в файл с именем `--` внутри вашего проекта и рапортовал об успехе',
+                'Панель «Что нового» больше не уходит за нижний край окна, когда в релизе много изменений'
+            ]
+        },
         '2.6.0': {
             title: 'Документ с рекомендациями действительно доходит — и считает верно',
             items: [
