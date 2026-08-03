@@ -134,7 +134,7 @@ manifest pins nothing auditable), `unsupported_lockfile` (a format not yet parse
 couldn't be opened — mirroring the OSV pair).
 
 **Provisioning.** Enabling **OSV** downloads the per-ecosystem export(s) into the data volume (npm
-export ~196 MB; each additional enabled ecosystem adds its own), then ~daily incremental updates.
+export ~204 MB; each additional enabled ecosystem adds its own), then ~daily incremental updates.
 Enabling **GitLab gemnasium** downloads its archive from `gitlab.com` (tens of MB; re-downloaded whole
 each sync — it has no delta feed). Both normalized caches (`osv.db`, `gemnasium.db`) are rebuildable and
 stored separately from your findings. Leave these sources off (or set `SENTINELLO_OSV_FEED_URL=off` /
@@ -193,7 +193,7 @@ required.
 - `/app/data` — the SQLite DB plus its WAL/SHM siblings and the worker lock.
   Mount this to persist state across restarts. With **OSV** enabled it also holds
   the rebuildable `osv.db` cache, which **grows per enabled ecosystem** (npm export
-  ~196 MB; each additional enabled language adds its own export). With **GitLab
+  ~204 MB; each additional enabled language adds its own export). With **GitLab
   gemnasium** enabled it also holds the separate rebuildable `gemnasium.db` cache.
   Both caches are stored apart from `sentinello.sqlite` and are safe to delete.
 - `/home/sentinello/.nvm` — Node versions installed on demand by `nvm` for

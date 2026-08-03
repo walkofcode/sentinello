@@ -306,7 +306,7 @@ the UI and in failure notifications):
   downloaded yet, or couldn't be opened (mirrors `osv_db_not_seeded` / `osv_db_unavailable`).
 
 **Provisioning.** Enabling **OSV** downloads the per-ecosystem export(s) into the data volume on first
-sync (the npm export is **~196 MB**; each additional enabled ecosystem adds its own export), then pulls
+sync (the npm export is **~204 MB**; each additional enabled ecosystem adds its own export), then pulls
 ~daily incremental updates. Enabling **GitLab gemnasium** downloads its advisory archive from
 `gitlab.com` (tens of MB; re-downloaded whole on each sync since it ships no delta feed). Both
 normalized caches (`osv.db`, `gemnasium.db`) are fully **rebuildable** and stored separately from
@@ -455,7 +455,7 @@ effect within ~5s — no container restart required.
 - `/app/data` — the SQLite DB plus its WAL/SHM siblings and the worker lock.
   Mount this to persist state across restarts. When **OSV** is enabled this also
   holds the rebuildable `osv.db` advisory cache; that cache **grows per enabled
-  ecosystem** (the initial npm export is ~196 MB, each additional enabled language
+  ecosystem** (the initial npm export is ~204 MB, each additional enabled language
   adds its own export). When **GitLab gemnasium** is enabled it also holds the
   separate rebuildable `gemnasium.db` cache. Both caches are stored apart from
   `sentinello.sqlite` and are safe to delete — size the volume with the enabled

@@ -63,10 +63,12 @@ export const NPM_AUDIT_SCANNER_NAME = 'npm-audit'
 export const GEMNASIUM_SCANNER_NAME = 'gemnasium'
 
 // Approximate on-disk footprint of the OSV npm export, shown to the operator before they enable the
-// source so they can provision the data volume. Measured against the live OSV bucket (May 2026):
-// all.zip ≈ 196 MB; the normalized osv.db cache lands far smaller (~40–80 MB) because we keep only the
-// matchable fields. We pre-flight free space against the seed download plus headroom.
-export const OSV_SEED_DOWNLOAD_BYTES = 196 * 1024 * 1024
+// source so they can provision the data volume. Measured against the live OSV bucket (August 2026):
+// all.zip ≈ 203.5 MB, rounded up; the normalized osv.db cache lands far smaller (~40–80 MB) because we
+// keep only the matchable fields. We pre-flight free space against the seed download plus headroom.
+// The corpus only grows, so re-measure when this drifts — the CLI HEADs for the real length and needs no
+// constant, but the portal quotes this figure and pre-flights free space against it.
+export const OSV_SEED_DOWNLOAD_BYTES = 204 * 1024 * 1024
 // Free-space floor required before the seed download is attempted: the zip on disk + the unpacked
 // cache + working headroom. Conservative so a near-full volume fails fast instead of mid-write.
 export const OSV_REQUIRED_FREE_BYTES = 600 * 1024 * 1024
