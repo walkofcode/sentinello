@@ -127,8 +127,8 @@ Three things are never scanned:
 
 - `node_modules` and `.git`, always, everywhere. They hold dependencies and metadata, not your projects.
 - Anything matched by a **`.gitignore`** file. If git treats a directory as generated or vendored, it is
-  not a project you wrote. This is not configurable — see [Upgrading to 3.0](#upgrading-to-30) if you
-  are coming from 2.x.
+  not a project you wrote. This is not configurable — see [Upgrading to 2.6](#upgrading-to-26) if you
+  are coming from 2.5 or earlier.
 - Anything matched by a **`.sentinelloignore`** file, which uses gitignore syntax and applies to the
   directory it sits in and everything below it. It is also the escape hatch in the other direction: a
   `!pattern` line re-includes something `.gitignore` excluded, because both files for a directory are
@@ -530,9 +530,10 @@ digest from the release page) so a `docker compose pull` can't transparently swa
 
 ## Upgrading
 
-### Upgrading to 3.0
+### Upgrading to 2.6
 
-**Discovery now honours `.gitignore`.** A project living in a gitignored directory is no longer
+**Discovery now honours `.gitignore`.** This shipped in **2.6.0**, not 3.0 — the commit carried a
+breaking-change marker but the release was cut as a minor, so anyone already on 2.6.0 has it. A project living in a gitignored directory is no longer
 discovered, and because Sentinello keeps only what it currently sees, the next sweep **deletes** that
 project along with its scans, findings, and mutes.
 
