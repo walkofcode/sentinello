@@ -50,14 +50,18 @@ npx sentinello --no-prompt                     # findings only
 
 ## The advisory cache
 
-The first run downloads the advisory databases and **asks first**, quoting the real size:
+The first run downloads the advisory databases and **asks first**, quoting the size:
 
 ```
   First run — the advisory databases need downloading.
 
-    OSV               202.8 MB
-    GitLab gemnasium   76.3 MB
+    OSV  203.4 MB
+    GitLab gemnasium  ~80.0 MB
 ```
+
+A figure marked `~` is an estimate. OSV's is exact — it comes from a `HEAD` on the export. GitLab
+generates repository archives on demand and advertises no length up front, so gemnasium's is the
+measured size of a recent archive, the same constant the portal quotes for that download.
 
 `--yes` accepts without asking, which is what you want in CI or after the first time. In a
 non-interactive shell the CLI refuses to download unless `--yes` is given, so a build machine never pulls

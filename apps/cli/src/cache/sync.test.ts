@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GEMNASIUM_NORMALIZER_VERSION, OSV_NORMALIZER_VERSION, type GemnasiumAdvisoryRow, type OsvAdvisoryRow } from '@sentinello/core'
+import { GEMNASIUM_NORMALIZER_VERSION, GEMNASIUM_SEED_DOWNLOAD_BYTES, OSV_NORMALIZER_VERSION, type GemnasiumAdvisoryRow, type OsvAdvisoryRow } from '@sentinello/core'
 import { advisoryFilePath, ensureCacheDir, getSourceState, readCacheMeta, setSourceState, writeCacheMeta, type SourceId, type SourceState } from './meta'
 import { createRowWriter } from './store'
 
@@ -158,23 +158,33 @@ describe('planSync', function () {
         expect((await planSync(options({ sources: ['osv'] }))).items[0]?.kind).toBe('seed')
     })
 
-    it('quotes the real transfer size for an OSV seed', async function () {
+    it('quotes the real transfer size for an OSV seed, unflagged because the server advertised it', async function () {
         const plan = await planSync(options({ sources: ['osv'] }))
-        expect(plan.items[0]?.downloadBytes).toBe(96 * 1024 * 1024)
+        expect(plan.items[0]).toMatchObject({ downloadBytes: 96 * 1024 * 1024, downloadBytesEstimated: false })
         expect(plan.seedBytes).toBe(96 * 1024 * 1024)
     })
 
-    // GitLab generates repo archives on demand and advertises no length up front.
-    it('reports an unknown size for a gemnasium seed', async function () {
+    // GitLab generates repo archives on demand and advertises no length up front, so there is nothing to
+    // HEAD. Quoting the measured constant the portal already shows beats asking to approve an unknown
+    // quantity; the estimated flag is what keeps it rendering as "~80 MB" rather than an exact figure.
+    it('quotes the measured constant for a gemnasium seed and flags it as an estimate', async function () {
         const plan = await planSync(options({ sources: ['gemnasium'] }))
-        expect(plan.items[0]?.downloadBytes).toBeNull()
-        expect(plan.seedBytes).toBe(0)
+        expect(plan.items[0]).toMatchObject({
+            downloadBytes: GEMNASIUM_SEED_DOWNLOAD_BYTES,
+            downloadBytesEstimated: true
+        })
+        expect(plan.seedBytes).toBe(GEMNASIUM_SEED_DOWNLOAD_BYTES)
+    })
+
+    it('counts an estimated seed towards the plan total alongside a measured one', async function () {
+        const plan = await planSync(options())
+        expect(plan.seedBytes).toBe(96 * 1024 * 1024 + GEMNASIUM_SEED_DOWNLOAD_BYTES)
     })
 
     it('falls back to an unknown size when the HEAD request fails', async function () {
         feeds.headOsvSeed.mockRejectedValue(new Error('network down'))
         const plan = await planSync(options({ sources: ['osv'] }))
-        expect(plan.items[0]?.downloadBytes).toBeNull()
+        expect(plan.items[0]).toMatchObject({ downloadBytes: null, downloadBytesEstimated: false })
     })
 
     it('omits a source whose feed is switched off', async function () {

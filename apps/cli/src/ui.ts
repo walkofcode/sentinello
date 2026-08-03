@@ -47,13 +47,16 @@ const PLAIN: Palette = {
 
 const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'moderate', 'low', 'info']
 
-export function formatBytes(bytes: number | null): string {
+// `estimated` marks a figure that came from a measured constant rather than a Content-Length the server
+// advertised, so an approximate number never reads as an exact one.
+export function formatBytes(bytes: number | null, estimated = false): string {
     if (bytes === null) return 'unknown size'
-    if (bytes < 1024) return bytes + ' B'
+    const prefix = estimated ? '~' : ''
+    if (bytes < 1024) return prefix + bytes + ' B'
     const mib = bytes / (1024 * 1024)
-    if (mib < 1) return (bytes / 1024).toFixed(0) + ' KB'
-    if (mib < 1024) return mib.toFixed(1) + ' MB'
-    return (mib / 1024).toFixed(2) + ' GB'
+    if (mib < 1) return prefix + (bytes / 1024).toFixed(0) + ' KB'
+    if (mib < 1024) return prefix + mib.toFixed(1) + ' MB'
+    return prefix + (mib / 1024).toFixed(2) + ' GB'
 }
 
 function formatDuration(ms: number): string {
@@ -147,7 +150,7 @@ export function createUi(options: CliOptions): Ui {
         write('  ' + c.bold + 'First run — the advisory databases need downloading.' + c.reset)
         write('')
         for (const item of seeds) {
-            write('    ' + sourceLabel(item.source) + c.dim + '  ' + formatBytes(item.downloadBytes) + c.reset)
+            write('    ' + sourceLabel(item.source) + c.dim + '  ' + formatBytes(item.downloadBytes, item.downloadBytesEstimated) + c.reset)
         }
         write('')
         write('  ' + c.dim + 'Downloaded once from the upstream feeds, then kept fresh incrementally —' + c.reset)

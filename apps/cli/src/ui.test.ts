@@ -108,7 +108,7 @@ function skip(path: string, source: DiscoverySkip['source'] = 'gitignore'): Disc
 }
 
 function planItem(overrides: Partial<SyncPlanItem> = {}): SyncPlanItem {
-    return { source: 'osv', ecosystem: 'npm', kind: 'seed', downloadBytes: 1024 * 1024, ...overrides } as SyncPlanItem
+    return { source: 'osv', ecosystem: 'npm', kind: 'seed', downloadBytes: 1024 * 1024, downloadBytesEstimated: false, ...overrides } as SyncPlanItem
 }
 
 function outcome(overrides: Partial<SyncOutcome> = {}): SyncOutcome {
@@ -168,6 +168,18 @@ describe('formatBytes', function () {
         expect(formatBytes(1024 * 1024 - 1)).toMatch(/KB$/)
         expect(formatBytes(1024 * 1024)).toBe('1.0 MB')
         expect(formatBytes(1024 * 1024 * 1024)).toBe('1.00 GB')
+    })
+
+    // A measured constant must not read as a figure the server actually advertised.
+    it('marks an estimate with a tilde at every unit', function () {
+        expect(formatBytes(512, true)).toBe('~512 B')
+        expect(formatBytes(2048, true)).toBe('~2 KB')
+        expect(formatBytes(80 * 1024 * 1024, true)).toBe('~80.0 MB')
+        expect(formatBytes(3 * 1024 * 1024 * 1024, true)).toBe('~3.00 GB')
+    })
+
+    it('leaves an unknown size unmarked, since there is no figure to qualify', function () {
+        expect(formatBytes(null, true)).toBe('unknown size')
     })
 })
 
@@ -285,6 +297,22 @@ describe('confirmSeed', function () {
     it('states that nothing about the code is uploaded', async function () {
         await ui().confirmSeed(plan())
         expect(out()).toContain('Nothing about your code is uploaded.')
+    })
+
+    // gemnasium's size is a measured constant, not a Content-Length, and the prompt says so rather than
+    // presenting it with the same authority as OSV's.
+    it('renders an estimated seed size with a tilde alongside an exact one', async function () {
+        await ui().confirmSeed({
+            items: [
+                planItem(),
+                planItem({ source: 'gemnasium', downloadBytes: 80 * 1024 * 1024, downloadBytesEstimated: true })
+            ],
+            seedBytes: 1024 * 1024 + 80 * 1024 * 1024,
+            needsConsent: true
+        } as SyncPlan)
+        expect(out()).toContain('1.0 MB')
+        expect(out()).toContain('~80.0 MB')
+        expect(out()).not.toContain('unknown size')
     })
 
     it.each([

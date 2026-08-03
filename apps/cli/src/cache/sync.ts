@@ -1,5 +1,6 @@
 import {
     GEMNASIUM_NORMALIZER_VERSION,
+    GEMNASIUM_SEED_DOWNLOAD_BYTES,
     OSV_NORMALIZER_VERSION,
     type EcosystemId,
     type GemnasiumAdvisoryRow,
@@ -50,6 +51,9 @@ export type SyncPlanItem = {
     // Bytes the seed will transfer, when known. Populated for 'seed' so the consent prompt can state a
     // real number instead of asking the user to approve an unknown quantity.
     downloadBytes: number | null
+    // True when downloadBytes is a measured constant rather than a length the server advertised, so the
+    // prompt can render it as an approximation. OSV answers a HEAD with Content-Length; gemnasium cannot.
+    downloadBytesEstimated: boolean
 }
 
 export type SyncPlan = {
@@ -89,12 +93,18 @@ export async function planSync(options: SyncOptions): Promise<SyncPlan> {
         const normalizerVersion = source === 'osv' ? OSV_NORMALIZER_VERSION : GEMNASIUM_NORMALIZER_VERSION
         const seeded = isSeeded(meta, source, options.ecosystem, normalizerVersion)
         if (seeded) {
-            items.push({ source, ecosystem: options.ecosystem, kind: 'refresh', downloadBytes: null })
+            items.push({ source, ecosystem: options.ecosystem, kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false })
             continue
         }
-        const downloadBytes = await estimateSeedBytes(source, options.ecosystem, options.abortSignal)
-        if (downloadBytes !== null) seedBytes += downloadBytes
-        items.push({ source, ecosystem: options.ecosystem, kind: 'seed', downloadBytes })
+        const estimate = await estimateSeedBytes(source, options.ecosystem, options.abortSignal)
+        if (estimate.bytes !== null) seedBytes += estimate.bytes
+        items.push({
+            source,
+            ecosystem: options.ecosystem,
+            kind: 'seed',
+            downloadBytes: estimate.bytes,
+            downloadBytesEstimated: estimate.estimated
+        })
     }
     return {
         items,
@@ -105,17 +115,20 @@ export async function planSync(options: SyncOptions): Promise<SyncPlan> {
     }
 }
 
-async function estimateSeedBytes(source: SourceId, ecosystem: EcosystemId, abortSignal?: AbortSignal): Promise<number | null> {
+type SeedEstimate = { bytes: number | null; estimated: boolean }
+
+async function estimateSeedBytes(source: SourceId, ecosystem: EcosystemId, abortSignal?: AbortSignal): Promise<SeedEstimate> {
     if (source !== 'osv') {
-        // GitLab generates repo archives on demand and does not advertise a length up front; the constant
-        // in core is the observed size and is what the consent prompt quotes.
-        return null
+        // GitLab generates repo archives on demand and does not advertise a length up front, so there is
+        // nothing to HEAD. The constant in core is the observed size and is what the portal already quotes
+        // for this same download; quoting it here too beats asking for consent to an unknown quantity.
+        return { bytes: GEMNASIUM_SEED_DOWNLOAD_BYTES, estimated: true }
     }
     try {
         const info = await headOsvSeed(ecosystem, { abortSignal })
-        return info.contentLength
+        return { bytes: info.contentLength, estimated: false }
     } catch {
-        return null
+        return { bytes: null, estimated: false }
     }
 }
 
