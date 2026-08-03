@@ -13,44 +13,40 @@
 #   the npm version and the Docker tag identical by construction rather than by remembering to bump a
 #   second file, and it means release-please needs no second package registered.
 #
-# Authentication — npm trusted publishing (OIDC):
-#   No NPM_TOKEN secret. npm mints a short-lived credential from this workflow's OIDC identity, which
-#   also produces a provenance attestation linking the tarball to this exact commit and workflow. A
-#   long-lived automation token is exactly the kind of credential a supply-chain attack wants; not
-#   having one is the point.
+# Authentication — npm trusted publishing (OIDC), with a one-release token bootstrap:
+#   Steady state is no secret at all. npm mints a short-lived credential from this workflow's OIDC
+#   identity, which also produces a provenance attestation linking the tarball to this exact commit
+#   and workflow. A long-lived automation token is exactly the kind of credential a supply-chain
+#   attack wants; not having one is the point.
 #
-#   ONE-TIME SETUP (cannot be done before the package exists on the registry):
-#     Why this is manual at all, so nobody re-litigates it: npm cannot CREATE a package via OIDC.
-#     A trusted publisher is configured on the package's settings page, and that page does not
-#     exist until something has been published — npm/cli#8544, open since 2025-09 and still open
-#     as of 2026-07. PyPI allows pre-registering a publisher for a name that does not exist yet;
-#     npm does not. So version one is published by hand, exactly once, and never again.
+#   The exception is the very first publish, because npm cannot CREATE a package over OIDC. A trusted
+#   publisher is configured on the package's settings page, and that page does not exist until
+#   something has been published — npm/cli#8544, open since 2025-09 and still open as of 2026-07.
+#   PyPI lets you pre-register a publisher for a name that does not exist yet; npm does not.
 #
-#     1. Publish once manually to claim the name:
-#          npm login
-#          pnpm install && pnpm --filter sentinello build
-#          cd apps/cli
-#          npm pkg set version=$(node -p "require('../../package.json').version")
-#          npm publish --access public --no-provenance
-#          git checkout package.json     # undo the stamp — this file stays 0.1.0 in git
+#   That restriction is on package CREATION, not on publishing from CI, so the bootstrap does not
+#   have to happen on someone's laptop. A granular token in NPM_TOKEN creates the package from this
+#   workflow, and provenance still works: it depends on `id-token: write` plus a supported CI runner,
+#   not on how the publish authenticated. So the first release is attested like every other one.
 #
-#        --no-provenance is REQUIRED here, not a preference. package.json sets
-#        publishConfig.provenance true, and provenance can only be generated on a cloud CI
-#        runner holding an OIDC token; there is no local equivalent. Without the flag this
-#        publish fails outright rather than falling back. It is the only release that will
-#        ever ship without an attestation — step 2 makes every later one automatic.
-#
-#        The `git checkout` is not tidiness. Every workspace package is pinned at 0.1.0 forever
-#        (see the versioning note above); the stamp is a publish-time mutation that must not be
-#        committed, and this workflow re-applies it on each release.
-#     2. On npmjs.com → sentinello → Settings → Trusted Publisher, add:
+#   BOOTSTRAP (once, ever):
+#     1. npmjs.com → Access Tokens → Granular. Packages and scopes: "Read and write" / All packages
+#        (the name does not exist yet, so it cannot be selected individually). Set the shortest
+#        expiry offered and no IP allowlist. Add it as the repo secret NPM_TOKEN.
+#     2. Let the release go out normally — merge the release PR, release-please tags, this workflow
+#        runs and finds NPM_TOKEN, so it authenticates with the token and creates the package.
+#        (Or trigger it by hand first with workflow_dispatch + publish: true.)
+#     3. npmjs.com → sentinello → Settings → Trusted Publisher, add:
 #          repository: walkofcode/sentinello   workflow: .github/workflows/publish-npm.yml
-#     3. If step 1 used a token rather than an interactive login, revoke it now.
-#   Until step 2 is done this workflow will fail to authenticate — that is expected, not a bug.
+#     4. DELETE the NPM_TOKEN secret and revoke the token on npmjs.com. With no secret present the
+#        auth step below is a no-op and npm falls back to OIDC, which is the steady state. Leaving
+#        the token in place would keep a publish-capable credential around for no reason.
 #
-#   Also pending until step 1 happens: README.md's "Just want the answer, right now?" section
-#   carries a "Coming with 3.0" callout, because `npx sentinello` 404s until the package exists.
-#   Delete that callout in the same commit that publishes, so the two cannot drift apart.
+#   Until step 4 the token wins over OIDC; after it, there is nothing to win with.
+#
+#   Also pending until the package exists: README.md's "Just want the answer, right now?" section
+#   carries a "Coming with 3.0" callout, because `npx sentinello` 404s until then. Delete that
+#   callout — and ship the homepage CLI section — in the same release, so they cannot drift apart.
 
 name: publish-npm
 
@@ -74,20 +70,55 @@ jobs:
     publish:
         name: publish to npm
         runs-on: ubuntu-latest
+        # Lifted to the job so the bootstrap steps can test for the secret. `secrets` is not available
+        # in a step-level `if`, but `env` is, and an unset secret arrives here as an empty string.
+        env:
+            NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         steps:
             - uses: actions/checkout@v5
 
             - uses: pnpm/action-setup@v4
 
+            # Deliberately no `registry-url`. It exists to write an .npmrc containing
+            # `_authToken=${NODE_AUTH_TOKEN}` and to point NPM_CONFIG_USERCONFIG at it — which in the
+            # steady state would leave npm holding an EMPTY token rather than no token, and an empty
+            # credential is not the same as absent when npm decides whether to reach for OIDC.
+            # registry.npmjs.org is the default anyway, so the only thing dropping it costs is an auth
+            # template we do not want. The bootstrap step below writes real credentials when they exist.
             - uses: actions/setup-node@v6
               with:
                   node-version: 24
                   cache: pnpm
-                  registry-url: https://registry.npmjs.org
 
             # Trusted publishing requires a recent npm; the version bundled with Node 24 predates it.
             - name: Update npm
               run: npm install -g npm@latest
+
+            # Bootstrap only — see the Authentication note at the top. Present for the first release,
+            # deleted immediately after the trusted publisher is configured. `npm config set` writes to
+            # ~/.npmrc; the value is a masked secret, so it never reaches the log.
+            - name: Authenticate with the bootstrap token
+              if: env.NPM_TOKEN != ''
+              run: npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+
+            # Fail here rather than 200 lines later at the publish step. A token that is expired,
+            # revoked, or scoped too narrowly is the single most likely bootstrap failure, and this
+            # turns it into an obvious error before anything is built.
+            - name: Verify the bootstrap token authenticates
+              if: env.NPM_TOKEN != ''
+              run: |
+                  echo "Authenticated to npm as $(npm whoami)"
+
+            # The one failure mode worth naming explicitly: a release fires at the package's creation
+            # with no token to create it with. Left alone, npm reports this as an opaque auth error at
+            # the very end of the job. One registry read turns it into an instruction.
+            - name: Refuse to bootstrap over OIDC
+              if: env.NPM_TOKEN == ''
+              run: |
+                  if ! npm view sentinello version > /dev/null 2>&1; then
+                      echo "::error::sentinello does not exist on npm and no NPM_TOKEN secret is set. npm cannot CREATE a package over OIDC (npm/cli#8544); see the bootstrap note at the top of this workflow."
+                      exit 1
+                  fi
 
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
