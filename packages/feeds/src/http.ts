@@ -8,9 +8,23 @@ import { Readable } from 'node:stream'
 // bundle to do what `fetch` already does natively, streaming included via `Readable.fromWeb`. The worker
 // and portal keep axios everywhere else.
 
+// Reported before each slow-transient wait, so a caller with a terminal can say why it is sitting there
+// instead of looking hung. `waitMs` is the pause about to happen; `elapsedMs` is what the budget has spent.
+export type RetryNotice = {
+    status: number
+    attempt: number
+    waitMs: number
+    elapsedMs: number
+    budgetMs: number
+}
+
 export type FetchOptions = {
     abortSignal?: AbortSignal
     timeoutMs?: number
+    // Total time to keep re-trying a slow-transient rejection (see SLOW_TRANSIENT_STATUSES). 0 disables
+    // waiting entirely and fails on the first such response. Defaults to DEFAULT_RETRY_WAIT_MS.
+    retryWaitMs?: number
+    onRetry?: (notice: RetryNotice) => void
 }
 
 // Identify ourselves on every request, so feed operators can see who is calling and throttle or contact us
@@ -47,23 +61,40 @@ export function errText(err: unknown): string {
     return String(err)
 }
 
-// Statuses worth retrying. Observed in practice: GitLab intermittently answers 406 to the archive download
-// (abuse throttling — the identical request succeeds moments later), which would otherwise abandon the
-// gemnasium seed for the whole run and leave the source silently unauditable. 429 and 5xx are the
-// conventional transient set.
-function isTransientStatus(status: number): boolean {
-    if (status === 406 || status === 408 || status === 425 || status === 429) return true
+// Conventionally transient: the server is momentarily busy and clears in seconds.
+function isFastTransientStatus(status: number): boolean {
+    if (status === 408 || status === 425 || status === 429) return true
     return status >= 500 && status < 600
 }
 
-// Backoff is exponential and deliberately generous. GitLab's throttle window on the archive endpoint
-// outlasts a short linear backoff: a first run that seeds OSV and then immediately requests the gemnasium
-// archive — the exact default sequence — was observed failing all attempts across ~2s of retries and
-// succeeding on a later run. 1s, 3s, then 9s clears it while still giving up inside ~13s when a feed is
-// genuinely down, rather than stalling someone's terminal.
-const MAX_ATTEMPTS = 4
+// GitLab answers 406 with an empty body to repository archive requests it declines, and the block is
+// stateful rather than per-request: while it holds, EVERY archive route fails identically — .zip, .tar.gz,
+// and the separate /api/v4/…/repository/archive.zip — for the same client.
+//
+// It is not the documented rate limiter, whatever it looks like. A declined response carries GitLab's own
+// counters, and they are untouched: ratelimit-name throttle_unauthenticated_web, limit 500, observed 2.
+// The rejection also lands in ~50ms with content-length 0, so nothing is being generated or measured.
+//
+// What matters for policy is how long it lasts. Measured from onset, the same request answered 406 at
+// t+20s, 406 at t+60s, and 200 at t+120s. A short exponential ladder — this used to be 1s, 3s, 9s — cannot
+// clear a block an order of magnitude longer than the window it waits in, and every rejected request
+// during the block is one more request the block sees.
+function isSlowTransientStatus(status: number): boolean {
+    return status === 406
+}
+
+const FAST_MAX_ATTEMPTS = 4
 const RETRY_BASE_MS = 1000
 const RETRY_FACTOR = 3
+
+// Long enough to outlast the measured 60–120s block with margin, and to be worth waiting for: the CLI is
+// usually run once, so a source abandoned here is a source the user never gets rather than one that seeds
+// on the next run. Overridable per call via FetchOptions.retryWaitMs — 0 fails on the first rejection.
+export const DEFAULT_RETRY_WAIT_MS = 180_000
+
+// Deliberately few and long. Each attempt during a block is another rejected request, so the schedule
+// probes sparsely rather than hammering: ~45s, ~105s, ~180s from the first failure.
+const SLOW_RETRY_WAITS_MS = [45_000, 60_000, 75_000]
 
 function delay(ms: number): Promise<void> {
     return new Promise(function schedule(resolve) {
@@ -71,22 +102,49 @@ function delay(ms: number): Promise<void> {
     })
 }
 
-// Performs a request, retrying transient failures with linear backoff. Retries are deliberately few and
-// short: a feed that is genuinely down should surface quickly as a degraded source rather than stall a
-// developer's scan.
+function retryBudgetMs(options: FetchOptions | undefined): number {
+    if (options && typeof options.retryWaitMs === 'number' && options.retryWaitMs >= 0) return options.retryWaitMs
+    return DEFAULT_RETRY_WAIT_MS
+}
+
+// Performs a request, retrying transient failures. Fast-transient statuses keep the short exponential
+// ladder — a feed that is genuinely down should surface quickly rather than stall a scan. Slow-transient
+// ones spend a wall-clock budget instead, because the thing they are waiting out is measured in minutes.
 async function fetchWithRetry(url: string, init: RequestInit, options: FetchOptions | undefined, timeoutMs: number): Promise<Response> {
-    let lastStatus = 0
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const budgetMs = retryBudgetMs(options)
+    const startedAt = Date.now()
+    // No initializer: the loop always runs, and every path that reaches the throw has assigned this first.
+    let lastStatus: number
+    let attempt = 0
+    let fastAttempts = 0
+    let slowAttempts = 0
+    for (;;) {
+        attempt++
         const response = await fetch(url, { ...init, signal: signalFor(options, timeoutMs) })
-        if (!isTransientStatus(response.status)) return response
+        const slow = isSlowTransientStatus(response.status)
+        if (!slow && !isFastTransientStatus(response.status)) return response
         lastStatus = response.status
         // The body must be discarded or the connection is held open for the life of the process.
         if (response.body) await response.body.cancel()
-        if (attempt === MAX_ATTEMPTS) break
         if (options && options.abortSignal && options.abortSignal.aborted) break
-        await delay(RETRY_BASE_MS * Math.pow(RETRY_FACTOR, attempt - 1))
+        if (slow) {
+            const elapsedMs = Date.now() - startedAt
+            if (elapsedMs >= budgetMs) break
+            // Clamped to what is left rather than skipped when it would overrun. Comparing the full nominal
+            // wait against the budget discards the LAST probe — the late one most likely to find the block
+            // cleared — because request latency alone pushes the sum a few hundred ms over.
+            const nominalMs = SLOW_RETRY_WAITS_MS[Math.min(slowAttempts, SLOW_RETRY_WAITS_MS.length - 1)] as number
+            const waitMs = Math.min(nominalMs, budgetMs - elapsedMs)
+            slowAttempts++
+            if (options && options.onRetry) options.onRetry({ status: lastStatus, attempt, waitMs, elapsedMs, budgetMs })
+            await delay(waitMs)
+            continue
+        }
+        fastAttempts++
+        if (fastAttempts >= FAST_MAX_ATTEMPTS) break
+        await delay(RETRY_BASE_MS * Math.pow(RETRY_FACTOR, fastAttempts - 1))
     }
-    throw new Error(describeMethod(init) + ' ' + url + ' failed: HTTP ' + lastStatus + ' after ' + MAX_ATTEMPTS + ' attempts')
+    throw new Error(describeMethod(init) + ' ' + url + ' failed: HTTP ' + lastStatus + ' after ' + attempt + ' attempts')
 }
 
 function describeMethod(init: RequestInit): string {

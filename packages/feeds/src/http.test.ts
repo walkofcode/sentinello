@@ -37,8 +37,19 @@ async function runWithBackoff<T>(start: () => Promise<T>): Promise<{ error?: Err
         function ok(value) { return { value } },
         function failed(error: Error) { return { error } }
     )
-    // 1s + 3s + 9s covers every backoff between the four attempts.
+    // 1s + 3s + 9s covers every backoff between the four attempts of the fast ladder.
     await vi.advanceTimersByTimeAsync(20_000)
+    return pending
+}
+
+// The slow ladder waits 45s, 60s then 75s, so the fast helper's 20s window never reaches even the first
+// retry. Advancing past the default 180s budget covers the whole schedule.
+async function runWithSlowBackoff<T>(start: () => Promise<T>): Promise<{ error?: Error; value?: T }> {
+    const pending = start().then(
+        function ok(value) { return { value } },
+        function failed(error: Error) { return { error } }
+    )
+    await vi.advanceTimersByTimeAsync(400_000)
     return pending
 }
 
@@ -126,14 +137,72 @@ describe('retry policy', function () {
         expect(fetchMock).toHaveBeenCalledTimes(2)
     })
 
-    // GitLab answers 406 to the archive download as abuse throttling; treating it as permanent would
-    // abandon the gemnasium seed for the whole run.
-    it('retries the 406 GitLab actually returns', async function () {
+    // GitLab declines the archive download with 406 for a minute or two at a time — measured 406 at t+20s
+    // and t+60s, 200 at t+120s. Treating it as permanent abandons the gemnasium seed for the whole run,
+    // and the CLI is usually run once, so that is a source the user never gets.
+    it('retries the 406 GitLab actually returns, on the slow ladder', async function () {
         fetchMock
-            .mockResolvedValueOnce(respond('throttled', { status: 406 }))
+            .mockResolvedValueOnce(respond('declined', { status: 406 }))
             .mockResolvedValueOnce(respond('{"ok":true}'))
-        const { value } = await runWithBackoff(function call() { return getJson(URL_UNDER_TEST) })
+        const { value } = await runWithSlowBackoff(function call() { return getJson(URL_UNDER_TEST) })
         expect(value).toEqual({ ok: true })
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    // The whole point of the split: the fast ladder gives up inside 13s, an order of magnitude short of
+    // the block it would be waiting out.
+    it('does not give up on a 406 within the fast ladder window', async function () {
+        fetchMock.mockResolvedValue(respond('declined', { status: 406 }))
+        const pending = getJson(URL_UNDER_TEST).catch(function swallow() { return 'gave up' })
+        await vi.advanceTimersByTimeAsync(20_000)
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        await vi.advanceTimersByTimeAsync(400_000)
+        expect(await pending).toBe('gave up')
+    })
+
+    it('stops once the wait budget is spent, naming the attempts it made', async function () {
+        fetchMock.mockResolvedValue(respond('declined', { status: 406 }))
+        const { error } = await runWithSlowBackoff(function call() { return getJson(URL_UNDER_TEST) })
+        // 45 + 60 + 75 lands exactly on the 180s budget, so four attempts are made — at t=0, 45s, 105s
+        // and 180s — and the measured block (200 by t+120s) is cleared by the last of them.
+        expect(fetchMock).toHaveBeenCalledTimes(4)
+        expect(error?.message).toContain('406')
+        expect(error?.message).toContain('4 attempts')
+    })
+
+    it('fails on the first refusal when waiting is switched off', async function () {
+        fetchMock.mockResolvedValue(respond('declined', { status: 406 }))
+        const { error } = await runWithSlowBackoff(function call() {
+            return getJson(URL_UNDER_TEST, { retryWaitMs: 0 })
+        })
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        expect(error?.message).toContain('406')
+    })
+
+    it('honours a longer budget than the default', async function () {
+        fetchMock.mockResolvedValue(respond('declined', { status: 406 }))
+        const pending = getJson(URL_UNDER_TEST, { retryWaitMs: 600_000 }).catch(function swallow() { return null })
+        // Past the 600s budget, which the shared slow helper's 400s window would stop short of.
+        await vi.advanceTimersByTimeAsync(700_000)
+        await pending
+        // 45 + 60 + then 75 repeating all fit inside 600s, so it keeps going well past the default's four.
+        expect(fetchMock.mock.calls.length).toBeGreaterThan(4)
+    })
+
+    // A multi-minute wait with no output reads as a hang, so the caller has to be able to say why.
+    it('reports each wait before it happens', async function () {
+        fetchMock.mockResolvedValue(respond('declined', { status: 406 }))
+        const notices: { status: number; waitMs: number; budgetMs: number }[] = []
+        await runWithSlowBackoff(function call() {
+            return getJson(URL_UNDER_TEST, {
+                onRetry: function record(notice) {
+                    notices.push({ status: notice.status, waitMs: notice.waitMs, budgetMs: notice.budgetMs })
+                }
+            })
+        })
+        expect(notices.map(function w(n) { return n.waitMs })).toEqual([45_000, 60_000, 75_000])
+        expect(notices[0]?.status).toBe(406)
+        expect(notices[0]?.budgetMs).toBe(180_000)
     })
 
     it('retries the rest of the transient set', async function () {

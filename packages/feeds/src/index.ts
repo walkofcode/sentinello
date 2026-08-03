@@ -44,4 +44,5 @@ export {
     headFile,
     openDownloadStream
 } from './http'
-export type { ConditionalResult, DownloadStream, FetchOptions, ProgressReporter, RemoteFileInfo } from './http'
+export { DEFAULT_RETRY_WAIT_MS } from './http'
+export type { ConditionalResult, DownloadStream, FetchOptions, ProgressReporter, RemoteFileInfo, RetryNotice } from './http'
