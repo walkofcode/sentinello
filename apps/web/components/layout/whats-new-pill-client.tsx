@@ -92,9 +92,9 @@ export function WhatsNewPillClient({ version }: Props) {
             {open ? (
                 <div
                     role="menu"
-                    className="absolute right-0 top-full z-40 mt-2 w-72 rounded-md border bg-card p-3 shadow-md"
+                    className="absolute right-0 top-full z-40 mt-2 flex max-h-[min(70vh,32rem)] w-[min(24rem,calc(100vw_-_2rem))] flex-col rounded-md border bg-card p-3 shadow-md"
                 >
-                    <div className="mb-2 flex items-start justify-between gap-2">
+                    <div className="mb-2 flex shrink-0 items-start justify-between gap-2">
                         <h3 className="text-sm font-semibold">{t('popoverHeading', { version })}</h3>
                         <button
                             type="button"
@@ -105,7 +105,7 @@ export function WhatsNewPillClient({ version }: Props) {
                             <X aria-hidden="true" className="size-4" />
                         </button>
                     </div>
-                    <ul className="space-y-1.5 text-sm text-muted-foreground">
+                    <ul className="-mr-1 min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1 text-sm text-muted-foreground">
                         {copy.items.map(function renderItem(item, index) {
                             return (
                                 // Release-note bullets come from a frozen RELEASE_COPY entry: never reordered,
@@ -122,7 +122,7 @@ export function WhatsNewPillClient({ version }: Props) {
                     <Link
                         href="/settings/about#whats-new"
                         onClick={closePopover}
-                        className="mt-3 inline-block text-sm font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-300"
+                        className="mt-3 inline-block shrink-0 text-sm font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-300"
                     >
                         {t('seeFullHistory')} →
                     </Link>
