@@ -1,6 +1,7 @@
 import { setRequestLocale } from 'next-intl/server'
 import { Hero } from '@/components/sections/hero'
 import { Story } from '@/components/sections/story'
+import { Cli } from '@/components/sections/cli'
 import { Features } from '@/components/sections/features'
 import { Screenshots } from '@/components/sections/screenshots'
 import { Comparison } from '@/components/sections/comparison'
@@ -17,6 +18,7 @@ export default async function HomePage({ params }: PageProps) {
     return (
         <>
             <Hero />
+            <Cli />
             <Features />
             <Screenshots />
             <Comparison />

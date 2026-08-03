@@ -147,5 +147,38 @@
     "ReleaseNotes": {
         "title": "Note di rilascio",
         "subtitle": "Sentinello viene aggiornato spesso: ecco cosa ha portato ogni versione."
+    },
+    "Cli": {
+        "title": "Oppure salta del tutto il portale",
+        "subtitle": "Gli stessi scanner sono disponibili come CLI. Nessuna installazione, nessun account, nessun database: si avvia, stampa un advisory su cui il tuo agente può agire, ed esce.",
+        "pipeCaption": "In pipe, stdout trasporta solo il markdown, così l'advisory arriva integro all'agente:",
+        "walkTitle": "Attraversa la cartella",
+        "walkBody": "Puntala a una directory e troverà ogni progetto al suo interno, fermandosi alla radice di ciascuno perché un monorepo conti una volta e non cinquanta. .gitignore e .sentinelloignore vengono rispettati.",
+        "checkTitle": "Consulta tre fonti",
+        "checkBody": "Risolve le versioni esatte installate dal lockfile e le confronta offline con una cache locale di advisory. Nessuna chiamata di rete per progetto, e nulla del tuo codice viene caricato.",
+        "writeTitle": "Scrive un advisory",
+        "writeBody": "Un file markdown datato con i risultati e un prompt di remediation allegato: fare triage prima di toccare qualsiasi cosa, preferire l'aggiornamento del pacchetto padre agli override, verificare le correzioni nel lockfile.",
+        "vsTitle": "In cosa differisce da npm audit",
+        "vsIntro": "Non sostituisce npm audit: esegue npm audit e poi aggiunge due fonti di advisory che npm audit non può vedere, sopprimendo ciò che duplicano.",
+        "vsAxis": "",
+        "vsNpmAudit": "npm audit",
+        "vsSentinello": "npx sentinello",
+        "row_scope": "Ambito",
+        "npm_scope": "L'unico progetto in cui ti trovi.",
+        "ours_scope": "Ogni progetto sotto una cartella, in un solo passaggio e un solo report.",
+        "row_sources": "Fonti di advisory",
+        "npm_sources": "Il feed di advisory del tuo registry.",
+        "ours_sources": "Quello, più OSV e GitLab gemnasium. I duplicati vengono soppressi, quindi ogni fonte aggiuntiva aggiunge solo risultati nuovi.",
+        "row_malware": "Pacchetti malevoli",
+        "npm_malware": "Non coperto.",
+        "ours_malware": "I record MAL- di OSV segnalano pacchetti pubblicati con malware — typosquat, payload negli script di installazione — confrontati con le specifiche versioni compromesse.",
+        "row_output": "Output",
+        "npm_output": "Una tabella, o JSON da interpretare.",
+        "ours_output": "Un advisory markdown con un prompt di remediation allegato, pronto da consegnare a un agente.",
+        "row_matching": "Confronto",
+        "npm_matching": "Una chiamata al registry per progetto.",
+        "ours_matching": "Offline, contro una cache locale. La prima esecuzione la scarica e chiede prima; quelle successive trasferiscono quasi nulla.",
+        "footnote": "Le fonti aggiuntive non sono una formalità. Sul repository di Sentinello stesso, npm audit e OSV riportano tre risultati ciascuno e concordano su tutti, mentre l'unico risultato critico proviene da gemnasium, che nessuna delle altre due contiene.",
+        "docsCta": "Leggi la documentazione della CLI"
     }
 }

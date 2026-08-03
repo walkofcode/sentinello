@@ -147,5 +147,38 @@
     "ReleaseNotes": {
         "title": "Versionshinweise",
         "subtitle": "Sentinello erscheint regelmäßig — das hat jede Version gebracht."
+    },
+    "Cli": {
+        "title": "Oder ganz ohne Portal",
+        "subtitle": "Dieselben Scanner gibt es als CLI. Keine Installation, kein Konto, keine Datenbank – sie läuft, gibt ein Advisory aus, mit dem dein Agent arbeiten kann, und beendet sich.",
+        "pipeCaption": "In einer Pipe trägt stdout nur das Markdown, sodass das Advisory unversehrt beim Agenten ankommt:",
+        "walkTitle": "Durchläuft den Ordner",
+        "walkBody": "Richte sie auf ein Verzeichnis, und sie findet jedes Projekt darunter – und hält an jeder Projektwurzel an, damit ein Monorepo einmal zählt statt fünfzigmal. .gitignore und .sentinelloignore werden beachtet.",
+        "checkTitle": "Prüft drei Quellen",
+        "checkBody": "Löst die exakt installierten Versionen aus der Lockfile auf und gleicht sie offline gegen einen lokalen Advisory-Cache ab. Kein Netzwerkaufruf pro Projekt, und nichts von deinem Code wird hochgeladen.",
+        "writeTitle": "Schreibt ein Advisory",
+        "writeBody": "Eine datierte Markdown-Datei mit den Funden und einem angehängten Remediation-Prompt: erst triagieren, Parent-Upgrades gegenüber Overrides bevorzugen, Fixes in der Lockfile verifizieren.",
+        "vsTitle": "Worin es sich von npm audit unterscheidet",
+        "vsIntro": "Es ersetzt npm audit nicht – es führt npm audit aus und ergänzt zwei Advisory-Quellen, die npm audit nicht sehen kann, wobei Duplikate unterdrückt werden.",
+        "vsAxis": "",
+        "vsNpmAudit": "npm audit",
+        "vsSentinello": "npx sentinello",
+        "row_scope": "Umfang",
+        "npm_scope": "Das eine Projekt, in dem du gerade stehst.",
+        "ours_scope": "Jedes Projekt unter einem Ordner, in einem Durchlauf und einem Bericht.",
+        "row_sources": "Advisory-Quellen",
+        "npm_sources": "Der Advisory-Feed deiner Registry.",
+        "ours_sources": "Dieser, plus OSV und GitLab gemnasium. Duplikate werden unterdrückt, sodass jede zusätzliche Quelle nur neue Funde beisteuert.",
+        "row_malware": "Schadhafte Pakete",
+        "npm_malware": "Nicht abgedeckt.",
+        "ours_malware": "Die MAL--Einträge von OSV kennzeichnen Pakete, die mit Malware veröffentlicht wurden – Typosquats, Payloads in Install-Skripten – abgeglichen mit den konkret kompromittierten Versionen.",
+        "row_output": "Ausgabe",
+        "npm_output": "Eine Tabelle oder JSON, das du interpretieren musst.",
+        "ours_output": "Ein Markdown-Advisory mit angehängtem Remediation-Prompt, bereit für einen Agenten.",
+        "row_matching": "Abgleich",
+        "npm_matching": "Ein Registry-Aufruf pro Projekt.",
+        "ours_matching": "Offline gegen einen lokalen Cache. Der erste Lauf lädt ihn herunter und fragt vorher; spätere Läufe übertragen fast nichts.",
+        "footnote": "Die zusätzlichen Quellen sind keine Formsache. Im eigenen Repository von Sentinello melden npm audit und OSV je drei Funde und stimmen in allen überein – der einzige kritische Fund stammt dagegen von gemnasium, das keine der beiden anderen führt.",
+        "docsCta": "CLI-Dokumentation lesen"
     }
 }

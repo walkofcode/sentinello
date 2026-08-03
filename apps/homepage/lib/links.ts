@@ -8,6 +8,13 @@ export const WEBSITE_URL = 'https://sentinello.org'
 export const WALKOFCODE_URL = 'https://walkofcode.io'
 export const LICENSE_URL = 'https://github.com/walkofcode/sentinello/blob/main/LICENSE'
 export const IMAGE_REF = 'ghcr.io/walkofcode/sentinello:latest'
+export const NPM_PACKAGE_URL = 'https://www.npmjs.com/package/sentinello'
+export const CLI_DOCS_URL = 'https://github.com/walkofcode/sentinello/blob/main/docs/cli.md'
+
+// The CLI's two headline invocations, mirroring apps/cli/README.md. The pipe form is the differentiator
+// and is shown in full: piped, stdout carries only the markdown, so the document reaches the agent intact.
+export const NPX_COMMAND = 'npx sentinello'
+export const NPX_PIPE_COMMAND = 'npx sentinello | claude -p "$(cat -)"'
 
 export const DOCKER_RUN_COMMAND = `docker run -d \\
   --name sentinello \\

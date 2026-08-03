@@ -147,5 +147,38 @@
     "ReleaseNotes": {
         "title": "Release notes",
         "subtitle": "Sentinello ships regularly — here's what each release delivered."
+    },
+    "Cli": {
+        "title": "Or skip the portal entirely",
+        "subtitle": "The same scanners ship as a CLI. No install, no account, no database — it runs, prints an advisory your agent can act on, and exits.",
+        "pipeCaption": "Piped, stdout carries only the markdown, so the advisory reaches an agent intact:",
+        "walkTitle": "Walks the folder",
+        "walkBody": "Point it at a directory and it finds every project underneath, stopping at each project root so a monorepo counts once rather than fifty times. .gitignore and .sentinelloignore are honoured.",
+        "checkTitle": "Checks three sources",
+        "checkBody": "Resolves the exact installed versions from the lockfile and matches them offline against a local advisory cache. No per-project network call, and nothing about your code is uploaded.",
+        "writeTitle": "Writes an advisory",
+        "writeBody": "A dated markdown file with the findings and a remediation prompt attached — triage before touching anything, prefer parent upgrades over overrides, verify fixes in the lockfile.",
+        "vsTitle": "How it differs from npm audit",
+        "vsIntro": "It isn't a replacement for npm audit — it runs npm audit, then adds two advisory sources npm audit cannot see, and suppresses anything they duplicate.",
+        "vsAxis": "",
+        "vsNpmAudit": "npm audit",
+        "vsSentinello": "npx sentinello",
+        "row_scope": "Scope",
+        "npm_scope": "The one project you are standing in.",
+        "ours_scope": "Every project under a folder, in one pass and one report.",
+        "row_sources": "Advisory sources",
+        "npm_sources": "Your registry's advisory feed.",
+        "ours_sources": "That, plus OSV and GitLab gemnasium. Duplicates are suppressed, so each extra source only adds net-new findings.",
+        "row_malware": "Malicious packages",
+        "npm_malware": "Not covered.",
+        "ours_malware": "OSV's MAL- records flag packages published with malware — typosquats, install-script payloads — matched against the specific compromised versions.",
+        "row_output": "Output",
+        "npm_output": "A table, or JSON you have to interpret.",
+        "ours_output": "A markdown advisory with a remediation prompt attached, ready to hand to an agent.",
+        "row_matching": "Matching",
+        "npm_matching": "A registry call per project.",
+        "ours_matching": "Offline against a local cache. The first run downloads it and asks first; later runs transfer almost nothing.",
+        "footnote": "The extra sources are not a formality. On Sentinello's own repository, npm audit and OSV each report three findings and agree on all of them — while the single critical finding comes from gemnasium, which neither of the other two carries.",
+        "docsCta": "Read the CLI documentation"
     }
 }

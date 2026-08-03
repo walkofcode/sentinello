@@ -147,5 +147,38 @@
     "ReleaseNotes": {
         "title": "릴리스 노트",
         "subtitle": "Sentinello는 자주 업데이트됩니다 — 각 릴리스가 제공한 내용입니다."
+    },
+    "Cli": {
+        "title": "포털 없이 바로 쓸 수도 있습니다",
+        "subtitle": "같은 스캐너를 CLI로도 제공합니다. 설치도 계정도 데이터베이스도 필요 없습니다 — 실행하면 에이전트가 바로 처리할 수 있는 권고문을 출력하고 종료합니다.",
+        "pipeCaption": "파이프로 넘기면 stdout에는 markdown만 흐르므로 권고문이 그대로 에이전트에 전달됩니다:",
+        "walkTitle": "폴더를 탐색",
+        "walkBody": "디렉터리를 지정하면 그 아래 모든 프로젝트를 찾아냅니다. 각 프로젝트 루트에서 멈추므로 모노레포는 쉰 개가 아니라 한 개로 셉니다. .gitignore와 .sentinelloignore를 존중합니다.",
+        "checkTitle": "세 가지 소스를 확인",
+        "checkBody": "lockfile에서 실제 설치된 정확한 버전을 확인하고 로컬 권고문 캐시와 오프라인으로 대조합니다. 프로젝트마다 네트워크를 호출하지 않으며, 코드는 전혀 업로드되지 않습니다.",
+        "writeTitle": "권고문을 작성",
+        "writeBody": "발견 사항과 조치 프롬프트가 첨부된 날짜별 markdown 파일 — 손대기 전에 분류하고, override보다 상위 패키지 업그레이드를 우선하며, 수정은 lockfile에서 검증하라는 지침이 함께 담깁니다.",
+        "vsTitle": "npm audit와 무엇이 다른가",
+        "vsIntro": "npm audit를 대체하지 않습니다. npm audit를 실행한 뒤, npm audit가 볼 수 없는 두 개의 권고문 소스를 더하고 중복되는 항목은 억제합니다.",
+        "vsAxis": "",
+        "vsNpmAudit": "npm audit",
+        "vsSentinello": "npx sentinello",
+        "row_scope": "범위",
+        "npm_scope": "지금 서 있는 프로젝트 하나.",
+        "ours_scope": "폴더 아래 모든 프로젝트를, 한 번의 실행과 하나의 리포트로.",
+        "row_sources": "권고문 소스",
+        "npm_sources": "사용 중인 레지스트리의 권고문 피드.",
+        "ours_sources": "여기에 OSV와 GitLab gemnasium을 더합니다. 중복은 억제되므로 소스를 추가해도 새로운 발견만 늘어납니다.",
+        "row_malware": "악성 패키지",
+        "npm_malware": "다루지 않음.",
+        "ours_malware": "OSV의 MAL- 레코드가 멀웨어와 함께 배포된 패키지(타이포스쿼팅, 설치 스크립트 페이로드 등)를 실제로 침해된 버전과 대조해 표시합니다.",
+        "row_output": "출력",
+        "npm_output": "표, 또는 직접 해석해야 하는 JSON.",
+        "ours_output": "조치 프롬프트가 첨부된 markdown 권고문. 에이전트에 바로 넘길 수 있습니다.",
+        "row_matching": "대조 방식",
+        "npm_matching": "프로젝트마다 레지스트리 호출.",
+        "ours_matching": "로컬 캐시를 대상으로 오프라인 대조. 첫 실행에서 먼저 묻고 내려받으며, 이후 실행은 거의 아무것도 전송하지 않습니다.",
+        "footnote": "추가 소스는 형식적인 것이 아닙니다. Sentinello 자체 저장소에서 npm audit와 OSV는 각각 세 건을 보고하고 그 내용이 모두 일치하지만, 유일한 critical 발견은 나머지 둘에는 없는 gemnasium에서 나옵니다.",
+        "docsCta": "CLI 문서 읽기"
     }
 }

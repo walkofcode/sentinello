@@ -147,5 +147,38 @@
     "ReleaseNotes": {
         "title": "发行说明",
         "subtitle": "Sentinello 持续更新——以下是每个版本带来的内容。"
+    },
+    "Cli": {
+        "title": "也可以完全不用门户",
+        "subtitle": "同样的扫描器还提供 CLI。无需安装、无需账号、无需数据库——运行后输出一份代理可直接处理的公告，然后退出。",
+        "pipeCaption": "通过管道传递时，stdout 只承载 markdown，因此公告能完整送达代理：",
+        "walkTitle": "遍历文件夹",
+        "walkBody": "指向一个目录，它会找出其下的每个项目，并在各项目根目录处停止，因此 monorepo 只算一个而不是五十个。会遵循 .gitignore 与 .sentinelloignore。",
+        "checkTitle": "核对三个来源",
+        "checkBody": "从 lockfile 解析出实际安装的精确版本，离线比对本地公告缓存。不会为每个项目发起网络请求，也不会上传你的任何代码。",
+        "writeTitle": "写出公告",
+        "writeBody": "一份带日期的 markdown 文件，包含发现的问题以及附带的修复提示——先分诊再动手，优先升级父包而非使用 override，并在 lockfile 中验证修复。",
+        "vsTitle": "与 npm audit 有何不同",
+        "vsIntro": "它并不取代 npm audit：它会运行 npm audit，然后补上两个 npm audit 看不到的公告来源，并抑制其中重复的部分。",
+        "vsAxis": "",
+        "vsNpmAudit": "npm audit",
+        "vsSentinello": "npx sentinello",
+        "row_scope": "范围",
+        "npm_scope": "你当前所在的那一个项目。",
+        "ours_scope": "一个文件夹下的所有项目，一次执行、一份报告。",
+        "row_sources": "公告来源",
+        "npm_sources": "你所用注册表的公告源。",
+        "ours_sources": "在此基础上再加 OSV 与 GitLab gemnasium。重复项会被抑制，因此每增加一个来源只会带来新增的发现。",
+        "row_malware": "恶意包",
+        "npm_malware": "不涵盖。",
+        "ours_malware": "OSV 的 MAL- 记录会标记随恶意代码一同发布的包——仿冒名、安装脚本载荷——并与具体被投毒的版本进行比对。",
+        "row_output": "输出",
+        "npm_output": "一张表格，或需要你自行解读的 JSON。",
+        "ours_output": "一份附带修复提示的 markdown 公告，可直接交给代理。",
+        "row_matching": "比对方式",
+        "npm_matching": "每个项目都要调用注册表。",
+        "ours_matching": "针对本地缓存离线比对。首次运行会先征询再下载，之后几乎不传输任何数据。",
+        "footnote": "这些额外来源并非摆设。在 Sentinello 自己的仓库上，npm audit 与 OSV 各报告三条发现且完全一致，而唯一的 critical 发现来自 gemnasium——另外两个来源都没有收录它。",
+        "docsCta": "阅读 CLI 文档"
     }
 }
