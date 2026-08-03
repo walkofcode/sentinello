@@ -391,6 +391,24 @@ describe('exit codes', function () {
     })
 })
 
+describe('retryWaitMsFor', function () {
+    // Seconds at the flag, milliseconds at the feeds layer.
+    it('converts seconds to milliseconds', async function () {
+        const { retryWaitMsFor } = await import('./run')
+        expect(retryWaitMsFor(180)).toBe(180_000)
+        expect(retryWaitMsFor(30)).toBe(30_000)
+    })
+
+    // The distinction the whole function exists for. undefined lets the feeds layer apply its default;
+    // 0 is the user saying "do not wait at all". Collapsing them would turn --feed-wait 0 into a
+    // three-minute stall, which is the exact opposite of what was asked for.
+    it('keeps "no preference" and "do not wait" apart', async function () {
+        const { retryWaitMsFor } = await import('./run')
+        expect(retryWaitMsFor(null)).toBeUndefined()
+        expect(retryWaitMsFor(0)).toBe(0)
+    })
+})
+
 describe('resolveDestination', function () {
     function options(overrides: Partial<CliOptions> = {}): CliOptions {
         return { rootPath: '/srv/code', outPath: null, ...overrides } as CliOptions

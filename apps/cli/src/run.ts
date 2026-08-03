@@ -114,7 +114,7 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
             cacheDir,
             sources: options.sources,
             ecosystem: DEFAULT_ECOSYSTEM,
-            retryWaitMs: options.feedWaitSeconds === null ? undefined : options.feedWaitSeconds * 1000,
+            retryWaitMs: retryWaitMsFor(options.feedWaitSeconds),
             onProgress: ui.syncProgress,
             onRetry: ui.syncRetry,
             onStatus: ui.syncStatus
@@ -176,6 +176,14 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
 
     if (shouldFail(summary, options.failOn)) return EXIT_THRESHOLD
     return EXIT_OK
+}
+
+// null means "the caller expressed no preference", which is not the same as 0 — 0 is an explicit
+// instruction to stop waiting. Returning undefined for null is what lets the feeds layer apply its own
+// default, so the two must not collapse into one another on the way down.
+export function retryWaitMsFor(feedWaitSeconds: number | null): number | undefined {
+    if (feedWaitSeconds === null) return undefined
+    return feedWaitSeconds * 1000
 }
 
 // Where the document goes. `--out -` and a piped stdout both mean "write to stdout"; otherwise it lands in

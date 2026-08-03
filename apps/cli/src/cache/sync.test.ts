@@ -132,6 +132,53 @@ afterEach(async function teardown() {
     await rm(dir, { recursive: true, force: true })
 })
 
+describe('retry notices', function () {
+    // The feeds layer reports a slow-transient wait so the terminal can say why it is sitting there.
+    // sync relays it with the plan item attached, because the UI names the source in that line and the
+    // feeds layer has no idea which source it is downloading for.
+    it('relays a feed retry notice with the item that caused it', async function () {
+        const notices: { source: string; waitMs: number }[] = []
+        feeds.streamGemnasiumArchive.mockImplementation(function stream(_progress: unknown, opts: { onRetry?: (n: unknown) => void }) {
+            if (opts && opts.onRetry) opts.onRetry({ status: 406, attempt: 1, waitMs: 45_000, elapsedMs: 0, budgetMs: 180_000 })
+            return streamOf([{ rows: [gemRow()] }])()
+        })
+        const opts = options({
+            sources: ['gemnasium'],
+            onRetry: function record(item, notice) {
+                notices.push({ source: item.source, waitMs: notice.waitMs })
+            }
+        })
+        await runSync(opts, await planSync(opts))
+        expect(notices).toEqual([{ source: 'gemnasium', waitMs: 45_000 }])
+    })
+
+    // Without a listener the relay must stay undefined rather than becoming a no-op closure, so the
+    // feeds layer can tell "nobody is watching" from "someone is watching and ignoring it".
+    it('passes no notifier through when the caller supplied none', async function () {
+        let sawOnRetry: unknown = 'unset'
+        feeds.streamGemnasiumArchive.mockImplementation(function stream(_progress: unknown, opts: { onRetry?: unknown }) {
+            sawOnRetry = opts.onRetry
+            return streamOf([{ rows: [gemRow()] }])()
+        })
+        const opts = options({ sources: ['gemnasium'] })
+        await runSync(opts, await planSync(opts))
+        expect(sawOnRetry).toBeUndefined()
+    })
+
+    // The budget is threaded from the CLI flag down to every feed call, not just the archive download:
+    // while a block holds, the HEAD-sha and compare calls fail exactly as the download does.
+    it('threads the retry budget to the feed calls', async function () {
+        let seen: number | undefined
+        feeds.streamGemnasiumArchive.mockImplementation(function stream(_progress: unknown, opts: { retryWaitMs?: number }) {
+            seen = opts.retryWaitMs
+            return streamOf([{ rows: [gemRow()] }])()
+        })
+        const opts = options({ sources: ['gemnasium'], retryWaitMs: 5_000 })
+        await runSync(opts, await planSync(opts))
+        expect(seen).toBe(5_000)
+    })
+})
+
 describe('planSync', function () {
     it('plans a seed for each source on a cold cache and asks for consent', async function () {
         const plan = await planSync(options())

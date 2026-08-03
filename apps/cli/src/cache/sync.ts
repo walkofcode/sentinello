@@ -204,6 +204,8 @@ function progressFor(options: SyncOptions, item: SyncPlanItem): ProgressReporter
 
 function retryNotifierFor(options: SyncOptions, item: SyncPlanItem): ((notice: RetryNotice) => void) | undefined {
     const report = options.onRetry
+    // Left undefined rather than wrapped in a no-op, so the feeds layer can tell "nobody is watching"
+    // from "someone is watching and ignoring it".
     if (!report) return undefined
     return function onRetry(notice: RetryNotice): void {
         report(item, notice)
@@ -213,11 +215,11 @@ function retryNotifierFor(options: SyncOptions, item: SyncPlanItem): ((notice: R
 // Every feed call carries the same cancellation and retry policy. A slow-transient rejection is a property
 // of the host, not of one route, so scoping the budget to the archive download alone would leave the other
 // GitLab calls on a policy that cannot clear what they will hit.
-function fetchOptionsFor(options: SyncOptions, item?: SyncPlanItem): FetchOptions {
+function fetchOptionsFor(options: SyncOptions, item: SyncPlanItem): FetchOptions {
     return {
         abortSignal: options.abortSignal,
         retryWaitMs: options.retryWaitMs,
-        onRetry: item ? retryNotifierFor(options, item) : undefined
+        onRetry: retryNotifierFor(options, item)
     }
 }
 

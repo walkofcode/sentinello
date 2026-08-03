@@ -252,6 +252,25 @@ describe('parseArgs — --prompt and --out', function () {
     it('still accepts the lone dash that means stdout', function () {
         expect(optionsOf(['--out', '-']).outPath).toBe('-')
     })
+
+    // The budget for waiting out a feed that declines a download. Seconds, because the number a user
+    // reaches for when a wait is annoying them is a number of seconds.
+    it('parses --feed-wait as seconds', function () {
+        expect(optionsOf(['--feed-wait', '30']).feedWaitSeconds).toBe(30)
+        expect(optionsOf(['--feed-wait=90']).feedWaitSeconds).toBe(90)
+    })
+
+    // 0 is the documented way to switch waiting off, so it must survive as 0 rather than being treated
+    // as absent — null means "use the feeds-layer default", which is the opposite instruction.
+    it('keeps --feed-wait 0 distinct from unset', function () {
+        expect(optionsOf(['--feed-wait', '0']).feedWaitSeconds).toBe(0)
+        expect(optionsOf([]).feedWaitSeconds).toBeNull()
+    })
+
+    it('rejects a non-numeric or negative --feed-wait', function () {
+        expect(errorOf(['--feed-wait', 'abc'])).toContain('non-negative number of seconds')
+        expect(errorOf(['--feed-wait=-5'])).toContain('non-negative number of seconds')
+    })
 })
 
 describe('parseArgs — positional argument', function () {
@@ -348,6 +367,26 @@ describe('applyConfigFile', function () {
         const error = await applyConfigFile(options, new Set(flags))
         return { options, error }
     }
+
+    describe('feedWait', function () {
+        it('applies feedWait from the file', async function () {
+            const { options, error } = await apply({ feedWait: 45 })
+            expect(error).toBeNull()
+            expect(options.feedWaitSeconds).toBe(45)
+        })
+
+        // Precedence, the rule that makes the file safe: a typed flag always wins.
+        it('does not override an explicit --feed-wait', async function () {
+            const { options } = await apply({ feedWait: 45 }, ['--feed-wait'])
+            expect(options.feedWaitSeconds).toBeNull()
+        })
+
+        it('reports an invalid feedWait against the file, not the flag', async function () {
+            const { error } = await apply({ feedWait: -1 })
+            expect(error).toContain('sentinello.config.json:')
+            expect(error).toContain('non-negative number of seconds')
+        })
+    })
 
     describe('reading the file', function () {
         // Absent is the overwhelmingly common case and must not be an error — most projects have no
