@@ -37,6 +37,10 @@ SOURCES
   --offline             Skip the freshness check and use the cached data as-is.
   --cache-dir <path>    Where the advisory cache lives.
                         Default: $XDG_CACHE_HOME/sentinello or ~/.cache/sentinello.
+  --feed-wait <secs>    How long to keep waiting out a feed that declines a download
+                        and clears on its own. GitLab does this to the gemnasium
+                        archive for a minute or two at a time. Default: 180.
+                        0 gives up on the first refusal, leaving that source unseeded.
 
 OUTPUT
   --out <file|->        Write the advisory to a file, or "-" for stdout.
@@ -66,7 +70,7 @@ EXIT CODES
 
 CONFIG
   An optional sentinello.config.json in the scanned directory supplies defaults for
-  depth, exclude, sources, depType, prompt, failOn, and out. Flags always win.
+  depth, exclude, sources, depType, prompt, failOn, out, and feedWait. Flags always win.
 
 Sentinello stores nothing about your code. The only thing written to the cache
 directory is public advisory data downloaded from OSV and GitLab.

@@ -29,6 +29,9 @@ export type CliOptions = {
     assumeYes: boolean
     offline: boolean
     cacheDir: string | null
+    // Seconds to keep waiting out a feed that answers with a slow-transient rejection. null uses the
+    // feeds-layer default; 0 fails on the first one.
+    feedWaitSeconds: number | null
     color: boolean
     quiet: boolean
     verbose: boolean
@@ -61,6 +64,7 @@ function defaults(): CliOptions {
         outPath: null,
         json: false,
         failOn: 'none',
+        feedWaitSeconds: null,
         assumeYes: false,
         offline: false,
         cacheDir: null,
@@ -160,7 +164,8 @@ const VALUE_FLAGS = new Set([
     '--prompt',
     '--out',
     '--fail-on',
-    '--cache-dir'
+    '--cache-dir',
+    '--feed-wait'
 ])
 
 // Returns an error message, or null on success.
@@ -243,6 +248,12 @@ function applyValueFlag(options: CliOptions, name: string, raw: string): string 
         options.cacheDir = value
         return null
     }
+    if (name === '--feed-wait') {
+        const parsed = Number(value)
+        if (!Number.isFinite(parsed) || parsed < 0) return '--feed-wait expects a non-negative number of seconds'
+        options.feedWaitSeconds = parsed
+        return null
+    }
     return 'unknown option ' + name
 }
 
@@ -258,6 +269,7 @@ type FileConfig = {
     prompt?: string
     failOn?: string
     out?: string
+    feedWait?: number
 }
 
 // Reads sentinello.config.json from the scan root, if present. Flags always win: the file supplies
@@ -308,6 +320,10 @@ export async function applyConfigFile(options: CliOptions, explicitFlags: Readon
     }
     if (typeof config.out === 'string' && !explicitFlags.has('--out')) {
         options.outPath = config.out
+    }
+    if (typeof config.feedWait === 'number' && !explicitFlags.has('--feed-wait')) {
+        const error = applyValueFlag(options, '--feed-wait', String(config.feedWait))
+        if (error) return 'sentinello.config.json: ' + error
     }
     return null
 }

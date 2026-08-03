@@ -20,7 +20,9 @@ import {
     osvFeedDisabled,
     streamGemnasiumArchive,
     streamOsvSeed,
-    type ProgressReporter
+    type FetchOptions,
+    type ProgressReporter,
+    type RetryNotice
 } from '@sentinello/feeds'
 import {
     advisoryFilePath,
@@ -78,6 +80,9 @@ export type SyncOptions = {
     abortSignal?: AbortSignal
     // Reports download progress for the seed, so the UI layer can render a real progress bar.
     onProgress?: (item: SyncPlanItem, bytesRead: number, totalBytes: number | null) => void
+    // Wall-clock budget for waiting out a slow-transient rejection; 0 fails fast. Defaults in the feeds layer.
+    retryWaitMs?: number
+    onRetry?: (item: SyncPlanItem, notice: RetryNotice) => void
     onStatus?: (item: SyncPlanItem, phase: 'start' | 'done') => void
 }
 
@@ -197,13 +202,32 @@ function progressFor(options: SyncOptions, item: SyncPlanItem): ProgressReporter
     }
 }
 
+function retryNotifierFor(options: SyncOptions, item: SyncPlanItem): ((notice: RetryNotice) => void) | undefined {
+    const report = options.onRetry
+    if (!report) return undefined
+    return function onRetry(notice: RetryNotice): void {
+        report(item, notice)
+    }
+}
+
+// Every feed call carries the same cancellation and retry policy. A slow-transient rejection is a property
+// of the host, not of one route, so scoping the budget to the archive download alone would leave the other
+// GitLab calls on a policy that cannot clear what they will hit.
+function fetchOptionsFor(options: SyncOptions, item?: SyncPlanItem): FetchOptions {
+    return {
+        abortSignal: options.abortSignal,
+        retryWaitMs: options.retryWaitMs,
+        onRetry: item ? retryNotifierFor(options, item) : undefined
+    }
+}
+
 async function seedOsv(options: SyncOptions, meta: CacheMeta, item: SyncPlanItem): Promise<SyncOutcome> {
     const path = advisoryFilePath(options.cacheDir, 'osv', item.ecosystem)
     const writer = createRowWriter(path)
     let lastModified: string | null = null
     let rowCount: number
     try {
-        for await (const batch of streamOsvSeed(item.ecosystem, progressFor(options, item), { abortSignal: options.abortSignal })) {
+        for await (const batch of streamOsvSeed(item.ecosystem, progressFor(options, item), fetchOptionsFor(options, item))) {
             lastModified = batch.lastModified
             await writer.write(batch.rows as OsvAdvisoryRow[])
         }
@@ -228,7 +252,7 @@ async function refreshOsv(options: SyncOptions, meta: CacheMeta, item: SyncPlanI
     const state = getSourceState(meta, 'osv', item.ecosystem)
     const cursorMs = state && state.cursorIso ? Date.parse(state.cursorIso) || 0 : 0
     const etag = state && state.etag ? state.etag : null
-    const changed = await fetchOsvChangedIds(item.ecosystem, cursorMs, etag, { abortSignal: options.abortSignal })
+    const changed = await fetchOsvChangedIds(item.ecosystem, cursorMs, etag, fetchOptionsFor(options, item))
     if (changed.status === 'unchanged') {
         touch(meta, 'osv', item.ecosystem)
         return { source: 'osv', ecosystem: item.ecosystem, status: 'unchanged', rowCount: state?.recordCount ?? 0, message: null }
@@ -245,7 +269,7 @@ async function refreshOsv(options: SyncOptions, meta: CacheMeta, item: SyncPlanI
     for (const id of changed.ids) {
         if (options.abortSignal && options.abortSignal.aborted) break
         try {
-            const rows = await fetchOsvAdvisoryRows(id, item.ecosystem, { abortSignal: options.abortSignal })
+            const rows = await fetchOsvAdvisoryRows(id, item.ecosystem, fetchOptionsFor(options, item))
             for (const row of rows) append.push(row)
         } catch {
             // One advisory failing must not abort the pass. Its rows are dropped below and simply absent
@@ -275,12 +299,12 @@ async function seedGemnasium(options: SyncOptions, meta: CacheMeta, item: SyncPl
     // Read the HEAD sha BEFORE downloading. The archive is fetched from the master ref, so it may be
     // marginally newer than this sha; recording the older one makes the next compare replay that window,
     // which is idempotent, instead of skipping past changes we never actually ingested.
-    const headSha = await fetchGemnasiumHeadSha({ abortSignal: options.abortSignal })
+    const headSha = await fetchGemnasiumHeadSha(fetchOptionsFor(options, item))
     const path = advisoryFilePath(options.cacheDir, 'gemnasium', item.ecosystem)
     const writer = createRowWriter(path)
     let rowCount: number
     try {
-        for await (const batch of streamGemnasiumArchive(progressFor(options, item), { abortSignal: options.abortSignal })) {
+        for await (const batch of streamGemnasiumArchive(progressFor(options, item), fetchOptionsFor(options, item))) {
             // The CLI scans JavaScript only, so keep just this ecosystem's rows out of the polyglot archive.
             const rows = batch.rows.filter(function forEcosystem(row): boolean {
                 return row.ecosystem === item.ecosystem
@@ -304,7 +328,7 @@ async function seedGemnasium(options: SyncOptions, meta: CacheMeta, item: SyncPl
 async function refreshGemnasium(options: SyncOptions, meta: CacheMeta, item: SyncPlanItem): Promise<SyncOutcome> {
     const state = getSourceState(meta, 'gemnasium', item.ecosystem)
     const storedSha = state && state.headSha ? state.headSha : null
-    const headSha = await fetchGemnasiumHeadSha({ abortSignal: options.abortSignal })
+    const headSha = await fetchGemnasiumHeadSha(fetchOptionsFor(options, item))
     if (headSha && storedSha === headSha) {
         touch(meta, 'gemnasium', item.ecosystem)
         return { source: 'gemnasium', ecosystem: item.ecosystem, status: 'unchanged', rowCount: state?.recordCount ?? 0, message: null }
@@ -312,7 +336,7 @@ async function refreshGemnasium(options: SyncOptions, meta: CacheMeta, item: Syn
     if (!headSha || !storedSha) {
         return await seedGemnasium(options, meta, { ...item, kind: 'seed' })
     }
-    const changed = await fetchGemnasiumChangedPaths(storedSha, headSha, { abortSignal: options.abortSignal })
+    const changed = await fetchGemnasiumChangedPaths(storedSha, headSha, fetchOptionsFor(options, item))
     if (changed.status === 'unavailable') {
         return await seedGemnasium(options, meta, { ...item, kind: 'seed' })
     }
@@ -336,7 +360,7 @@ async function refreshGemnasium(options: SyncOptions, meta: CacheMeta, item: Syn
     const append: GemnasiumAdvisoryRow[] = []
     for (const path of relevant) {
         if (options.abortSignal && options.abortSignal.aborted) break
-        const rows = await fetchGemnasiumFileRows(path, headSha, { abortSignal: options.abortSignal })
+        const rows = await fetchGemnasiumFileRows(path, headSha, fetchOptionsFor(options, item))
         for (const row of rows) {
             if (row.ecosystem === item.ecosystem) append.push(row)
         }

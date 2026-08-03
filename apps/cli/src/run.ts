@@ -114,7 +114,9 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
             cacheDir,
             sources: options.sources,
             ecosystem: DEFAULT_ECOSYSTEM,
+            retryWaitMs: options.feedWaitSeconds === null ? undefined : options.feedWaitSeconds * 1000,
             onProgress: ui.syncProgress,
+            onRetry: ui.syncRetry,
             onStatus: ui.syncStatus
         }, plan)
         ui.syncDone(outcomes)
