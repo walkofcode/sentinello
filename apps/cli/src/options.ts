@@ -122,6 +122,10 @@ export function parseArgs(argv: readonly string[]): ParseResult {
         }
         const value = valueFor(arg, argv, i)
         if (value.kind === 'missing') return { kind: 'error', message: 'missing value for ' + arg }
+        if (value.kind === 'flaglike') {
+            const hint = arg === '--out' ? ' (use "-" alone to write the advisory to stdout)' : ''
+            return { kind: 'error', message: arg + ' expects a value, but got "' + value.taken + '"' + hint }
+        }
         if (value.kind === 'none') {
             if (arg.startsWith('-')) return { kind: 'error', message: 'unknown option ' + arg }
             if (positional !== null) return { kind: 'error', message: 'unexpected extra argument ' + arg }
@@ -140,6 +144,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
 type FlagValue =
     | { kind: 'none' }
     | { kind: 'missing' }
+    | { kind: 'flaglike'; taken: string }
     | { kind: 'value'; name: string; value: string; consumed: boolean }
 
 // Supports both `--flag value` and `--flag=value`.
@@ -152,6 +157,10 @@ function valueFor(arg: string, argv: readonly string[], nextIndex: number): Flag
     if (!VALUE_FLAGS.has(arg)) return { kind: 'none' }
     const next = argv[nextIndex]
     if (next === undefined) return { kind: 'missing' }
+    // A following token that looks like a flag is a typo, not a value. `--out --` used to be taken
+    // literally and wrote an advisory to a file named "--" inside the scanned project — a name most
+    // shells will not delete without being argued with. The lone "-" stays valid: it means stdout.
+    if (next !== '-' && next.startsWith('-')) return { kind: 'flaglike', taken: next }
     return { kind: 'value', name: arg, value: next, consumed: true }
 }
 
@@ -228,6 +237,11 @@ function applyValueFlag(options: CliOptions, name: string, raw: string): string 
         return null
     }
     if (name === '--out') {
+        // Also reached via `--out=--`, which skips the flag-shaped check in valueFor. A path beginning
+        // with a dash is a mistake in every case worth supporting; "-" alone means stdout.
+        if (value !== '-' && value.startsWith('-')) {
+            return '--out expects a file path or "-" for stdout, not "' + value + '"'
+        }
         options.outPath = value
         return null
     }

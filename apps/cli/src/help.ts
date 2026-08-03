@@ -23,6 +23,7 @@ USAGE
 
   Piped, it writes the markdown to stdout:   npx sentinello | claude -p "$(cat -)"
   In a terminal, it writes a dated .md file and prints a summary.
+  For the advisory and nothing else:         npx sentinello --out - > advisory.md
 
 SCOPE
   --depth <n|all>       How many directory levels to descend. Default: all.
@@ -43,7 +44,9 @@ SOURCES
                         0 gives up on the first refusal, leaving that source unseeded.
 
 OUTPUT
-  --out <file|->        Write the advisory to a file, or "-" for stdout.
+  --out <file|->        Write the advisory to a file, or "-" for stdout. With "-" the
+                        document is the ONLY thing on stdout — every status line goes
+                        to stderr — so it can be redirected or piped safely.
   --json                Emit machine-readable JSON instead of markdown.
   --severity <level>    Report findings at this severity or above.
                         critical | high | moderate | low | info. Default: info.

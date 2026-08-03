@@ -227,6 +227,31 @@ describe('parseArgs — --prompt and --out', function () {
         expect(optionsOf(['--out=report.md']).outPath).toBe('report.md')
         expect(optionsOf(['--out=-']).outPath).toBe('-')
     })
+
+    // `--out --` was taken literally and wrote the advisory to a file named "--" inside the scanned
+    // project, which is both surprising and awkward to delete. Reported from the help text's own
+    // `<file|->` notation being read as a double dash.
+    it('rejects a flag-shaped value rather than treating it as a filename', function () {
+        expect(errorOf(['--out', '--'])).toContain('--out expects a value')
+        expect(errorOf(['--out', '--'])).toContain('"-" alone')
+        expect(errorOf(['--out', '--json'])).toContain('got "--json"')
+    })
+
+    // The `=` form skips the check in valueFor, so --out validates its own value too.
+    it('rejects a dash-leading path given with =', function () {
+        expect(errorOf(['--out=--'])).toContain('not "--"')
+    })
+
+    it('applies the same guard to every value flag', function () {
+        expect(errorOf(['--cache-dir', '--quiet'])).toContain('--cache-dir expects a value')
+        expect(errorOf(['--severity', '--json'])).toContain('--severity expects a value')
+        // …but only --out earns the stdout hint, since only --out has a "-" form.
+        expect(errorOf(['--cache-dir', '--quiet'])).not.toContain('"-" alone')
+    })
+
+    it('still accepts the lone dash that means stdout', function () {
+        expect(optionsOf(['--out', '-']).outPath).toBe('-')
+    })
 })
 
 describe('parseArgs — positional argument', function () {
