@@ -1,5 +1,11 @@
 // Canonical external links + the exact Docker quick-start, kept in one place so copy stays in sync
-// with the repo README. The run command mirrors README.md's Quick start verbatim.
+// with the repo README.
+//
+// The contract with README.md is parity on every FUNCTIONAL line — ports, volumes, flags, environment.
+// Explanatory comments are trimmed, since a landing page is not the place to read them, and the roots
+// mount is a concrete path rather than the README's placeholder. Anything else that differs is drift:
+// these snippets are the first thing a visitor pastes into a shell, so a stale line here is a broken
+// install or, in the case of the port binding, an unauthenticated portal on every interface.
 export const GITHUB_REPO = 'walkofcode/sentinello'
 export const GITHUB_URL = 'https://github.com/walkofcode/sentinello'
 export const GITHUB_ISSUES_URL = 'https://github.com/walkofcode/sentinello/issues'
@@ -18,9 +24,10 @@ export const NPX_PIPE_COMMAND = 'npx sentinello | claude -p "$(cat -)"'
 
 export const DOCKER_RUN_COMMAND = `docker run -d \\
   --name sentinello \\
-  -p 3870:3000 \\
+  -p 127.0.0.1:3870:3000 \\
+  --stop-timeout 60 \\
   -v sentinello-data:/app/data \\
-  -v sentinello-nvm:/root/.nvm \\
+  -v sentinello-nvm:/home/sentinello/.nvm \\
   -v ~/Developer:/roots/personal:ro \\
   ghcr.io/walkofcode/sentinello:latest`
 
@@ -29,11 +36,26 @@ export const DOCKER_COMPOSE_SNIPPET = `services:
         image: ghcr.io/walkofcode/sentinello:latest
         container_name: sentinello
         restart: unless-stopped
+        # Room for the worker to drain an in-flight scan and release its lock.
+        stop_grace_period: 60s
+        security_opt:
+            - no-new-privileges:true
+        cap_drop:
+            - ALL
         ports:
-            - '3870:3000'
+            # Localhost-only; drop the prefix to expose it — and add auth first.
+            - '127.0.0.1:3870:3000'
+        environment:
+            SENTINELLO_DB_PATH: /app/data/sentinello.sqlite
+            # The address people open in a browser, not the mapping above: every
+            # notification link is built from it.
+            SENTINELLO_PORTAL_BASE_URL: http://localhost:3870
+            # Optional login gate — set a long random string to require /login:
+            # SENTINELLO_PORTAL_TOKEN: change-me-to-a-long-random-string
         volumes:
             - sentinello-data:/app/data
-            - sentinello-nvm:/root/.nvm
+            - sentinello-nvm:/home/sentinello/.nvm
+            # One read-only mount per root; each is auto-registered on boot.
             - \${HOME}/Developer:/roots/personal:ro
 
 volumes:
