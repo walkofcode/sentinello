@@ -74,9 +74,11 @@ export const OSV_SEED_DOWNLOAD_BYTES = 204 * 1024 * 1024
 export const OSV_REQUIRED_FREE_BYTES = 600 * 1024 * 1024
 
 // Approximate on-disk footprint of the gemnasium-db archive, shown to the operator before they enable
-// the source. The GitLab archive zip is far smaller than the OSV export (tens of MB) and the normalized
+// the source, and quoted by the CLI's consent prompt as an estimate. GitLab advertises no Content-Length
+// on the archive route, so unlike OSV this can only ever be measured: a full download on 2026-08-03
+// transferred 53,425,203 bytes (~51 MiB), against the 80 MiB this used to claim. The normalized
 // gemnasium.db cache lands smaller still.
-export const GEMNASIUM_SEED_DOWNLOAD_BYTES = 80 * 1024 * 1024
+export const GEMNASIUM_SEED_DOWNLOAD_BYTES = 52 * 1024 * 1024
 // Free-space floor required before the gemnasium seed download is attempted: archive on disk + the
 // unpacked cache + working headroom.
 export const GEMNASIUM_REQUIRED_FREE_BYTES = 300 * 1024 * 1024
