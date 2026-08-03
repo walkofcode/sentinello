@@ -152,6 +152,27 @@ afterEach(function teardown() {
     vi.useRealTimers()
 })
 
+describe('formatDuration', function () {
+    // Reached through confirmSeed's retry line, the only surface that renders a multi-minute duration.
+    function durationFor(waitMs: number, budgetMs: number, elapsedMs: number): string {
+        const u = ui()
+        u.syncRetry(planItem({ source: 'gemnasium' }), { status: 406, attempt: 1, waitMs, elapsedMs, budgetMs })
+        return out()
+    }
+
+    // 179.7s used to render as "2m 60s": the remainder was rounded after the minutes were taken.
+    it('never carries a rounded remainder into a minute that was not added', function () {
+        expect(durationFor(1000, 180_000, 300)).toContain('3m 0s')
+        expect(durationFor(1000, 180_000, 300)).not.toContain('2m 60s')
+    })
+
+    it('renders whole and part minutes', function () {
+        expect(durationFor(45_000, 180_000, 45_000)).toContain('45.0s')
+        expect(durationFor(60_000, 180_000, 45_000)).toContain('1m 0s')
+        expect(durationFor(1000, 180_000, 45_000)).toContain('2m 15s')
+    })
+})
+
 describe('formatBytes', function () {
     it('reports an unknown size rather than a bogus zero', function () {
         expect(formatBytes(null)).toBe('unknown size')

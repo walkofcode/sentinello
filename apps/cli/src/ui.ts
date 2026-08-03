@@ -1,5 +1,6 @@
 import { createInterface } from 'node:readline/promises'
 import type { Severity } from '@sentinello/core'
+import type { RetryNotice } from '@sentinello/feeds'
 import type { DiscoveredProject, DiscoverySkip } from '@sentinello/scanners'
 import type { SyncOutcome, SyncPlan, SyncPlanItem } from './cache/sync'
 import type { CliOptions } from './options'
@@ -59,12 +60,15 @@ export function formatBytes(bytes: number | null, estimated = false): string {
     return prefix + (mib / 1024).toFixed(2) + ' GB'
 }
 
+// Rounding happens before the split, not after. Rounding the remainder on its own carries into a minute
+// that was never added — 179.7s rendered as "2m 60s".
 function formatDuration(ms: number): string {
     if (ms < 1000) return ms + 'ms'
     const seconds = ms / 1000
-    if (seconds < 60) return seconds.toFixed(1) + 's'
-    const minutes = Math.floor(seconds / 60)
-    return minutes + 'm ' + Math.round(seconds - minutes * 60) + 's'
+    if (seconds < 59.95) return seconds.toFixed(1) + 's'
+    const total = Math.round(seconds)
+    const minutes = Math.floor(total / 60)
+    return minutes + 'm ' + (total - minutes * 60) + 's'
 }
 
 export type Ui = {
@@ -76,6 +80,7 @@ export type Ui = {
     offlineNotice(): void
     syncStatus(item: SyncPlanItem, phase: 'start' | 'done'): void
     syncProgress(item: SyncPlanItem, bytesRead: number, totalBytes: number | null): void
+    syncRetry(item: SyncPlanItem, notice: RetryNotice): void
     syncDone(outcomes: readonly SyncOutcome[]): void
     scanStart(count: number): void
     scanProject(project: DiscoveredProject): void
@@ -213,6 +218,16 @@ export function createUi(options: CliOptions): Ui {
         progressActive = true
     }
 
+    // A slow-transient wait is minutes long, so it has to be narrated or the CLI looks wedged. The line
+    // also names the remedy, because the alternative to waiting is a source the user silently never gets.
+    function syncRetry(item: SyncPlanItem, notice: RetryNotice): void {
+        clearProgress()
+        const budgetLeft = Math.max(0, notice.budgetMs - notice.elapsedMs)
+        write('    ' + c.yellow + '!' + c.reset + ' ' + sourceLabel(item.source) + ' declined the download (HTTP ' +
+            notice.status + ') — retrying in ' + formatDuration(notice.waitMs) + c.dim +
+            '  (waiting up to ' + formatDuration(budgetLeft) + ' more; --feed-wait 0 to skip)' + c.reset)
+    }
+
     function bar(fraction: number): string {
         const width = 24
         const filled = Math.round(fraction * width)
@@ -327,6 +342,7 @@ export function createUi(options: CliOptions): Ui {
         offlineNotice,
         syncStatus,
         syncProgress,
+        syncRetry,
         syncDone,
         scanStart,
         scanProject,
