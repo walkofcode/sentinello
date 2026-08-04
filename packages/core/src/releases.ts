@@ -17,6 +17,7 @@ function stripVPrefix(value: string): string {
 // Newest first. The locale-independent version index. Adding a release = one entry here plus a
 // RELEASE_COPY entry in every locale below. See CLAUDE.md for the release-please version-sync flow.
 export const RELEASES: ReleaseEntry[] = [
+    { version: '3.0.1', date: '2026-08-04' },
     { version: '3.0.0', date: '2026-08-03' },
     { version: '2.6.0', date: '2026-07-29' },
     { version: '2.5.0', date: '2026-07-28' },
@@ -43,6 +44,16 @@ export const RELEASES: ReleaseEntry[] = [
 // this is plain TS data, not a next-intl message key (next-intl forbids '.' in keys).
 export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     en: {
+        '3.0.1': {
+            title: 'The gemnasium download works again — and the CLI gives the terminal back',
+            items: [
+                'GitLab gemnasium failed to download on 3.0.0 with `HTTP 406`, for everyone. Node’s built-in fetch attaches a `Sec-Fetch-Mode: cors` header that a program is not permitted to remove, and GitLab refuses any repository archive request carrying it — so this was never about your network, your IP, or how many times you retried. The download uses a plain HTTPS request now, and succeeds',
+                'The archive is fetched by commit id rather than by branch name, so everyone updating from the same upstream commit shares one cached copy instead of each asking GitLab to build a fresh 60 MB archive. A first download that took nearly seven minutes now finishes in seconds',
+                'The CLI used to finish its entire run — advisory written, summary printed — and then never return the terminal. The connection carrying the download was left open behind it, which kept the process alive; it is now closed as soon as the archive has been read',
+                'A feed that refuses a download no longer stalls for three minutes before saying so. It reports in seconds and, in a terminal, offers to try again — retrying only the source that actually failed',
+                '`--fail-on` is honest in both directions. It refuses a run whose advisory source could not be consulted, rather than reporting a clean scan it never performed; and it no longer fails a run over a source you switched off yourself with `SENTINELLO_OSV_FEED_URL=off` or `SENTINELLO_GEMNASIUM_FEED_URL=off` and never downloaded'
+            ]
+        },
         '3.0.0': {
             title: 'Sentinello now runs without a portal at all',
             items: [
@@ -187,6 +198,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Initial open-source release', items: ['The first public release of Sentinello'] }
     },
     es: {
+        '3.0.1': {
+            title: 'La descarga de gemnasium vuelve a funcionar, y la CLI devuelve la terminal',
+            items: [
+                'La descarga de GitLab gemnasium fallaba en 3.0.0 con `HTTP 406`, para todo el mundo. El fetch integrado de Node añade una cabecera `Sec-Fetch-Mode: cors` que un programa no puede eliminar, y GitLab rechaza cualquier petición de archivo del repositorio que la lleve — así que nunca tuvo que ver con tu red, tu IP ni con cuántas veces reintentaras. Ahora la descarga usa una petición HTTPS normal y funciona',
+                'El archivo se descarga por id de commit en lugar de por nombre de rama, así que todos los que actualizan desde el mismo commit comparten una copia en caché en vez de pedirle a GitLab que genere un archivo de 60 MB cada uno. Una primera descarga que tardaba casi siete minutos ahora termina en segundos',
+                'La CLI terminaba todo su trabajo — informe escrito, resumen impreso — y luego no devolvía la terminal. La conexión de la descarga quedaba abierta detrás, manteniendo vivo el proceso; ahora se cierra en cuanto se ha leído el archivo',
+                'Una fuente que rechaza una descarga ya no se queda tres minutos esperando antes de decirlo. Lo informa en segundos y, en una terminal, ofrece reintentar — reintentando solo la fuente que realmente falló',
+                '`--fail-on` es honesto en ambos sentidos. Rechaza una ejecución cuya fuente de avisos no se pudo consultar, en lugar de informar de un análisis limpio que nunca hizo; y ya no falla por una fuente que desactivaste tú con `SENTINELLO_OSV_FEED_URL=off` o `SENTINELLO_GEMNASIUM_FEED_URL=off` y nunca descargaste'
+            ]
+        },
         '3.0.0': {
             title: 'Sentinello ya funciona sin portal alguno',
             items: [
@@ -334,6 +355,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primera versión de código abierto', items: ['El primer lanzamiento público de Sentinello'] }
     },
     fr: {
+        '3.0.1': {
+            title: 'Le téléchargement gemnasium fonctionne de nouveau, et la CLI rend la main',
+            items: [
+                'Le téléchargement de GitLab gemnasium échouait en 3.0.0 avec `HTTP 406`, pour tout le monde. Le fetch intégré de Node ajoute un en-tête `Sec-Fetch-Mode: cors` qu’un programme n’a pas le droit de retirer, et GitLab refuse toute requête d’archive de dépôt qui le porte — cela n’a donc jamais eu de rapport avec votre réseau, votre IP ou le nombre de tentatives. Le téléchargement utilise désormais une simple requête HTTPS, et aboutit',
+                'L’archive est récupérée par identifiant de commit plutôt que par nom de branche : tous ceux qui partent du même commit amont partagent une copie mise en cache au lieu de demander chacun à GitLab de construire une archive de 60 Mo. Un premier téléchargement qui prenait près de sept minutes se termine maintenant en quelques secondes',
+                'La CLI terminait tout son travail — rapport écrit, résumé affiché — puis ne rendait jamais le terminal. La connexion du téléchargement restait ouverte derrière elle et maintenait le processus en vie ; elle est désormais fermée dès que l’archive a été lue',
+                'Une source qui refuse un téléchargement ne bloque plus trois minutes avant de le signaler. Elle le signale en quelques secondes et, dans un terminal, propose de réessayer — en ne réessayant que la source réellement en échec',
+                '`--fail-on` est honnête dans les deux sens. Il refuse une exécution dont une source d’avis n’a pas pu être consultée, au lieu d’annoncer une analyse propre qu’il n’a jamais faite ; et il ne fait plus échouer une exécution à cause d’une source que vous avez vous-même désactivée avec `SENTINELLO_OSV_FEED_URL=off` ou `SENTINELLO_GEMNASIUM_FEED_URL=off` et jamais téléchargée'
+            ]
+        },
         '3.0.0': {
             title: 'Sentinello fonctionne désormais sans portail du tout',
             items: [
@@ -483,6 +514,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Première version open source', items: ['La première version publique de Sentinello'] }
     },
     de: {
+        '3.0.1': {
+            title: 'Der gemnasium-Download funktioniert wieder — und die CLI gibt das Terminal frei',
+            items: [
+                'Der Download von GitLab gemnasium schlug in 3.0.0 bei allen mit `HTTP 406` fehl. Das eingebaute fetch von Node setzt einen Header `Sec-Fetch-Mode: cors`, den ein Programm nicht entfernen darf, und GitLab weist jede Repository-Archivanfrage damit ab — es lag also nie an Ihrem Netzwerk, Ihrer IP oder der Zahl der Wiederholungen. Der Download nutzt jetzt eine einfache HTTPS-Anfrage und gelingt',
+                'Das Archiv wird über die Commit-ID statt über den Branch-Namen geholt. Alle, die vom selben Upstream-Commit aktualisieren, teilen sich damit eine zwischengespeicherte Kopie, statt dass jeder GitLab ein frisches 60-MB-Archiv bauen lässt. Ein erster Download, der fast sieben Minuten dauerte, ist jetzt in Sekunden fertig',
+                'Die CLI beendete ihren gesamten Lauf — Bericht geschrieben, Zusammenfassung ausgegeben — und gab das Terminal danach nie zurück. Die Verbindung des Downloads blieb dahinter offen und hielt den Prozess am Leben; sie wird jetzt geschlossen, sobald das Archiv gelesen ist',
+                'Eine Quelle, die einen Download verweigert, blockiert nicht mehr drei Minuten, bevor sie es meldet. Sie meldet es in Sekunden und bietet im Terminal einen erneuten Versuch an — und wiederholt nur die Quelle, die tatsächlich fehlgeschlagen ist',
+                '`--fail-on` ist in beide Richtungen ehrlich. Es verweigert einen Lauf, dessen Advisory-Quelle nicht abgefragt werden konnte, statt einen sauberen Scan zu melden, den es nie durchgeführt hat; und es lässt einen Lauf nicht mehr an einer Quelle scheitern, die Sie selbst mit `SENTINELLO_OSV_FEED_URL=off` oder `SENTINELLO_GEMNASIUM_FEED_URL=off` abgeschaltet und nie heruntergeladen haben'
+            ]
+        },
         '3.0.0': {
             title: 'Sentinello läuft jetzt ganz ohne Portal',
             items: [
@@ -633,6 +674,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         }
     },
     'pt-BR': {
+        '3.0.1': {
+            title: 'O download do gemnasium volta a funcionar — e a CLI devolve o terminal',
+            items: [
+                'O download do GitLab gemnasium falhava na 3.0.0 com `HTTP 406`, para todo mundo. O fetch nativo do Node adiciona um cabeçalho `Sec-Fetch-Mode: cors` que um programa não pode remover, e o GitLab recusa qualquer requisição de arquivo do repositório que o carregue — então nunca teve a ver com sua rede, seu IP ou quantas vezes você tentou. Agora o download usa uma requisição HTTPS comum e funciona',
+                'O arquivo é buscado pelo id do commit em vez do nome do branch, então todos que atualizam a partir do mesmo commit compartilham uma cópia em cache em vez de cada um pedir ao GitLab que gere um arquivo de 60 MB. Um primeiro download que levava quase sete minutos agora termina em segundos',
+                'A CLI terminava todo o trabalho — relatório escrito, resumo impresso — e depois nunca devolvia o terminal. A conexão do download ficava aberta por trás, mantendo o processo vivo; agora ela é fechada assim que o arquivo é lido',
+                'Uma fonte que recusa um download não trava mais por três minutos antes de avisar. Ela avisa em segundos e, num terminal, oferece tentar de novo — repetindo apenas a fonte que realmente falhou',
+                '`--fail-on` é honesto nos dois sentidos. Ele recusa uma execução cuja fonte de avisos não pôde ser consultada, em vez de relatar uma varredura limpa que nunca fez; e não falha mais por causa de uma fonte que você mesmo desligou com `SENTINELLO_OSV_FEED_URL=off` ou `SENTINELLO_GEMNASIUM_FEED_URL=off` e nunca baixou'
+            ]
+        },
         '3.0.0': {
             title: 'O Sentinello agora roda sem portal nenhum',
             items: [
@@ -780,6 +831,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primeira versão de código aberto', items: ['O primeiro lançamento público do Sentinello'] }
     },
     it: {
+        '3.0.1': {
+            title: 'Il download di gemnasium funziona di nuovo — e la CLI restituisce il terminale',
+            items: [
+                'Il download di GitLab gemnasium falliva nella 3.0.0 con `HTTP 406`, per tutti. Il fetch integrato di Node aggiunge un header `Sec-Fetch-Mode: cors` che un programma non può rimuovere, e GitLab rifiuta qualsiasi richiesta di archivio del repository che lo contenga — quindi non è mai dipeso dalla vostra rete, dal vostro IP o da quanti tentativi avete fatto. Ora il download usa una normale richiesta HTTPS e riesce',
+                'L’archivio viene scaricato per id di commit anziché per nome del branch, così chi aggiorna dallo stesso commit condivide una copia in cache invece di chiedere a GitLab di generare un archivio da 60 MB ciascuno. Un primo download che richiedeva quasi sette minuti ora finisce in pochi secondi',
+                'La CLI completava tutto il lavoro — report scritto, riepilogo stampato — e poi non restituiva mai il terminale. La connessione del download restava aperta dietro di essa, tenendo vivo il processo; ora viene chiusa non appena l’archivio è stato letto',
+                'Una sorgente che rifiuta un download non resta più ferma tre minuti prima di dirlo. Lo segnala in pochi secondi e, in un terminale, propone di riprovare — ritentando solo la sorgente che ha davvero fallito',
+                '`--fail-on` è onesto in entrambe le direzioni. Rifiuta un’esecuzione la cui sorgente di avvisi non è stata consultabile, invece di riportare una scansione pulita mai eseguita; e non fa più fallire un’esecuzione per una sorgente che avete disattivato voi con `SENTINELLO_OSV_FEED_URL=off` o `SENTINELLO_GEMNASIUM_FEED_URL=off` e mai scaricato'
+            ]
+        },
         '3.0.0': {
             title: 'Sentinello ora funziona anche senza portale',
             items: [
@@ -927,6 +988,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Prima versione open source', items: ['La prima versione pubblica di Sentinello'] }
     },
     ja: {
+        '3.0.1': {
+            title: 'gemnasium のダウンロードが復旧し、CLI がターミナルを返すようになりました',
+            items: [
+                '3.0.0 では GitLab gemnasium のダウンロードが全ユーザーで `HTTP 406` により失敗していました。Node 組み込みの fetch はプログラムから削除できない `Sec-Fetch-Mode: cors` ヘッダーを付与し、GitLab はそれを含むリポジトリアーカイブ要求をすべて拒否します。つまりネットワークや IP、再試行回数とは無関係でした。ダウンロードは通常の HTTPS 要求を使うようになり、成功します',
+                'アーカイブはブランチ名ではなくコミット ID で取得するようになりました。同じ上流コミットから更新する全員がキャッシュされた 1 つのコピーを共有するため、各自が GitLab に 60 MB のアーカイブを生成させる必要がありません。7 分近くかかっていた初回ダウンロードが数秒で完了します',
+                'CLI は処理をすべて終えても — レポートを書き、サマリーを表示しても — ターミナルを返しませんでした。ダウンロードの接続が背後で開いたままプロセスを生かしていたためです。アーカイブを読み終えた時点で閉じるようになりました',
+                'ダウンロードを拒否されたソースが、報告するまで 3 分間止まることはなくなりました。数秒で報告し、ターミナルでは再試行を提案します。再試行するのは実際に失敗したソースだけです',
+                '`--fail-on` は双方向で正直になりました。アドバイザリソースを参照できなかった実行は、実施していないクリーンなスキャンとして報告せず拒否します。また `SENTINELLO_OSV_FEED_URL=off` や `SENTINELLO_GEMNASIUM_FEED_URL=off` で自分が無効にし一度もダウンロードしていないソースを理由に失敗することはなくなりました'
+            ]
+        },
         '3.0.0': {
             title: 'Sentinello はポータルなしでも動くようになりました',
             items: [
@@ -1070,6 +1141,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '初のオープンソースリリース', items: ['Sentinello の最初の一般公開リリース'] }
     },
     'zh-CN': {
+        '3.0.1': {
+            title: 'gemnasium 下载恢复正常，CLI 也会正常退出',
+            items: [
+                '在 3.0.0 中，所有用户的 GitLab gemnasium 下载都会以 `HTTP 406` 失败。Node 内置的 fetch 会附加程序无法移除的 `Sec-Fetch-Mode: cors` 请求头，而 GitLab 会拒绝任何带该请求头的仓库归档请求 — 所以这与你的网络、IP 或重试次数都无关。下载现已改用普通的 HTTPS 请求，可以成功',
+                '归档现在按提交 ID 而不是分支名获取，因此从同一上游提交更新的所有人共享同一份缓存副本，而不必各自让 GitLab 生成一个 60 MB 的归档。原本接近七分钟的首次下载现在几秒即可完成',
+                'CLI 过去会完成全部工作 — 写出报告、打印摘要 — 然后再也不把终端交还。下载所用的连接仍在后台保持打开，使进程无法退出；现在读完归档后就会立即关闭',
+                '拒绝下载的数据源不再等待三分钟才报告。它会在几秒内报告，并在终端中询问是否重试 — 且只重试真正失败的那个数据源',
+                '`--fail-on` 在两个方向上都变得诚实。当某个公告数据源无法访问时，它会拒绝该次运行，而不是报告一次从未真正执行的干净扫描；同时，对于你自己用 `SENTINELLO_OSV_FEED_URL=off` 或 `SENTINELLO_GEMNASIUM_FEED_URL=off` 关闭且从未下载过的数据源，它不再让运行失败'
+            ]
+        },
         '3.0.0': {
             title: 'Sentinello 现在完全不用门户也能运行',
             items: [
@@ -1193,6 +1274,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '首个开源版本', items: ['Sentinello 的首个公开发布版本'] }
     },
     ko: {
+        '3.0.1': {
+            title: 'gemnasium 다운로드가 다시 동작하고, CLI가 터미널을 반환합니다',
+            items: [
+                '3.0.0에서는 모든 사용자의 GitLab gemnasium 다운로드가 `HTTP 406`으로 실패했습니다. Node 내장 fetch는 프로그램이 제거할 수 없는 `Sec-Fetch-Mode: cors` 헤더를 붙이고, GitLab은 그 헤더가 있는 저장소 아카이브 요청을 모두 거부합니다 — 따라서 네트워크나 IP, 재시도 횟수와는 무관했습니다. 이제 다운로드는 일반 HTTPS 요청을 사용하며 성공합니다',
+                '아카이브를 브랜치 이름이 아니라 커밋 ID로 가져옵니다. 같은 업스트림 커밋에서 갱신하는 모든 사용자가 캐시된 사본 하나를 공유하므로, 각자 GitLab에 60MB 아카이브 생성을 요청할 필요가 없습니다. 7분 가까이 걸리던 첫 다운로드가 이제 몇 초 만에 끝납니다',
+                'CLI는 모든 작업을 마치고도 — 보고서를 쓰고 요약을 출력한 뒤에도 — 터미널을 돌려주지 않았습니다. 다운로드 연결이 뒤에서 열린 채 프로세스를 살려 두었기 때문입니다. 이제 아카이브를 다 읽는 즉시 닫습니다',
+                '다운로드를 거부당한 소스가 이를 알리기까지 3분을 멈춰 있지 않습니다. 몇 초 안에 알리고, 터미널에서는 재시도를 제안합니다 — 실제로 실패한 소스만 다시 시도합니다',
+                '`--fail-on`이 양방향으로 정직해졌습니다. 권고 소스를 조회할 수 없었던 실행은, 수행한 적 없는 깨끗한 스캔으로 보고하는 대신 거부합니다. 또한 `SENTINELLO_OSV_FEED_URL=off`나 `SENTINELLO_GEMNASIUM_FEED_URL=off`로 직접 끄고 한 번도 내려받지 않은 소스 때문에 실행이 실패하지 않습니다'
+            ]
+        },
         '3.0.0': {
             title: '이제 포털 없이도 Sentinello를 쓸 수 있습니다',
             items: [
@@ -1330,6 +1421,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '첫 오픈 소스 릴리스', items: ['Sentinello의 첫 공개 릴리스'] }
     },
     ru: {
+        '3.0.1': {
+            title: 'Загрузка gemnasium снова работает, а CLI возвращает терминал',
+            items: [
+                'В 3.0.0 загрузка GitLab gemnasium падала с `HTTP 406` у всех. Встроенный fetch в Node добавляет заголовок `Sec-Fetch-Mode: cors`, который программа не вправе убрать, а GitLab отклоняет любой запрос архива репозитория с этим заголовком — так что дело никогда не было ни в вашей сети, ни в IP, ни в числе повторов. Теперь загрузка выполняется обычным HTTPS-запросом и проходит успешно',
+                'Архив запрашивается по идентификатору коммита, а не по имени ветки: все, кто обновляется с одного и того же коммита, используют общую кэшированную копию вместо того, чтобы каждый просил GitLab собрать архив на 60 МБ. Первая загрузка, занимавшая почти семь минут, теперь завершается за секунды',
+                'CLI заканчивал всю работу — записывал отчёт, печатал сводку — и после этого не возвращал терминал. Соединение загрузки оставалось открытым и удерживало процесс; теперь оно закрывается сразу после чтения архива',
+                'Источник, отказавший в загрузке, больше не молчит три минуты перед сообщением. Он сообщает за секунды и в терминале предлагает повторить — повторяя только тот источник, который действительно не удался',
+                '`--fail-on` честен в обе стороны. Он отклоняет запуск, в котором источник рекомендаций не удалось опросить, вместо того чтобы отчитаться о чистом сканировании, которого не было; и больше не заваливает запуск из-за источника, который вы сами отключили через `SENTINELLO_OSV_FEED_URL=off` или `SENTINELLO_GEMNASIUM_FEED_URL=off` и ни разу не загружали'
+            ]
+        },
         '3.0.0': {
             title: 'Sentinello теперь работает вообще без портала',
             items: [
