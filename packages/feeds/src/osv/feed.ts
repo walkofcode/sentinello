@@ -84,24 +84,31 @@ export async function* streamOsvSeed(
     const abortSignal = options && options.abortSignal
     let batch: OsvAdvisoryRow[] = []
     const zip = download.stream.pipe(unzipper.Parse({ forceStream: true }))
-    for await (const entry of zip) {
-        if (abortSignal && abortSignal.aborted) {
-            entry.autodrain()
-            throw new Error('aborted')
+    try {
+        for await (const entry of zip) {
+            if (abortSignal && abortSignal.aborted) {
+                entry.autodrain()
+                throw new Error('aborted')
+            }
+            if (entry.type !== 'File' || !String(entry.path).endsWith('.json')) {
+                entry.autodrain()
+                continue
+            }
+            const content = await entry.buffer()
+            for (const row of parseSeedEntry(content, ecosystem)) batch.push(row)
+            if (batch.length >= BATCH_SIZE) {
+                yield { rows: batch, lastModified: download.lastModified }
+                batch = []
+            }
         }
-        if (entry.type !== 'File' || !String(entry.path).endsWith('.json')) {
-            entry.autodrain()
-            continue
-        }
-        const content = await entry.buffer()
-        for (const row of parseSeedEntry(content, ecosystem)) batch.push(row)
-        if (batch.length >= BATCH_SIZE) {
+        if (batch.length > 0) {
             yield { rows: batch, lastModified: download.lastModified }
-            batch = []
         }
-    }
-    if (batch.length > 0) {
-        yield { rows: batch, lastModified: download.lastModified }
+    } finally {
+        // See the identical note in ../gemnasium/feed: the zip parser stops at the end-of-central-directory
+        // record, so the response is never fully consumed and the socket would otherwise keep the process
+        // alive after all the work is done. Also covers an abort or a caller that stops iterating early.
+        download.stream.destroy()
     }
 }
 

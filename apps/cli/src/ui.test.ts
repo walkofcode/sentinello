@@ -250,6 +250,9 @@ describe('formatBytes', function () {
 
     it('scales through B, KB, MB and GB', function () {
         expect(formatBytes(512)).toBe('512 B')
+        // The progress line formats a transfer RATE through here too, and a rate is a float. Unrounded,
+        // the first tick of every download rendered as "541.0334346504559 B/s".
+        expect(formatBytes(541.0334346504559)).toBe('541 B')
         expect(formatBytes(2048)).toBe('2 KB')
         expect(formatBytes(5 * 1024 * 1024)).toBe('5.0 MB')
         expect(formatBytes(3 * 1024 * 1024 * 1024)).toBe('3.00 GB')

@@ -205,25 +205,36 @@ export async function* streamGemnasiumArchive(
     const abortSignal = options && options.abortSignal
     let batch: GemnasiumAdvisoryRow[] = []
     const zip = download.stream.pipe(unzipper.Parse({ forceStream: true }))
-    for await (const entry of zip) {
-        if (abortSignal && abortSignal.aborted) {
-            entry.autodrain()
-            throw new Error('aborted')
+    try {
+        for await (const entry of zip) {
+            if (abortSignal && abortSignal.aborted) {
+                entry.autodrain()
+                throw new Error('aborted')
+            }
+            const cell = advisoryPathEcosystem(String(entry.path), 1)
+            if (entry.type !== 'File' || !cell) {
+                entry.autodrain()
+                continue
+            }
+            const content = await entry.buffer()
+            for (const row of parseAdvisoryYaml(content, cell)) batch.push(row)
+            if (batch.length >= BATCH_SIZE) {
+                yield { rows: batch, lastModified: download.lastModified }
+                batch = []
+            }
         }
-        const cell = advisoryPathEcosystem(String(entry.path), 1)
-        if (entry.type !== 'File' || !cell) {
-            entry.autodrain()
-            continue
-        }
-        const content = await entry.buffer()
-        for (const row of parseAdvisoryYaml(content, cell)) batch.push(row)
-        if (batch.length >= BATCH_SIZE) {
+        if (batch.length > 0) {
             yield { rows: batch, lastModified: download.lastModified }
-            batch = []
         }
-    }
-    if (batch.length > 0) {
-        yield { rows: batch, lastModified: download.lastModified }
+    } finally {
+        // Release the socket explicitly, or the CLI finishes its work and then never exits.
+        //
+        // GitLab generates the archive on the fly and sends it chunked with no content-length, and the zip
+        // parser stops as soon as it has read the end-of-central-directory record. The response is
+        // therefore never fully consumed, so it never emits 'end', so node keeps the socket — and the
+        // process — alive indefinitely. The finally also covers an abort or a caller that stops iterating
+        // early, both of which strand the stream in exactly the same way.
+        download.stream.destroy()
     }
 }
 

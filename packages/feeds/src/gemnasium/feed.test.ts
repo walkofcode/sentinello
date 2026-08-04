@@ -1,6 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeZip } from '../zip.fixture'
 import { startDownloadServer, type DownloadServer } from '../download-server.fixture'
+
+// A pass-through spy on the real downloader, so a test can reach the stream the generator was handed and
+// assert it was released. Wraps rather than replaces — the archive tests below still run the genuine
+// node:https transport against the loopback server.
+const http = vi.hoisted(function makeHttpSpy() {
+    return { openDownloadStream: vi.fn() }
+})
+
+vi.mock('../http', async function mockHttp(importOriginal) {
+    const actual = await importOriginal<typeof import('../http')>()
+    http.openDownloadStream.mockImplementation(actual.openDownloadStream)
+    return { ...actual, openDownloadStream: http.openDownloadStream }
+})
 import {
     GEMNASIUM_COMPARE_MAX_FILES,
     advisoryIdFromPath,
@@ -457,5 +470,60 @@ describe('streamGemnasiumArchive', function () {
             await collect(streamGemnasiumArchive(SHA))
             expect(server?.requests[0]?.url).toBe('/explicit.zip')
         })
+    })
+})
+
+// The CLI finished its whole run and then never exited. GitLab generates the archive on the fly and sends
+// it chunked with no content-length, and the zip parser stops the moment it has the end-of-central-directory
+// record — so the response is never fully consumed, never emits 'end', and node holds the socket open
+// forever. Nothing about the output looked wrong; the process simply did not return the terminal.
+describe('releasing the download', function () {
+    let server: DownloadServer | null = null
+
+    afterEach(async function stop() {
+        if (server) await server.close()
+        server = null
+    })
+
+    async function serveArchive(files?: Record<string, string>): Promise<void> {
+        const body = files ?? { 'gemnasium-db-master/npm/lodash/CVE-2024-1.yml': advisoryYaml() }
+        server = await startDownloadServer({ body: makeZip(body) })
+        vi.stubEnv('SENTINELLO_GEMNASIUM_FEED_URL', server.origin + '/archive.zip')
+        http.openDownloadStream.mockClear()
+    }
+
+    function manyAdvisories(): Record<string, string> {
+        const files: Record<string, string> = {}
+        for (let i = 0; i < 2001; i++) {
+            files['gemnasium-db-master/npm/pkg' + i + '/CVE-2024-' + i + '.yml'] = advisoryYaml({
+                identifier: 'CVE-2024-' + i,
+                package_slug: 'npm/pkg' + i
+            })
+        }
+        return files
+    }
+
+    async function streamHandedToTheGenerator(): Promise<{ destroyed: boolean }> {
+        const download = await http.openDownloadStream.mock.results[0]?.value
+        return (download as { stream: { destroyed: boolean } }).stream
+    }
+
+    it('destroys the stream once the archive is fully parsed', async function () {
+        await serveArchive()
+        await collect(streamGemnasiumArchive(null))
+        expect((await streamHandedToTheGenerator()).destroyed).toBe(true)
+    })
+
+    // The abort path strands the socket in exactly the same way, which is why the release sits in a
+    // finally rather than after the loop. Aborted BETWEEN batches — aborting before the first would kill
+    // the request itself, which is a different (already safe) path that never enters the generator body.
+    it('destroys the stream when the caller aborts mid-archive', async function () {
+        await serveArchive(manyAdvisories())
+        const controller = new AbortController()
+        const batches = streamGemnasiumArchive(null, undefined, { abortSignal: controller.signal })
+        expect((await batches.next()).value?.rows).toHaveLength(2000)
+        controller.abort()
+        await expect(batches.next()).rejects.toThrow('aborted')
+        expect((await streamHandedToTheGenerator()).destroyed).toBe(true)
     })
 })

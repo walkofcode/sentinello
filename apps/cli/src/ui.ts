@@ -53,7 +53,10 @@ const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'moderate', 'low', 'info
 export function formatBytes(bytes: number | null, estimated = false): string {
     if (bytes === null) return 'unknown size'
     const prefix = estimated ? '~' : ''
-    if (bytes < 1024) return prefix + bytes + ' B'
+    // Rounded like every other branch. This one assumed a whole byte count, but the progress line also
+    // formats a computed transfer RATE, which is a float — so the first tick of every download rendered
+    // as "541.0334346504559 B/s".
+    if (bytes < 1024) return prefix + Math.round(bytes) + ' B'
     const mib = bytes / (1024 * 1024)
     if (mib < 1) return prefix + (bytes / 1024).toFixed(0) + ' KB'
     if (mib < 1024) return prefix + mib.toFixed(1) + ' MB'

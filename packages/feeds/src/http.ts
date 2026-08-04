@@ -221,7 +221,11 @@ function openRawStream(url: string, signal: AbortSignal, redirectsLeft: number):
     return new Promise(function attempt(resolve, reject) {
         const target = new URL(url)
         const send = target.protocol === 'http:' ? httpRequest : httpsRequest
-        const request = send(target, { method: 'GET', headers: baseHeaders(), signal }, function onResponse(response) {
+        // agent: false — a fresh, unpooled connection per download. Node's global agent keeps sockets
+        // alive for reuse, which is pointless for a one-shot CLI making one large transfer, and actively
+        // harmful here: a pooled socket outlives the request that created it and can keep the process
+        // alive after all the work is done.
+        const request = send(target, { method: 'GET', headers: baseHeaders(), signal, agent: false }, function onResponse(response) {
             // IncomingMessage types statusCode as optional because the same class models SERVER-side
             // requests, which have none. On a client response node always sets it.
             const status = response.statusCode as number
