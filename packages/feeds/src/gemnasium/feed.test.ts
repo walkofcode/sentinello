@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeZip } from '../zip.fixture'
+import { startDownloadServer, type DownloadServer } from '../download-server.fixture'
 import {
     GEMNASIUM_COMPARE_MAX_FILES,
     advisoryIdFromPath,
@@ -286,9 +287,24 @@ describe('advisoryIdFromPath', function () {
     })
 })
 
+// The archive download runs over node:https, not fetch (undici's unremovable Sec-Fetch-Mode is what
+// GitLab 406s), so these serve real zip bytes from a loopback server instead of stubbing fetch.
 describe('streamGemnasiumArchive', function () {
-    function zipResponse(files: Record<string, string>): Response {
-        return respond(makeZip(files), { headers: { 'last-modified': 'Wed, 01 Jul 2026 00:00:00 GMT' } })
+    let server: DownloadServer | null = null
+
+    afterEach(async function stop() {
+        if (server) await server.close()
+        server = null
+    })
+
+    // Serves the zip and points the feed-URL override at it, so the archive tests below read exactly as
+    // they did when fetch was stubbed.
+    async function zipResponse(files: Record<string, string>): Promise<void> {
+        server = await startDownloadServer({
+            body: makeZip(files),
+            headers: { 'last-modified': 'Wed, 01 Jul 2026 00:00:00 GMT' }
+        })
+        vi.stubEnv('SENTINELLO_GEMNASIUM_FEED_URL', server.origin + '/archive.zip')
     }
 
     // The streamer must hand rows back in fixed-size batches rather than accumulating the whole
@@ -302,83 +318,144 @@ describe('streamGemnasiumArchive', function () {
                 package_slug: 'npm/pkg' + i
             })
         }
-        fetchMock.mockResolvedValue(zipResponse(files))
-        const batches = await collect(streamGemnasiumArchive())
+        await zipResponse(files)
+        const batches = await collect(streamGemnasiumArchive(null))
         expect(batches).toHaveLength(2)
         expect(batches[0]?.rows).toHaveLength(2000)
         expect(batches[1]?.rows).toHaveLength(1)
     })
 
     it('normalizes advisories nested under the archive root folder', async function () {
-        fetchMock.mockResolvedValue(zipResponse({
+        await zipResponse({
             'gemnasium-db-master/npm/lodash/CVE-2024-1.yml': advisoryYaml(),
             'gemnasium-db-master/npm/express/CVE-2024-2.yml': advisoryYaml({ identifier: 'CVE-2024-2', package_slug: 'npm/express' })
-        }))
-        const batches = await collect(streamGemnasiumArchive())
+        })
+        const batches = await collect(streamGemnasiumArchive(null))
         expect(batches[0]?.rows.map(function pkg(r) { return r.packageName }).sort()).toEqual(['express', 'lodash'])
     })
 
     // The rootOffset trap, stated as a test: without the archive's top-level folder the path is one
     // segment short of the expected shape and is skipped, which would look like an empty upstream.
     it('skips an advisory path that is not nested under a root folder', async function () {
-        fetchMock.mockResolvedValue(zipResponse({ 'npm/lodash/CVE-2024-1.yml': advisoryYaml() }))
-        expect(await collect(streamGemnasiumArchive())).toEqual([])
+        await zipResponse({ 'npm/lodash/CVE-2024-1.yml': advisoryYaml() })
+        expect(await collect(streamGemnasiumArchive(null))).toEqual([])
     })
 
     it('skips package types with no resolver', async function () {
-        fetchMock.mockResolvedValue(zipResponse({
+        await zipResponse({
             'gemnasium-db-master/maven/org.example/CVE-2024-3.yml': advisoryYaml({ package_slug: 'maven/org.example' }),
             'gemnasium-db-master/npm/lodash/CVE-2024-1.yml': advisoryYaml()
-        }))
-        const batches = await collect(streamGemnasiumArchive())
+        })
+        const batches = await collect(streamGemnasiumArchive(null))
         expect(batches[0]?.rows).toHaveLength(1)
     })
 
     it('skips non-advisory files in the archive', async function () {
-        fetchMock.mockResolvedValue(zipResponse({
+        await zipResponse({
             'gemnasium-db-master/README.md': '# gemnasium-db',
             'gemnasium-db-master/npm/lodash/CVE-2024-1.yml': advisoryYaml()
-        }))
-        const batches = await collect(streamGemnasiumArchive())
+        })
+        const batches = await collect(streamGemnasiumArchive(null))
         expect(batches[0]?.rows).toHaveLength(1)
     })
 
     it('drops an advisory whose YAML does not parse and keeps going', async function () {
-        fetchMock.mockResolvedValue(zipResponse({
+        await zipResponse({
             'gemnasium-db-master/npm/broken/CVE-bad.yml': 'key: [unclosed\n  bad: indent',
             'gemnasium-db-master/npm/lodash/CVE-2024-1.yml': advisoryYaml()
-        }))
-        const batches = await collect(streamGemnasiumArchive())
+        })
+        const batches = await collect(streamGemnasiumArchive(null))
         expect(batches[0]?.rows.map(function pkg(r) { return r.packageName })).toEqual(['lodash'])
     })
 
     it('carries the archive last-modified onto the batch', async function () {
-        fetchMock.mockResolvedValue(zipResponse({ 'gemnasium-db-master/npm/lodash/CVE-2024-1.yml': advisoryYaml() }))
-        const batches = await collect(streamGemnasiumArchive())
+        await zipResponse({ 'gemnasium-db-master/npm/lodash/CVE-2024-1.yml': advisoryYaml() })
+        const batches = await collect(streamGemnasiumArchive(null))
         expect(batches[0]?.lastModified).toBe('Wed, 01 Jul 2026 00:00:00 GMT')
     })
 
     it('yields nothing for an archive with no supported advisories', async function () {
-        fetchMock.mockResolvedValue(zipResponse({ 'gemnasium-db-master/README.md': 'nothing' }))
-        expect(await collect(streamGemnasiumArchive())).toEqual([])
+        await zipResponse({ 'gemnasium-db-master/README.md': 'nothing' })
+        expect(await collect(streamGemnasiumArchive(null))).toEqual([])
     })
 
     it('reports download progress as bytes arrive', async function () {
-        fetchMock.mockResolvedValue(zipResponse({ 'gemnasium-db-master/npm/lodash/CVE-2024-1.yml': advisoryYaml() }))
+        await zipResponse({ 'gemnasium-db-master/npm/lodash/CVE-2024-1.yml': advisoryYaml() })
         const seen: number[] = []
-        await collect(streamGemnasiumArchive(function onProgress(read) { seen.push(read) }))
+        await collect(streamGemnasiumArchive(null, function onProgress(read: number) { seen.push(read) }))
         expect(seen.length).toBeGreaterThan(0)
     })
 
+    // Aborted BETWEEN batches, not before the request. Aborting up front only proves node rejects the
+    // HTTP request — whose AbortError message happens to contain "aborted", so that version of this test
+    // passed without ever reaching the guard below. Draining one batch first puts the generator inside
+    // the entry loop, which is the thing that has to stop when a user hits Ctrl-C mid-seed.
     it('aborts mid-archive when the signal fires', async function () {
-        fetchMock.mockResolvedValue(zipResponse({ 'gemnasium-db-master/npm/lodash/CVE-2024-1.yml': advisoryYaml() }))
+        const files: Record<string, string> = {}
+        for (let i = 0; i < 2001; i++) {
+            files['gemnasium-db-master/npm/pkg' + i + '/CVE-2024-' + i + '.yml'] = advisoryYaml({
+                identifier: 'CVE-2024-' + i,
+                package_slug: 'npm/pkg' + i
+            })
+        }
+        await zipResponse(files)
         const controller = new AbortController()
+        const batches = streamGemnasiumArchive(null, undefined, { abortSignal: controller.signal })
+        expect((await batches.next()).value?.rows).toHaveLength(2000)
         controller.abort()
-        await expect(collect(streamGemnasiumArchive(undefined, { abortSignal: controller.signal }))).rejects.toThrow('aborted')
+        await expect(batches.next()).rejects.toThrow('aborted')
     })
 
     it('fails loudly when the archive download is rejected', async function () {
-        fetchMock.mockResolvedValue(respond('nope', { status: 404 }))
-        await expect(collect(streamGemnasiumArchive())).rejects.toThrow(/HTTP 404/)
+        server = await startDownloadServer({ status: 404, body: 'nope' })
+        vi.stubEnv('SENTINELLO_GEMNASIUM_FEED_URL', server.origin + '/archive.zip')
+        await expect(collect(streamGemnasiumArchive(null))).rejects.toThrow(/HTTP 404/)
+    })
+
+    // These four are the regression guard for the 3.0.0 incident. They assert the requested URL rather
+    // than anything about the rows: a moving ref (`master`) cannot be served as an immutable object, so
+    // every client becomes a fresh origin fetch of an 80 MB archive GitLab has to generate. Addressing it
+    // by sha lets all clients on one upstream commit share a single CDN entry.
+    //
+    // The API base is pointed at the loopback server so the derived URL is genuinely requested, and the
+    // assertion reads the path the server actually received.
+    describe('archive URL', function () {
+        const SHA = 'a'.repeat(40)
+        const BASE_PATH = '/api/v4/projects/gemnasium'
+
+        async function serveAtApiBase(): Promise<void> {
+            server = await startDownloadServer({ body: makeZip({ 'gemnasium-db-master/npm/lodash/CVE-2024-1.yml': advisoryYaml() }) })
+            vi.stubEnv('SENTINELLO_GEMNASIUM_API_URL', server.origin + BASE_PATH)
+            vi.stubEnv('SENTINELLO_GEMNASIUM_FEED_URL', '')
+        }
+
+        it('addresses the archive by commit sha rather than a moving ref', async function () {
+            await serveAtApiBase()
+            await collect(streamGemnasiumArchive(SHA))
+            expect(server?.requests[0]?.url).toBe(BASE_PATH + '/repository/archive.zip?sha=' + SHA)
+        })
+
+        // A failed sha lookup must degrade to the old behaviour, not to no seed at all. fetchGemnasiumHeadSha
+        // returns null for every unexpected upstream answer, so this is a reachable path, not a theoretical one.
+        it('falls back to the branch ref when the sha lookup failed', async function () {
+            await serveAtApiBase()
+            await collect(streamGemnasiumArchive(null))
+            expect(server?.requests[0]?.url).toBe(BASE_PATH + '/repository/archive.zip?sha=master')
+        })
+
+        // A ref containing a slash would otherwise split the query value across a path segment.
+        it('encodes a ref that is not a bare sha', async function () {
+            await serveAtApiBase()
+            await collect(streamGemnasiumArchive('refs/heads/master'))
+            expect(server?.requests[0]?.url).toBe(BASE_PATH + '/repository/archive.zip?sha=refs%2Fheads%2Fmaster')
+        })
+
+        it('lets an explicit feed URL override the derived one', async function () {
+            server = await startDownloadServer({ body: makeZip({ 'gemnasium-db-master/npm/lodash/CVE-2024-1.yml': advisoryYaml() }) })
+            vi.stubEnv('SENTINELLO_GEMNASIUM_API_URL', server.origin + BASE_PATH)
+            vi.stubEnv('SENTINELLO_GEMNASIUM_FEED_URL', server.origin + '/explicit.zip')
+            await collect(streamGemnasiumArchive(SHA))
+            expect(server?.requests[0]?.url).toBe('/explicit.zip')
+        })
     })
 })

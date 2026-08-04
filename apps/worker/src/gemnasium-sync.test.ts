@@ -504,6 +504,22 @@ describe('syncGemnasium — the full rebuild', function () {
     it('threads the abort signal into the download', async function () {
         const controller = new AbortController()
         await syncGemnasium(db, controller.signal)
-        expect(feeds.streamGemnasiumArchive).toHaveBeenCalledWith(undefined, { abortSignal: controller.signal })
+        expect(feeds.streamGemnasiumArchive).toHaveBeenCalledWith('sha-new', undefined, { abortSignal: controller.signal })
+    })
+
+    // The archive is fetched AT the sha we resolved, not at a moving ref. That is what makes the download
+    // an immutable, CDN-cacheable object shared by every client on the same upstream commit — requesting
+    // `master` instead is what had GitLab shedding the request with a 406 that no retry could clear.
+    it('downloads the archive at the sha it resolved', async function () {
+        feeds.fetchGemnasiumHeadSha.mockResolvedValue('sha-pinned')
+        await syncGemnasium(db)
+        expect(feeds.streamGemnasiumArchive.mock.calls[0]?.[0]).toBe('sha-pinned')
+    })
+
+    // A failed sha lookup degrades to the branch ref inside the feeds layer rather than skipping the seed.
+    it('passes a null sha straight through when the lookup failed', async function () {
+        feeds.fetchGemnasiumHeadSha.mockResolvedValue(null)
+        await syncGemnasium(db)
+        expect(feeds.streamGemnasiumArchive.mock.calls[0]?.[0]).toBeNull()
     })
 })

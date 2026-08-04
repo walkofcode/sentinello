@@ -96,6 +96,23 @@ describe('release notes', function () {
         expect(missing).toEqual([])
     })
 
+    // The inverse of the stray check below, and the one that was missing. pt-BR and zh-CN both shipped
+    // without a 2.6.0 entry and nothing caught it: the English-completeness check passes because `en` is
+    // complete, the stray check passes because a MISSING key is not a stray, and the fallback check
+    // cannot fail by construction — getReleaseCopy substitutes English per version, so it is non-null
+    // whether or not the translation exists. The only visible symptom was one English entry sitting
+    // between two localized ones, which nobody is going to notice in a locale they do not read.
+    it('gives every listed release an entry in every locale, not just a fallback', function () {
+        const missing: string[] = []
+        for (const locale of LOCALES) {
+            for (const release of RELEASES) {
+                const copy = RELEASE_COPY[locale]?.[release.version]
+                if (!copy || !copy.title || copy.items.length === 0) missing.push(locale + '/' + release.version)
+            }
+        }
+        expect(missing).toEqual([])
+    })
+
     // Every version key in any locale must correspond to a real release, or the pill and the notes
     // list silently disagree about what shipped.
     it('has no copy for a version that is not in the release list', function () {

@@ -644,6 +644,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
                 'O painel de Novidades não escapa mais pela parte de baixo da janela quando uma versão tem muito a dizer'
             ]
         },
+        '2.6.0': {
+            title: 'O documento de parecer realmente chega — e conta o que você quer dizer',
+            items: [
+                'get_project_advisory agora retorna o próprio documento de parecer. Antes, os clientes conectados recebiam só os metadados — um nome de arquivo e uma contagem — e nunca o documento, embora a ferramenta o descrevesse como uma lista de trabalho completa',
+                'A exportação de pareceres agora tem uma entrada por parecer distinto, com suas fontes mescladas, em vez de uma por linha de scanner: uma vulnerabilidade que npm audit e OSV relatam é um único item de trabalho carregando os dois IDs, não dois quase idênticos. Isso vale também para o Download .md do portal, e a contagem agora bate com o painel',
+                'Um projeto grande demais para caber em uma resposta MCP agora é paginado — o documento informa que está incompleto e dá a chamada exata para buscar o resto, em vez de ser cortado em silêncio onde um agente leria o restante como limpo',
+                'Toda entrada de toda ferramenta MCP agora tem uma descrição, e uma nova ferramenta list_mutes expõe os IDs de silenciamento de que unmute precisa — antes só obteníveis criando o silenciamento na mesma sessão',
+                'Corrigida uma falha nas contagens de severidade: um achado cuja severidade não fosse um dos cinco valores conhecidos era contado como achado mas não entrava em nenhum balde de severidade, então um projeto cujo único achado tivesse isso parecia completamente limpo'
+            ]
+        },
         '2.5.0': {
             title: 'O relatório de vulnerabilidades, direto pelo MCP',
             items: [
@@ -1069,6 +1079,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
                 '两个下载大小都是实测而非估猜：OSV 的 npm 导出标为 204 MB 而不是 196，gemnasium 归档标为 52 MB 而不是 80。确认提示会给估算值加上波浪号，以免被误认为服务器报告的大小',
                 '看起来像选项的值现在会被拒绝，而不是照单全收——`--out --` 过去会在你的项目里写出一个名为 `--` 的文件并报告成功',
                 '当某个版本内容较多时，“新变化”面板不会再溢出到窗口底部之外'
+            ]
+        },
+        '2.6.0': {
+            title: '公告文档真的送达了——而且计数与你的理解一致',
+            items: [
+                'get_project_advisory 现在返回公告文档本身。此前已连接的客户端只能拿到它的元数据——一个文件名和一个计数——始终拿不到文档，尽管该工具把它描述为一份完整的工作清单',
+                '公告导出现在按不同公告各占一条、并合并其来源，而不再按扫描器行各占一条：npm audit 与 OSV 同时报告的同一个漏洞，是一个带上两个公告 ID 的工作项，而不是两条几乎相同的记录。这同样适用于门户的“下载 .md”，计数现在也与仪表盘一致',
+                '大到无法放进单个 MCP 响应的项目现在会分页——文档会声明自身不完整，并给出获取其余内容的确切后续调用，而不是被静默截断、让代理把剩下的部分读成“干净”',
+                '每个 MCP 工具的每个输入现在都带有描述，新增的 list_mutes 工具会公开 unmute 所需的静音 ID——此前只能通过在同一会话中创建静音才能拿到',
+                '修复了严重程度计数的一个缺口：严重程度不属于五个已知取值的发现，会被计入发现总数却不落入任何严重程度分组，于是一个仅有该发现的项目看起来完全干净'
             ]
         },
         '2.5.0': {

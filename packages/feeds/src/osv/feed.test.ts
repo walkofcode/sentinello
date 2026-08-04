@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeZip } from '../zip.fixture'
+import { startDownloadServer, type DownloadServer } from '../download-server.fixture'
 import {
     OSV_INCREMENTAL_MAX_IDS,
     fetchOsvAdvisoryRows,
@@ -129,9 +130,22 @@ describe('headOsvSeed', function () {
     })
 })
 
+// The seed download runs over node:https, not fetch (see the transport note in http.ts), so these serve
+// real zip bytes from a loopback server and point the feed-URL override at it.
 describe('streamOsvSeed', function () {
-    function zipResponse(files: Record<string, string>): Response {
-        return respond(makeZip(files), { headers: { 'last-modified': 'Wed, 01 Jul 2026 00:00:00 GMT' } })
+    let server: DownloadServer | null = null
+
+    afterEach(async function stop() {
+        if (server) await server.close()
+        server = null
+    })
+
+    async function zipResponse(files: Record<string, string>): Promise<void> {
+        server = await startDownloadServer({
+            body: makeZip(files),
+            headers: { 'last-modified': 'Wed, 01 Jul 2026 00:00:00 GMT' }
+        })
+        vi.stubEnv('SENTINELLO_OSV_FEED_URL', server.origin)
     }
 
     // Nothing here may accumulate the full corpus: the unpacked npm export alone is ~860 MB across
@@ -141,7 +155,7 @@ describe('streamOsvSeed', function () {
         for (let i = 0; i < 2001; i++) {
             files['GHSA-' + i + '.json'] = JSON.stringify(osvRecord({ id: 'GHSA-' + i }))
         }
-        fetchMock.mockResolvedValue(zipResponse(files))
+        await zipResponse(files)
         const batches = await collect(streamOsvSeed('npm'))
         expect(batches).toHaveLength(2)
         expect(batches[0]?.rows).toHaveLength(2000)
@@ -149,70 +163,70 @@ describe('streamOsvSeed', function () {
     })
 
     it('normalizes every .json entry in the archive', async function () {
-        fetchMock.mockResolvedValue(zipResponse({
+        await zipResponse({
             'GHSA-1.json': JSON.stringify(osvRecord()),
             'GHSA-2.json': JSON.stringify(osvRecord({ id: 'GHSA-2' }))
-        }))
+        })
         const batches = await collect(streamOsvSeed('npm'))
         expect(batches).toHaveLength(1)
         expect(batches[0]?.rows.map(function id(r) { return r.advisoryId }).sort()).toEqual(['GHSA-1', 'GHSA-2'])
     })
 
     it('carries the archive last-modified onto every batch', async function () {
-        fetchMock.mockResolvedValue(zipResponse({ 'GHSA-1.json': JSON.stringify(osvRecord()) }))
+        await zipResponse({ 'GHSA-1.json': JSON.stringify(osvRecord()) })
         const batches = await collect(streamOsvSeed('npm'))
         expect(batches[0]?.lastModified).toBe('Wed, 01 Jul 2026 00:00:00 GMT')
     })
 
     it('skips entries that are not .json', async function () {
-        fetchMock.mockResolvedValue(zipResponse({
+        await zipResponse({
             'GHSA-1.json': JSON.stringify(osvRecord()),
             'README.md': 'not an advisory',
             'index.txt': 'nor this'
-        }))
+        })
         const batches = await collect(streamOsvSeed('npm'))
         expect(batches[0]?.rows).toHaveLength(1)
     })
 
     // A single corrupt entry in a 220k-file export must not abandon the whole seed.
     it('drops an entry whose JSON does not parse and keeps going', async function () {
-        fetchMock.mockResolvedValue(zipResponse({
+        await zipResponse({
             'broken.json': '{not json',
             'GHSA-1.json': JSON.stringify(osvRecord())
-        }))
+        })
         const batches = await collect(streamOsvSeed('npm'))
         expect(batches[0]?.rows.map(function id(r) { return r.advisoryId })).toEqual(['GHSA-1'])
     })
 
     it('drops an entry that normalizes to no rows', async function () {
-        fetchMock.mockResolvedValue(zipResponse({
+        await zipResponse({
             'empty.json': JSON.stringify({ id: 'GHSA-empty' }),
             'GHSA-1.json': JSON.stringify(osvRecord())
-        }))
+        })
         const batches = await collect(streamOsvSeed('npm'))
         expect(batches[0]?.rows).toHaveLength(1)
     })
 
     it('yields nothing at all for an archive with no advisories', async function () {
-        fetchMock.mockResolvedValue(zipResponse({ 'README.md': 'nothing here' }))
+        await zipResponse({ 'README.md': 'nothing here' })
         expect(await collect(streamOsvSeed('npm'))).toEqual([])
     })
 
     it('keeps only the requested ecosystem when a record spans several', async function () {
-        fetchMock.mockResolvedValue(zipResponse({
+        await zipResponse({
             'GHSA-1.json': JSON.stringify(osvRecord({
                 affected: [
                     { package: { name: 'lodash', ecosystem: 'npm' }, versions: ['1.0.0'] },
                     { package: { name: 'flask', ecosystem: 'PyPI' }, versions: ['1.0.0'] }
                 ]
             }))
-        }))
+        })
         const batches = await collect(streamOsvSeed('npm'))
         expect(batches[0]?.rows.map(function pkg(r) { return r.packageName })).toEqual(['lodash'])
     })
 
     it('reports download progress as bytes arrive', async function () {
-        fetchMock.mockResolvedValue(zipResponse({ 'GHSA-1.json': JSON.stringify(osvRecord()) }))
+        await zipResponse({ 'GHSA-1.json': JSON.stringify(osvRecord()) })
         const seen: number[] = []
         await collect(streamOsvSeed('npm', function onProgress(read) { seen.push(read) }))
         expect(seen.length).toBeGreaterThan(0)
@@ -220,18 +234,26 @@ describe('streamOsvSeed', function () {
     })
 
     // Shutdown must be able to interrupt a seed rather than waiting out a 100 MB download.
+    //
+    // Aborted BETWEEN batches, not before the request. Aborting up front only proves node rejects the
+    // HTTP request — whose AbortError message happens to contain "aborted", so that version of this test
+    // passed without ever reaching the guard in the entry loop.
     it('aborts mid-archive when the signal fires', async function () {
-        fetchMock.mockResolvedValue(zipResponse({
-            'GHSA-1.json': JSON.stringify(osvRecord()),
-            'GHSA-2.json': JSON.stringify(osvRecord({ id: 'GHSA-2' }))
-        }))
+        const files: Record<string, string> = {}
+        for (let i = 0; i < 2001; i++) {
+            files['GHSA-' + i + '.json'] = JSON.stringify(osvRecord({ id: 'GHSA-' + i }))
+        }
+        await zipResponse(files)
         const controller = new AbortController()
+        const batches = streamOsvSeed('npm', undefined, { abortSignal: controller.signal })
+        expect((await batches.next()).value?.rows).toHaveLength(2000)
         controller.abort()
-        await expect(collect(streamOsvSeed('npm', undefined, { abortSignal: controller.signal }))).rejects.toThrow('aborted')
+        await expect(batches.next()).rejects.toThrow('aborted')
     })
 
     it('fails loudly when the download is rejected', async function () {
-        fetchMock.mockResolvedValue(respond('nope', { status: 404 }))
+        server = await startDownloadServer({ status: 404, body: 'nope' })
+        vi.stubEnv('SENTINELLO_OSV_FEED_URL', server.origin)
         await expect(collect(streamOsvSeed('npm'))).rejects.toThrow(/HTTP 404/)
     })
 })

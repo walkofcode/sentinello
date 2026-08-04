@@ -9,14 +9,23 @@ import {
     headFile,
     openDownloadStream
 } from './http'
+import {
+    startDownloadServer,
+    type DownloadServer,
+    type RecordedRequest,
+    type ServedResponse
+} from './download-server.fixture'
 
 // These are the network primitives under every advisory sync, so the retry policy is the load-bearing
 // part. Two failure modes matter and they pull in opposite directions: retrying a permanent failure
 // wastes a scan's time budget, and NOT retrying a transient one abandons the feed for the whole run
 // and leaves the source silently unauditable.
 //
-// The transient set is deliberately unusual — 406 is in it because GitLab intermittently answers 406
-// to the archive download as abuse throttling, and the identical request succeeds moments later.
+// The transient set is deliberately unusual — 406 is in it because GitLab answers 406 to a repository
+// archive request it declines to generate. The real fix for that lives at the URL (gemnasium/feed.ts
+// requests an immutable, CDN-cacheable sha), so the retry here is a cushion for a blip and nothing more.
+// Its budget is short on purpose: an earlier design waited three minutes and only made the failure
+// slower to find.
 //
 // fetch is stubbed with real Response objects rather than hand-rolled fakes, so header parsing, body
 // consumption, cancellation and the ReadableStream that openDownloadStream converts all behave the
@@ -42,14 +51,14 @@ async function runWithBackoff<T>(start: () => Promise<T>): Promise<{ error?: Err
     return pending
 }
 
-// The slow ladder waits 45s, 60s then 75s, so the fast helper's 20s window never reaches even the first
-// retry. Advancing past the default 180s budget covers the whole schedule.
+// The slow ladder waits 2s, 5s then 8s against a 15s budget. Advancing well past it covers the whole
+// schedule without depending on the exact step values.
 async function runWithSlowBackoff<T>(start: () => Promise<T>): Promise<{ error?: Error; value?: T }> {
     const pending = start().then(
         function ok(value) { return { value } },
         function failed(error: Error) { return { error } }
     )
-    await vi.advanceTimersByTimeAsync(400_000)
+    await vi.advanceTimersByTimeAsync(60_000)
     return pending
 }
 
@@ -137,9 +146,9 @@ describe('retry policy', function () {
         expect(fetchMock).toHaveBeenCalledTimes(2)
     })
 
-    // GitLab declines the archive download with 406 for a minute or two at a time — measured 406 at t+20s
-    // and t+60s, 200 at t+120s. Treating it as permanent abandons the gemnasium seed for the whole run,
-    // and the CLI is usually run once, so that is a source the user never gets.
+    // GitLab declines a repository archive it will not generate with an empty-bodied 406. Treating that as
+    // permanent abandons the gemnasium seed for the whole run, and the CLI is usually run once, so that is
+    // a source the user never gets.
     it('retries the 406 GitLab actually returns, on the slow ladder', async function () {
         fetchMock
             .mockResolvedValueOnce(respond('declined', { status: 406 }))
@@ -149,25 +158,32 @@ describe('retry policy', function () {
         expect(fetchMock).toHaveBeenCalledTimes(2)
     })
 
-    // The whole point of the split: the fast ladder gives up inside 13s, an order of magnitude short of
-    // the block it would be waiting out.
-    it('does not give up on a 406 within the fast ladder window', async function () {
+    // The fail-fast contract, as a number. A previous design spent three minutes here before reporting a
+    // failure it was never going to clear, which is the worst of both outcomes: the user waits AND loses
+    // the source. Anything approaching that duration is a regression, so bound it well under a minute.
+    it('gives up on a persistent 406 in seconds, not minutes', async function () {
         fetchMock.mockResolvedValue(respond('declined', { status: 406 }))
         const pending = getJson(URL_UNDER_TEST).catch(function swallow() { return 'gave up' })
-        await vi.advanceTimersByTimeAsync(20_000)
-        expect(fetchMock).toHaveBeenCalledTimes(1)
-        await vi.advanceTimersByTimeAsync(400_000)
+        await vi.advanceTimersByTimeAsync(30_000)
         expect(await pending).toBe('gave up')
     })
 
     it('stops once the wait budget is spent, naming the attempts it made', async function () {
         fetchMock.mockResolvedValue(respond('declined', { status: 406 }))
         const { error } = await runWithSlowBackoff(function call() { return getJson(URL_UNDER_TEST) })
-        // 45 + 60 + 75 lands exactly on the 180s budget, so four attempts are made — at t=0, 45s, 105s
-        // and 180s — and the measured block (200 by t+120s) is cleared by the last of them.
+        // 2 + 5 + 8 lands exactly on the 15s budget, so four attempts are made — at t=0, 2s, 7s and 15s.
         expect(fetchMock).toHaveBeenCalledTimes(4)
         expect(error?.message).toContain('406')
         expect(error?.message).toContain('4 attempts')
+    })
+
+    // Both ladders bottom out at four attempts, so the attempt count alone cannot tell them apart. That
+    // ambiguity is what made a shed archive request read as a network fault through two rounds of fixes:
+    // "406 after 4 attempts" was equally consistent with a 13s giving-up and a 180s one.
+    it('reports elapsed time so the fast and slow ladders can be told apart', async function () {
+        fetchMock.mockResolvedValue(respond('declined', { status: 406 }))
+        const { error } = await runWithSlowBackoff(function call() { return getJson(URL_UNDER_TEST) })
+        expect(error?.message).toMatch(/over \d+s/)
     })
 
     it('fails on the first refusal when waiting is switched off', async function () {
@@ -185,11 +201,11 @@ describe('retry policy', function () {
         // Past the 600s budget, which the shared slow helper's 400s window would stop short of.
         await vi.advanceTimersByTimeAsync(700_000)
         await pending
-        // 45 + 60 + then 75 repeating all fit inside 600s, so it keeps going well past the default's four.
+        // 2 + 5 + then 8 repeating all fit inside 600s, so it keeps going well past the default's four.
         expect(fetchMock.mock.calls.length).toBeGreaterThan(4)
     })
 
-    // A multi-minute wait with no output reads as a hang, so the caller has to be able to say why.
+    // Even a short wait with no output reads as a stall, so the caller has to be able to say why.
     it('reports each wait before it happens', async function () {
         fetchMock.mockResolvedValue(respond('declined', { status: 406 }))
         const notices: { status: number; waitMs: number; budgetMs: number }[] = []
@@ -200,9 +216,9 @@ describe('retry policy', function () {
                 }
             })
         })
-        expect(notices.map(function w(n) { return n.waitMs })).toEqual([45_000, 60_000, 75_000])
+        expect(notices.map(function w(n) { return n.waitMs })).toEqual([2_000, 5_000, 8_000])
         expect(notices[0]?.status).toBe(406)
-        expect(notices[0]?.budgetMs).toBe(180_000)
+        expect(notices[0]?.budgetMs).toBe(15_000)
     })
 
     it('retries the rest of the transient set', async function () {
@@ -395,7 +411,21 @@ describe('headFile', function () {
     })
 })
 
+// Driven against a real loopback server rather than a stubbed fetch, because this path deliberately does
+// not use fetch — see startDownloadServer and the transport note in http.ts.
 describe('openDownloadStream', function () {
+    let server: DownloadServer | null = null
+
+    async function serve(response: ServedResponse | ((r: RecordedRequest) => ServedResponse)): Promise<string> {
+        server = await startDownloadServer(response)
+        return server.origin + '/archive.zip'
+    }
+
+    afterEach(async function stop() {
+        if (server) await server.close()
+        server = null
+    })
+
     async function collect(stream: NodeJS.ReadableStream): Promise<string> {
         const chunks: Buffer[] = []
         for await (const chunk of stream) chunks.push(Buffer.from(chunk))
@@ -403,32 +433,51 @@ describe('openDownloadStream', function () {
     }
 
     it('exposes the response body as a node stream', async function () {
-        fetchMock.mockResolvedValue(respond('archive-bytes'))
-        const download = await openDownloadStream(URL_UNDER_TEST)
+        const url = await serve({ body: 'archive-bytes' })
+        const download = await openDownloadStream(url)
         expect(await collect(download.stream)).toBe('archive-bytes')
     })
 
+    // The regression guard for the bug itself: the request must NOT carry undici's Sec-Fetch-Mode, which
+    // GitLab rejects with 406 on archive routes and which no fetch client can remove.
+    it('sends no sec-fetch-mode header', async function () {
+        const url = await serve({ body: 'abc' })
+        const download = await openDownloadStream(url)
+        await collect(download.stream)
+        expect(server?.requests[0]?.headers['sec-fetch-mode']).toBeUndefined()
+    })
+
+    it('identifies itself with the user agent', async function () {
+        const url = await serve({ body: 'abc' })
+        const download = await openDownloadStream(url)
+        await collect(download.stream)
+        expect(String(server?.requests[0]?.headers['user-agent'])).toContain('sentinello')
+    })
+
     it('reports the advertised length and last-modified', async function () {
-        fetchMock.mockResolvedValue(respond('abc', {
+        const url = await serve({
+            body: 'abc',
             headers: { 'content-length': '3', 'last-modified': 'Wed, 01 Jan 2026 00:00:00 GMT' }
-        }))
-        const download = await openDownloadStream(URL_UNDER_TEST)
+        })
+        const download = await openDownloadStream(url)
         expect(download.contentLength).toBe(3)
         expect(download.lastModified).toBe('Wed, 01 Jan 2026 00:00:00 GMT')
         await collect(download.stream)
     })
 
+    // No content-length: the server falls back to chunked encoding, exactly as GitLab does for an archive
+    // it generates on the fly. The consent prompt relies on this being null rather than a bogus number.
     it('reports an unknown length as null', async function () {
-        fetchMock.mockResolvedValue(respond('abc'))
-        const download = await openDownloadStream(URL_UNDER_TEST)
+        const url = await serve({ body: 'abc', headers: { 'transfer-encoding': 'chunked' } })
+        const download = await openDownloadStream(url)
         expect(download.contentLength).toBeNull()
         await collect(download.stream)
     })
 
     it('reports progress as bytes arrive', async function () {
-        fetchMock.mockResolvedValue(respond('abcdef', { headers: { 'content-length': '6' } }))
+        const url = await serve({ body: 'abcdef', headers: { 'content-length': '6' } })
         const seen: Array<[number, number | null]> = []
-        const download = await openDownloadStream(URL_UNDER_TEST, function onProgress(read, total) {
+        const download = await openDownloadStream(url, function onProgress(read, total) {
             seen.push([read, total])
         })
         await collect(download.stream)
@@ -438,13 +487,47 @@ describe('openDownloadStream', function () {
     })
 
     it('throws on a non-ok status', async function () {
-        fetchMock.mockResolvedValue(respond(null, { status: 403 }))
-        await expect(openDownloadStream(URL_UNDER_TEST)).rejects.toThrow('403')
+        const url = await serve({ status: 403, body: 'nope' })
+        await expect(openDownloadStream(url)).rejects.toThrow('403')
     })
 
-    it('throws when the response carries no body', async function () {
-        fetchMock.mockResolvedValue(respond(null, { status: 204 }))
-        await expect(openDownloadStream(URL_UNDER_TEST)).rejects.toThrow('no body')
+    // node's client does not follow redirects, so the download path does it itself. A feed served from a
+    // bucket behind a redirect is ordinary, and silently returning the 302 body would corrupt the cache.
+    it('follows a redirect to the real archive', async function () {
+        const url = await serve(function route(request): ServedResponse {
+            if (request.url.startsWith('/archive.zip')) {
+                return { status: 302, headers: { location: '/real.zip' } }
+            }
+            return { body: 'redirected-bytes' }
+        })
+        const download = await openDownloadStream(url)
+        expect(await collect(download.stream)).toBe('redirected-bytes')
+    })
+
+    it('gives up rather than following a redirect loop', async function () {
+        const url = await serve({ status: 302, headers: { location: '/loop.zip' } })
+        await expect(openDownloadStream(url)).rejects.toThrow(/redirect/)
+    })
+
+    // Every real feed is https, so picking the client off the URL scheme has to be right in both arms —
+    // getting it backwards would send an https download over plaintext. Port 1 on loopback refuses
+    // immediately, which reaches the https client without leaving the machine.
+    it('uses the https client for an https URL', async function () {
+        await expect(openDownloadStream('https://127.0.0.1:1/archive.zip')).rejects.toThrow()
+    })
+
+    // The download path shares the retry ladder with the fetch path, so a transient status has to be
+    // retried here too — and the abandoned response body drained, or the socket is held for the life of
+    // the process. Real timers: the fast ladder's first wait is 1s.
+    it('retries a transient download failure and drains the abandoned body', async function () {
+        let served = 0
+        const url = await serve(function route(): ServedResponse {
+            served++
+            return served === 1 ? { status: 503, body: 'busy' } : { body: 'ok-bytes' }
+        })
+        const download = await openDownloadStream(url)
+        expect(await collect(download.stream)).toBe('ok-bytes')
+        expect(served).toBe(2)
     })
 
     // Seeds are hundreds of megabytes over an arbitrary connection, so the download deadline is far

@@ -169,7 +169,7 @@ async function rebuildGemnasium(
     let lastModified: string | null = null
     const seenRowKeys = new Set<string>()
     try {
-        for await (const batch of streamGemnasiumArchive(undefined, { abortSignal })) {
+        for await (const batch of streamGemnasiumArchive(headSha, undefined, { abortSignal })) {
             lastModified = batch.lastModified
             for (const row of batch.rows) {
                 seenRowKeys.add(gemnasiumRowKeyFor(row.advisoryId, row.ecosystem, row.packageName))
@@ -190,9 +190,9 @@ async function rebuildGemnasium(
     setGemnasiumMeta(db, GEMNASIUM_META_KEYS.recordCount, recordCount)
     setGemnasiumMeta(db, GEMNASIUM_META_KEYS.refreshedAt, Date.now())
     setGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastError, null)
-    // The archive is fetched from the `master` ref rather than a pinned sha, so it may in principle be
-    // newer than the sha we read a moment earlier. Recording the sha we know about is still correct: the
-    // next compare then replays that window, which is idempotent, rather than skipping it.
+    // The archive was fetched AT this sha, so the rows and the recorded sha describe the same commit and
+    // the next compare starts exactly where this pass ended. When the sha lookup failed (null), the fetch
+    // fell back to the branch ref and there is no sha worth recording — the next run resolves it again.
     setGemnasiumMeta(db, GEMNASIUM_META_KEYS.headSha, headSha)
     if (lastModified) setGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastModified, lastModified)
     console.log('[gemnasium-sync] full sync complete: ' + recordCount + ' advisory rows (' + purged + ' stale purged)')

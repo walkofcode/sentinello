@@ -138,8 +138,8 @@ describe('retry notices', function () {
     // feeds layer has no idea which source it is downloading for.
     it('relays a feed retry notice with the item that caused it', async function () {
         const notices: { source: string; waitMs: number }[] = []
-        feeds.streamGemnasiumArchive.mockImplementation(function stream(_progress: unknown, opts: { onRetry?: (n: unknown) => void }) {
-            if (opts && opts.onRetry) opts.onRetry({ status: 406, attempt: 1, waitMs: 45_000, elapsedMs: 0, budgetMs: 180_000 })
+        feeds.streamGemnasiumArchive.mockImplementation(function stream(_ref: unknown, _progress: unknown, opts: { onRetry?: (n: unknown) => void }) {
+            if (opts && opts.onRetry) opts.onRetry({ status: 406, attempt: 1, waitMs: 2_000, elapsedMs: 0, budgetMs: 15_000 })
             return streamOf([{ rows: [gemRow()] }])()
         })
         const opts = options({
@@ -149,14 +149,14 @@ describe('retry notices', function () {
             }
         })
         await runSync(opts, await planSync(opts))
-        expect(notices).toEqual([{ source: 'gemnasium', waitMs: 45_000 }])
+        expect(notices).toEqual([{ source: 'gemnasium', waitMs: 2_000 }])
     })
 
     // Without a listener the relay must stay undefined rather than becoming a no-op closure, so the
     // feeds layer can tell "nobody is watching" from "someone is watching and ignoring it".
     it('passes no notifier through when the caller supplied none', async function () {
         let sawOnRetry: unknown = 'unset'
-        feeds.streamGemnasiumArchive.mockImplementation(function stream(_progress: unknown, opts: { onRetry?: unknown }) {
+        feeds.streamGemnasiumArchive.mockImplementation(function stream(_ref: unknown, _progress: unknown, opts: { onRetry?: unknown }) {
             sawOnRetry = opts.onRetry
             return streamOf([{ rows: [gemRow()] }])()
         })
@@ -169,7 +169,7 @@ describe('retry notices', function () {
     // while a block holds, the HEAD-sha and compare calls fail exactly as the download does.
     it('threads the retry budget to the feed calls', async function () {
         let seen: number | undefined
-        feeds.streamGemnasiumArchive.mockImplementation(function stream(_progress: unknown, opts: { retryWaitMs?: number }) {
+        feeds.streamGemnasiumArchive.mockImplementation(function stream(_ref: unknown, _progress: unknown, opts: { retryWaitMs?: number }) {
             seen = opts.retryWaitMs
             return streamOf([{ rows: [gemRow()] }])()
         })

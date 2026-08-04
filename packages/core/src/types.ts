@@ -156,6 +156,27 @@ export const REASON_CODE_VALUES: ReasonCode[] = [
     'timeout'
 ]
 
+// The reason codes that mean an advisory source could not be consulted AT ALL — the cache was never
+// downloaded, or could not be opened. A scan reporting zero findings for one of these has not found
+// nothing; it has looked at nothing, and the two are indistinguishable in the output.
+//
+// This exists so a CI gate can refuse to pass such a run. It is deliberately narrow. The codes NOT here
+// describe a project with nothing auditable in it — no_lockfile, unsupported_lockfile,
+// ambiguous_dependency_spec, partial_dependency_graph, ecosystem_source_disabled — and failing on those
+// would break gating any folder containing one unresolvable project, which is the normal case for a
+// mixed-language tree. Whether the audit_* family (npm audit itself failing to run) belongs here too is
+// a real question, deliberately left open rather than answered by widening this quietly.
+export const SOURCE_UNAVAILABLE_REASON_CODES: ReasonCode[] = [
+    'osv_db_not_seeded',
+    'osv_db_unavailable',
+    'gemnasium_db_not_seeded',
+    'gemnasium_db_unavailable'
+]
+
+export function isSourceUnavailableReason(code: string): boolean {
+    return (SOURCE_UNAVAILABLE_REASON_CODES as string[]).includes(code)
+}
+
 // reasonCodeLabel + scanStatusLabel and their localized maps live in ./reason-code-labels and
 // ./scan-status-labels (re-exported from the barrel). They're kept out of this file so the label
 // data stays separate from the type/vocabulary definitions.

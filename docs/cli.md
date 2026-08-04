@@ -97,10 +97,21 @@ lists every directory that was skipped and the rule that caused it.
 ## CI
 
 ```bash
-npx sentinello --yes --fail-on high --json > findings.json
+npx --yes sentinello --yes --fail-on high --json > findings.json
 ```
 
-Exit codes: `0` completed, `1` a scan or configuration error, `2` the `--fail-on` threshold was met.
+**Two different `--yes` flags, and a CI runner hits both.** The first belongs to npm: `npx` asks
+"Ok to proceed?" before running a package it has not cached, and on a fresh runner that prompt has
+nobody to answer it. The second belongs to Sentinello: the first run downloads the advisory databases
+and refuses to do so on a non-interactive terminal without consent. Miss either and the job stops or
+audits nothing.
+
+A gated run that could not consult a source now exits `1` rather than reporting clean — see
+[Exit codes](#ci) below. Before, a first CI run without `--yes` printed zero findings and exited `0`,
+which is indistinguishable from a passing audit.
+
+Exit codes: `0` completed, `1` a scan or configuration error **or a gated scan that lost a source**,
+`2` the `--fail-on` threshold was met.
 Findings alone exit `0` — a report is not a failure, and the default flow (pipe the advisory to an agent)
 would otherwise trip `set -e`.
 
