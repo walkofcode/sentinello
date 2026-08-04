@@ -7,13 +7,19 @@
 #      and appends entries to CHANGELOG.md.
 #   3. When that PR is merged, release-please creates the git tag (vX.Y.Z) AND a GitHub
 #      Release whose body is the changelog excerpt.
-#   4. The second job in this workflow (`dispatch-image-publish`) then fires
-#      .github/workflows/publish-image.yml via workflow_dispatch against the new tag.
+#   4. The dispatch jobs below then fire .github/workflows/publish-image.yml and
+#      .github/workflows/publish-npm.yml via workflow_dispatch against the new tag.
 #      We chain via workflow_dispatch (rather than the natural `push: tags: v*` trigger
-#      on publish-image) because tags pushed by GITHUB_TOKEN do NOT trigger downstream
+#      on those workflows) because tags pushed by GITHUB_TOKEN do NOT trigger downstream
 #      workflows — workflow_dispatch and repository_dispatch are the two documented
 #      exceptions to that rule. This keeps the whole chain on the default GITHUB_TOKEN —
 #      no PAT and no GitHub App required.
+#
+#      Both publishes need their own dispatch job. publish-npm.yml was added after this
+#      chaining was set up and never got one, so its `push: tags` trigger sat dead: 3.0.0
+#      tagged, published a Docker image, and put nothing on npm until someone dispatched it
+#      by hand. Anything added here later that publishes off a tag needs a job below too —
+#      the tag trigger alone will look correct and never fire.
 #
 # NOTE: when folding curated release notes (packages/core/src/releases.ts) into an OPEN release PR,
 # commit them as `docs(...)`, NEVER `chore(...)`. `chore` is hidden:true in release-please-config.json,
@@ -68,3 +74,21 @@ jobs:
                       --repo ${{ github.repository }} \
                       --ref ${{ needs.release-please.outputs.tag_name }} \
                       -f push=true
+
+    # The npm half of the same chain. Separate from dispatch-image-publish rather than two steps in one
+    # job so a registry-side failure on one publish never withholds the other.
+    dispatch-npm-publish:
+        needs: release-please
+        if: needs.release-please.outputs.release_created == 'true'
+        runs-on: ubuntu-latest
+        permissions:
+            actions: write
+        steps:
+            - name: Dispatch publish-npm for the new tag
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  gh workflow run publish-npm.yml \
+                      --repo ${{ github.repository }} \
+                      --ref ${{ needs.release-please.outputs.tag_name }} \
+                      -f publish=true

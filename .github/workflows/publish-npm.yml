@@ -123,10 +123,13 @@ jobs:
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
 
+            # Keyed on the REF, not the event. release-please reaches this workflow by dispatching it
+            # against the new tag, so an event-name check would send a real release down the
+            # no-tag-in-sight branch and skip the cross-check below with it.
             - name: Resolve the release version
               id: version
               run: |
-                  if [ "${{ github.event_name }}" = "push" ]; then
+                  if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
                       VERSION="${GITHUB_REF_NAME#v}"
                   else
                       VERSION=$(node -p "require('./package.json').version")
@@ -138,7 +141,7 @@ jobs:
             # release-please and the tag have diverged and the Docker image would ship different code
             # under the same number — fail loudly rather than publish a mismatched pair.
             - name: Verify the tag matches the root package.json
-              if: github.event_name == 'push'
+              if: startsWith(github.ref, 'refs/tags/v')
               run: |
                   ROOT_VERSION=$(node -p "require('./package.json').version")
                   if [ "$ROOT_VERSION" != "${{ steps.version.outputs.version }}" ]; then
