@@ -135,8 +135,9 @@ couldn't be opened — mirroring the OSV pair).
 
 **Provisioning.** Enabling **OSV** downloads the per-ecosystem export(s) into the data volume (npm
 export ~204 MB; each additional enabled ecosystem adds its own), then ~daily incremental updates.
-Enabling **GitLab gemnasium** downloads its archive from `gitlab.com` (tens of MB; re-downloaded whole
-each sync — it has no delta feed). Both normalized caches (`osv.db`, `gemnasium.db`) are rebuildable and
+Enabling **GitLab gemnasium** downloads its archive from `gitlab.com` (tens of MB) on first sync, then
+updates from the repository's commit history — only the advisory files that changed since the last sync,
+with a full re-download only when that is unusable. Both normalized caches (`osv.db`, `gemnasium.db`) are rebuildable and
 stored separately from your findings. Leave these sources off (or set `SENTINELLO_OSV_FEED_URL=off` /
 `SENTINELLO_GEMNASIUM_FEED_URL=off`) for a fully air-gapped install.
 

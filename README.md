@@ -61,8 +61,9 @@ npx sentinello | claude -p "$(cat -)"
 ```
 
 No portal, no database, no history — it runs, prints, and exits. Add it to a project with
-`npm install -D sentinello` and gate CI with `npx sentinello --fail-on high`. Full documentation in
-[docs/cli.md](docs/cli.md).
+`npm install -D sentinello` and gate CI with `npx --yes sentinello --yes --fail-on high` — both
+`--yes` flags matter on a fresh runner, one for npm's install prompt and one for the first-run
+advisory download. Full documentation in [docs/cli.md](docs/cli.md).
 
 Use the portal when you want the other half: continuous watching, findings tracked over time, mutes,
 and notifications when something new appears.
@@ -304,7 +305,9 @@ the UI and in failure notifications):
 **Provisioning.** Enabling **OSV** downloads the per-ecosystem export(s) into the data volume on first
 sync (the npm export is **~204 MB**; each additional enabled ecosystem adds its own export), then pulls
 ~daily incremental updates. Enabling **GitLab gemnasium** downloads its advisory archive from
-`gitlab.com` (tens of MB; re-downloaded whole on each sync since it ships no delta feed). Both
+`gitlab.com` (tens of MB) on first sync, then keeps it fresh from the repository's own commit history:
+each sync reads the upstream HEAD commit, and fetches only the advisory files that changed since the
+last one. The full archive is re-downloaded only when that incremental path is unusable. Both
 normalized caches (`osv.db`, `gemnasium.db`) are fully **rebuildable** and stored separately from
 `sentinello.sqlite`, so deleting either never touches your findings, and they're excluded from a lean
 DB backup. The Settings panel shows the last refresh, the cached-advisory count, and a free-space hint,

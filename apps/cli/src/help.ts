@@ -38,10 +38,10 @@ SOURCES
   --offline             Skip the freshness check and use the cached data as-is.
   --cache-dir <path>    Where the advisory cache lives.
                         Default: $XDG_CACHE_HOME/sentinello or ~/.cache/sentinello.
-  --feed-wait <secs>    How long to keep waiting out a feed that declines a download
-                        and clears on its own. GitLab does this to the gemnasium
-                        archive for a minute or two at a time. Default: 180.
-                        0 gives up on the first refusal, leaving that source unseeded.
+  --feed-wait <secs>    How long to keep retrying a feed that declines a download.
+                        Default: 15 — short, because a declined download is offered
+                        as a retry rather than waited out. 0 gives up on the first
+                        refusal, leaving that source unseeded.
 
 OUTPUT
   --out <file|->        Write the advisory to a file, or "-" for stdout. With "-" the
@@ -58,7 +58,10 @@ OUTPUT
 BEHAVIOUR
   --fail-on <level>     Exit 2 when a finding at this severity or above exists.
                         A severity, "any", or "none". Default: none.
-  -y, --yes             Accept every prompt, including the first-run download.
+  -y, --yes             Accept every prompt, including the first-run download. Required on a
+                        non-TTY: without it the download is refused, and under --fail-on
+                        that refusal exits 1 rather than reporting a clean scan. npx has a
+                        separate prompt of its own: in CI use  npx --yes sentinello --yes
   --doctor              Print cache status, resolved settings, and detected projects.
   -q, --quiet           Suppress the human-readable output.
   --verbose             List every directory skipped by an ignore rule.
@@ -68,7 +71,8 @@ BEHAVIOUR
 
 EXIT CODES
   0  completed (findings alone are not a failure)
-  1  a scan or configuration error
+  1  a scan or configuration error, or a --fail-on run that lost an advisory source
+     (a gate cannot be honoured by a scan that could not consult its sources)
   2  the --fail-on threshold was met
 
 CONFIG

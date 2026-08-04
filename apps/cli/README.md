@@ -76,12 +76,16 @@ Run `sentinello --help` for the full list. The ones people reach for:
 | `--fail-on <level>` | exit 2 when matched, for CI |
 | `--out <file\|->` | where the advisory goes |
 | `--json` | machine-readable output |
-| `-y, --yes` | accept the first-run download without asking |
+| `-y, --yes` | accept the first-run download without asking. Required on a non-TTY |
 | `--offline` | use the cache as-is, no network |
 | `--doctor` | cache status, resolved settings, and what was skipped and why |
 
-Exit codes: `0` completed, `1` a scan or configuration error, `2` the `--fail-on` threshold was met.
-Findings alone are not a failure.
+Exit codes: `0` completed, `1` a scan or configuration error — including a `--fail-on` run that could
+not consult one of its sources, `2` the `--fail-on` threshold was met. Findings alone are not a failure.
+
+In CI, pass both: `npx --yes sentinello --yes --fail-on high`. The first `--yes` answers npm's own
+"Ok to proceed?" prompt for an uncached package; the second accepts the first-run advisory download,
+which is refused on a non-interactive terminal.
 
 ## Requires
 
