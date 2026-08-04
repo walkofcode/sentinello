@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_EXPORT_PROMPT } from '@sentinello/core'
-import { defaultOutputFilename, renderJson, resolvePrompt, shouldFail, summarize } from './report'
+import { defaultOutputFilename, hasUnavailableSource, renderJson, resolvePrompt, shouldFail, summarize } from './report'
 import { parseArgs } from './options'
 import type { CliOptions } from './options'
 import type { ProjectScanResult, ScannerOutcome } from './scan'
@@ -155,6 +155,66 @@ describe('summarize — project attribution', function () {
     it('falls back to the project name when the project is the root itself', function () {
         const summary = summarize([result(project('myrepo', '.'), [finding()])], optionsWith([]))
         expect(summary.findings[0]?.projectName).toBe('myrepo')
+    })
+})
+
+describe('hasUnavailableSource — "we could not look", not "we found nothing"', function () {
+    function summaryWithReasons(...reasonCodes: string[]) {
+        return {
+            projects: [{
+                name: 'web',
+                relPath: '.',
+                findingCount: 0,
+                counts: { critical: 0, high: 0, moderate: 0, low: 0, info: 0 },
+                unauditable: reasonCodes.map(function entry(reasonCode) {
+                    return { scanner: 'osv', reasonCode, errorText: null }
+                })
+            }],
+            totalFindings: 0,
+            counts: { critical: 0, high: 0, moderate: 0, low: 0, info: 0 },
+            findings: []
+        } as Parameters<typeof hasUnavailableSource>[0]
+    }
+
+    // The reported bug: a fresh CI runner has no cache, so OSV never answers, and zero findings reads as
+    // clean. These four codes are the whole reason the predicate exists.
+    it.each([
+        'osv_db_not_seeded',
+        'osv_db_unavailable',
+        'gemnasium_db_not_seeded',
+        'gemnasium_db_unavailable'
+    ])('detects %s', function (code) {
+        expect(hasUnavailableSource(summaryWithReasons(code))).toBe(true)
+    })
+
+    // Deliberately NOT gate-blocking: these describe a project with nothing auditable in it, not a source
+    // that failed. Failing on them would break gating any folder holding one unresolvable project, which
+    // is the normal shape of a mixed-language tree.
+    it.each([
+        'no_lockfile',
+        'unsupported_lockfile',
+        'ambiguous_dependency_spec',
+        'partial_dependency_graph',
+        'ecosystem_source_disabled'
+    ])('ignores %s', function (code) {
+        expect(hasUnavailableSource(summaryWithReasons(code))).toBe(false)
+    })
+
+    it('is false for a scan where every source answered', function () {
+        expect(hasUnavailableSource(summaryWithReasons())).toBe(false)
+    })
+
+    // One healthy project must not mask another that lost its source.
+    it('finds a lost source in any project, not just the first', function () {
+        const summary = summaryWithReasons()
+        summary.projects.push({
+            name: 'api',
+            relPath: 'api',
+            findingCount: 0,
+            counts: { critical: 0, high: 0, moderate: 0, low: 0, info: 0 },
+            unauditable: [{ scanner: 'osv', reasonCode: 'osv_db_not_seeded', errorText: null }]
+        })
+        expect(hasUnavailableSource(summary)).toBe(true)
     })
 })
 

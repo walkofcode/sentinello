@@ -9,10 +9,11 @@ import {
 import { discoverProjectsInTree, type DiscoverySkip } from '@sentinello/scanners'
 import { isSeeded, readCacheMeta, resolveCacheDir } from './cache/meta'
 import { loadCacheForPackages } from './cache/lookup'
-import { planSync, runSync } from './cache/sync'
+import { planSync, runSync, type SyncOutcome, type SyncPlan, type SyncPlanItem } from './cache/sync'
 import { applyConfigFile, explicitFlagNames, parseArgs, type CliOptions } from './options'
 import {
     defaultOutputFilename,
+    hasUnavailableSource,
     renderJson,
     renderMarkdown,
     resolvePrompt,
@@ -106,11 +107,15 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
         if (plan.needsConsent && !options.assumeYes) {
             const approved = await ui.confirmSeed(plan)
             if (!approved) {
-                ui.seedDeclined()
-                return EXIT_OK
+                // Declining is fine for a report. Under a gate it is not: the run would otherwise print
+                // zero findings and exit 0, which on a fresh CI runner is indistinguishable from clean —
+                // the documented `--fail-on high` gate silently passing without auditing anything.
+                const gated = options.failOn !== 'none'
+                ui.seedDeclined(gated)
+                return gated ? EXIT_ERROR : EXIT_OK
             }
         }
-        const outcomes = await runSync({
+        const syncOptions = {
             cacheDir,
             sources: options.sources,
             ecosystem: DEFAULT_ECOSYSTEM,
@@ -118,8 +123,21 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
             onProgress: ui.syncProgress,
             onRetry: ui.syncRetry,
             onStatus: ui.syncStatus
-        }, plan)
+        }
+        let outcomes = await runSync(syncOptions, plan)
         ui.syncDone(outcomes)
+        // A failed source is offered a retry rather than being abandoned on the spot. The wait inside the
+        // feeds layer is short by design, so without this the only way to re-attempt a download that failed
+        // for a passing reason would be to re-run the whole scan. Re-runs cover ONLY the failed items, so a
+        // source that already succeeded is never downloaded twice.
+        for (;;) {
+            const failed = failedItems(plan, outcomes)
+            if (failed.length === 0) break
+            const approved = await ui.confirmRetry(outcomes.filter(isErrorOutcome))
+            if (!approved) break
+            outcomes = await runSync(syncOptions, { items: failed, seedBytes: 0, needsConsent: false })
+            ui.syncDone(outcomes)
+        }
     } else if (options.offline) {
         ui.offlineNotice()
     }
@@ -175,7 +193,30 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
     ui.summary(summary, destination)
 
     if (shouldFail(summary, options.failOn)) return EXIT_THRESHOLD
+    // A gate cannot be honoured by a scan that lost an advisory source: zero findings from a source that
+    // never answered is not a clean result. EXIT_ERROR, not EXIT_THRESHOLD — nothing met the threshold;
+    // the scan could not complete, which is what exit 1 already means.
+    if (options.failOn !== 'none' && hasUnavailableSource(summary)) return EXIT_ERROR
     return EXIT_OK
+}
+
+export function isErrorOutcome(outcome: SyncOutcome): boolean {
+    return outcome.status === 'error'
+}
+
+// The plan items behind the outcomes that failed, so a retry re-runs those and nothing else.
+//
+// Matched back to the ORIGINAL plan item rather than reconstructed from the outcome, because the item is
+// what carries `kind`. A failed seed has to retry as a seed; rebuilding it from the outcome would have to
+// guess, and guessing 'refresh' would run an incremental pass against a cache that was never written.
+export function failedItems(plan: SyncPlan, outcomes: readonly SyncOutcome[]): SyncPlanItem[] {
+    return plan.items.filter(function wasError(item): boolean {
+        return outcomes.some(function matches(outcome): boolean {
+            return outcome.status === 'error' &&
+                outcome.source === item.source &&
+                outcome.ecosystem === item.ecosystem
+        })
+    })
 }
 
 // null means "the caller expressed no preference", which is not the same as 0 — 0 is an explicit

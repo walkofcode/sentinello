@@ -315,6 +315,104 @@ describe('scanning', function () {
         expect(await runScan(parsed.options, join(dir, '.cache'), approving)).toBe(EXIT_OK)
         expect(feeds.streamOsvSeed).toHaveBeenCalled()
     })
+
+    // The retry loop. The feeds layer now gives up on a declined download in seconds rather than minutes,
+    // so this prompt is what stands in for the wait it no longer does. It must re-run ONLY what failed:
+    // re-downloading a source that already succeeded would make one failure cost two seeds.
+    describe('the seed retry prompt', function () {
+        function uiAnswering(retry: boolean, calls: string[]): Ui {
+            return new Proxy({} as Ui, {
+                get: function get(_target, prop: string) {
+                    return function respond(): unknown {
+                        calls.push(prop)
+                        if (prop === 'confirmSeed') return Promise.resolve(true)
+                        if (prop === 'confirmRetry') return Promise.resolve(retry)
+                        return undefined
+                    }
+                }
+            })
+        }
+
+        async function runWith(ui: Ui, gate: string[] = []): Promise<number> {
+            const { runScan } = await import('./run')
+            const { parseArgs } = await import('./options')
+            const parsed = parseArgs([dir, '--cache-dir', join(dir, '.cache'), '--source', 'osv,gemnasium', ...gate])
+            if (parsed.kind !== 'options') throw new Error('expected options')
+            return await runScan(parsed.options, join(dir, '.cache'), ui)
+        }
+
+        // Fails the gemnasium seed once, then succeeds — the shape of a genuinely transient refusal.
+        function gemnasiumFailingOnce(): void {
+            let attempts = 0
+            feeds.streamGemnasiumArchive.mockImplementation(function stream() {
+                attempts++
+                // Thrown from the call rather than from inside the generator: seedGemnasium opens the
+                // stream inside its try, so both land as an 'error' outcome, and this way the fake is
+                // not a generator that never yields.
+                if (attempts === 1) throw new Error('GET https://gitlab.test failed: HTTP 406 after 4 attempts over 15s')
+                return (async function* ok() {})()
+            })
+        }
+
+        it('re-runs only the failed source when the retry is approved', async function () {
+            await makeProject('web')
+            feeds.streamOsvSeed.mockImplementation(async function* stream() {})
+            gemnasiumFailingOnce()
+            const calls: string[] = []
+
+            expect(await runWith(uiAnswering(true, calls))).toBe(EXIT_OK)
+            expect(calls).toContain('confirmRetry')
+            expect(feeds.streamGemnasiumArchive).toHaveBeenCalledTimes(2)
+            // OSV succeeded the first time, so the retry must not have touched it again.
+            expect(feeds.streamOsvSeed).toHaveBeenCalledTimes(1)
+        })
+
+        it('leaves the failure alone when the retry is declined', async function () {
+            await makeProject('web')
+            feeds.streamOsvSeed.mockImplementation(async function* stream() {})
+            gemnasiumFailingOnce()
+            const calls: string[] = []
+
+            await runWith(uiAnswering(false, calls))
+            expect(calls).toContain('confirmRetry')
+            expect(feeds.streamGemnasiumArchive).toHaveBeenCalledTimes(1)
+        })
+
+        it('never asks when every source succeeded', async function () {
+            await makeProject('web')
+            feeds.streamOsvSeed.mockImplementation(async function* stream() {})
+            feeds.streamGemnasiumArchive.mockImplementation(async function* stream() {})
+            const calls: string[] = []
+
+            expect(await runWith(uiAnswering(true, calls))).toBe(EXIT_OK)
+            expect(calls).not.toContain('confirmRetry')
+        })
+    })
+
+    // Declining without a gate is a legitimate choice — the user said no to a 200 MB download and gets a
+    // report from whatever sources are already seeded. It must stay exit 0; only --fail-on turns the same
+    // decline into a refusal, which is the pair below.
+    it.each([
+        { gate: [] as string[], expected: EXIT_OK, label: 'no gate' },
+        { gate: ['--fail-on', 'high'], expected: EXIT_ERROR, label: 'a gate' }
+    ])('exits correctly when the seed is declined with $label', async function ({ gate, expected }) {
+        await makeProject('web')
+        const declining = new Proxy({} as Ui, {
+            get: function get(_target, prop: string) {
+                return function respond(): unknown {
+                    return prop === 'confirmSeed' ? Promise.resolve(false) : undefined
+                }
+            }
+        })
+        const { runScan } = await import('./run')
+        const { parseArgs } = await import('./options')
+        const parsed = parseArgs([dir, '--cache-dir', join(dir, '.cache'), '--source', 'osv', ...gate])
+        if (parsed.kind !== 'options') throw new Error('expected options')
+
+        expect(await runScan(parsed.options, join(dir, '.cache'), declining)).toBe(expected)
+        // Either way the download must not have happened — that is what declining means.
+        expect(feeds.streamOsvSeed).not.toHaveBeenCalled()
+    })
 })
 
 describe('exit codes', function () {
@@ -354,9 +452,22 @@ describe('exit codes', function () {
         expect(await main()).toBe(EXIT_OK)
     })
 
-    it('exits 0 when a --fail-on gate is set but nothing meets it', async function () {
+    // Was "exits 0 when a gate is set but nothing meets it", asserted against an UNSEEDED cache — which
+    // is the bug, not the contract: no advisory data means nothing can meet the gate, so it passed for
+    // the wrong reason. That contract is covered properly below, against a seeded cache with a real
+    // finding sitting under the threshold. What the unseeded case must do now is refuse.
+    it('exits 1 when a gate is set but a source could not be consulted', async function () {
         await makeProject('web')
+        // scanArgs is --offline against an empty cache dir, so OSV reports osv_db_not_seeded.
         argv(...scanArgs('--fail-on', 'critical'))
+        expect(await main()).toBe(EXIT_ERROR)
+    })
+
+    // The fix is scoped to gated runs. Without --fail-on the caller asked for a report, and a report is
+    // allowed to say a source was unavailable and carry on — the outcomes are printed either way.
+    it('leaves the same unaudited scan at 0 when no gate is set', async function () {
+        await makeProject('web')
+        argv(...scanArgs())
         expect(await main()).toBe(EXIT_OK)
     })
 

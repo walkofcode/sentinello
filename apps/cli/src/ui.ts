@@ -1,5 +1,5 @@
 import { createInterface } from 'node:readline/promises'
-import type { Severity } from '@sentinello/core'
+import { isSourceUnavailableReason, type Severity } from '@sentinello/core'
 import type { RetryNotice } from '@sentinello/feeds'
 import type { DiscoveredProject, DiscoverySkip } from '@sentinello/scanners'
 import type { SyncOutcome, SyncPlan, SyncPlanItem } from './cache/sync'
@@ -76,7 +76,8 @@ export type Ui = {
     discovered(projects: readonly DiscoveredProject[], skipped: readonly DiscoverySkip[], root: string): void
     noProjects(skipped: readonly DiscoverySkip[]): void
     confirmSeed(plan: SyncPlan): Promise<boolean>
-    seedDeclined(): void
+    confirmRetry(failed: readonly SyncOutcome[]): Promise<boolean>
+    seedDeclined(gated: boolean): void
     offlineNotice(): void
     syncStatus(item: SyncPlanItem, phase: 'start' | 'done'): void
     syncProgress(item: SyncPlanItem, bytesRead: number, totalBytes: number | null): void
@@ -178,9 +179,39 @@ export function createUi(options: CliOptions): Ui {
         }
     }
 
-    function seedDeclined(): void {
+    // `gated` is whether --fail-on asked this run a yes/no question. If it did, declining the download
+    // is not a skip, it is a run that cannot answer — and it exits non-zero rather than looking clean.
+    // Offered after a source fails to download. The retry budget in the feeds layer is deliberately short
+    // now, so this is what covers the case where waiting really would have helped: the user decides, having
+    // seen the failure, instead of the CLI deciding for them by sitting there for minutes.
+    //
+    // Returns false without asking on a non-TTY or under --quiet, so CI fails fast instead of blocking on a
+    // prompt nobody can answer. That is the same rule confirmSeed applies, for the same reason.
+    async function confirmRetry(failed: readonly SyncOutcome[]): Promise<boolean> {
+        if (!interactive || !process.stdin.isTTY || !process.stderr.isTTY) return false
+        const names = failed.map(function label(outcome): string {
+            return sourceLabel(outcome.source)
+        }).join(', ')
+        write('')
+        write('  ' + c.yellow + names + ' could not be downloaded.' + c.reset)
+        write('  ' + c.dim + 'The scan can continue without it, but anything only that source knows about' + c.reset)
+        write('  ' + c.dim + 'will be missing from the report.' + c.reset)
+        const rl = createInterface({ input: process.stdin, output: process.stderr })
+        try {
+            const answer = await rl.question('  Try the download again? ' + c.dim + '[Y/n]' + c.reset + ' ')
+            const normalized = answer.trim().toLowerCase()
+            return normalized === '' || normalized === 'y' || normalized === 'yes'
+        } finally {
+            rl.close()
+        }
+    }
+
+    function seedDeclined(gated: boolean): void {
         write('')
         write('  ' + c.dim + 'Skipped. Run again and accept, or pass --yes, to enable the advisory sources.' + c.reset)
+        if (gated) {
+            write('  ' + c.yellow + '--fail-on cannot be evaluated without them; exiting non-zero rather than reporting clean.' + c.reset)
+        }
         write('')
     }
 
@@ -287,9 +318,30 @@ export function createUi(options: CliOptions): Ui {
         write(line)
     }
 
+    // Sources that never answered, deduplicated across projects. report.ts's ProjectSummary comment says
+    // "0 findings is never confused with nothing could be checked" — that was true of the document and
+    // false of the terminal, which said "clean" regardless.
+    function lostSourceLines(runSummary: RunSummary): string[] {
+        const seen = new Map<string, string>()
+        for (const project of runSummary.projects) {
+            for (const entry of project.unauditable) {
+                if (!isSourceUnavailableReason(entry.reasonCode)) continue
+                if (seen.has(entry.scanner)) continue
+                seen.set(entry.scanner, entry.errorText || entry.reasonCode)
+            }
+        }
+        return Array.from(seen, function line([scanner, why]) {
+            return sourceLabel(scanner) + c.dim + '  ' + why + c.reset
+        })
+    }
+
     function summary(runSummary: RunSummary, destination: string | null): void {
         write('')
-        if (runSummary.totalFindings === 0) {
+        const lost = lostSourceLines(runSummary)
+        if (runSummary.totalFindings === 0 && lost.length > 0) {
+            // Deliberately not "clean". Nothing was found because nothing was consulted.
+            write('  ' + c.yellow + c.bold + 'No findings — but not everything could be checked.' + c.reset)
+        } else if (runSummary.totalFindings === 0) {
             write('  ' + c.green + c.bold + 'No findings.' + c.reset + c.dim + '  ' + runSummary.projects.length + ' project' + (runSummary.projects.length === 1 ? '' : 's') + ' clean.' + c.reset)
         } else {
             const parts: string[] = []
@@ -315,6 +367,15 @@ export function createUi(options: CliOptions): Ui {
                 write('    ' + project.relPath.padEnd(38).slice(0, 38) + '  ' + breakdown)
             }
         }
+        if (lost.length > 0) {
+            write('')
+            for (const line of lost) write('    ' + c.yellow + '!' + c.reset + ' ' + line)
+            if (options.failOn !== 'none') {
+                // Without this the run exits 1 having just printed "No findings", which reads as a broken
+                // tool rather than a gate correctly refusing to answer.
+                write('    ' + c.dim + '--fail-on cannot be honoured by a scan that lost a source; exiting non-zero.' + c.reset)
+            }
+        }
         write('')
         if (destination) {
             write('  ' + c.bold + 'Advisory written to' + c.reset + ' ' + destination)
@@ -338,6 +399,7 @@ export function createUi(options: CliOptions): Ui {
         discovered,
         noProjects,
         confirmSeed,
+        confirmRetry,
         seedDeclined,
         offlineNotice,
         syncStatus,

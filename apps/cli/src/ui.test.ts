@@ -119,6 +119,17 @@ function scanResult(overrides: Partial<ProjectScanResult> = {}): ProjectScanResu
     return { project: project(), findings: [], outcomes: [], ...overrides } as ProjectScanResult
 }
 
+function projectSummary(overrides: Partial<RunSummary['projects'][number]> = {}): RunSummary['projects'][number] {
+    return {
+        name: 'web',
+        relPath: 'web',
+        findingCount: 0,
+        counts: { critical: 0, high: 0, moderate: 0, low: 0, info: 0 },
+        unauditable: [],
+        ...overrides
+    }
+}
+
 function summary(overrides: Partial<RunSummary> = {}): RunSummary {
     return {
         projects: [],
@@ -150,6 +161,65 @@ beforeEach(function setup() {
 afterEach(function teardown() {
     vi.restoreAllMocks()
     vi.useRealTimers()
+})
+
+describe('summary — a lost source is not a clean scan', function () {
+    function summaryLosing(reasonCode: string): RunSummary {
+        return summary({
+            projects: [projectSummary({
+                relPath: '.',
+                unauditable: [{ scanner: 'osv', reasonCode, errorText: 'OSV database has not been downloaded yet' }]
+            })]
+        })
+    }
+
+    // The whole point: zero findings from a source that never answered must not render as "clean".
+    it('refuses to call it clean and names what could not be checked', function () {
+        ui().summary(summaryLosing('osv_db_not_seeded'), null)
+        expect(out()).toContain('not everything could be checked')
+        expect(out()).toContain('OSV database has not been downloaded yet')
+        expect(out()).not.toContain('project clean')
+    })
+
+    // Ungated, the warning stands alone — the run still exits 0 and must not claim otherwise.
+    it('does not mention the exit code when no gate was asked for', function () {
+        ui({ failOn: 'none' }).summary(summaryLosing('osv_db_not_seeded'), null)
+        expect(out()).not.toContain('exiting non-zero')
+    })
+
+    it('explains the non-zero exit when a gate was asked for', function () {
+        ui({ failOn: 'high' }).summary(summaryLosing('osv_db_not_seeded'), null)
+        expect(out()).toContain('cannot be honoured')
+    })
+
+    // A project-shape reason is not a lost source, so the clean line stays.
+    // errorText is nullable on the outcome, so the line falls back to the raw reason code rather than
+    // rendering "OSV null".
+    it('falls back to the reason code when the scanner gave no message', function () {
+        ui().summary(summary({
+            projects: [projectSummary({
+                unauditable: [{ scanner: 'gemnasium', reasonCode: 'gemnasium_db_unavailable', errorText: null }]
+            })]
+        }), null)
+        expect(out()).toContain('gemnasium_db_unavailable')
+    })
+
+    // The same source failing across twenty projects is one problem, not twenty lines.
+    it('names each lost source once, however many projects lost it', function () {
+        ui().summary(summary({
+            projects: [
+                projectSummary({ relPath: 'web', unauditable: [{ scanner: 'osv', reasonCode: 'osv_db_not_seeded', errorText: 'not downloaded' }] }),
+                projectSummary({ relPath: 'api', unauditable: [{ scanner: 'osv', reasonCode: 'osv_db_not_seeded', errorText: 'not downloaded' }] })
+            ]
+        }), null)
+        expect(out().match(/not downloaded/g)?.length).toBe(1)
+    })
+
+    it('still reports clean when the only reason is an unauditable project', function () {
+        ui().summary(summaryLosing('unsupported_lockfile'), null)
+        expect(out()).toContain('project clean')
+        expect(out()).not.toContain('not everything could be checked')
+    })
 })
 
 describe('formatDuration', function () {
@@ -221,7 +291,7 @@ describe('stream discipline', function () {
         const u = ui({ quiet: true })
         u.banner()
         u.scanStart(1)
-        u.seedDeclined()
+        u.seedDeclined(false)
         u.offlineNotice()
         u.summary(summary(), null)
         expect(written).toEqual([])
@@ -370,6 +440,65 @@ describe('confirmSeed', function () {
     })
 })
 
+// The counterpart to the short retry budget in the feeds layer. Waiting minutes on the user's behalf was
+// the old design; this hands the decision back to them, having shown them the failure first.
+describe('confirmRetry', function () {
+    function failed(): SyncOutcome[] {
+        return [outcome({ source: 'gemnasium', status: 'error', message: 'HTTP 406' })]
+    }
+
+    it('names the source that failed and what continuing would cost', async function () {
+        await ui().confirmRetry(failed())
+        expect(out()).toContain('GitLab gemnasium could not be downloaded.')
+        expect(out()).toContain('will be missing from the report.')
+    })
+
+    it('names every failed source, not just the first', async function () {
+        await ui().confirmRetry([
+            outcome({ source: 'osv', status: 'error' }),
+            outcome({ source: 'gemnasium', status: 'error' })
+        ])
+        expect(out()).toContain('OSV, GitLab gemnasium')
+    })
+
+    it.each([
+        ['', true],
+        ['y', true],
+        ['yes', true],
+        ['  YES  ', true],
+        ['n', false],
+        ['no', false],
+        ['maybe', false]
+    ])('reads %j as %s', async function (answer, expected) {
+        readline.state.answer = answer as string
+        expect(await ui().confirmRetry(failed())).toBe(expected)
+    })
+
+    it('closes the readline interface even so', async function () {
+        await ui().confirmRetry(failed())
+        expect(readline.state.closed).toBe(true)
+    })
+
+    // A prompt nobody can answer is a hung build, which is strictly worse than the failure it is asking
+    // about. CI has to fall straight through to the report with the source marked unavailable.
+    it('declines without prompting when stdin is not a terminal', async function () {
+        setTty(process.stdin, false)
+        expect(await ui().confirmRetry(failed())).toBe(false)
+        expect(readline.state.prompts).toEqual([])
+    })
+
+    it('declines without prompting when stderr is not a terminal', async function () {
+        setTty(process.stderr, false)
+        expect(await ui().confirmRetry(failed())).toBe(false)
+        expect(readline.state.prompts).toEqual([])
+    })
+
+    it('declines without prompting under --quiet', async function () {
+        expect(await ui({ quiet: true }).confirmRetry(failed())).toBe(false)
+        expect(readline.state.prompts).toEqual([])
+    })
+})
+
 describe('sync reporting', function () {
     it('says downloading for a seed and checking for a refresh', function () {
         const u = ui()
@@ -413,8 +542,18 @@ describe('sync reporting', function () {
     })
 
     it('explains how to enable the sources after a decline', function () {
-        ui().seedDeclined()
+        ui().seedDeclined(false)
         expect(out()).toContain('Run again and accept, or pass --yes')
+        // Ungated, a decline is a skip and nothing more — no talk of exit codes.
+        expect(out()).not.toContain('exiting non-zero')
+    })
+
+    // Under --fail-on the decline is the difference between a gate and a green light that checked nothing,
+    // so it has to say so rather than reading as a routine skip.
+    it('says the gate cannot be evaluated when one was requested', function () {
+        ui().seedDeclined(true)
+        expect(out()).toContain('--fail-on cannot be evaluated')
+        expect(out()).toContain('exiting non-zero')
     })
 })
 
@@ -575,13 +714,13 @@ describe('scan progress', function () {
 
 describe('summary', function () {
     it('celebrates a clean run and counts the projects', function () {
-        ui().summary(summary({ projects: [{ relPath: 'web' }, { relPath: 'api' }] as RunSummary['projects'] }), null)
+        ui().summary(summary({ projects: [projectSummary(), projectSummary({ relPath: 'api' })] }), null)
         expect(out()).toContain('No findings.')
         expect(out()).toContain('2 projects clean.')
     })
 
     it('singularises a lone clean project', function () {
-        ui().summary(summary({ projects: [{ relPath: 'web' }] as RunSummary['projects'] }), null)
+        ui().summary(summary({ projects: [projectSummary()] }), null)
         expect(out()).toContain('1 project clean.')
     })
 
@@ -626,9 +765,9 @@ describe('summary', function () {
             totalFindings: 3,
             counts: { critical: 0, high: 3, moderate: 0, low: 0, info: 0 },
             projects: [
-                { relPath: 'web', findingCount: 3, counts: { critical: 0, high: 3, moderate: 0, low: 0, info: 0 } },
-                { relPath: 'clean-one', findingCount: 0, counts: { critical: 0, high: 0, moderate: 0, low: 0, info: 0 } }
-            ] as RunSummary['projects']
+                projectSummary({ relPath: 'web', findingCount: 3, counts: { critical: 0, high: 3, moderate: 0, low: 0, info: 0 } }),
+                projectSummary({ relPath: 'clean-one' })
+            ]
         }), null)
         expect(out()).toContain('web')
         expect(out()).not.toContain('clean-one')

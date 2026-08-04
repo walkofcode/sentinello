@@ -3,6 +3,7 @@ import {
     DEFAULT_EXPORT_PROMPT,
     buildAdvisoryMarkdown,
     buildExportFilename,
+    isSourceUnavailableReason,
     meetsSeverityFloor,
     type ExportFinding,
     type ExportScope,
@@ -149,6 +150,21 @@ export function renderJson(summary: RunSummary, options: CliOptions, generatedAt
         }),
         findings: summary.findings
     }, null, 2) + '\n'
+}
+
+// Whether any project's scan lost an advisory source entirely — the cache was never downloaded, or could
+// not be opened. Distinct from shouldFail: this is not "we found something", it is "we could not look".
+//
+// Only meaningful under a gate. `sentinello` with no --fail-on is a report, and a report is allowed to
+// say a source was unavailable and carry on; the outcomes are already printed and land in the advisory.
+// Under --fail-on the caller has asked a yes/no question, and zero findings from a source that never
+// answered is not a no.
+export function hasUnavailableSource(summary: RunSummary): boolean {
+    return summary.projects.some(function projectLostASource(project): boolean {
+        return project.unauditable.some(function lost(entry): boolean {
+            return isSourceUnavailableReason(entry.reasonCode)
+        })
+    })
 }
 
 // Whether the run should exit non-zero, given --fail-on. Findings alone are a report, not a failure: the
