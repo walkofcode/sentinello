@@ -298,15 +298,19 @@ async function refreshOsv(options: SyncOptions, meta: CacheMeta, item: SyncPlanI
 }
 
 async function seedGemnasium(options: SyncOptions, meta: CacheMeta, item: SyncPlanItem): Promise<SyncOutcome> {
-    // Read the HEAD sha BEFORE downloading. The archive is fetched from the master ref, so it may be
-    // marginally newer than this sha; recording the older one makes the next compare replay that window,
-    // which is idempotent, instead of skipping past changes we never actually ingested.
+    // Read the HEAD sha BEFORE downloading, and then download THAT sha rather than a branch ref. Two
+    // things follow. The archive is immutable per sha, so every client on the same upstream commit shares
+    // one CDN-cached object instead of each forcing GitLab to generate one (see archiveUrl). And the bytes
+    // we ingest are exactly the commit we record, so there is no window between the two to replay.
+    //
+    // A null sha means the lookup failed; streamGemnasiumArchive falls back to the branch ref, which is
+    // the behaviour this used to have unconditionally.
     const headSha = await fetchGemnasiumHeadSha(fetchOptionsFor(options, item))
     const path = advisoryFilePath(options.cacheDir, 'gemnasium', item.ecosystem)
     const writer = createRowWriter(path)
     let rowCount: number
     try {
-        for await (const batch of streamGemnasiumArchive(progressFor(options, item), fetchOptionsFor(options, item))) {
+        for await (const batch of streamGemnasiumArchive(headSha, progressFor(options, item), fetchOptionsFor(options, item))) {
             // The CLI scans JavaScript only, so keep just this ecosystem's rows out of the polyglot archive.
             const rows = batch.rows.filter(function forEcosystem(row): boolean {
                 return row.ecosystem === item.ecosystem

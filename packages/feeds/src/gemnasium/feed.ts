@@ -18,9 +18,6 @@ import { normalizeGemnasiumRecord } from './normalize'
 // files changed?). A daily upstream sync typically touches a handful of files, so the common refresh
 // becomes a few KB instead of 80 MB, with the full archive kept as the fallback.
 
-const DEFAULT_ARCHIVE_URL =
-    'https://gitlab.com/gitlab-org/security-products/gemnasium-db/-/archive/master/gemnasium-db-master.zip'
-
 // URL-encoded project path rather than a numeric id: the path is stable and self-documenting, and a
 // numeric id would silently point at the wrong project if it were ever mistyped.
 const DEFAULT_API_BASE = 'https://gitlab.com/api/v4/projects/gitlab-org%2Fsecurity-products%2Fgemnasium-db'
@@ -33,10 +30,12 @@ const BATCH_SIZE = 2000
 // this many changed files the incremental path stops being a saving anyway, so fall back to the archive.
 export const GEMNASIUM_COMPARE_MAX_FILES = 1000
 
-function archiveUrl(): string {
+// An operator override, or null to use the derived URL. Kept separate from archiveUrl() because the
+// disabled check has to read the override WITHOUT building a URL — there is no ref to build one from.
+function archiveOverride(): string | null {
     const fromEnv = process.env.SENTINELLO_GEMNASIUM_FEED_URL
     if (fromEnv && fromEnv.trim().length > 0) return fromEnv.trim()
-    return DEFAULT_ARCHIVE_URL
+    return null
 }
 
 function apiBase(): string {
@@ -45,8 +44,29 @@ function apiBase(): string {
     return DEFAULT_API_BASE
 }
 
+// The archive is addressed by commit sha, not by ref, and that is the whole point rather than a detail.
+//
+// The web route at ref `master` — what this used to request — names a moving target, so every client gets
+// a cache MISS and punches through to GitLab's origin, which sheds the expensive archive work with an
+// empty-bodied HTTP 406. That is what made a release spike look like an IP block: the failure scaled with
+// the number of people running a first seed, not with anything about any one of them.
+//
+// A sha names immutable bytes, so Cloudflare can serve it as a shared object and every client on the same
+// upstream commit collides on one cached entry. Measured: first request MISS, second HIT. The first client
+// on each new sha still pays the origin fetch, which is one origin request per sha instead of one per user.
+//
+// This does NOT pin the data — the caller re-resolves HEAD on every run (see fetchGemnasiumHeadSha), so a
+// seed is exactly as current as the ref was. `master` remains the fallback for when that lookup fails,
+// which degrades to the old behaviour rather than to no seed at all.
+function archiveUrl(ref: string | null): string {
+    const override = archiveOverride()
+    if (override) return override
+    return apiBase() + '/repository/archive.zip?sha=' + encodeURIComponent(ref ?? DEFAULT_REF)
+}
+
 export function gemnasiumFeedDisabled(): boolean {
-    return archiveUrl().toLowerCase() === 'off'
+    const override = archiveOverride()
+    return override !== null && override.toLowerCase() === 'off'
 }
 
 // Map of gemnasium package-type directory name (e.g. 'npm', 'pypi', 'go', 'cargo') → registry ecosystem id
@@ -173,11 +193,15 @@ export type GemnasiumArchiveBatch = {
 
 // Streams the full repo archive, yielding normalized rows in batches. Used for the first seed and as the
 // fallback whenever the incremental path is unavailable.
+//
+// `ref` is the commit sha to fetch, and callers should pass the one they resolved for the cache cursor so
+// the bytes and the recorded sha describe the same commit. Passing null falls back to the branch ref.
 export async function* streamGemnasiumArchive(
+    ref: string | null,
     onProgress?: ProgressReporter,
     options?: FetchOptions
 ): AsyncGenerator<GemnasiumArchiveBatch> {
-    const download = await openDownloadStream(archiveUrl(), onProgress, options)
+    const download = await openDownloadStream(archiveUrl(ref), onProgress, options)
     const abortSignal = options && options.abortSignal
     let batch: GemnasiumAdvisoryRow[] = []
     const zip = download.stream.pipe(unzipper.Parse({ forceStream: true }))
