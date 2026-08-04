@@ -1,5 +1,24 @@
 # Changelog
 
+## [3.0.1](https://github.com/walkofcode/sentinello/compare/v3.0.0...v3.0.1) (2026-08-04)
+
+
+### Bug Fixes
+
+* **ci:** dispatch the npm publish from release-please ([371d60a](https://github.com/walkofcode/sentinello/commit/371d60a9ce7f925b790bb816fce40ac508428fad))
+* **cli:** make a lost advisory source visible, refusable and retryable ([bd60514](https://github.com/walkofcode/sentinello/commit/bd60514c19b80254e1e9beb7d96ab4e2903556e7))
+* **cli:** stop a switched-off source refusing a --fail-on gate forever ([b39c481](https://github.com/walkofcode/sentinello/commit/b39c4818a96c0c53ea2a4000d6fe8ee16238e4e5))
+* **feeds:** release the download socket so the CLI actually exits ([dcbb627](https://github.com/walkofcode/sentinello/commit/dcbb62765cb2e2ec2ae98f655caf7b47ecc6891e))
+* **feeds:** stop GitLab rejecting the archive download with HTTP 406 ([b8e1518](https://github.com/walkofcode/sentinello/commit/b8e1518f9e8f2b24db75472ed566e2e9c3900e15))
+* the gemnasium HTTP 406, plus the 3.0.0 release-chain follow-ups ([8b570c4](https://github.com/walkofcode/sentinello/commit/8b570c4db909a5ab9104851b031e3e5e1fe2118a))
+
+
+### Documentation
+
+* correct the gemnasium sync description and document both --yes flags ([07f81f6](https://github.com/walkofcode/sentinello/commit/07f81f62b8f277217a00ee7fb4f86cad7ca5dbe7))
+* **releases:** add the 3.0.1 what's-new entry ([d7eda01](https://github.com/walkofcode/sentinello/commit/d7eda01c44914143ca81f518851a7bc1a48a5f12))
+* **releases:** backfill the missing pt-BR and zh-CN 2.6.0 entries ([3fb3310](https://github.com/walkofcode/sentinello/commit/3fb3310f64dfaccfab000337ee040e0b73f2f9a6))
+
 ## [3.0.0](https://github.com/walkofcode/sentinello/compare/v2.6.0...v3.0.0) (2026-08-03)
 
 
