@@ -77,6 +77,7 @@ export type Ui = {
     noProjects(skipped: readonly DiscoverySkip[]): void
     confirmSeed(plan: SyncPlan): Promise<boolean>
     confirmRetry(failed: readonly SyncOutcome[]): Promise<boolean>
+    sourcesSwitchedOff(sources: readonly string[]): void
     seedDeclined(gated: boolean): void
     offlineNotice(): void
     syncStatus(item: SyncPlanItem, phase: 'start' | 'done'): void
@@ -181,6 +182,13 @@ export function createUi(options: CliOptions): Ui {
 
     // `gated` is whether --fail-on asked this run a yes/no question. If it did, declining the download
     // is not a skip, it is a run that cannot answer — and it exits non-zero rather than looking clean.
+    // Said out loud because the alternative is silent: a source switched off is dropped from the run
+    // entirely, so a typo in SENTINELLO_OSV_FEED_URL would otherwise just quietly narrow what gets audited.
+    function sourcesSwitchedOff(sources: readonly string[]): void {
+        const names = sources.map(sourceLabel).join(', ')
+        write('    ' + c.dim + '· ' + names + ' switched off and never seeded — not scanned' + c.reset)
+    }
+
     // Offered after a source fails to download. The retry budget in the feeds layer is deliberately short
     // now, so this is what covers the case where waiting really would have helped: the user decides, having
     // seen the failure, instead of the CLI deciding for them by sitting there for minutes.
@@ -400,6 +408,7 @@ export function createUi(options: CliOptions): Ui {
         noProjects,
         confirmSeed,
         confirmRetry,
+        sourcesSwitchedOff,
         seedDeclined,
         offlineNotice,
         syncStatus,

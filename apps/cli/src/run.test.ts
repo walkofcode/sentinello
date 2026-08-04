@@ -2,6 +2,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { GEMNASIUM_NORMALIZER_VERSION, OSV_NORMALIZER_VERSION } from '@sentinello/core'
+import type { CacheMeta } from './cache/meta'
 import type { CliOptions } from './options'
 import type { Ui } from './ui'
 
@@ -53,7 +55,7 @@ vi.mock('@sentinello/scanners', async function mockScanners(importOriginal) {
     return { ...actual, ...npmAudit }
 })
 
-const { main, resolveDestination } = await import('./run')
+const { main, resolveDestination, enabledSources } = await import('./run')
 
 const EXIT_OK = 0
 const EXIT_ERROR = 1
@@ -120,6 +122,10 @@ beforeEach(async function setup() {
     // Non-TTY by default: that is what CI looks like, and it routes the document to stdout.
     setTty(process.stdout, false)
     setTty(process.stderr, false)
+    // Restored explicitly: vi.clearAllMocks() resets calls but NOT a mockReturnValue, so a test that
+    // switches a feed off would otherwise leak that into every test after it.
+    feeds.osvFeedDisabled.mockReturnValue(false)
+    feeds.gemnasiumFeedDisabled.mockReturnValue(false)
 })
 
 afterEach(async function teardown() {
@@ -389,6 +395,33 @@ describe('scanning', function () {
         })
     })
 
+    // The air-gapped regression, end to end. An install with SENTINELLO_GEMNASIUM_FEED_URL=off and no
+    // seeded cache used to report the cell unauditable on every project, so a --fail-on gate refused the
+    // run forever — for a configuration the operator chose deliberately. It must exit clean AND say which
+    // source it dropped, because dropping one silently is how a typo'd env var narrows an audit unnoticed.
+    it('drops a switched-off unseeded source and says so, rather than refusing the gate', async function () {
+        await makeProject('web')
+        feeds.gemnasiumFeedDisabled.mockReturnValue(true)
+        const announced: string[][] = []
+        const watching = new Proxy({} as Ui, {
+            get: function get(_target, prop: string) {
+                return function respond(arg: unknown): unknown {
+                    if (prop === 'sourcesSwitchedOff') announced.push(arg as string[])
+                    if (prop === 'confirmSeed') return Promise.resolve(true)
+                    if (prop === 'confirmRetry') return Promise.resolve(false)
+                    return undefined
+                }
+            }
+        })
+        const { runScan } = await import('./run')
+        const { parseArgs } = await import('./options')
+        const parsed = parseArgs([dir, '--cache-dir', join(dir, '.cache'), '--source', 'gemnasium', '--offline', '--fail-on', 'high'])
+        if (parsed.kind !== 'options') throw new Error('expected options')
+
+        expect(await runScan(parsed.options, join(dir, '.cache'), watching)).toBe(EXIT_OK)
+        expect(announced).toEqual([['gemnasium']])
+    })
+
     // Declining without a gate is a legitimate choice — the user said no to a 200 MB download and gets a
     // report from whatever sources are already seeded. It must stay exit 0; only --fail-on turns the same
     // decline into a refusal, which is the pair below.
@@ -581,5 +614,65 @@ describe('Ui contract', function () {
         expect(calls).toContain('discovered')
         expect(calls.indexOf('scanStart')).toBeLessThan(calls.indexOf('summary'))
         expect(calls[calls.length - 1]).toBe('summary')
+    })
+})
+
+// The distinction that decides an exit code. `SENTINELLO_*_FEED_URL=off` switches off the FEED, not the
+// source: a cache seeded earlier stays valid and must keep producing findings. Only off-AND-unseeded is
+// a source that can never contribute, and only that one may be dropped — a feed that is ON but unseeded
+// is a real failure or a declined download, and refusing a gate there is the whole point.
+describe('enabledSources', function () {
+    function cell(seeded: boolean | undefined, normalizerVersion: number): Record<string, unknown> {
+        if (!seeded) return {}
+        return { npm: { normalizerVersion, recordCount: 1, refreshedAt: 0 } }
+    }
+
+    function metaWith(seeded: { osv?: boolean; gemnasium?: boolean }): CacheMeta {
+        return {
+            schemaVersion: 1,
+            sources: {
+                osv: cell(seeded.osv, OSV_NORMALIZER_VERSION),
+                gemnasium: cell(seeded.gemnasium, GEMNASIUM_NORMALIZER_VERSION)
+            }
+        } as unknown as CacheMeta
+    }
+
+    it('keeps a source whose feed is on and cache is seeded', function () {
+        expect(enabledSources(['osv', 'gemnasium'], metaWith({ osv: true, gemnasium: true })))
+            .toEqual(['osv', 'gemnasium'])
+    })
+
+    // The case the gate exists for: nothing was ever downloaded, so the scan must still report the cell
+    // unauditable and refuse under --fail-on rather than quietly narrowing what it audited.
+    it('keeps a source whose feed is on but cache is unseeded', function () {
+        expect(enabledSources(['osv', 'gemnasium'], metaWith({})))
+            .toEqual(['osv', 'gemnasium'])
+    })
+
+    // Air-gapped with a cache provisioned out of band. Dropping this would throw away real findings.
+    it('keeps a source whose feed is off when the cache is seeded', function () {
+        feeds.gemnasiumFeedDisabled.mockReturnValue(true)
+        expect(enabledSources(['gemnasium'], metaWith({ gemnasium: true }))).toEqual(['gemnasium'])
+    })
+
+    it('drops a source whose feed is off and cache was never seeded', function () {
+        feeds.gemnasiumFeedDisabled.mockReturnValue(true)
+        expect(enabledSources(['osv', 'gemnasium'], metaWith({ osv: true }))).toEqual(['osv'])
+    })
+
+    it('drops osv on the same rule', function () {
+        feeds.osvFeedDisabled.mockReturnValue(true)
+        expect(enabledSources(['osv', 'gemnasium'], metaWith({ gemnasium: true }))).toEqual(['gemnasium'])
+    })
+
+    // A stale normalizer version means every cached row was parsed by code that no longer exists, so the
+    // cache counts as unseeded and the source is dropped rather than trusted.
+    it('treats a cache from a superseded normalizer as unseeded', function () {
+        feeds.gemnasiumFeedDisabled.mockReturnValue(true)
+        const stale = {
+            schemaVersion: 1,
+            sources: { osv: {}, gemnasium: { npm: { normalizerVersion: GEMNASIUM_NORMALIZER_VERSION - 1, recordCount: 1, refreshedAt: 0 } } }
+        } as unknown as CacheMeta
+        expect(enabledSources(['gemnasium'], stale)).toEqual([])
     })
 })

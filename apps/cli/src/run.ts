@@ -7,7 +7,8 @@ import {
     OSV_NORMALIZER_VERSION
 } from '@sentinello/core'
 import { discoverProjectsInTree, type DiscoverySkip } from '@sentinello/scanners'
-import { isSeeded, readCacheMeta, resolveCacheDir } from './cache/meta'
+import { gemnasiumFeedDisabled, osvFeedDisabled } from '@sentinello/feeds'
+import { isSeeded, readCacheMeta, resolveCacheDir, type CacheMeta, type SourceId } from './cache/meta'
 import { loadCacheForPackages } from './cache/lookup'
 import { planSync, runSync, type SyncOutcome, type SyncPlan, type SyncPlanItem } from './cache/sync'
 import { applyConfigFile, explicitFlagNames, parseArgs, type CliOptions } from './options'
@@ -99,11 +100,20 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
         return EXIT_OK
     }
 
+    // A source the operator switched off and never seeded is not a source that failed, and the difference
+    // decides an exit code. Resolved once, here, so the sync, the cache read and the scanners all agree on
+    // one set — see enabledSources for why "off" alone is not enough to drop one.
+    const sources = enabledSources(options.sources, await readCacheMeta(cacheDir))
+    const switchedOff = options.sources.filter(function isOff(source): boolean {
+        return !sources.includes(source)
+    })
+    if (switchedOff.length > 0) ui.sourcesSwitchedOff(switchedOff)
+
     // 2. Refresh the advisory cache. There is no separate sync command: the freshness checks are cheap
     // enough (a 304 for OSV, a commit sha for gemnasium) to run every time, and only a first seed is
     // expensive — which is the one case that asks permission.
-    if (!options.offline && (options.sources.length > 0)) {
-        const plan = await planSync({ cacheDir, sources: options.sources, ecosystem: DEFAULT_ECOSYSTEM })
+    if (!options.offline && (sources.length > 0)) {
+        const plan = await planSync({ cacheDir, sources, ecosystem: DEFAULT_ECOSYSTEM })
         if (plan.needsConsent && !options.assumeYes) {
             const approved = await ui.confirmSeed(plan)
             if (!approved) {
@@ -117,7 +127,7 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
         }
         const syncOptions = {
             cacheDir,
-            sources: options.sources,
+            sources,
             ecosystem: DEFAULT_ECOSYSTEM,
             retryWaitMs: retryWaitMsFor(options.feedWaitSeconds),
             onProgress: ui.syncProgress,
@@ -146,14 +156,14 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
     // packages rather than re-reading a multi-megabyte file per project.
     const resolved = await resolveProjects(projects)
     const packageNames = collectPackageNames(resolved)
-    const cache = await loadCacheForPackages(cacheDir, DEFAULT_ECOSYSTEM, packageNames, options.sources)
+    const cache = await loadCacheForPackages(cacheDir, DEFAULT_ECOSYSTEM, packageNames, sources)
 
     // 4. Scan. Seeded state comes from the cache metadata, not from whether this project happened to match
     // any rows, so a dependency-free project is reported as scanned-and-clean rather than unauditable.
     const meta = await readCacheMeta(cacheDir)
     const setup = {
         cacheDir,
-        sources: options.sources,
+        sources,
         ecosystem: DEFAULT_ECOSYSTEM,
         includeNpmAudit: options.includeNpmAudit,
         seeded: {
@@ -198,6 +208,38 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
     // the scan could not complete, which is what exit 1 already means.
     if (options.failOn !== 'none' && hasUnavailableSource(summary)) return EXIT_ERROR
     return EXIT_OK
+}
+
+// SourceId is exactly 'osv' | 'gemnasium', so there is no third arm to fall through to. Adding a
+// defensive one would only be an unreachable branch that nothing can ever cover.
+function feedSwitchedOff(source: SourceId): boolean {
+    if (source === 'osv') return osvFeedDisabled()
+    return gemnasiumFeedDisabled()
+}
+
+function normalizerVersionFor(source: SourceId): number {
+    if (source === 'osv') return OSV_NORMALIZER_VERSION
+    return GEMNASIUM_NORMALIZER_VERSION
+}
+
+// The requested sources, minus any the operator has switched off AND never seeded.
+//
+// Both halves matter. `SENTINELLO_*_FEED_URL=off` disables the FEED — the network sync — not the source:
+// a cache seeded earlier (or provisioned out of band, which is the whole air-gapped workflow) stays
+// perfectly valid, and dropping it would throw away real findings. So off-but-seeded is still a source.
+//
+// Off AND unseeded is different: that source can never contribute, by the operator's own choice. Leaving
+// it in makes every project report the cell unauditable, which under --fail-on refuses the run forever
+// for a configuration someone chose deliberately. A feed that is ON but unseeded is NOT dropped — that is
+// a genuine failure or a declined download, and refusing the gate there is the point.
+//
+// Reads the feeds layer's own predicates rather than re-parsing the env vars, so "off" cannot come to
+// mean two different things in two places.
+export function enabledSources(sources: readonly SourceId[], meta: CacheMeta): SourceId[] {
+    return sources.filter(function isUsable(source): boolean {
+        if (!feedSwitchedOff(source)) return true
+        return isSeeded(meta, source, DEFAULT_ECOSYSTEM, normalizerVersionFor(source))
+    })
 }
 
 export function isErrorOutcome(outcome: SyncOutcome): boolean {

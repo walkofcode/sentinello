@@ -440,6 +440,16 @@ describe('confirmSeed', function () {
     })
 })
 
+// Said out loud because a switched-off source is dropped from the run silently otherwise — a typo in
+// SENTINELLO_OSV_FEED_URL would just quietly narrow what gets audited.
+describe('sourcesSwitchedOff', function () {
+    it('names each source it dropped', function () {
+        ui().sourcesSwitchedOff(['osv', 'gemnasium'])
+        expect(out()).toContain('OSV, GitLab gemnasium')
+        expect(out()).toContain('switched off and never seeded')
+    })
+})
+
 // The counterpart to the short retry budget in the feeds layer. Waiting minutes on the user's behalf was
 // the old design; this hands the decision back to them, having shown them the failure first.
 describe('confirmRetry', function () {
