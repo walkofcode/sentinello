@@ -1,5 +1,61 @@
 # Changelog
 
+## [3.0.0](https://github.com/walkofcode/sentinello/compare/v2.6.0...v3.0.0) (2026-08-03)
+
+
+### Features
+
+* **cli:** add --feed-wait, and narrate the wait so a seed cannot look hung ([a377db5](https://github.com/walkofcode/sentinello/commit/a377db55e40db73fe541160376fa466223173086))
+* **homepage:** give the CLI a section, since 3.0 is the release that ships it ([d8d16aa](https://github.com/walkofcode/sentinello/commit/d8d16aa7cfbf0b78c46d5a8585b58df8dbecd896))
+
+
+### Bug Fixes
+
+* **cli:** quote the gemnasium seed size instead of "unknown size" ([0c1572c](https://github.com/walkofcode/sentinello/commit/0c1572cb832b6a5afb3a46e38ce3566df06bedbf))
+* **cli:** reject a flag-shaped value instead of writing a file named "--" ([c21cfaf](https://github.com/walkofcode/sentinello/commit/c21cfafff40edffae072e5fb0001e6fbf37a3f66))
+* **cli:** reject a JSON array in sentinello.config.json ([a8a8227](https://github.com/walkofcode/sentinello/commit/a8a82275d65abece878d3dc2bc52f82173d8fa0d))
+* **cli:** stop formatDuration carrying a rounded remainder into a new minute ([93ced69](https://github.com/walkofcode/sentinello/commit/93ced69787c9a803a2db7e9d0f9263170fe0bac3))
+* **core:** correct the gemnasium archive size to the measured 52 MB ([9311cdf](https://github.com/walkofcode/sentinello/commit/9311cdf5e6a6994268f1c48768d2445fb1ae4929))
+* **core:** refresh the OSV npm export size to the measured 204 MB ([54ce237](https://github.com/walkofcode/sentinello/commit/54ce2379cd21c51ab286b8b7bf4e016ff5f4dad6))
+* **db:** degrade instead of throwing on malformed dep_path_json ([e453670](https://github.com/walkofcode/sentinello/commit/e4536709035383e94190387fef27ed7d5f6d6fa4))
+* **db:** fail open when a source scope column holds JSON null ([0e2431c](https://github.com/walkofcode/sentinello/commit/0e2431cfe100a8ae36932b4abace0a756be81881))
+* **feeds:** wait out GitLab's archive refusal instead of retrying into it ([277b967](https://github.com/walkofcode/sentinello/commit/277b967c771c1e50d196691df92189e2ac3b6342))
+* **homepage:** sync the Docker snippets with the README they claim to mirror ([5fa0fb5](https://github.com/walkofcode/sentinello/commit/5fa0fb56216fe5d0ee90b266c5c19c6af9de58a5))
+* **scanners:** keep a finding when the installed version is a range ([718e301](https://github.com/walkofcode/sentinello/commit/718e301e7c1607242f47893f0d8619afd3edd16d))
+* silence the build and lint warnings ([0573790](https://github.com/walkofcode/sentinello/commit/0573790aa7f4e1ccfcb6fdf917763af75f63c9ff))
+* **web:** give the triage surfaces the accessibility they never had ([ed13882](https://github.com/walkofcode/sentinello/commit/ed13882db4868831409991a2ec9222143dd1e71a))
+* **web:** let a rejected setting say why it was rejected ([222c613](https://github.com/walkofcode/sentinello/commit/222c613a0c26cccf58dcc9f021538ebfc4952f3b))
+* **web:** stop the ecosystem filter memo recomputing on every render ([bd45562](https://github.com/walkofcode/sentinello/commit/bd455620d4c34e7372be5ddf6d13b5a124255d1c))
+* **web:** stop the What's new popover running off the viewport ([5aef747](https://github.com/walkofcode/sentinello/commit/5aef7471bfce742c76ed4edb3ee6f21034e438ed))
+* **worker:** stop discovery deleting projects under an unmounted root ([3670394](https://github.com/walkofcode/sentinello/commit/3670394fb58c517d04436e7f18e4607f46f3fb43))
+
+
+### Dependencies
+
+* add the React and Next lint plugins, and patch brace-expansion ([61ec674](https://github.com/walkofcode/sentinello/commit/61ec674dfe1704268d8a32b297a1523209c549d2))
+
+
+### Refactor
+
+* extract the two entry-point bodies and inject npm-audit's spawn ([e49eb00](https://github.com/walkofcode/sentinello/commit/e49eb00fbb7c533afab90765d942b95de39352d7))
+* **ui:** adopt the React 19 ref and context APIs ([ef6c6fb](https://github.com/walkofcode/sentinello/commit/ef6c6fb1c1c1dfa8be0c43e556806bf8ee0f4ba3))
+
+
+### Documentation
+
+* add CI, coverage, release and license badges to both READMEs ([a3f19c8](https://github.com/walkofcode/sentinello/commit/a3f19c8db5ade9d20368d7d132248f7a87121f0c))
+* correct the coverage table and scope the 100% function claim ([a2fb844](https://github.com/walkofcode/sentinello/commit/a2fb84467197d0015d34bf9f35bcfb82fcd6e366))
+* drop the "Coming with 3.0" callout now that 3.0 publishes the CLI ([a57d2ce](https://github.com/walkofcode/sentinello/commit/a57d2cea129d4ef26e96add026264a947ca5b139))
+* label the .gitignore upgrade note by the release that shipped it ([30d1499](https://github.com/walkofcode/sentinello/commit/30d14994446962d14cf83aba35141a382f826a39))
+* mark the CLI as shipping with 3.0 and repair the publish runbook ([bb30ab2](https://github.com/walkofcode/sentinello/commit/bb30ab251ca9be1c122e3fab40220137fe748b5d))
+* **releases:** add the 3.0.0 what's-new entry ([d015136](https://github.com/walkofcode/sentinello/commit/d01513601fa0b8fd069f235fd6f72dfaa4fe5fc5))
+* stop asserting unreachability the evidence does not support ([8b6b12a](https://github.com/walkofcode/sentinello/commit/8b6b12a641949f9d6351c081577d4e30db6e9c5b))
+
+
+### Chores
+
+* release Sentinello as 3.0.0 ([1cccba4](https://github.com/walkofcode/sentinello/commit/1cccba464959d6a85ea8a8dcb4e62349dda20852))
+
 ## [2.6.0](https://github.com/walkofcode/sentinello/compare/v2.5.0...v2.6.0) (2026-07-29)
 
 
