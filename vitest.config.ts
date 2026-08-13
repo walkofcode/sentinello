@@ -19,7 +19,13 @@ export default defineConfig({
     },
     test: {
         environment: 'node',
-        include: ['{packages,apps}/*/src/**/*.test.ts', 'apps/web/{lib,components}/**/*.test.ts'],
+        // .tsx as well as .ts: component suites that render real JSX (dialog.test.tsx) live beside the
+        // components, and without the extension they are silently collected by nothing and never run.
+        include: [
+            '{packages,apps}/*/src/**/*.test.ts',
+            'apps/web/{lib,components}/**/*.test.ts',
+            'apps/web/{lib,components}/**/*.test.tsx'
+        ],
         exclude: ['**/node_modules/**', '**/dist/**', '**/.next/**', 'tests/e2e/**'],
         // better-sqlite3 is a native binding and the DB suites open real files; forks keep each
         // test file in its own process so a native handle can never leak across suites.
