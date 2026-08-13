@@ -330,6 +330,19 @@ describe('list_scans', function () {
         expect(jsonOf<unknown[]>(await mcp.call('list_scans', { projectId: 'project-1' }))).toEqual([])
     })
 
+    // rawJson is the scanner's own output, kept for getProjectEcosystemCoverage to parse. npm-audit
+    // put the whole raw audit document there — 79 KB a row on a real instance — so returning it here
+    // spent ~16 MB of a caller's context at the 200-row maximum on something nothing reads.
+    it('withholds rawJson while keeping the rest of the row', async function () {
+        scanProject(handle.db, 'project-1', [finding()])
+
+        const rows = jsonOf<Record<string, unknown>[]>(await mcp.call('list_scans', { projectId: 'project-1' }))
+
+        expect(rows).toHaveLength(1)
+        expect(rows[0]).not.toHaveProperty('rawJson')
+        expect(rows[0]).toMatchObject({ projectId: 'project-1', status: 'ok' })
+    })
+
     it.each([[0], [201], [1.5]])('rejects a limit of %s', async function (limit) {
         const result = await mcp.call('list_scans', { projectId: 'project-1', limit })
 

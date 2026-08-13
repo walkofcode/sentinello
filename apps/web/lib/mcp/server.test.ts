@@ -93,6 +93,31 @@ describe('MCP tool surface', function () {
         expect(description.toLowerCase()).toContain('incomplete')
     })
 
+    // get_dashboard_summary counts a DIFFERENT POPULATION than list_projects: a project-muted
+    // project is dropped from totalActiveProjects but still listed by list_projects. Unstated, that
+    // reads as an off-by-N between two tools an agent naturally calls together — the same class of
+    // false bug report the grain tests above exist to prevent.
+    it('states on get_dashboard_summary that project-muted projects are excluded from the totals', function () {
+        const description = tool('get_dashboard_summary').description || ''
+        expect(description).toContain('EXCLUDED from totalActiveProjects')
+        expect(description).toContain('list_projects')
+    })
+
+    // The description used to enumerate the fields it returns and omit two of them, which is how
+    // totalActiveProjects changed meaning without anyone noticing it was undocumented.
+    it('names every field get_dashboard_summary returns', function () {
+        const description = tool('get_dashboard_summary').description || ''
+        for (const field of ['totalActiveProjects', 'projectsWithFindings', 'findingsLast24h']) {
+            expect(description).toContain(field)
+        }
+    })
+
+    it('warns on list_projects that a muted project is listed with zeroed counts', function () {
+        const description = tool('list_projects').description || ''
+        expect(description).toContain('muted: true')
+        expect(description).toContain('silenced, not clean')
+    })
+
     // unmute took an id that no read tool could produce until list_mutes existed.
     it('offers a way to discover the mute ids that unmute requires', function () {
         expect(tool('list_mutes')).toBeDefined()
