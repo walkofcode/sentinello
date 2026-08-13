@@ -1,5 +1,26 @@
 # Changelog
 
+## [3.1.0](https://github.com/walkofcode/sentinello/compare/v3.0.1...v3.1.0) (2026-08-13)
+
+
+### Features
+
+* **triage:** withhold muted findings from the default views ([2e5962d](https://github.com/walkofcode/sentinello/commit/2e5962d705b86530c5d61c99a4e104f0b5bce4e2))
+* **worker:** bound scan history with a configurable retention window ([0b0ee18](https://github.com/walkofcode/sentinello/commit/0b0ee185448139d75f8f4296b3cc0db3575bc619))
+
+
+### Bug Fixes
+
+* **deps:** clear the six remaining advisories in the tree ([b69263e](https://github.com/walkofcode/sentinello/commit/b69263eec21eae81a5641e6ac49e538569987813))
+* **mcp:** say that muted projects leave the dashboard totals, and stop dumping rawJson ([82e15db](https://github.com/walkofcode/sentinello/commit/82e15db681d7ece714609c6de5278272656f6123))
+* **scanners:** summarise a successful npm-audit run instead of storing its raw output ([7e80070](https://github.com/walkofcode/sentinello/commit/7e80070a407bcd868e0df21a08d4c4734c5ce8eb))
+* **ui:** keep focus in dialog fields and stop table styling leaking in ([d763333](https://github.com/walkofcode/sentinello/commit/d7633337c538200a42bf50141134a775c7f7c681))
+
+
+### Documentation
+
+* **releases:** add the 3.1.0 what's-new entry ([5bec661](https://github.com/walkofcode/sentinello/commit/5bec661195a7b05ee98e5b84ec300ab4aa2f21c5))
+
 ## [3.0.1](https://github.com/walkofcode/sentinello/compare/v3.0.0...v3.0.1) (2026-08-04)
 
 
