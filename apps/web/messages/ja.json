@@ -175,6 +175,7 @@
             "colPath": "パス",
             "colLabel": "ラベル",
             "colProjects": "プロジェクト",
+            "projectsMutedSuffix": "(うち{count}件ミュート)",
             "scanNow": "今すぐスキャン",
             "scanning": "スキャン中…",
             "scanTitle": "このルートを探索してプロジェクトをスキャンします",
@@ -365,6 +366,8 @@
         "advanced": {
             "metaTitle": "詳細設定 · 設定",
             "concurrentScans": "同時スキャン数",
+            "scanRetentionDays": "スキャン履歴の保持期間（日）",
+            "scanRetentionDaysHelp": "これより古いスキャン行は削除されます。ただし各プロジェクトの最新100件は常に保持されます。検出結果、ミュート、通知履歴が削除されることはありません — 対象はスキャンログのみです。プロジェクトページのスキャン履歴は短くなります。",
             "portalBaseUrl": "ポータルのベース URL（通知のディープリンクで使用）",
             "globalIgnore": "グローバル無視パターン（1行に1つ）",
             "watcherLabel": "ロックファイルウォッチャー（変更時スキャン） — マスタースイッチ。監視中のロックファイルが変更されると、ワーカーが scan_request をキューに登録します。",
@@ -449,6 +452,7 @@
         "depTypeProd": "本番のみ",
         "depTypeDev": "開発のみ",
         "depTypeAll": "すべての依存関係",
+        "showMuted": "ミュート済みを表示 ({count})",
         "fixAvailableSeeAdvisory": "修正あり — アドバイザリを参照",
         "noPatchPublished": "公開されたパッチなし",
         "vulnPrefix": "脆弱性:",
@@ -498,7 +502,9 @@
         },
         "mute": {
             "muteFinding": "検出をミュート",
+            "muteFindingNamed": "検出結果をミュート — {name}",
             "muteProject": "プロジェクトをミュート",
+            "muteProjectNamed": "プロジェクトをミュート — {name}",
             "unmuteFinding": "検出のミュートを解除",
             "unmuteProject": "プロジェクトのミュートを解除",
             "lifting": "解除中…",
@@ -596,7 +602,7 @@
             }
         },
         "dataLivesTitle": "データの保存場所",
-        "dataLivesBody": "すべてのスキャン結果は単一のローカル SQLite データベースに保存されます。Docker では、マウントされたボリューム内の <code>/app/data</code> に存在します。直接実行する場合（例えば pm2 配下）は、デフォルトでプロジェクトディレクトリ内の <code>data/sentinello.sqlite</code> になります。いずれの場合も <code>SENTINELLO_DB_PATH</code> 環境変数で別の場所を指定できます。データがマシンから出ることは決してありません。",
+        "dataLivesBody": "すべてのスキャン結果は単一のローカル SQLite データベースに保存されます。Docker では、マウントされたボリューム内の <code>/app/data</code> に存在します。直接実行する場合（例えば pm2 配下）は、デフォルトでプロジェクトディレクトリ内の <code>data/sentinello.sqlite</code> になります。いずれの場合も <code>SENTINELLO_DB_PATH</code> 環境変数で別の場所を指定できます。データがマシンから出ることは決してありません。 スキャン履歴は「設定 → 詳細設定」で指定した保持期間（既定では90日）に従って削除されます。検出結果、ミュート、通知履歴は無期限に保持されます。",
         "configTitle": "設定",
         "configBody": "Sentinello はすべて環境変数で設定します。各変数とそのデフォルト値は次のとおりです。",
         "configColVariable": "変数",

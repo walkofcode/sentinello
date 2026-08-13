@@ -1,6 +1,7 @@
 import { eq, inArray } from 'drizzle-orm'
 import { getEcosystem, type EcosystemId, type Project } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
+import { isProjectMuted } from './mutes'
 import {
     findings,
     mutes,
@@ -25,10 +26,14 @@ export function listProjectsByRoot(db: DrizzleDb, rootId: string): Project[] {
     return rows.map(rowToProject)
 }
 
-export function getProjectById(db: DrizzleDb, id: string): Project | null {
+// `muted` is resolved from the mutes table rather than the legacy projects.muted column, matching what
+// listProjectCatalog already does for the dashboard. Nothing writes the column any more, so reading it
+// reported a wholesale-muted project as muted:false — which is what MCP get_project was handing agents.
+// listProjects deliberately keeps reading the column: discovery round-trips that value on every sweep.
+export function getProjectById(db: DrizzleDb, id: string, at: number = Date.now()): Project | null {
     const row = db.select().from(projects).where(eq(projects.id, id)).get()
     if (!row) return null
-    return rowToProject(row)
+    return { ...rowToProject(row), muted: isProjectMuted(db, id, at) }
 }
 
 export function upsertProject(db: DrizzleDb, project: Project): void {

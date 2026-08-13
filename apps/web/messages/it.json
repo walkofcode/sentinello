@@ -175,6 +175,7 @@
             "colPath": "Percorso",
             "colLabel": "Etichetta",
             "colProjects": "Progetti",
+            "projectsMutedSuffix": "({count} silenziati)",
             "scanNow": "Scansiona ora",
             "scanning": "Scansione in corso…",
             "scanTitle": "Percorri questa radice e scansiona i suoi progetti",
@@ -365,6 +366,8 @@
         "advanced": {
             "metaTitle": "Avanzate · Impostazioni",
             "concurrentScans": "Scansioni simultanee",
+            "scanRetentionDays": "Conservazione della cronologia delle scansioni (giorni)",
+            "scanRetentionDaysHelp": "Le righe di scansione più vecchie vengono eliminate, tranne le 100 più recenti per progetto, che vengono sempre conservate. Risultati, silenziamenti e cronologia delle notifiche non vengono mai toccati — solo il registro delle scansioni. Le pagine di progetto mostreranno una cronologia più breve.",
             "portalBaseUrl": "URL base del portale (usato nei deep link delle notifiche)",
             "globalIgnore": "Pattern di esclusione globali (uno per riga)",
             "watcherLabel": "Watcher dei lockfile (scansione al cambiamento) — interruttore principale. Il worker accoda un scan_request quando un lockfile monitorato cambia.",
@@ -449,6 +452,7 @@
         "depTypeProd": "Solo produzione",
         "depTypeDev": "Solo dev",
         "depTypeAll": "Tutte le dipendenze",
+        "showMuted": "Mostra silenziati ({count})",
         "fixAvailableSeeAdvisory": "correzione disponibile — vedi advisory",
         "noPatchPublished": "nessuna patch pubblicata",
         "vulnPrefix": "vuln:",
@@ -498,7 +502,9 @@
         },
         "mute": {
             "muteFinding": "Silenzia risultato",
+            "muteFindingNamed": "Silenzia risultato — {name}",
             "muteProject": "Silenzia progetto",
+            "muteProjectNamed": "Silenzia progetto — {name}",
             "unmuteFinding": "Riattiva risultato",
             "unmuteProject": "Riattiva progetto",
             "lifting": "Rimozione…",
@@ -596,7 +602,7 @@
             }
         },
         "dataLivesTitle": "Dove risiedono i tuoi dati",
-        "dataLivesBody": "Tutti i risultati delle scansioni sono memorizzati in un singolo database SQLite locale. Con Docker risiede nel volume montato in <code>/app/data</code>; eseguendolo direttamente (per esempio sotto pm2) il valore predefinito è <code>data/sentinello.sqlite</code> nella directory del progetto. In entrambi i casi puoi indirizzarlo altrove con la variabile d'ambiente <code>SENTINELLO_DB_PATH</code>. Non lascia mai la tua macchina.",
+        "dataLivesBody": "Tutti i risultati delle scansioni sono memorizzati in un singolo database SQLite locale. Con Docker risiede nel volume montato in <code>/app/data</code>; eseguendolo direttamente (per esempio sotto pm2) il valore predefinito è <code>data/sentinello.sqlite</code> nella directory del progetto. In entrambi i casi puoi indirizzarlo altrove con la variabile d'ambiente <code>SENTINELLO_DB_PATH</code>. Non lascia mai la tua macchina. La cronologia delle scansioni viene ripulita in base al periodo di conservazione impostato in Impostazioni → Avanzate (90 giorni per impostazione predefinita); risultati, silenziamenti e cronologia delle notifiche vengono conservati a tempo indeterminato.",
         "configTitle": "Configurazione",
         "configBody": "Sentinello si configura interamente tramite variabili d'ambiente. Ogni variabile e il suo valore predefinito:",
         "configColVariable": "Variabile",

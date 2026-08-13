@@ -35,9 +35,12 @@ type Props = {
     muteId?: string
     iconOnly?: boolean
     iconSize?: 'sm' | 'md'
+    // What is about to be silenced, for the dialog title — the project's display name for project scope.
+    // Finding scope derives it from the package name and needs nothing passed.
+    targetLabel?: string
 }
 
-export function MuteDialog({ projectId, finding, merged, label, muteId, iconOnly, iconSize = 'sm' }: Props) {
+export function MuteDialog({ projectId, finding, merged, label, muteId, iconOnly, iconSize = 'sm', targetLabel }: Props) {
     const t = useTranslations('Triage')
     const tc = useTranslations('Common')
     const [open, setOpen] = useState(false)
@@ -116,6 +119,15 @@ export function MuteDialog({ projectId, finding, merged, label, muteId, iconOnly
         )
     }
     const triggerLabel = label || (isFindingScope ? t('mute.muteFinding') : t('mute.muteProject'))
+    // A generic "Mute project" gives no way to tell what you are about to silence — especially from a
+    // table where every row's control carries the same words. Name the target whenever we know it.
+    const targetName = targetLabel || merged?.packageName || finding?.packageName || ''
+    let dialogTitle = isFindingScope ? t('mute.muteFinding') : t('mute.muteProject')
+    if (targetName) {
+        dialogTitle = isFindingScope
+            ? t('mute.muteFindingNamed', { name: targetName })
+            : t('mute.muteProjectNamed', { name: targetName })
+    }
     return (
         <>
             {iconOnly ? (
@@ -138,7 +150,7 @@ export function MuteDialog({ projectId, finding, merged, label, muteId, iconOnly
             <Dialog
                 open={open}
                 onClose={function close() { setOpen(false) }}
-                title={isFindingScope ? t('mute.muteFinding') : t('mute.muteProject')}
+                title={dialogTitle}
                 description={isFindingScope ? t('mute.findingDescription') : t('mute.projectDescription')}
                 className="max-w-md"
             >

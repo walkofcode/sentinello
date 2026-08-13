@@ -175,6 +175,7 @@
             "colPath": "路径",
             "colLabel": "标签",
             "colProjects": "项目",
+            "projectsMutedSuffix": "(其中 {count} 个已静默)",
             "scanNow": "立即扫描",
             "scanning": "扫描中…",
             "scanTitle": "遍历此根目录并扫描其下的项目",
@@ -365,6 +366,8 @@
         "advanced": {
             "metaTitle": "高级 · 设置",
             "concurrentScans": "并发扫描数",
+            "scanRetentionDays": "扫描历史保留期（天）",
+            "scanRetentionDaysHelp": "早于此期限的扫描记录会被删除，但每个项目最近的 100 条始终保留。发现项、静默设置和通知历史不会被删除——仅涉及扫描日志。项目页面显示的扫描历史会变短。",
             "portalBaseUrl": "门户基础 URL（用于通知中的深度链接）",
             "globalIgnore": "全局忽略模式（每行一个）",
             "watcherLabel": "锁文件监视器（变更时扫描）——总开关。当被监视的锁文件发生变化时，工作进程会加入一个 scan_request。",
@@ -449,6 +452,7 @@
         "depTypeProd": "仅生产依赖",
         "depTypeDev": "仅开发依赖",
         "depTypeAll": "所有依赖",
+        "showMuted": "显示已静默项 ({count})",
         "fixAvailableSeeAdvisory": "有修复方案——参见通告",
         "noPatchPublished": "尚未发布补丁",
         "vulnPrefix": "漏洞：",
@@ -498,7 +502,9 @@
         },
         "mute": {
             "muteFinding": "静默此发现",
+            "muteFindingNamed": "静默发现项 — {name}",
             "muteProject": "静默此项目",
+            "muteProjectNamed": "静默项目 — {name}",
             "unmuteFinding": "取消静默此发现",
             "unmuteProject": "取消静默此项目",
             "lifting": "解除中…",
@@ -596,7 +602,7 @@
             }
         },
         "dataLivesTitle": "你的数据存放在哪里",
-        "dataLivesBody": "所有扫描结果都存储在单个本地 SQLite 数据库中。在 Docker 下，它位于挂载卷的 <code>/app/data</code>；直接运行（例如在 pm2 下）时，它默认为项目目录中的 <code>data/sentinello.sqlite</code>。无论哪种方式，你都可以通过 <code>SENTINELLO_DB_PATH</code> 环境变量将其指向别处。它绝不会离开你的机器。",
+        "dataLivesBody": "所有扫描结果都存储在单个本地 SQLite 数据库中。在 Docker 下，它位于挂载卷的 <code>/app/data</code>；直接运行（例如在 pm2 下）时，它默认为项目目录中的 <code>data/sentinello.sqlite</code>。无论哪种方式，你都可以通过 <code>SENTINELLO_DB_PATH</code> 环境变量将其指向别处。它绝不会离开你的机器。 扫描历史会按照“设置 → 高级”中配置的保留期（默认 90 天）清理；发现项、静默设置和通知历史则会长期保留。",
         "configTitle": "配置",
         "configBody": "Sentinello 完全通过环境变量进行配置。以下是每个变量及其默认值：",
         "configColVariable": "变量",

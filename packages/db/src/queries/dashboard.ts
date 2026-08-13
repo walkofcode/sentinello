@@ -29,10 +29,19 @@ const DAY_MS = 24 * 60 * 60 * 1000
 export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeFilter = 'all'): DashboardSummary {
     const depFilter = depTypeClause(depType)
     const sourceFilter = activeSourceCellClause(db)
+    // Project-muted projects are excluded here for the same reason they're excluded from
+    // projectsWithFindings below: the two are read together as "N of M projects have findings", and
+    // counting muted projects only in the denominator made that ratio compare two different populations.
     const total = db
         .get<{ n: number }>(sql`
             SELECT COUNT(*) AS n
-            FROM projects
+            FROM projects p
+            WHERE NOT EXISTS (
+                SELECT 1 FROM mutes m
+                WHERE m.scope = 'project'
+                  AND m.project_id = p.id
+                  AND (m.expires_at IS NULL OR m.expires_at > ${at})
+            )
         `)
     const withFindings = db
         .get<{ n: number }>(sql`

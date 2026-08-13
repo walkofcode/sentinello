@@ -9,7 +9,15 @@ import type { DrizzleDb, SqliteDb } from '../client'
 import { runMigrations } from '../migrate'
 import { upsertRoot } from './config'
 import { upsertProject } from './projects'
-import { deleteMute, insertMute, isMuted, listActiveMutes, listExpiredMutes, type MuteMatchInput } from './mutes'
+import {
+    deleteMute,
+    insertMute,
+    isMuted,
+    isProjectMuted,
+    listActiveMutes,
+    listExpiredMutes,
+    type MuteMatchInput
+} from './mutes'
 import {
     listMuteLiftsForLibrary,
     listMuteLiftsForProject,
@@ -165,6 +173,37 @@ describe('isMuted with a project-scope mute', function () {
     it('stops applying once expired', function () {
         insertMute(db, mute({ scope: 'project', expiresAt: T0 + HOUR }))
         expect(isMuted(db, match({ at: T0 + HOUR + 1 }))).toBe(false)
+    })
+})
+
+// The wholesale "is this project silenced" question, asked by getProjectById so MCP get_project and
+// the portal agree with the dashboard. It answers ONLY for project-scope mutes: a project every one of
+// whose findings happens to be individually muted is not itself muted, and reporting otherwise would
+// tell an agent an entire project had been signed off when nobody signed it off.
+describe('isProjectMuted', function () {
+    it('is true while an unexpired project-scope mute covers the project', function () {
+        insertMute(db, mute({ scope: 'project' }))
+        expect(isProjectMuted(db, PROJECT_ID, T0)).toBe(true)
+    })
+
+    it('is false for a project with no mute at all', function () {
+        expect(isProjectMuted(db, PROJECT_ID, T0)).toBe(false)
+    })
+
+    it('does not reach a different project', function () {
+        insertMute(db, mute({ scope: 'project' }))
+        expect(isProjectMuted(db, OTHER_PROJECT_ID, T0)).toBe(false)
+    })
+
+    it('stops applying once expired', function () {
+        insertMute(db, mute({ scope: 'project', expiresAt: T0 + HOUR }))
+        expect(isProjectMuted(db, PROJECT_ID, T0)).toBe(true)
+        expect(isProjectMuted(db, PROJECT_ID, T0 + HOUR + 1)).toBe(false)
+    })
+
+    it('ignores a finding-scope mute on the same project', function () {
+        insertMute(db, mute({ scope: 'finding' }))
+        expect(isProjectMuted(db, PROJECT_ID, T0)).toBe(false)
     })
 })
 

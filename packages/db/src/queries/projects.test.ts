@@ -104,6 +104,54 @@ describe('upsertProject and reads', function () {
         expect(getProjectById(db, 'nope')).toBeNull()
     })
 
+    // `muted` comes from the mutes table, not the legacy projects.muted column. Nothing writes that
+    // column any more — muteAction and the MCP mute_finding tool both insert into `mutes` — so reading
+    // it reported a wholesale-muted project as muted:false, which is what MCP get_project handed agents.
+    it('reports muted from the mutes table, not the legacy column', function () {
+        upsertProject(db, project({ muted: false }))
+        expect(getProjectById(db, PROJECT_ID, T0)?.muted).toBe(false)
+        insertMute(db, {
+            id: 'mute-1',
+            scope: 'project',
+            projectId: PROJECT_ID,
+            scanner: null,
+            ecosystem: null,
+            advisoryId: null,
+            packageName: null,
+            reason: 'retired service',
+            author: 'betty',
+            createdAt: T0,
+            expiresAt: null
+        })
+        expect(getProjectById(db, PROJECT_ID, T0)?.muted).toBe(true)
+    })
+
+    it('reports muted:false once the project mute has expired', function () {
+        upsertProject(db, project())
+        insertMute(db, {
+            id: 'mute-1',
+            scope: 'project',
+            projectId: PROJECT_ID,
+            scanner: null,
+            ecosystem: null,
+            advisoryId: null,
+            packageName: null,
+            reason: 'temporary',
+            author: 'betty',
+            createdAt: T0,
+            expiresAt: T0 + HOUR
+        })
+        expect(getProjectById(db, PROJECT_ID, T0)?.muted).toBe(true)
+        expect(getProjectById(db, PROJECT_ID, T0 + HOUR + 1)?.muted).toBe(false)
+    })
+
+    // The `at` default exists so the many callers that do not care about mute state need not thread a
+    // clock through. An unmuted project reads the same either way.
+    it('defaults `at` to now when the caller omits it', function () {
+        upsertProject(db, project())
+        expect(getProjectById(db, PROJECT_ID)?.muted).toBe(false)
+    })
+
     it('lists every project', function () {
         upsertProject(db, project())
         upsertProject(db, project({ id: OTHER_PROJECT_ID, rootId: OTHER_ROOT_ID, relPath: 'other' }))

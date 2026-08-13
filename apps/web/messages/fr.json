@@ -175,6 +175,7 @@
             "colPath": "Chemin",
             "colLabel": "Libellé",
             "colProjects": "Projets",
+            "projectsMutedSuffix": "({count} masqués)",
             "scanNow": "Analyser maintenant",
             "scanning": "Analyse en cours…",
             "scanTitle": "Parcourir cette racine et analyser ses projets",
@@ -365,6 +366,8 @@
         "advanced": {
             "metaTitle": "Avancé · Paramètres",
             "concurrentScans": "Analyses simultanées",
+            "scanRetentionDays": "Conservation de l'historique des analyses (jours)",
+            "scanRetentionDaysHelp": "Les lignes d'analyse plus anciennes sont supprimées, sauf les 100 plus récentes par projet, toujours conservées. Les résultats, les masquages et l'historique des notifications ne sont jamais touchés — uniquement le journal d'analyse. Les pages de projet afficheront un historique plus court.",
             "portalBaseUrl": "URL de base du portail (utilisée dans les liens profonds des notifications)",
             "globalIgnore": "Motifs d'exclusion globaux (un par ligne)",
             "watcherLabel": "Surveillance des fichiers de verrouillage (analyse au changement) — interrupteur principal. Le worker met en file un scan_request lorsqu'un fichier de verrouillage surveillé change.",
@@ -449,6 +452,7 @@
         "depTypeProd": "Production uniquement",
         "depTypeDev": "Dev uniquement",
         "depTypeAll": "Toutes les dépendances",
+        "showMuted": "Afficher les masqués ({count})",
         "fixAvailableSeeAdvisory": "correctif disponible — voir l'avis",
         "noPatchPublished": "aucun correctif publié",
         "vulnPrefix": "vuln :",
@@ -498,7 +502,9 @@
         },
         "mute": {
             "muteFinding": "Masquer le résultat",
+            "muteFindingNamed": "Masquer la vulnérabilité — {name}",
             "muteProject": "Masquer le projet",
+            "muteProjectNamed": "Masquer le projet — {name}",
             "unmuteFinding": "Réafficher le résultat",
             "unmuteProject": "Réafficher le projet",
             "lifting": "Levée…",
@@ -596,7 +602,7 @@
             }
         },
         "dataLivesTitle": "Où résident vos données",
-        "dataLivesBody": "Tous les résultats d'analyse sont stockés dans une unique base de données SQLite locale. Sous Docker, elle réside dans le volume monté à <code>/app/data</code> ; en exécution directe (par exemple sous pm2), elle se trouve par défaut dans <code>data/sentinello.sqlite</code> dans le répertoire du projet. Dans les deux cas, vous pouvez la pointer ailleurs avec la variable d'environnement <code>SENTINELLO_DB_PATH</code>. Elle ne quitte jamais votre machine.",
+        "dataLivesBody": "Tous les résultats d'analyse sont stockés dans une unique base de données SQLite locale. Sous Docker, elle réside dans le volume monté à <code>/app/data</code> ; en exécution directe (par exemple sous pm2), elle se trouve par défaut dans <code>data/sentinello.sqlite</code> dans le répertoire du projet. Dans les deux cas, vous pouvez la pointer ailleurs avec la variable d'environnement <code>SENTINELLO_DB_PATH</code>. Elle ne quitte jamais votre machine. L'historique des analyses est purgé selon la durée de conservation définie dans Paramètres → Avancé (90 jours par défaut) ; les résultats, les masquages et l'historique des notifications sont conservés indéfiniment.",
         "configTitle": "Configuration",
         "configBody": "Sentinello se configure entièrement via des variables d'environnement. Chaque variable et sa valeur par défaut :",
         "configColVariable": "Variable",

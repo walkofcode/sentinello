@@ -37,6 +37,7 @@ import { orderEcosystems, orderSources } from '@/components/findings/source-orde
 import { ResolvedFindingsTable } from '@/components/findings/resolved-findings-table'
 import { ScanHistory, type ScanFindingVM, type ScanHistoryRowVM } from '@/components/findings/scan-history'
 import { DepTypeFilter } from '@/components/findings/dep-type-filter'
+import { MutedFilter } from '@/components/findings/muted-filter'
 import { UrlPagination } from '@/components/ui/url-pagination'
 import { getDb } from '@/lib/db'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
@@ -45,7 +46,7 @@ import { mergeFindings } from '@/lib/merge-findings'
 
 type PageProps = {
     params: Promise<{ id: string }>
-    searchParams: Promise<{ dep?: string; src?: string; scanPage?: string; resolvedPage?: string }>
+    searchParams: Promise<{ dep?: string; src?: string; muted?: string; scanPage?: string; resolvedPage?: string }>
 }
 
 const RESOLVED_PAGE_SIZE = 25
@@ -84,7 +85,24 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     const root = getRootById(db, project.rootId)
     const enabledSources = orderSources(getActiveSources(db))
     const ecosystemCoverage = getProjectEcosystemCoverage(db, project.id)
-    const findings = listCurrentFindingsForProject(db, project.id, now, depType)
+    // listCurrentFindingsForProject annotates rather than filters — it returns every open row with an
+    // isMuted flag and leaves the decision to the caller. A muted finding is a recorded accepted-risk
+    // decision, so it is withheld from this page by default, and withholding the ROWS is what keeps every
+    // count below honest: the header, both tab badges, both paginations, the per-library advisoryCount,
+    // the all-clear state and the export button all derive from this one array. Filtering here is what
+    // makes the page agree with the dashboard, the MCP tools and the advisory export.
+    //
+    // Filter the raw rows BEFORE mergeFindings, never after — same rule as project-advisory-export.ts. A
+    // vulnerability muted on npm-audit but still reported by OSV must survive as an unmuted merged row;
+    // merging first would let one muted source silence a group another source is still flagging.
+    const showMuted = resolvedSearchParams.muted === '1'
+    const allFindings = listCurrentFindingsForProject(db, project.id, now, depType)
+    const unmutedFindings = allFindings.filter(function notMuted(f) { return !f.isMuted })
+    const findings = showMuted ? allFindings : unmutedFindings
+    // Counted off the full set, NOT off the difference between the two arrays: with the toggle on those
+    // are the same array, so a difference would read zero and the control would unrender itself — leaving
+    // no way to switch it back off.
+    const mutedCount = allFindings.length - unmutedFindings.length
     // The language-filter universe is the ecosystems actually present in the loaded findings, in registry
     // display order. Single-ecosystem projects (the common npm-only case) get no redundant control.
     const findingEcosystems = orderEcosystems(findings.map(function pickEco(f) { return f.ecosystem }))
@@ -182,7 +200,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                         {projectScopeMute ? (
                             <MuteDialog projectId={project.id} muteId={projectScopeMute.id} label={tTriage('mute.unmuteProject')} iconOnly iconSize="md" />
                         ) : (
-                            <MuteDialog projectId={project.id} iconOnly iconSize="md" />
+                            <MuteDialog projectId={project.id} targetLabel={displayName} iconOnly iconSize="md" />
                         )}
                         <TagEditor projectId={project.id} initialTags={project.tags} iconOnly />
                     </div>
@@ -211,12 +229,19 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                         <p className="mt-1 text-sm text-muted-foreground">
                             {t('project.allClearBody')}
                         </p>
+                        {/* A project whose findings are ALL muted is all-clear by choice, not by fact.
+                            The toggle has to live here too, or the only route back to them would be
+                            editing the URL by hand. */}
+                        <div className="mt-4">
+                            <MutedFilter value={showMuted} mutedCount={mutedCount} />
+                        </div>
                     </div>
                 ) : (
                     <>
                         <div className="flex flex-wrap items-baseline justify-between gap-2">
                             <h2 className="text-lg font-semibold">{t('project.currentFindings', { count: mergedFindingCount })}</h2>
                             <div className="flex items-center gap-2">
+                                <MutedFilter value={showMuted} mutedCount={mutedCount} />
                                 <EcosystemFilter ecosystems={findingEcosystems} />
                                 <SourceFilter sources={enabledSources} />
                                 <DepTypeFilter value={depType} defaultValue={defaults.depType} />

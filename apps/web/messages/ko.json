@@ -175,6 +175,7 @@
             "colPath": "경로",
             "colLabel": "레이블",
             "colProjects": "프로젝트",
+            "projectsMutedSuffix": "({count}개 음소거)",
             "scanNow": "지금 스캔",
             "scanning": "스캔 중…",
             "scanTitle": "이 루트를 탐색하고 프로젝트를 스캔합니다",
@@ -365,6 +366,8 @@
         "advanced": {
             "metaTitle": "고급 · 설정",
             "concurrentScans": "동시 스캔",
+            "scanRetentionDays": "스캔 기록 보존 기간(일)",
+            "scanRetentionDaysHelp": "이보다 오래된 스캔 행은 삭제되며, 프로젝트마다 최근 100건은 항상 보존됩니다. 발견 항목, 음소거, 알림 기록은 삭제되지 않습니다 — 스캔 로그만 대상입니다. 프로젝트 페이지의 스캔 기록이 짧아집니다.",
             "portalBaseUrl": "포털 기본 URL (알림 딥링크에 사용됨)",
             "globalIgnore": "전역 무시 패턴 (한 줄에 하나씩)",
             "watcherLabel": "잠금 파일 감시기 (변경 시 스캔) — 마스터 스위치. 감시 중인 잠금 파일이 변경되면 워커가 scan_request를 대기열에 추가합니다.",
@@ -449,6 +452,7 @@
         "depTypeProd": "프로덕션만",
         "depTypeDev": "개발만",
         "depTypeAll": "모든 의존성",
+        "showMuted": "음소거 항목 표시 ({count})",
         "fixAvailableSeeAdvisory": "수정 가능 — 권고 참조",
         "noPatchPublished": "게시된 패치 없음",
         "vulnPrefix": "취약점:",
@@ -498,7 +502,9 @@
         },
         "mute": {
             "muteFinding": "발견 항목 음소거",
+            "muteFindingNamed": "발견 항목 음소거 — {name}",
             "muteProject": "프로젝트 음소거",
+            "muteProjectNamed": "프로젝트 음소거 — {name}",
             "unmuteFinding": "발견 항목 음소거 해제",
             "unmuteProject": "프로젝트 음소거 해제",
             "lifting": "해제 중…",
@@ -596,7 +602,7 @@
             }
         },
         "dataLivesTitle": "데이터가 저장되는 곳",
-        "dataLivesBody": "모든 스캔 결과는 단일 로컬 SQLite 데이터베이스에 저장됩니다. Docker에서는 마운트된 볼륨의 <code>/app/data</code>에 위치하며, 직접 실행(예: pm2)할 때는 기본적으로 프로젝트 디렉터리의 <code>data/sentinello.sqlite</code>에 위치합니다. 어느 경우든 <code>SENTINELLO_DB_PATH</code> 환경 변수로 다른 위치를 지정할 수 있습니다. 데이터는 절대 사용자의 머신을 떠나지 않습니다.",
+        "dataLivesBody": "모든 스캔 결과는 단일 로컬 SQLite 데이터베이스에 저장됩니다. Docker에서는 마운트된 볼륨의 <code>/app/data</code>에 위치하며, 직접 실행(예: pm2)할 때는 기본적으로 프로젝트 디렉터리의 <code>data/sentinello.sqlite</code>에 위치합니다. 어느 경우든 <code>SENTINELLO_DB_PATH</code> 환경 변수로 다른 위치를 지정할 수 있습니다. 데이터는 절대 사용자의 머신을 떠나지 않습니다. 스캔 기록은 설정 → 고급에서 지정한 보존 기간(기본값 90일)에 따라 정리됩니다. 발견 항목, 음소거, 알림 기록은 기간 제한 없이 보존됩니다.",
         "configTitle": "설정",
         "configBody": "Sentinello는 전적으로 환경 변수로 설정합니다. 각 변수와 기본값은 다음과 같습니다.",
         "configColVariable": "변수",

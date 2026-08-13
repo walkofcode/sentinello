@@ -175,6 +175,7 @@
             "colPath": "Path",
             "colLabel": "Label",
             "colProjects": "Projects",
+            "projectsMutedSuffix": "({count} muted)",
             "scanNow": "Scan now",
             "scanning": "Scanning…",
             "scanTitle": "Walk this root and scan its projects",
@@ -365,6 +366,8 @@
         "advanced": {
             "metaTitle": "Advanced · Settings",
             "concurrentScans": "Concurrent scans",
+            "scanRetentionDays": "Scan history retention (days)",
+            "scanRetentionDaysHelp": "Scan rows older than this are deleted, except the 100 most recent per project, which are always kept. Findings, mutes and notification history are never touched — only the scan log. Project pages will show a shorter scan history.",
             "portalBaseUrl": "Portal base URL (used in notification deep links)",
             "globalIgnore": "Global ignore patterns (one per line)",
             "watcherLabel": "Lockfile watcher (scan-on-change) — master switch. Worker enqueues a scan_request when a watched lockfile changes.",
@@ -449,6 +452,7 @@
         "depTypeProd": "Production only",
         "depTypeDev": "Dev only",
         "depTypeAll": "All deps",
+        "showMuted": "Show muted ({count})",
         "fixAvailableSeeAdvisory": "fix available — see advisory",
         "noPatchPublished": "no patch published",
         "vulnPrefix": "vuln:",
@@ -498,7 +502,9 @@
         },
         "mute": {
             "muteFinding": "Mute finding",
+            "muteFindingNamed": "Mute finding — {name}",
             "muteProject": "Mute project",
+            "muteProjectNamed": "Mute project — {name}",
             "unmuteFinding": "Unmute finding",
             "unmuteProject": "Unmute project",
             "lifting": "Lifting…",
@@ -596,7 +602,7 @@
             }
         },
         "dataLivesTitle": "Where your data lives",
-        "dataLivesBody": "All scan results are stored in a single local SQLite database. Under Docker it lives in the mounted volume at <code>/app/data</code>; running directly (for example under pm2) it defaults to <code>data/sentinello.sqlite</code> in the project directory. Either way you can point it elsewhere with the <code>SENTINELLO_DB_PATH</code> environment variable. It never leaves your machine.",
+        "dataLivesBody": "All scan results are stored in a single local SQLite database. Under Docker it lives in the mounted volume at <code>/app/data</code>; running directly (for example under pm2) it defaults to <code>data/sentinello.sqlite</code> in the project directory. Either way you can point it elsewhere with the <code>SENTINELLO_DB_PATH</code> environment variable. It never leaves your machine. Scan history is pruned on the retention window set in Settings → Advanced (90 days by default); findings, mutes and notification history are kept indefinitely.",
         "configTitle": "Configuration",
         "configBody": "Sentinello is configured entirely through environment variables. Every variable and its default:",
         "configColVariable": "Variable",

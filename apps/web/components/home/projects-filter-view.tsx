@@ -606,7 +606,7 @@ function RowActions({ project, depType, scanning }: { project: ProjectCatalogRow
                     iconSize="md"
                 />
             ) : (
-                <MuteDialog projectId={project.id} iconOnly iconSize="md" />
+                <MuteDialog projectId={project.id} targetLabel={project.alias || project.name} iconOnly iconSize="md" />
             )}
             <TagEditor projectId={project.id} initialTags={parseJsonArray(project.tagsJson)} iconOnly />
         </div>
