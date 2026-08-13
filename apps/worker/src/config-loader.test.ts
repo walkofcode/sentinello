@@ -229,6 +229,19 @@ describe('seedFromConfig — settings', function () {
         expect(getConfigValue(db, CONFIG_KEYS.portalBaseUrl)).toBe('https://portal.example.test')
     })
 
+    // The scan-retention window drives an irreversible delete, so seeding it from the config file has
+    // to actually land — a silently dropped key would leave the worker on the 90-day default while the
+    // operator believed their file had set something else.
+    it('seeds the scan retention window', function () {
+        seed({ scanRetentionDays: 30 })
+        expect(getConfigValue(db, CONFIG_KEYS.scanRetentionDays)).toBe(30)
+    })
+
+    it('leaves the retention window unset when the config file omits it', function () {
+        seed({ parallelism: 8 })
+        expect(getConfigValue(db, CONFIG_KEYS.scanRetentionDays)).toBeNull()
+    })
+
     // An explicitly empty ignore list is a real instruction, distinct from omitting the key.
     it('seeds an empty ignore list rather than treating it as absent', function () {
         seed({ globalIgnore: [] })
