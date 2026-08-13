@@ -166,6 +166,28 @@ describe('getDashboardSummary', function () {
         expect(getDashboardSummary(db, T0 + DAY).totalActiveProjects).toBe(2)
     })
 
+    // These two are read together as "N of M projects have findings". projectsWithFindings has always
+    // excluded project-muted projects, so counting them in the total made the ratio compare two
+    // different populations — and the muted project could never appear in the numerator.
+    it('excludes project-muted projects from the total', function () {
+        mute({ id: 'proj-mute', scope: 'project', scanner: null, ecosystem: null, advisoryId: null, packageName: null })
+        expect(getDashboardSummary(db, T0 + DAY).totalActiveProjects).toBe(1)
+    })
+
+    it('counts a project again once its project mute expires', function () {
+        mute({
+            id: 'proj-mute',
+            scope: 'project',
+            scanner: null,
+            ecosystem: null,
+            advisoryId: null,
+            packageName: null,
+            expiresAt: T0 + DAY
+        })
+        expect(getDashboardSummary(db, T0).totalActiveProjects).toBe(1)
+        expect(getDashboardSummary(db, T0 + DAY + 1).totalActiveProjects).toBe(2)
+    })
+
     it('counts only the projects that currently have findings', function () {
         scanProject('project-1', [finding()])
         expect(getDashboardSummary(db, T0 + DAY).projectsWithFindings).toBe(1)

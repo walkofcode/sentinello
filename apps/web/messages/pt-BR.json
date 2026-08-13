@@ -175,6 +175,7 @@
             "colPath": "Caminho",
             "colLabel": "Rótulo",
             "colProjects": "Projetos",
+            "projectsMutedSuffix": "({count} silenciados)",
             "scanNow": "Varrer agora",
             "scanning": "Varrendo…",
             "scanTitle": "Percorrer esta raiz e varrer seus projetos",
@@ -365,6 +366,8 @@
         "advanced": {
             "metaTitle": "Avançado · Configurações",
             "concurrentScans": "Varreduras simultâneas",
+            "scanRetentionDays": "Retenção do histórico de varreduras (dias)",
+            "scanRetentionDaysHelp": "As linhas de varredura mais antigas que isso são excluídas, exceto as 100 mais recentes de cada projeto, que são sempre mantidas. Constatações, silenciamentos e histórico de notificações nunca são afetados — apenas o registro de varreduras. As páginas de projeto mostrarão um histórico mais curto.",
             "portalBaseUrl": "URL base do portal (usada em links diretos de notificação)",
             "globalIgnore": "Padrões de ignorar globais (um por linha)",
             "watcherLabel": "Observador de lockfile (varredura ao alterar) — chave mestra. O worker enfileira um scan_request quando um lockfile observado é alterado.",
@@ -449,6 +452,7 @@
         "depTypeProd": "Somente produção",
         "depTypeDev": "Somente dev",
         "depTypeAll": "Todas as deps",
+        "showMuted": "Mostrar silenciados ({count})",
         "fixAvailableSeeAdvisory": "correção disponível — consulte o alerta",
         "noPatchPublished": "nenhum patch publicado",
         "vulnPrefix": "vuln:",
@@ -498,7 +502,9 @@
         },
         "mute": {
             "muteFinding": "Silenciar ocorrência",
+            "muteFindingNamed": "Silenciar constatação — {name}",
             "muteProject": "Silenciar projeto",
+            "muteProjectNamed": "Silenciar projeto — {name}",
             "unmuteFinding": "Reativar ocorrência",
             "unmuteProject": "Reativar projeto",
             "lifting": "Removendo…",
@@ -596,7 +602,7 @@
             }
         },
         "dataLivesTitle": "Onde seus dados ficam",
-        "dataLivesBody": "Todos os resultados de varredura são armazenados em um único banco de dados SQLite local. No Docker, ele fica no volume montado em <code>/app/data</code>; executando diretamente (por exemplo, sob pm2) ele usa por padrão <code>data/sentinello.sqlite</code> no diretório do projeto. De qualquer forma, você pode apontá-lo para outro local com a variável de ambiente <code>SENTINELLO_DB_PATH</code>. Ele nunca sai da sua máquina.",
+        "dataLivesBody": "Todos os resultados de varredura são armazenados em um único banco de dados SQLite local. No Docker, ele fica no volume montado em <code>/app/data</code>; executando diretamente (por exemplo, sob pm2) ele usa por padrão <code>data/sentinello.sqlite</code> no diretório do projeto. De qualquer forma, você pode apontá-lo para outro local com a variável de ambiente <code>SENTINELLO_DB_PATH</code>. Ele nunca sai da sua máquina. O histórico de varreduras é removido conforme o período de retenção definido em Configurações → Avançado (90 dias por padrão); constatações, silenciamentos e histórico de notificações são mantidos indefinidamente.",
         "configTitle": "Configuração",
         "configBody": "O Sentinello é configurado inteiramente por meio de variáveis de ambiente. Cada variável e seu valor padrão:",
         "configColVariable": "Variável",

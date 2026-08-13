@@ -20,6 +20,9 @@ export default async function AdvancedSettingsPage() {
     const dryRunNotify = getConfigValue<boolean>(db, 'dryRunNotify') || false
     const portalBaseUrl = getConfigValue<string>(db, 'portalBaseUrl') || ''
     const notificationLocale = getConfigValue<string>(db, 'notificationLocale') || 'en'
+    // Kept in step with DEFAULT_RETENTION_DAYS in apps/worker/src/scan-retention.ts — the worker is
+    // what actually enforces the window; this is only what the field shows before anyone sets one.
+    const scanRetentionDays = getConfigValue<number>(db, 'scanRetentionDays') || 90
     // When SENTINELLO_PORTAL_BASE_URL is set it's authoritative (instrumentation.ts re-seeds it on
     // every boot), so the field is shown read-only — editing it here would be reverted on restart.
     const portalBaseUrlEnvManaged = Boolean((process.env.SENTINELLO_PORTAL_BASE_URL || '').trim().length > 0)
@@ -38,7 +41,8 @@ export default async function AdvancedSettingsPage() {
                     globalIgnore,
                     dryRunNotify,
                     portalBaseUrl,
-                    notificationLocale
+                    notificationLocale,
+                    scanRetentionDays
                 }}
             />
         </div>

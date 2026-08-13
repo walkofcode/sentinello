@@ -36,7 +36,10 @@ const configSchema = z.object({
     // Absolute root paths the lockfile watcher should observe. The watcher is opt-in
     // PER ROOT: an empty array means "watch nothing" (it is NOT a shortcut for "watch all").
     watcherRoots: z.array(z.string()).optional(),
-    portalBaseUrl: z.string().optional()
+    portalBaseUrl: z.string().optional(),
+    // How many days of scan history to keep. Nothing else bounds the scans table, so without this it
+    // grows for the life of the deployment.
+    scanRetentionDays: z.number().int().positive().optional()
 })
 
 export type SentinelloConfig = z.infer<typeof configSchema>
@@ -49,7 +52,8 @@ export const CONFIG_KEYS = {
     watcherRoots: 'watcherRoots',
     portalBaseUrl: 'portalBaseUrl',
     dryRunNotify: 'dryRunNotify',
-    notificationLocale: 'notificationLocale'
+    notificationLocale: 'notificationLocale',
+    scanRetentionDays: 'scanRetentionDays'
 } as const
 
 const CONFIG_FILE_CANDIDATES = ['sentinello.config.yaml', 'sentinello.config.yml', 'sentinello.config.json']
@@ -105,6 +109,9 @@ export function seedFromConfig(db: DrizzleDb, config: SentinelloConfig, at: numb
     }
     if (config.portalBaseUrl) {
         setConfigValue(db, CONFIG_KEYS.portalBaseUrl, config.portalBaseUrl)
+    }
+    if (config.scanRetentionDays) {
+        setConfigValue(db, CONFIG_KEYS.scanRetentionDays, config.scanRetentionDays)
     }
 }
 

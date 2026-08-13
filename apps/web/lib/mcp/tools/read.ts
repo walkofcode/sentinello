@@ -79,7 +79,7 @@ export function registerReadTools(server: McpServer): void {
         {
             title: 'List projects',
             description:
-                'Lists projects discovered under all (or one) root, each with severity counts and last-scan status. Severity counts are DISTINCT ADVISORIES, deduplicated across reporting sources — so they are lower than the row count list_findings returns for the same project, and they match get_project_advisory. This is the usual starting point for finding a projectId.',
+                'Lists projects discovered under all (or one) root, each with severity counts and last-scan status. Severity counts are DISTINCT ADVISORIES, deduplicated across reporting sources — so they are lower than the row count list_findings returns for the same project, and they match get_project_advisory. A project silenced by a project-scope mute is still LISTED here, carrying muted: true and severity counts of zero; those zeros mean silenced, not clean, so check the muted flag before reporting a project as having nothing wrong. Such projects are excluded from the get_dashboard_summary totals, which is why this list can be longer than totalActiveProjects. This is the usual starting point for finding a projectId.',
             inputSchema: {
                 rootId: z.string().min(1).optional().describe('Limit to one root by id'),
                 depType: depTypeSchema.describe('Filter findings by dependency type (default: all)')
@@ -184,9 +184,15 @@ export function registerReadTools(server: McpServer): void {
         },
         async function handler({ projectId, limit }) {
             const rows = listScansForProject(getDb(), projectId, limit || 50, 0)
+            // rawJson is withheld deliberately. It is the scanner's own output, kept for
+            // getProjectEcosystemCoverage to parse — never something a caller asked for. npm-audit
+            // stored the entire raw audit document there, averaging 79 KB a row, so at the 200-row
+            // maximum this response carried ~16 MB of JSON nobody reads. Nothing else about the row
+            // changes; the portal's ScanHistoryRowVM never carried it either.
+            const scans = rows.map(function withoutRawJson({ rawJson: _rawJson, ...rest }) { return rest })
             return {
-                content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
-                structuredContent: { scans: rows }
+                content: [{ type: 'text', text: JSON.stringify(scans, null, 2) }],
+                structuredContent: { scans }
             }
         }
     )
@@ -250,7 +256,7 @@ export function registerReadTools(server: McpServer): void {
         {
             title: 'Get dashboard summary',
             description:
-                "High-level counts across every project — projects with findings, severity totals, and the last scan timestamp — the same numbers the portal home page shows. Severity totals count distinct advisories (deduped across reporting sources), matching list_projects. Use this for 'how bad is it overall', and list_projects when you need the per-project breakdown.",
+                "High-level counts across the fleet — totalActiveProjects, projectsWithFindings, severity totals, findingsLast24h, and the last scan timestamp — the same numbers the portal home page shows. Severity totals count distinct advisories (deduped across reporting sources), matching list_projects. Projects silenced by a project-scope mute are EXCLUDED from totalActiveProjects, not merely zeroed: totalActiveProjects and projectsWithFindings are meant to be read together as 'N of M projects have findings', so both count the same population. list_projects still returns those muted projects, so it can be longer than totalActiveProjects — that is the intended difference, not a discrepancy. Use this for 'how bad is it overall', list_projects when you need the per-project breakdown, and list_mutes to see what has been silenced.",
             inputSchema: { depType: depTypeSchema }
         },
         async function handler({ depType }) {

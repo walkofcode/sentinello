@@ -25,6 +25,7 @@ type Props = {
         dryRunNotify: boolean
         portalBaseUrl: string
         notificationLocale: string
+        scanRetentionDays: number
     }
     roots: RootOption[]
     portalBaseUrlEnvManaged: boolean
@@ -40,6 +41,7 @@ export function AdvancedForm({ initial, roots, portalBaseUrlEnvManaged }: Props)
     const [dryRunNotify, setDryRunNotify] = useState(initial.dryRunNotify)
     const [portalBaseUrl, setPortalBaseUrl] = useState(initial.portalBaseUrl)
     const [notificationLocale, setNotificationLocale] = useState(initial.notificationLocale)
+    const [scanRetentionDays, setScanRetentionDays] = useState(initial.scanRetentionDays.toString())
     const [pending, startTransition] = useTransition()
     const [savedAt, setSavedAt] = useState<number | null>(null)
     const [error, setError] = useState<string | null>(null)
@@ -64,7 +66,8 @@ export function AdvancedForm({ initial, roots, portalBaseUrlEnvManaged }: Props)
                 globalIgnore: ignoreLines,
                 dryRunNotify,
                 portalBaseUrl,
-                notificationLocale
+                notificationLocale,
+                scanRetentionDays: Number(scanRetentionDays) || 90
             })
             if (!result.ok) {
                 setError(result.errorText)
@@ -86,6 +89,18 @@ export function AdvancedForm({ initial, roots, portalBaseUrlEnvManaged }: Props)
                         value={parallelism}
                         onChange={function onChange(e) { setParallelism(e.target.value) }}
                     />
+                </div>
+                <div className="flex flex-col gap-1">
+                    <Label htmlFor="scan-retention-days">{t('advanced.scanRetentionDays')}</Label>
+                    <Input
+                        id="scan-retention-days"
+                        type="number"
+                        min={7}
+                        max={3650}
+                        value={scanRetentionDays}
+                        onChange={function onChange(e) { setScanRetentionDays(e.target.value) }}
+                    />
+                    <p className="text-xs text-muted-foreground">{t('advanced.scanRetentionDaysHelp')}</p>
                 </div>
                 <div className="flex flex-col gap-1">
                     <Label htmlFor="portal-base-url">{t('advanced.portalBaseUrl')}</Label>

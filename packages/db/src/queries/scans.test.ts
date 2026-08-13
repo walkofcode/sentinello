@@ -11,11 +11,14 @@ import { upsertRoot } from './config'
 import { upsertProject } from './projects'
 import {
     countScansForProject,
+    deleteScansByIds,
     getLastScanFinishedAt,
     getLatestScanForProject,
     getProjectEcosystemCoverage,
     insertScan,
-    listScansForProject
+    listPrunableScanIds,
+    listScansForProject,
+    RAW_JSON_MAX_BYTES
 } from './scans'
 
 // Ordering is what most of this module is for: "the latest scan" drives the project page header and
@@ -76,6 +79,28 @@ function addProject(id: string, relPath: string): void {
     })
 }
 
+// Raw inserts rather than the findings/notification query helpers: these tests are about which rows
+// PIN a scan against deletion, so the FK columns have to be set precisely and visibly, including the
+// NULL cases that the helpers would never produce on their own.
+function pinWithFinding(id: string, scanId: string, resolvedScanId: string | null): void {
+    sqlite
+        .prepare(
+            'INSERT INTO findings (id, scan_id, project_id, scanner, source, ecosystem, advisory_id,' +
+                ' package_name, installed_version, vulnerable_range, severity, resolved_scan_id)' +
+                " VALUES (?, ?, ?, 'osv', 'osv', 'npm', 'GHSA-x', 'lodash', '4.17.20', '<4.17.21', 'high', ?)"
+        )
+        .run(id, scanId, PROJECT_ID, resolvedScanId)
+}
+
+function pinWithNotificationEvent(id: string, scanId: string): void {
+    sqlite
+        .prepare(
+            'INSERT INTO notification_events (id, identity_key, project_id, event_type, scanner,' +
+                " first_scan_id, first_seen_at, last_seen_at) VALUES (?, ?, ?, 'finding', 'osv', ?, ?, ?)"
+        )
+        .run(id, 'key-' + id, PROJECT_ID, scanId, T0, T0)
+}
+
 beforeEach(async function setup() {
     dir = await mkdtemp(join(tmpdir(), 'sentinello-scans-'))
     const opened = openDb({ dbPath: join(dir, 'test.sqlite') })
@@ -105,6 +130,25 @@ describe('insertScan and reads', function () {
 
     it('reports no latest scan for a project that never ran', function () {
         expect(getLatestScanForProject(db, PROJECT_ID)).toBeNull()
+    })
+
+    // The persistence choke point every writer goes through. npm-audit reached 2.1 GB of unread raw
+    // audit output here before anyone noticed, because no single insert looked unreasonable — the cap
+    // is what makes that impossible to repeat regardless of which scanner misbehaves.
+    it('caps an oversized rawJson at the ceiling', function () {
+        insertScan(db, scan({ id: 'huge', rawJson: 'x'.repeat(RAW_JSON_MAX_BYTES * 2) }))
+
+        const stored = getLatestScanForProject(db, PROJECT_ID)?.rawJson || ''
+
+        expect(stored).toHaveLength(RAW_JSON_MAX_BYTES)
+        expect(stored.endsWith('…[truncated]')).toBe(true)
+    })
+
+    it('leaves a rawJson within the ceiling exactly as written', function () {
+        const summary = JSON.stringify({ source: 'npm-audit', packageCount: 12, findingCount: 3 })
+        insertScan(db, scan({ id: 'small', rawJson: summary }))
+
+        expect(getLatestScanForProject(db, PROJECT_ID)?.rawJson).toBe(summary)
     })
 
     // Insert order must not decide which scan is "latest" — the timestamp does.
@@ -275,5 +319,132 @@ describe('getProjectEcosystemCoverage', function () {
             rawJson: JSON.stringify({ coverage: [{ ecosystem: 'Go', status: 'ok' }] })
         })
         expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([])
+    })
+})
+
+// Retention. The rule is deliberately conservative — three independent conditions, each of which can
+// only ever SAVE a row — because deleting scan history is irreversible and the sweep runs unattended.
+describe('listPrunableScanIds', function () {
+    const CUTOFF = T0 + 100 * HOUR
+
+    function oldScan(id: string, projectId = PROJECT_ID): void {
+        insertScan(db, scan({ id, projectId, finishedAt: T0 }))
+    }
+
+    it('offers an old, unreferenced scan', function () {
+        oldScan('old')
+        expect(listPrunableScanIds(db, CUTOFF, 0, 100)).toEqual(['old'])
+    })
+
+    it('spares a scan newer than the cutoff', function () {
+        insertScan(db, scan({ id: 'fresh', finishedAt: CUTOFF + HOUR }))
+        expect(listPrunableScanIds(db, CUTOFF, 0, 100)).toEqual([])
+    })
+
+    // The floor that keeps getProjectEcosystemCoverage (last 100 per project) whole no matter how far
+    // back the cutoff reaches.
+    it('spares the newest K per project however old they are', function () {
+        oldScan('oldest')
+        insertScan(db, scan({ id: 'middle', finishedAt: T0 + HOUR }))
+        insertScan(db, scan({ id: 'newest', finishedAt: T0 + 2 * HOUR }))
+
+        expect(listPrunableScanIds(db, CUTOFF, 2, 100)).toEqual(['oldest'])
+    })
+
+    it('applies K per project rather than across the table', function () {
+        oldScan('a1')
+        insertScan(db, scan({ id: 'a2', finishedAt: T0 + HOUR }))
+        oldScan('b1', OTHER_PROJECT_ID)
+
+        // K=1 keeps a2 for project-1 and b1 for project-2; only a1 is surplus.
+        expect(listPrunableScanIds(db, CUTOFF, 1, 100)).toEqual(['a1'])
+    })
+
+    it('spares a scan pinned as a finding first-detection', function () {
+        oldScan('pinned')
+        pinWithFinding('f1', 'pinned', null)
+        expect(listPrunableScanIds(db, CUTOFF, 0, 100)).toEqual([])
+    })
+
+    it('spares a scan pinned as the resolving scan', function () {
+        oldScan('detected')
+        oldScan('resolver')
+        pinWithFinding('f1', 'detected', 'resolver')
+        expect(listPrunableScanIds(db, CUTOFF, 0, 100)).toEqual([])
+    })
+
+    it('spares a scan pinned by a notification event', function () {
+        oldScan('pinned')
+        pinWithNotificationEvent('e1', 'pinned')
+        expect(listPrunableScanIds(db, CUTOFF, 0, 100)).toEqual([])
+    })
+
+    // THE regression that matters. `NOT IN` against a list containing NULL evaluates to NULL for every
+    // row, so dropping the IS NOT NULL guard on resolved_scan_id does not error — it silently makes
+    // this sweep return nothing forever, which is indistinguishable from "retention is working, there
+    // was just nothing to prune". An open finding (resolved_scan_id NULL) is the overwhelmingly common
+    // case, so the bug would be live from the first install.
+    it('still finds prunable scans while an unresolved finding holds a NULL resolved_scan_id', function () {
+        oldScan('pinned')
+        oldScan('prunable')
+        pinWithFinding('open', 'pinned', null)
+
+        expect(listPrunableScanIds(db, CUTOFF, 0, 100)).toEqual(['prunable'])
+    })
+
+    it('honours the batch size', function () {
+        oldScan('a')
+        insertScan(db, scan({ id: 'b', finishedAt: T0 + HOUR }))
+        insertScan(db, scan({ id: 'c', finishedAt: T0 + 2 * HOUR }))
+
+        expect(listPrunableScanIds(db, CUTOFF, 0, 2)).toHaveLength(2)
+    })
+
+    it('finds nothing in an empty table', function () {
+        expect(listPrunableScanIds(db, CUTOFF, 0, 100)).toEqual([])
+    })
+})
+
+describe('deleteScansByIds', function () {
+    it('removes the named scans and reports the count', function () {
+        insertScan(db, scan({ id: 'a', finishedAt: T0 }))
+        insertScan(db, scan({ id: 'b', finishedAt: T0 + HOUR }))
+
+        expect(deleteScansByIds(db, ['a'])).toBe(1)
+        expect(listScansForProject(db, PROJECT_ID).map(function id(s) { return s.id })).toEqual(['b'])
+    })
+
+    it('does nothing when given no ids', function () {
+        insertScan(db, scan({ id: 'a' }))
+        expect(deleteScansByIds(db, [])).toBe(0)
+        expect(countScansForProject(db, PROJECT_ID)).toBe(1)
+    })
+
+    // The database is the backstop, not the predicate. If listPrunableScanIds ever regresses, this is
+    // what turns a silent history-corrupting delete into a loud failure.
+    it('throws rather than orphaning a referenced finding', function () {
+        insertScan(db, scan({ id: 'pinned' }))
+        pinWithFinding('f1', 'pinned', null)
+
+        expect(function deletePinned() { deleteScansByIds(db, ['pinned']) }).toThrow(/FOREIGN KEY/i)
+    })
+})
+
+// The whole point of K: whatever retention deletes, the coverage read must answer identically.
+describe('retention leaves the coverage read intact', function () {
+    it('reports the same coverage before and after a sweep', function () {
+        insertScan(db, {
+            ...scan({ id: 'ancient', finishedAt: T0 }),
+            rawJson: JSON.stringify({ coverage: [{ ecosystem: 'PyPI', status: 'partial' }] })
+        })
+        insertScan(db, {
+            ...scan({ id: 'recent', finishedAt: T0 + 10 * HOUR }),
+            rawJson: JSON.stringify({ coverage: [{ ecosystem: 'PyPI', status: 'partial' }] })
+        })
+        const before = getProjectEcosystemCoverage(db, PROJECT_ID)
+
+        deleteScansByIds(db, listPrunableScanIds(db, T0 + 100 * HOUR, 1, 100))
+
+        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual(before)
     })
 })

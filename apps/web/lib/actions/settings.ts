@@ -376,7 +376,11 @@ const advancedSchema = z.object({
     globalIgnore: z.array(z.string()),
     dryRunNotify: z.boolean(),
     portalBaseUrl: z.string().optional(),
-    notificationLocale: z.string().optional()
+    notificationLocale: z.string().optional(),
+    // Floor of 7 rather than 1: getProjectEcosystemCoverage reconstructs per-ecosystem coverage from
+    // the last 100 scans per project, and while the sweep's own per-project floor protects that
+    // regardless, a window of a day or two invites someone to discard history they cannot get back.
+    scanRetentionDays: z.number().int().min(7).max(3650)
 })
 
 export type AdvancedSettingsInput = z.infer<typeof advancedSchema>
@@ -390,6 +394,7 @@ export async function updateAdvancedSettingsAction(input: AdvancedSettingsInput)
         setConfigValue(db, 'watcherRoots', parsed.watcherRoots)
         setConfigValue(db, 'globalIgnore', parsed.globalIgnore)
         setConfigValue(db, 'dryRunNotify', parsed.dryRunNotify)
+        setConfigValue(db, 'scanRetentionDays', parsed.scanRetentionDays)
         if (parsed.portalBaseUrl) {
             setConfigValue(db, 'portalBaseUrl', parsed.portalBaseUrl)
         }

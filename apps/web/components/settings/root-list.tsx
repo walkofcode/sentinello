@@ -17,7 +17,10 @@ type RootRow = {
     id: string
     path: string
     label: string | null
+    // Every discovered project under this root, muted included — this is also the delete blast radius,
+    // so it must never be narrowed. mutedProjectCount says how many of them are silenced.
     projectCount: number
+    mutedProjectCount: number
     scanning: boolean
 }
 
@@ -155,7 +158,14 @@ export function RootList({ roots, anyInFlight }: Props) {
                                                 <span>{r.label || '—'}</span>
                                             )}
                                         </TableCell>
-                                        <TableCell>{r.projectCount}</TableCell>
+                                        <TableCell>
+                                            {r.projectCount}
+                                            {r.mutedProjectCount > 0 ? (
+                                                <span className="ml-1 text-xs text-muted-foreground">
+                                                    {t('roots.projectsMutedSuffix', { count: r.mutedProjectCount })}
+                                                </span>
+                                            ) : null}
+                                        </TableCell>
                                         <TableCell className="text-right">
                                             <div className="inline-flex items-center gap-1">
                                                 {isEditing ? null : (

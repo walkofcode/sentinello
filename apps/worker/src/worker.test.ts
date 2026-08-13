@@ -25,12 +25,14 @@ const collaborators = vi.hoisted(function makeDoubles() {
         scheduler: handle(),
         poller: handle(),
         muteExpiry: handle(),
+        scanRetention: handle(),
         osvController: { stop: vi.fn(), getScanner: vi.fn(), reload: vi.fn() },
         gemnasiumController: { stop: vi.fn(), getScanner: vi.fn(), reload: vi.fn() },
         watcher: { stop: vi.fn(async function stop() {}) },
         startScheduler: vi.fn(),
         startScanRequestPoller: vi.fn(),
         startMuteExpirySweep: vi.fn(),
+        startScanRetentionSweep: vi.fn(),
         startLockfileWatcher: vi.fn(),
         createOsvController: vi.fn(),
         createGemnasiumController: vi.fn(),
@@ -57,6 +59,9 @@ vi.mock('./scan-request-poller', function mockPoller() {
 })
 vi.mock('./mute-expiry', function mockMuteExpiry() {
     return { startMuteExpirySweep: collaborators.startMuteExpirySweep }
+})
+vi.mock('./scan-retention', function mockScanRetention() {
+    return { startScanRetentionSweep: collaborators.startScanRetentionSweep }
 })
 vi.mock('./watcher', function mockWatcher() {
     return { startLockfileWatcher: collaborators.startLockfileWatcher }
@@ -171,6 +176,7 @@ beforeEach(async function setup() {
     collaborators.startScheduler.mockReturnValue(collaborators.scheduler)
     collaborators.startScanRequestPoller.mockReturnValue(collaborators.poller)
     collaborators.startMuteExpirySweep.mockReturnValue(collaborators.muteExpiry)
+    collaborators.startScanRetentionSweep.mockReturnValue(collaborators.scanRetention)
     collaborators.startLockfileWatcher.mockReturnValue(collaborators.watcher)
     collaborators.createOsvController.mockReturnValue(collaborators.osvController)
     collaborators.createGemnasiumController.mockReturnValue(collaborators.gemnasiumController)
@@ -300,6 +306,7 @@ describe('makeShutdown', function () {
             osvController: { stop: vi.fn() },
             gemnasiumController: { stop: vi.fn() },
             muteExpiry: { stop: vi.fn() },
+            scanRetention: { stop: vi.fn() },
             watcher: null,
             sqlite: { close: vi.fn() },
             release: vi.fn(async function release() {}),
@@ -315,6 +322,7 @@ describe('makeShutdown', function () {
         expect(d.scheduler.stop).toHaveBeenCalled()
         expect(d.poller.stop).toHaveBeenCalled()
         expect(d.muteExpiry.stop).toHaveBeenCalled()
+        expect(d.scanRetention.stop).toHaveBeenCalled()
         expect(d.osvController.stop).toHaveBeenCalled()
         expect(d.gemnasiumController.stop).toHaveBeenCalled()
     })

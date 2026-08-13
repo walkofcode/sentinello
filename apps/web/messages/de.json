@@ -175,6 +175,7 @@
             "colPath": "Pfad",
             "colLabel": "Bezeichnung",
             "colProjects": "Projekte",
+            "projectsMutedSuffix": "({count} stummgeschaltet)",
             "scanNow": "Jetzt scannen",
             "scanning": "Wird gescannt…",
             "scanTitle": "Diese Wurzel durchsuchen und ihre Projekte scannen",
@@ -365,6 +366,8 @@
         "advanced": {
             "metaTitle": "Erweitert · Einstellungen",
             "concurrentScans": "Gleichzeitige Scans",
+            "scanRetentionDays": "Aufbewahrung des Scan-Verlaufs (Tage)",
+            "scanRetentionDaysHelp": "Ältere Scan-Einträge werden gelöscht, mit Ausnahme der 100 neuesten pro Projekt, die immer erhalten bleiben. Funde, Stummschaltungen und der Benachrichtigungsverlauf bleiben unberührt — nur das Scan-Protokoll. Projektseiten zeigen dann einen kürzeren Scan-Verlauf.",
             "portalBaseUrl": "Portal-Basis-URL (verwendet in Benachrichtigungs-Deeplinks)",
             "globalIgnore": "Globale Ignoriermuster (eines pro Zeile)",
             "watcherLabel": "Lockfile-Watcher (Scan bei Änderung) — Hauptschalter. Der Worker reiht eine scan_request ein, wenn sich eine überwachte Lockfile ändert.",
@@ -449,6 +452,7 @@
         "depTypeProd": "Nur Produktion",
         "depTypeDev": "Nur Entwicklung",
         "depTypeAll": "Alle Abhängigkeiten",
+        "showMuted": "Stummgeschaltete anzeigen ({count})",
         "fixAvailableSeeAdvisory": "Fix verfügbar — siehe Advisory",
         "noPatchPublished": "kein Patch veröffentlicht",
         "vulnPrefix": "Schwachstelle:",
@@ -498,7 +502,9 @@
         },
         "mute": {
             "muteFinding": "Fund stummschalten",
+            "muteFindingNamed": "Fund stummschalten — {name}",
             "muteProject": "Projekt stummschalten",
+            "muteProjectNamed": "Projekt stummschalten — {name}",
             "unmuteFinding": "Stummschaltung des Funds aufheben",
             "unmuteProject": "Stummschaltung des Projekts aufheben",
             "lifting": "Wird aufgehoben…",
@@ -596,7 +602,7 @@
             }
         },
         "dataLivesTitle": "Wo Ihre Daten liegen",
-        "dataLivesBody": "Alle Scan-Ergebnisse werden in einer einzigen lokalen SQLite-Datenbank gespeichert. Unter Docker liegt sie im eingebundenen Volume unter <code>/app/data</code>; bei direkter Ausführung (zum Beispiel unter pm2) ist standardmäßig <code>data/sentinello.sqlite</code> im Projektverzeichnis vorgesehen. In beiden Fällen können Sie sie mit der Umgebungsvariable <code>SENTINELLO_DB_PATH</code> woanders ablegen. Sie verlässt nie Ihren Rechner.",
+        "dataLivesBody": "Alle Scan-Ergebnisse werden in einer einzigen lokalen SQLite-Datenbank gespeichert. Unter Docker liegt sie im eingebundenen Volume unter <code>/app/data</code>; bei direkter Ausführung (zum Beispiel unter pm2) ist standardmäßig <code>data/sentinello.sqlite</code> im Projektverzeichnis vorgesehen. In beiden Fällen können Sie sie mit der Umgebungsvariable <code>SENTINELLO_DB_PATH</code> woanders ablegen. Sie verlässt nie Ihren Rechner. Der Scan-Verlauf wird gemäß dem in Einstellungen → Erweitert festgelegten Aufbewahrungszeitraum bereinigt (standardmäßig 90 Tage); Funde, Stummschaltungen und der Benachrichtigungsverlauf bleiben unbegrenzt erhalten.",
         "configTitle": "Konfiguration",
         "configBody": "Sentinello wird vollständig über Umgebungsvariablen konfiguriert. Jede Variable und ihr Standardwert:",
         "configColVariable": "Variable",

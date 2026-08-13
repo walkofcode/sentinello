@@ -19,7 +19,7 @@
     },
     "dependencies": {
         "@sentinello/core": "workspace:*",
-        "js-yaml": "4.3.0",
+        "js-yaml": "4.3.1",
         "unzipper": "0.12.3"
     },
     "devDependencies": {

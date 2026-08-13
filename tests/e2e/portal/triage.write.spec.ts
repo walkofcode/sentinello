@@ -11,10 +11,12 @@ const PROJECT_ID = FIXTURE.projects[SEEDED.projectName]
 // field names match, that revalidation lands, and that the page reflects the result afterwards.
 
 test.describe('muting a finding', function () {
-    // A finding-scope mute does NOT remove the row — it dims it and flips the control. Asserting the
-    // aria-label flip rather than the styling is what makes this robust: opacity is presentation,
-    // "Unmute finding" is the contract.
-    test('dims the row and flips the control, and unmuting restores it', async function ({ page }) {
+    // A muted finding leaves the default view entirely — out of the table AND out of every count
+    // derived from it, so the project page agrees with the dashboard, the MCP tools and the export.
+    // It is withheld, never deleted: "Show muted" brings it straight back, dimmed, with its control
+    // flipped to "Unmute finding". Asserting the aria-label flip rather than the styling is what makes
+    // that half robust — opacity is presentation, "Unmute finding" is the contract.
+    test('withholds the row, and Show muted brings it back for unmuting', async function ({ page }) {
         await page.goto('/projects/' + PROJECT_ID)
 
         await page.getByRole('button', { name: 'Mute finding' }).first().click()
@@ -23,12 +25,19 @@ test.describe('muting a finding', function () {
         await dialog.getByRole('button', { name: 'Mute', exact: true }).click()
         await expect(dialog).toBeHidden()
 
+        // Gone from the default view — this is what stops accepted risk inflating the counts.
+        await expect(visible(page, 'lodash')).toHaveCount(0)
+
+        // One click away, never hidden outright. click() rather than check(): the box is controlled by
+        // server state and only flips once router.replace round-trips, exactly like the dep-type filter,
+        // so check()'s immediate state assertion races the navigation. The row returning is the contract.
+        const showMuted = page.getByRole('checkbox', { name: /Show muted/ })
+        await showMuted.click()
+        await expect(visible(page, 'lodash')).toBeVisible()
+        await expect(showMuted).toBeChecked()
+
         const unmute = page.getByRole('button', { name: 'Unmute finding' }).first()
         await expect(unmute).toBeVisible()
-        // The finding is still listed — muting is presentation, not deletion. A regression that
-        // filtered muted findings out of the read path would hide a vulnerability rather than mark it.
-        await expect(visible(page, 'lodash')).toBeVisible()
-
         await unmute.click()
         await expect(page.getByRole('button', { name: 'Mute finding' }).first()).toBeVisible()
     })

@@ -9,6 +9,7 @@ import { createOsvController, type OsvController } from './osv-runtime'
 import { createGemnasiumController, type GemnasiumController } from './gemnasium-runtime'
 import { startLockfileWatcher, type WatcherHandle } from './watcher'
 import { startMuteExpirySweep, type MuteExpiryHandle } from './mute-expiry'
+import { startScanRetentionSweep, type ScanRetentionHandle } from './scan-retention'
 import { createWorkerRuntime, waitForInFlight, type WorkerRuntime } from './runtime'
 
 // The worker's boot sequence and graceful-shutdown machinery.
@@ -119,6 +120,7 @@ export async function main(): Promise<void> {
         intervalMs: scanPollIntervalMs()
     })
     const muteExpiry = startMuteExpirySweep({ db, runtime })
+    const scanRetention = startScanRetentionSweep({ db, runtime })
     let watcher: WatcherHandle | null = null
     const watcherEnabled = getConfigValue<boolean>(db, CONFIG_KEYS.watcherEnabled) || false
     if (watcherEnabled) {
@@ -132,6 +134,9 @@ export async function main(): Promise<void> {
             console.log('[worker] watcher enabled but no roots opted in; watcher inactive')
         }
     }
+    // Deliberately NOT extended when a component is added: Playwright waits on this exact prefix to
+    // decide the worker is up (tests/e2e/portal/paths.ts WORKER_READY_LINE). Each sweep announces
+    // itself on its own line anyway — see '[scan-retention] scheduled (...)'.
     console.log('[worker] scheduler + scan-request poller + mute-expiry running' + (watcher ? ' + lockfile watcher' : ''))
     // Register shutdown handlers BEFORE the initial sweep starts. sweepActiveProjects() runs synchronous
     // discovery before its first await; a SIGTERM during that window would otherwise hit a process with no
@@ -142,6 +147,7 @@ export async function main(): Promise<void> {
         osvController,
         gemnasiumController,
         muteExpiry,
+        scanRetention,
         watcher,
         sqlite,
         release,
@@ -224,6 +230,7 @@ export type ShutdownDeps = {
     osvController: OsvController
     gemnasiumController: GemnasiumController
     muteExpiry: MuteExpiryHandle
+    scanRetention: ScanRetentionHandle
     watcher: WatcherHandle | null
     sqlite: { close(): void }
     release: () => Promise<void>
@@ -240,6 +247,7 @@ export function makeShutdown(deps: ShutdownDeps): (signal: string) => void {
         deps.scheduler.stop()
         deps.poller.stop()
         deps.muteExpiry.stop()
+        deps.scanRetention.stop()
         deps.osvController.stop()
         deps.gemnasiumController.stop()
         if (deps.watcher) {

@@ -61,6 +61,24 @@ export function isMuted(db: DrizzleDb, input: MuteMatchInput): boolean {
     })
 }
 
+// True when an unexpired project-scope mute covers this project. The `mutes` table is the single source
+// of truth for that state — the legacy projects.muted column is never written by muteAction or by the MCP
+// mute_finding tool, so anything reading the column reports a wholesale-muted project as unmuted.
+export function isProjectMuted(db: DrizzleDb, projectId: string, at: number): boolean {
+    const row = db
+        .select({ id: mutes.id })
+        .from(mutes)
+        .where(
+            and(
+                eq(mutes.scope, 'project'),
+                eq(mutes.projectId, projectId),
+                or(isNull(mutes.expiresAt), gt(mutes.expiresAt, at))
+            )
+        )
+        .get()
+    return Boolean(row)
+}
+
 export function insertMute(db: DrizzleDb, mute: Mute): void {
     db.insert(mutes)
         .values({
