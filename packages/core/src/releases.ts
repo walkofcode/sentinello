@@ -17,6 +17,7 @@ function stripVPrefix(value: string): string {
 // Newest first. The locale-independent version index. Adding a release = one entry here plus a
 // RELEASE_COPY entry in every locale below. See CLAUDE.md for the release-please version-sync flow.
 export const RELEASES: ReleaseEntry[] = [
+    { version: '3.1.0', date: '2026-08-13' },
     { version: '3.0.1', date: '2026-08-04' },
     { version: '3.0.0', date: '2026-08-03' },
     { version: '2.6.0', date: '2026-07-29' },
@@ -44,6 +45,16 @@ export const RELEASES: ReleaseEntry[] = [
 // this is plain TS data, not a next-intl message key (next-intl forbids '.' in keys).
 export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     en: {
+        '3.1.0': {
+            title: 'Muted findings get out of the way — and the database stops growing forever',
+            items: [
+                'A muted finding is a decision you already made, so it now leaves the project page entirely instead of sitting there greyed out. That is not just tidier: every number on the page — the heading count, both tab badges, the pagination, the per-library totals, the export button — is counted from the same rows, so the page finally agrees with the dashboard, the MCP tools and the advisory export, all of which were already leaving muted findings out. A “Show muted” toggle brings them back whenever you want them, including on a project whose findings are *all* muted',
+                'Typing in a dialog no longer loses focus after a single character. That bug made the mute dialog’s Reason field — required, and the only thing that makes a mute auditable months later — effectively impossible to fill in. The same dialog also stopped inheriting the alignment of whatever table row it was opened from, which is why muting a finding gave you a right-aligned dialog while muting a project did not',
+                'Scan history no longer grows forever. Nothing had ever deleted a scan row by age, so a project that stayed on disk accumulated one row per source per sweep indefinitely — a real instance reached 2.2 GB in under three months. Settings → Advanced now carries a retention window, 90 days by default, and the worker prunes past it hourly while always keeping the 100 most recent scans of every project. Findings, mutes and notification history are never touched; only the scan log is. At 90 days an instance upgrading into this deletes nothing on its first pass — trimming starts only once history is genuinely older than the window, or once you lower it yourself',
+                'The bulk of that growth was `npm audit`’s raw output, stored in full on every successful scan and read by nothing at all — 98.7% of that instance’s database. Scans now record a short summary instead, taking a row from roughly 79 KB to about 100 bytes, with a hard ceiling so no scanner can do this again',
+                'Over MCP, `get_dashboard_summary` now states that a project you have muted leaves its totals while `list_projects` still returns it. The two count different populations on purpose, and an agent comparing them was reading that as a bug. `list_scans` also stopped returning each scan’s raw scanner output, which could reach around 16 MB in a single response'
+            ]
+        },
         '3.0.1': {
             title: 'The gemnasium download works again — and the CLI gives the terminal back',
             items: [
@@ -198,6 +209,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Initial open-source release', items: ['The first public release of Sentinello'] }
     },
     es: {
+        '3.1.0': {
+            title: 'Los hallazgos silenciados se apartan, y la base de datos deja de crecer sin fin',
+            items: [
+                'Un hallazgo silenciado es una decisión que ya tomaste, así que ahora desaparece por completo de la página del proyecto en lugar de quedarse ahí atenuado. No es solo cuestión de orden: todos los números de la página — el recuento del encabezado, las insignias de ambas pestañas, la paginación, los totales por biblioteca, el botón de exportar — se calculan a partir de las mismas filas, así que la página por fin coincide con el panel, las herramientas MCP y la exportación de avisos, que ya dejaban fuera los hallazgos silenciados. Un interruptor «Mostrar silenciados» los devuelve cuando los necesites, incluso en un proyecto cuyos hallazgos están *todos* silenciados',
+                'Escribir en un diálogo ya no pierde el foco tras un solo carácter. Ese fallo hacía prácticamente imposible rellenar el campo Motivo del diálogo de silenciado — obligatorio, y lo único que permite auditar un silenciado meses después. El mismo diálogo también dejó de heredar la alineación de la fila de tabla desde la que se abría, que es la razón por la que silenciar un hallazgo daba un diálogo alineado a la derecha y silenciar un proyecto no',
+                'El historial de escaneos ya no crece indefinidamente. Nada había borrado nunca una fila de escaneo por antigüedad, así que un proyecto que seguía en disco acumulaba una fila por fuente y por barrido sin límite — una instancia real llegó a 2,2 GB en menos de tres meses. Ajustes → Avanzado incorpora ahora un periodo de retención, 90 días de forma predeterminada, y el worker depura más allá de ese punto cada hora conservando siempre los 100 escaneos más recientes de cada proyecto. Los hallazgos, los silenciamientos y el historial de notificaciones no se tocan nunca; solo el registro de escaneos. Con 90 días, una instancia que se actualice no borra nada en su primera pasada: la limpieza empieza cuando el historial supera de verdad ese periodo, o cuando tú lo reduces',
+                'La mayor parte de ese crecimiento era la salida en bruto de `npm audit`, guardada íntegra en cada escaneo correcto y leída por nada en absoluto: el 98,7 % de la base de datos de aquella instancia. Ahora los escaneos guardan un resumen breve, lo que reduce una fila de unos 79 KB a unos 100 bytes, con un límite máximo para que ningún escáner pueda repetirlo',
+                'En MCP, `get_dashboard_summary` indica ahora que un proyecto silenciado sale de sus totales mientras `list_projects` lo sigue devolviendo. Los dos cuentan poblaciones distintas a propósito, y un agente que los comparaba lo interpretaba como un error. `list_scans` también dejó de devolver la salida en bruto del escáner de cada escaneo, que podía alcanzar unos 16 MB en una sola respuesta'
+            ]
+        },
         '3.0.1': {
             title: 'La descarga de gemnasium vuelve a funcionar, y la CLI devuelve la terminal',
             items: [
@@ -355,6 +376,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primera versión de código abierto', items: ['El primer lanzamiento público de Sentinello'] }
     },
     fr: {
+        '3.1.0': {
+            title: 'Les résultats masqués s’effacent, et la base de données cesse de grossir sans fin',
+            items: [
+                'Un résultat masqué est une décision que vous avez déjà prise : il quitte donc entièrement la page du projet au lieu d’y rester grisé. Ce n’est pas qu’une question de propreté — tous les chiffres de la page (le total du titre, les badges des deux onglets, la pagination, les totaux par bibliothèque, le bouton d’export) sont calculés à partir des mêmes lignes, si bien que la page s’accorde enfin avec le tableau de bord, les outils MCP et l’export d’avis, qui excluaient déjà les résultats masqués. Une case « Afficher les masqués » les ramène quand vous le souhaitez, y compris sur un projet dont *tous* les résultats sont masqués',
+                'Taper dans une boîte de dialogue ne fait plus perdre le focus au bout d’un seul caractère. Ce défaut rendait le champ Motif du dialogue de masquage — obligatoire, et seul élément qui rende un masquage vérifiable des mois plus tard — pratiquement impossible à remplir. Ce même dialogue n’hérite plus non plus de l’alignement de la ligne de tableau depuis laquelle il était ouvert, ce qui explique qu’un masquage de vulnérabilité s’affichait aligné à droite alors qu’un masquage de projet non',
+                'L’historique des analyses ne grossit plus indéfiniment. Rien n’avait jamais supprimé une ligne d’analyse selon son âge : un projet resté sur le disque accumulait donc une ligne par source et par passage, sans limite — une instance réelle a atteint 2,2 Go en moins de trois mois. Paramètres → Avancé propose désormais une durée de conservation, 90 jours par défaut, et le worker purge au-delà toutes les heures en gardant toujours les 100 analyses les plus récentes de chaque projet. Les résultats, les masquages et l’historique des notifications ne sont jamais touchés ; seul le journal d’analyse l’est. À 90 jours, une instance qui se met à jour ne supprime rien lors de son premier passage : la purge ne commence que lorsque l’historique dépasse réellement cette durée, ou lorsque vous l’abaissez vous-même',
+                'L’essentiel de cette croissance venait de la sortie brute de `npm audit`, conservée intégralement à chaque analyse réussie et lue par absolument rien : 98,7 % de la base de données de cette instance. Les analyses enregistrent désormais un court résumé, ce qui fait passer une ligne d’environ 79 Ko à une centaine d’octets, avec un plafond strict pour qu’aucun scanner ne puisse recommencer',
+                'Côté MCP, `get_dashboard_summary` précise maintenant qu’un projet que vous avez masqué sort de ses totaux alors que `list_projects` le renvoie toujours. Les deux comptent volontairement des populations différentes, et un agent qui les comparait y voyait un défaut. `list_scans` a également cessé de renvoyer la sortie brute du scanner pour chaque analyse, qui pouvait atteindre environ 16 Mo dans une seule réponse'
+            ]
+        },
         '3.0.1': {
             title: 'Le téléchargement gemnasium fonctionne de nouveau, et la CLI rend la main',
             items: [
@@ -514,6 +545,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Première version open source', items: ['La première version publique de Sentinello'] }
     },
     de: {
+        '3.1.0': {
+            title: 'Stummgeschaltete Funde treten zurück — und die Datenbank wächst nicht mehr endlos',
+            items: [
+                'Ein stummgeschalteter Fund ist eine Entscheidung, die Sie bereits getroffen haben. Deshalb verschwindet er nun vollständig von der Projektseite, statt dort ausgegraut stehen zu bleiben. Das ist nicht nur aufgeräumter: Jede Zahl auf der Seite — die Überschrift, beide Tab-Badges, die Seitennummerierung, die Summen je Bibliothek, der Export-Button — wird aus denselben Zeilen berechnet. Damit stimmt die Seite endlich mit dem Dashboard, den MCP-Tools und dem Advisory-Export überein, die stummgeschaltete Funde ohnehin schon ausließen. Ein Schalter „Stummgeschaltete anzeigen“ holt sie jederzeit zurück, auch bei einem Projekt, dessen Funde *alle* stummgeschaltet sind',
+                'Beim Tippen in einem Dialog geht der Fokus nicht mehr nach einem einzigen Zeichen verloren. Dieser Fehler machte das Feld „Begründung“ im Stummschalt-Dialog praktisch unausfüllbar — obwohl es Pflicht ist und als Einziges eine Stummschaltung Monate später nachvollziehbar macht. Derselbe Dialog übernimmt außerdem nicht mehr die Ausrichtung der Tabellenzeile, aus der er geöffnet wurde: Deshalb war der Dialog beim Stummschalten eines Fundes rechtsbündig, beim Stummschalten eines Projekts dagegen nicht',
+                'Der Scan-Verlauf wächst nicht mehr unbegrenzt. Bislang hat nichts jemals eine Scan-Zeile nach Alter gelöscht, sodass ein Projekt, das auf der Platte blieb, unbegrenzt eine Zeile pro Quelle und Durchlauf ansammelte — eine reale Instanz erreichte in weniger als drei Monaten 2,2 GB. Einstellungen → Erweitert bietet nun einen Aufbewahrungszeitraum, standardmäßig 90 Tage; der Worker räumt stündlich alles Ältere ab und behält dabei immer die 100 neuesten Scans jedes Projekts. Funde, Stummschaltungen und der Benachrichtigungsverlauf bleiben unangetastet — nur das Scan-Protokoll nicht. Bei 90 Tagen löscht eine Instanz beim Update im ersten Durchlauf nichts: Bereinigt wird erst, wenn der Verlauf tatsächlich älter ist als der Zeitraum, oder wenn Sie ihn selbst verkürzen',
+                'Der Großteil dieses Wachstums war die Rohausgabe von `npm audit`, bei jedem erfolgreichen Scan vollständig gespeichert und von nichts gelesen — 98,7 % der Datenbank jener Instanz. Scans speichern nun stattdessen eine kurze Zusammenfassung, was eine Zeile von rund 79 KB auf etwa 100 Byte bringt, mit einer harten Obergrenze, damit kein Scanner das wiederholen kann',
+                'Über MCP sagt `get_dashboard_summary` jetzt, dass ein von Ihnen stummgeschaltetes Projekt aus seinen Summen herausfällt, während `list_projects` es weiterhin zurückgibt. Beide zählen absichtlich unterschiedliche Grundgesamtheiten, und ein Agent, der sie verglich, hielt das für einen Fehler. `list_scans` gibt zudem nicht mehr die Rohausgabe des Scanners je Scan zurück, die in einer einzigen Antwort rund 16 MB erreichen konnte'
+            ]
+        },
         '3.0.1': {
             title: 'Der gemnasium-Download funktioniert wieder — und die CLI gibt das Terminal frei',
             items: [
@@ -674,6 +715,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         }
     },
     'pt-BR': {
+        '3.1.0': {
+            title: 'As constatações silenciadas saem do caminho, e o banco de dados para de crescer sem fim',
+            items: [
+                'Uma constatação silenciada é uma decisão que você já tomou, então agora ela sai por completo da página do projeto em vez de ficar ali esmaecida. Não é só arrumação: todos os números da página — a contagem do título, os selos das duas abas, a paginação, os totais por biblioteca, o botão de exportar — são calculados a partir das mesmas linhas, de modo que a página finalmente concorda com o painel, com as ferramentas MCP e com a exportação de alertas, que já deixavam as silenciadas de fora. Um controle “Mostrar silenciados” as traz de volta quando você quiser, inclusive num projeto cujas constatações estão *todas* silenciadas',
+                'Digitar em uma caixa de diálogo não perde mais o foco depois de um único caractere. Esse defeito tornava praticamente impossível preencher o campo Motivo do diálogo de silenciamento — obrigatório, e a única coisa que torna um silenciamento auditável meses depois. O mesmo diálogo também deixou de herdar o alinhamento da linha de tabela de onde foi aberto, e é por isso que silenciar uma constatação produzia um diálogo alinhado à direita enquanto silenciar um projeto não',
+                'O histórico de varreduras não cresce mais para sempre. Nada jamais havia excluído uma linha de varredura por idade, então um projeto que permanecia em disco acumulava uma linha por fonte a cada passagem, indefinidamente — uma instância real chegou a 2,2 GB em menos de três meses. Configurações → Avançado agora traz um período de retenção, 90 dias por padrão, e o worker limpa o que passar disso a cada hora, sempre mantendo as 100 varreduras mais recentes de cada projeto. Constatações, silenciamentos e histórico de notificações nunca são tocados; apenas o registro de varreduras. Com 90 dias, uma instância que se atualiza não apaga nada na primeira passagem: a limpeza só começa quando o histórico realmente ultrapassa esse período, ou quando você mesmo o reduz',
+                'A maior parte desse crescimento era a saída bruta do `npm audit`, guardada por inteiro a cada varredura bem-sucedida e lida por absolutamente nada — 98,7% do banco daquela instância. As varreduras agora registram um resumo curto, o que leva uma linha de cerca de 79 KB para uns 100 bytes, com um teto rígido para que nenhum scanner repita isso',
+                'No MCP, `get_dashboard_summary` agora informa que um projeto silenciado sai dos seus totais enquanto `list_projects` continua a retorná-lo. Os dois contam populações diferentes de propósito, e um agente que os comparava lia isso como um defeito. `list_scans` também parou de devolver a saída bruta do scanner de cada varredura, que podia chegar a uns 16 MB numa única resposta'
+            ]
+        },
         '3.0.1': {
             title: 'O download do gemnasium volta a funcionar — e a CLI devolve o terminal',
             items: [
@@ -831,6 +882,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primeira versão de código aberto', items: ['O primeiro lançamento público do Sentinello'] }
     },
     it: {
+        '3.1.0': {
+            title: 'I risultati silenziati si tolgono di mezzo, e il database smette di crescere all’infinito',
+            items: [
+                'Un risultato silenziato è una decisione che hai già preso, quindi ora sparisce del tutto dalla pagina del progetto invece di restare lì in grigio. Non è solo ordine: ogni numero della pagina — il conteggio nel titolo, i badge di entrambe le schede, la paginazione, i totali per libreria, il pulsante di esportazione — viene calcolato dalle stesse righe, così la pagina finalmente concorda con la dashboard, con gli strumenti MCP e con l’esportazione degli advisory, che già escludevano i risultati silenziati. Un interruttore «Mostra silenziati» li riporta quando ti servono, anche su un progetto i cui risultati sono *tutti* silenziati',
+                'Digitare in una finestra di dialogo non fa più perdere il focus dopo un solo carattere. Quel difetto rendeva di fatto impossibile compilare il campo Motivo della finestra di silenziamento — obbligatorio, e l’unica cosa che rende un silenziamento verificabile mesi dopo. La stessa finestra ha inoltre smesso di ereditare l’allineamento della riga di tabella da cui veniva aperta: è il motivo per cui silenziare un risultato dava una finestra allineata a destra mentre silenziare un progetto no',
+                'La cronologia delle scansioni non cresce più senza fine. Niente aveva mai eliminato una riga di scansione in base all’età, quindi un progetto rimasto su disco accumulava una riga per fonte a ogni passaggio, all’infinito — un’istanza reale ha raggiunto 2,2 GB in meno di tre mesi. Impostazioni → Avanzate ora offre un periodo di conservazione, 90 giorni per impostazione predefinita, e il worker ripulisce ogni ora ciò che lo supera, mantenendo sempre le 100 scansioni più recenti di ogni progetto. Risultati, silenziamenti e cronologia delle notifiche non vengono mai toccati; solo il registro delle scansioni. A 90 giorni un’istanza che si aggiorna non cancella nulla al primo passaggio: la pulizia inizia solo quando la cronologia supera davvero quel periodo, o quando sei tu ad abbassarlo',
+                'Gran parte di quella crescita era l’output grezzo di `npm audit`, salvato per intero a ogni scansione riuscita e letto da nulla — il 98,7% del database di quell’istanza. Le scansioni ora registrano un breve riepilogo, portando una riga da circa 79 KB a un centinaio di byte, con un tetto massimo perché nessuno scanner possa ripetere la cosa',
+                'Su MCP, `get_dashboard_summary` ora dichiara che un progetto che hai silenziato esce dai suoi totali mentre `list_projects` continua a restituirlo. I due contano popolazioni diverse di proposito, e un agente che li confrontava lo leggeva come un difetto. Anche `list_scans` ha smesso di restituire l’output grezzo dello scanner per ogni scansione, che in una sola risposta poteva raggiungere circa 16 MB'
+            ]
+        },
         '3.0.1': {
             title: 'Il download di gemnasium funziona di nuovo — e la CLI restituisce il terminale',
             items: [
@@ -988,6 +1049,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Prima versione open source', items: ['La prima versione pubblica di Sentinello'] }
     },
     ja: {
+        '3.1.0': {
+            title: 'ミュートした検出結果は視界から外れ、データベースは無限には増えなくなりました',
+            items: [
+                'ミュートした検出結果は、すでにあなたが下した判断です。そのためグレー表示で残るのではなく、プロジェクトページから完全に外れるようになりました。見た目が整うだけではありません。見出しの件数、両方のタブのバッジ、ページ送り、ライブラリごとの合計、エクスポートボタン — ページ上のあらゆる数値が同じ行から算出されるため、ダッシュボード、MCP ツール、アドバイザリのエクスポート（いずれも以前からミュート分を除外していました）とページの数字がようやく一致します。「ミュート済みを表示」を切り替えればいつでも戻せます。検出結果が*すべて*ミュートされているプロジェクトでも同様です',
+                'ダイアログでの入力が、1文字でフォーカスを失うことはなくなりました。この不具合により、ミュートダイアログの「理由」欄 — 入力必須で、数か月後にミュートの妥当性を確認できる唯一の手がかり — が事実上入力不能になっていました。同じダイアログが、開いた元のテーブル行の配置を引き継ぐこともなくなりました。検出結果のミュートでは右寄せのダイアログになるのに、プロジェクトのミュートではならなかったのはこれが原因です',
+                'スキャン履歴が際限なく増えることはなくなりました。これまで古さを理由にスキャン行が削除されたことは一度もなく、ディスク上に残るプロジェクトはスイープごとにソース単位で行を無制限に積み上げていました — 実際の環境では3か月足らずで 2.2 GB に達しました。「設定 → 詳細設定」に保持期間（既定は90日）が追加され、ワーカーが毎時それより古いものを削除します。各プロジェクトの最新100件は常に保持されます。検出結果、ミュート、通知履歴が削除されることはありません。対象はスキャンログだけです。90日という既定値なら、アップデートした環境が初回実行で何かを削除することはありません。履歴が実際にその期間を超えたとき、またはご自身で短くしたときに初めて削除が始まります',
+                'その増加の大半は `npm audit` の生出力でした。成功したスキャンごとにそのまま保存されながら、どこからも読まれていません — その環境のデータベースの 98.7% がこれでした。現在は短い要約だけを記録するため、1行あたり約 79 KB から 100 バイト程度になります。上限も設けたので、どのスキャナーも同じことを繰り返せません',
+                'MCP では、ミュートしたプロジェクトが `get_dashboard_summary` の集計から外れる一方で `list_projects` は引き続き返すことを明記しました。両者は意図的に異なる母集団を数えており、それを比較したエージェントが不具合と受け取っていました。`list_scans` も各スキャンのスキャナー生出力を返さなくなりました。1回の応答で 16 MB 前後に達することがあったためです'
+            ]
+        },
         '3.0.1': {
             title: 'gemnasium のダウンロードが復旧し、CLI がターミナルを返すようになりました',
             items: [
@@ -1141,6 +1212,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '初のオープンソースリリース', items: ['Sentinello の最初の一般公開リリース'] }
     },
     'zh-CN': {
+        '3.1.0': {
+            title: '已静默的发现项彻底让位，数据库也不再无限膨胀',
+            items: [
+                '已静默的发现项是你早就做出的决定，因此它现在会完全从项目页面移除，而不是灰着留在那里。这不只是为了整洁：页面上的每一个数字——标题计数、两个标签页的角标、分页、各依赖库的合计、导出按钮——都基于同一批数据计算，页面终于与仪表盘、MCP 工具以及通告导出保持一致（后三者本来就已排除静默项）。“显示已静默项”开关可以随时把它们调回来，即使某个项目的发现项*全部*被静默也一样',
+                '在对话框中输入不会再打完一个字符就丢失焦点。这个缺陷让静默对话框的“原因”字段几乎无法填写——而它是必填项，也是几个月后追溯一次静默是否合理的唯一依据。同一个对话框也不再继承打开它的表格行的对齐方式，这正是静默某个发现项时对话框内容右对齐、而静默整个项目时却正常的原因',
+                '扫描历史不再无限增长。此前从未有任何机制按时间删除扫描记录，因此只要项目还在磁盘上，就会按来源、按每轮扫描无休止地累积记录——某个真实环境在不到三个月内达到了 2.2 GB。“设置 → 高级”中新增了保留期，默认 90 天，工作进程每小时清理超期记录，同时始终保留每个项目最近的 100 次扫描。发现项、静默设置和通知历史绝不会被删除，受影响的只有扫描日志。按 90 天的默认值，升级后的实例首次运行不会删除任何内容：只有当历史确实超过该期限，或你自己调低了它，清理才会开始',
+                '这些增长绝大部分来自 `npm audit` 的原始输出：每次成功扫描都被完整保存，却没有任何地方读取它——占了那个环境数据库的 98.7%。现在扫描只记录一份简短摘要，单条记录从约 79 KB 降到 100 字节左右，并设有硬性上限，任何扫描器都无法重演这一幕',
+                '在 MCP 方面，`get_dashboard_summary` 现在会说明：被你静默的项目会从它的合计中剔除，而 `list_projects` 仍会返回该项目。两者统计的本就是不同的范围，此前对比二者的智能体会把这当成缺陷。`list_scans` 也不再返回每次扫描的扫描器原始输出——单次响应曾可能达到约 16 MB'
+            ]
+        },
         '3.0.1': {
             title: 'gemnasium 下载恢复正常，CLI 也会正常退出',
             items: [
@@ -1274,6 +1355,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '首个开源版本', items: ['Sentinello 的首个公开发布版本'] }
     },
     ko: {
+        '3.1.0': {
+            title: '음소거한 발견 항목이 화면에서 비켜서고, 데이터베이스도 무한정 커지지 않습니다',
+            items: [
+                '음소거한 발견 항목은 이미 내린 결정입니다. 그래서 이제 흐리게 남아 있지 않고 프로젝트 페이지에서 완전히 빠집니다. 단순히 깔끔해지는 문제가 아닙니다. 제목의 건수, 두 탭의 배지, 페이지 넘김, 라이브러리별 합계, 내보내기 버튼까지 페이지의 모든 숫자가 같은 데이터에서 계산되므로, 페이지가 마침내 대시보드·MCP 도구·권고 내보내기와 일치합니다. 이 셋은 이미 음소거 항목을 제외하고 있었습니다. 필요할 때는 ‘음소거 항목 표시’로 언제든 되돌릴 수 있으며, 발견 항목이 *전부* 음소거된 프로젝트에서도 마찬가지입니다',
+                '대화상자에 입력할 때 한 글자 만에 포커스를 잃는 일이 사라졌습니다. 이 결함 때문에 음소거 대화상자의 ‘사유’ 항목을 사실상 채울 수 없었습니다. 필수 항목이자, 몇 달 뒤 그 음소거가 타당했는지 확인할 수 있는 유일한 근거인데도 말입니다. 같은 대화상자가 자신을 연 표 행의 정렬을 물려받는 문제도 해결했습니다. 발견 항목을 음소거할 때는 내용이 오른쪽으로 정렬되고 프로젝트를 음소거할 때는 그렇지 않았던 이유가 이것입니다',
+                '스캔 기록이 더 이상 끝없이 쌓이지 않습니다. 지금까지 오래됐다는 이유로 스캔 행을 지우는 장치가 전혀 없었기 때문에, 디스크에 남아 있는 프로젝트는 소스마다 매 스윕마다 행을 무한정 쌓았습니다. 실제 인스턴스는 석 달도 안 되어 2.2 GB에 이르렀습니다. 이제 설정 → 고급에 보존 기간이 있고(기본 90일), 워커가 매시간 그보다 오래된 기록을 정리하면서 프로젝트마다 최근 100건은 항상 남깁니다. 발견 항목, 음소거, 알림 기록은 절대 지워지지 않으며 대상은 스캔 로그뿐입니다. 기본값 90일이면 업그레이드한 인스턴스가 첫 실행에서 아무것도 지우지 않습니다. 기록이 실제로 그 기간을 넘어서거나 직접 값을 낮췄을 때 비로소 정리가 시작됩니다',
+                '그 증가분의 대부분은 `npm audit`의 원본 출력이었습니다. 성공한 스캔마다 통째로 저장되면서도 어디에서도 읽히지 않았고, 해당 인스턴스 데이터베이스의 98.7%를 차지했습니다. 이제 스캔은 짧은 요약만 기록하므로 한 행이 약 79 KB에서 100바이트 남짓으로 줄어듭니다. 상한선도 두어 어떤 스캐너도 같은 일을 반복할 수 없습니다',
+                'MCP에서는 `get_dashboard_summary`가 음소거한 프로젝트를 합계에서 제외하는 반면 `list_projects`는 여전히 반환한다는 점을 명시합니다. 둘은 의도적으로 서로 다른 모집단을 세며, 이를 비교한 에이전트가 결함으로 오해하고 있었습니다. `list_scans` 역시 각 스캔의 스캐너 원본 출력을 더 이상 반환하지 않습니다. 한 번의 응답이 16 MB에 이르기도 했기 때문입니다'
+            ]
+        },
         '3.0.1': {
             title: 'gemnasium 다운로드가 다시 동작하고, CLI가 터미널을 반환합니다',
             items: [
@@ -1421,6 +1512,16 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '첫 오픈 소스 릴리스', items: ['Sentinello의 첫 공개 릴리스'] }
     },
     ru: {
+        '3.1.0': {
+            title: 'Заглушённые находки уходят с глаз долой, а база данных перестаёт расти без конца',
+            items: [
+                'Заглушённая находка — это решение, которое вы уже приняли, поэтому теперь она полностью уходит со страницы проекта, а не остаётся на ней блёклой строкой. Дело не только в аккуратности: каждое число на странице — счётчик в заголовке, значки обеих вкладок, постраничная навигация, итоги по библиотекам, кнопка экспорта — считается по одним и тем же строкам, так что страница наконец согласуется с панелью, инструментами MCP и экспортом рекомендаций, которые и раньше исключали заглушённые находки. Переключатель «Показать заглушённые» возвращает их в любой момент, в том числе в проекте, где заглушены *все* находки',
+                'Ввод в диалоговом окне больше не теряет фокус после первого же символа. Из-за этой ошибки поле «Причина» в диалоге заглушения было практически невозможно заполнить — хотя оно обязательное и остаётся единственным, что позволяет разобраться в заглушении спустя месяцы. Тот же диалог перестал наследовать выравнивание строки таблицы, из которой он открыт: именно поэтому при заглушении находки диалог получался выровненным по правому краю, а при заглушении проекта — нет',
+                'История сканирований больше не растёт бесконечно. Ничто и никогда не удаляло записи сканирований по возрасту, поэтому проект, остававшийся на диске, бесконечно накапливал по строке на источник за каждый проход — реальный экземпляр дошёл до 2,2 ГБ меньше чем за три месяца. В «Настройках → Дополнительно» появился срок хранения, по умолчанию 90 дней, и воркер ежечасно удаляет всё, что старше, всегда сохраняя 100 последних сканирований каждого проекта. Находки, заглушения и история уведомлений не затрагиваются — только журнал сканирований. При 90 днях обновившийся экземпляр ничего не удалит на первом же проходе: очистка начнётся, только когда история действительно окажется старше этого срока или когда вы сами уменьшите его',
+                'Основная часть этого роста — необработанный вывод `npm audit`, который целиком сохранялся при каждом успешном сканировании и не читался ничем: 98,7 % базы данных того экземпляра. Теперь сканирования записывают краткую сводку, и строка уменьшается примерно с 79 КБ до сотни байт, а жёсткое ограничение не позволит ни одному сканеру повторить это',
+                'В MCP инструмент `get_dashboard_summary` теперь прямо сообщает, что заглушённый вами проект выпадает из его итогов, тогда как `list_projects` по-прежнему его возвращает. Они намеренно считают разные совокупности, и агент, сравнивавший их, принимал это за ошибку. `list_scans` также перестал возвращать необработанный вывод сканера по каждому сканированию, который в одном ответе мог достигать примерно 16 МБ'
+            ]
+        },
         '3.0.1': {
             title: 'Загрузка gemnasium снова работает, а CLI возвращает терминал',
             items: [
