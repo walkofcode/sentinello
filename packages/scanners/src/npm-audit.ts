@@ -329,6 +329,28 @@ async function detectYarnMajor(projectPath: string, lockfile: DetectedLockfile):
 // Emits a single stderr line per scan when the lockfile cross-check actually dropped findings.
 // Silent when zero drops, so quiet scans stay quiet. The advisory-id list is truncated to keep
 // the line readable even when an override cascades through a large dep graph.
+// What a SUCCESSFUL npm-audit run records in the scan's rawJson, in the same shape osv.ts and
+// gemnasium.ts already use. It deliberately does NOT keep the raw audit document: rawJson exists so
+// the advisory-feed sources can record per-ecosystem coverage for getProjectEcosystemCoverage to
+// parse back out (see types.ts — "npm-audit ignores it"), and npm-audit has never written a coverage
+// key, so nothing has ever read what it stored. On a real instance that unread text was averaging
+// 79 KB per row and had reached 2.1 GB — 98.7% of the entire database.
+//
+// The FAILURE paths deliberately still carry the raw output: for audit_parse_error and
+// audit_schema_mismatch it is the whole diagnostic, and those rows are tiny (the same instance held
+// 395 of them totalling under a megabyte).
+//
+// packageCount comes from the resolver graph rather than the audit document because it is the only
+// count available on BOTH the pnpm and npm/yarn branches. It is null, not 0, when the lockfile could
+// not be resolved — an unknown package count and an empty one are different facts.
+// The optional chain reaches `packages` as well as `resolvedGraph` deliberately: a graph built for
+// classification alone need not carry the package list, and a summary that throws would fail an
+// otherwise successful scan purely to record a statistic. Unknown stays null.
+function auditSummary(ctx: ScanContext, findingCount: number): string {
+    const packageCount = ctx.resolvedGraph?.packages?.length ?? null
+    return JSON.stringify({ source: SCANNER_NAME, packageCount, findingCount })
+}
+
 function logCrossCheckDrops(result: { droppedCount: number; droppedAdvisoryIds: string[] }, packageManager: string): void {
     if (result.droppedCount === 0) return
     const MAX_LIST = 10
@@ -447,7 +469,7 @@ export async function runNpmAudit(projectPath: string, ctx: ScanContext, deps: N
             status: 'ok',
             reasonCode: 'ok',
             findings: crossChecked.kept,
-            rawJson: rawText,
+            rawJson: auditSummary(ctx, crossChecked.kept.length),
             errorText: null,
             durationMs: Date.now() - startedAt
         }
@@ -477,7 +499,7 @@ export async function runNpmAudit(projectPath: string, ctx: ScanContext, deps: N
         status: 'ok',
         reasonCode: 'ok',
         findings: crossChecked.kept,
-        rawJson: rawText,
+        rawJson: auditSummary(ctx, crossChecked.kept.length),
         errorText: null,
         durationMs: Date.now() - startedAt
     }

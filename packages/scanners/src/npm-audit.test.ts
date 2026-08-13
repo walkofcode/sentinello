@@ -325,6 +325,34 @@ describe('runNpmAudit — output parsing', function () {
         expect((await runNpmAudit(await project('package-lock.json'), ctx(), deps)).rawJson).toBe('{not json')
     })
 
+    // The counterpart to the test above: a SUCCESSFUL run summarises instead of keeping the document.
+    // rawJson exists for the advisory-feed sources to record per-ecosystem coverage in (see types.ts —
+    // "npm-audit ignores it"), so npm-audit's copy of the raw audit output was never read by anything.
+    // On a real instance it averaged 79 KB a row and had grown to 2.1 GB.
+    it('summarises a successful run rather than storing the raw audit document', async function () {
+        const { deps } = fakeSpawn({ stdout: MODERN_AUDIT })
+
+        const result = await runNpmAudit(await project('package-lock.json'), ctx(), deps)
+
+        expect(result.status).toBe('ok')
+        expect(result.rawJson).not.toContain('vulnerabilities')
+        expect(JSON.parse(result.rawJson)).toEqual({
+            source: 'npm-audit',
+            packageCount: null,
+            findingCount: result.findings.length
+        })
+    })
+
+    // null rather than 0: the resolver graph is absent for an unresolvable lockfile, and "we could not
+    // count the packages" is a different fact from "there are none".
+    it('records an unknown package count as null when the lockfile could not be resolved', async function () {
+        const { deps } = fakeSpawn({ stdout: JSON.stringify({ vulnerabilities: {} }) })
+
+        const result = await runNpmAudit(await project('package-lock.json'), ctx(), deps)
+
+        expect(JSON.parse(result.rawJson).packageCount).toBeNull()
+    })
+
     // npm 6's {actions, advisories} shape looks superficially like pnpm's. Under an npm lockfile it
     // must be rejected rather than parsed with the wrong schema.
     it('rejects the legacy npm 6 shape under an npm lockfile', async function () {
