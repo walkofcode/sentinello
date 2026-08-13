@@ -459,6 +459,16 @@ effect within ~5s — no container restart required.
   separate rebuildable `gemnasium.db` cache. Both caches are stored apart from
   `sentinello.sqlite` and are safe to delete — size the volume with the enabled
   sources in mind.
+
+  `sentinello.sqlite` itself grows with **scan history** — one row per project,
+  per source, per ecosystem, per sweep. On a busy instance that outgrows the
+  advisory caches: 45 projects on an hourly cadence produce roughly 3k rows a day.
+  It is bounded by **Settings → Advanced → Scan history retention**, which
+  defaults to **90 days**; the worker prunes past that hourly, always keeping the
+  100 most recent scans of every project regardless of age. Findings, mutes and
+  notification history are never pruned — only the scan log. Note that SQLite does
+  not return freed pages to the filesystem, so the file stops growing rather than
+  shrinking; it reuses that space for new scans.
 - `/home/sentinello/.nvm` — Node versions installed on demand by `nvm` for
   projects that pin one via `.nvmrc`. Persist it so each version downloads only
   once (the image's baked-in Node 24.14.0 is seeded into the volume on first

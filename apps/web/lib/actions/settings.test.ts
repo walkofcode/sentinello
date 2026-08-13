@@ -716,7 +716,8 @@ describe('updateAdvancedSettingsAction', function () {
         watcherEnabled: true,
         watcherRoots: ['/srv/code'],
         globalIgnore: ['**/dist/**'],
-        dryRunNotify: false
+        dryRunNotify: false,
+        scanRetentionDays: 90
     }
 
     it('persists each setting under its own key', async function () {
@@ -727,6 +728,19 @@ describe('updateAdvancedSettingsAction', function () {
         expect(getConfigValue(handle.db, 'watcherRoots')).toEqual(['/srv/code'])
         expect(getConfigValue(handle.db, 'globalIgnore')).toEqual(['**/dist/**'])
         expect(getConfigValue(handle.db, 'dryRunNotify')).toBe(false)
+        expect(getConfigValue(handle.db, 'scanRetentionDays')).toBe(90)
+    })
+
+    // The window drives an irreversible delete, so the bounds are validation rather than decoration:
+    // a typo'd 0 or 1 would discard scan history nobody can get back.
+    it.each([[0], [6], [3651], [30.5]])('rejects a scan retention of %s days', async function (scanRetentionDays) {
+        expect(await rejection(updateAdvancedSettingsAction({ ...base, scanRetentionDays }))).toContain(
+            'scanRetentionDays'
+        )
+    })
+
+    it.each([[7], [3650]])('accepts a scan retention of %i days at the boundary', async function (scanRetentionDays) {
+        await expect(updateAdvancedSettingsAction({ ...base, scanRetentionDays })).resolves.toEqual({ ok: true })
     })
 
     it.each([[0], [65], [2.5]])('rejects a parallelism of %s', async function (parallelism) {
