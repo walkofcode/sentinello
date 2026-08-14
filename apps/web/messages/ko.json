@@ -563,7 +563,7 @@
         "whoTitle": "제작자",
         "whoBody": "<company>Walk of Code LLC</company>와 Sebastian Arena가 제작했습니다 (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "권고 데이터의 출처",
-        "advisoryBody": "취약점 데이터는 GitHub Advisory Database에서 비롯되며, JavaScript의 경우 <code>npm audit</code>를 통해 npm 레지스트리의 권고 엔드포인트로 접근합니다. 또한 언어별로 OSV와 GitLab gemnasium을 활성화하여(설정 → 소스) JavaScript, Python, Go, Rust 패키지를 이러한 공개 권고 데이터베이스와 대조할 수 있습니다 — npm audit가 놓치는 권고를 찾아내고 알려진 악성 패키지를 표시합니다. JavaScript 이외의 언어는 lockfile에서 오프라인으로 해석되어 로컬에 캐시된 권고와 대조됩니다. 모호한 매니페스트는 정상으로 처리되지 않고 부분적 또는 감사 불가로 보고됩니다.",
+        "advisoryBody": "취약점 데이터는 GitHub Advisory Database에서 비롯되며, JavaScript의 경우 <code>npm audit</code>를 통해 npm 레지스트리의 권고 엔드포인트로 접근합니다. 또한 언어별로 OSV와 GitLab gemnasium을 활성화하여(설정 → 소스) JavaScript, Python, Go, Rust 패키지를 이러한 공개 권고 데이터베이스와 대조할 수 있습니다 — npm audit가 놓치는 권고를 찾아내고 알려진 악성 패키지를 표시합니다. JavaScript 이외의 언어는 lockfile에서 오프라인으로 해석되어 로컬에 캐시된 권고와 대조됩니다. 모호한 매니페스트는 정상으로 처리되지 않고 부분적 또는 감사 불가로 보고됩니다. 일부 gemnasium 레코드에는 기계가 읽을 수 있는 버전 범위가 없습니다. Sentinello는 다른 식별자로 게시된 동일한 권고, 권고 본문, 또는 OSV를 활성화한 경우에 한해 로컬에 캐시된 OSV 데이터에서 범위를 복구하며, 어느 것으로도 해결되지 않으면 추측하지 않고 해당 레코드를 폐기합니다.",
         "sendsTitle": "Sentinello가 외부로 보내는 것",
         "tableDestination": "대상",
         "tablePurpose": "목적",

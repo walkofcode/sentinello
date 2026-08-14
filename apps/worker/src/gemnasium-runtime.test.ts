@@ -48,7 +48,13 @@ vi.mock('node-cron', function mockNodeCron() {
 const sync = vi.hoisted(function makeSyncDouble() {
     return {
         feedDisabled: false,
-        syncGemnasium: vi.fn(async function syncGemnasium() {
+        // The parameters are declared even though the double ignores them: without them the mock's call
+        // tuple is empty and assertions about the third argument (the range-recovery deps) cannot type.
+        syncGemnasium: vi.fn(async function syncGemnasium(
+            _db: unknown,
+            _abortSignal?: unknown,
+            _resolveDeps?: { osvRanges?: (ecosystem: string, packageName: string, ids: string[]) => unknown }
+        ) {
             return { status: 'ok', upserted: 0, recordCount: 0, message: null }
         }),
         checkGemnasiumFreeSpace: vi.fn(async function checkGemnasiumFreeSpace() {
@@ -80,6 +86,10 @@ let priorEnv: string | undefined
 
 function enable(ecosystem: string, on = true): void {
     setConfigValue(handle.db, sourceEnabledKey('gemnasium' as never, ecosystem as never), on)
+}
+
+function enableOsv(ecosystem: string, on = true): void {
+    setConfigValue(handle.db, sourceEnabledKey('osv' as never, ecosystem as never), on)
 }
 
 function status(): unknown {
@@ -363,7 +373,32 @@ describe('runSync', function () {
     it('always delegates to the sync module, seeded or not', async function () {
         setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.seedComplete, true)
         await runSync(handle.db, cache.db, runtime)
-        expect(sync.syncGemnasium).toHaveBeenCalledWith(cache.db, runtime.abortController.signal)
+        expect(sync.syncGemnasium).toHaveBeenCalledWith(cache.db, runtime.abortController.signal, expect.any(Object))
+    })
+
+    // The OSV cache is the last tier of gemnasium's range recovery and it is strictly optional. With no
+    // (osv, ecosystem) cell enabled the tier must not be wired up at all — no OSV lookup is handed to the
+    // sync, so a record no sibling or prose could resolve is dropped rather than guessed at.
+    it('passes no OSV lookup when the OSV source is disabled', async function () {
+        await runSync(handle.db, cache.db, runtime)
+        const deps = sync.syncGemnasium.mock.calls[0]?.[2]
+        expect(deps?.osvRanges).toBeUndefined()
+    })
+
+    it('wires the OSV lookup in once any OSV cell is enabled', async function () {
+        enableOsv('npm')
+        await runSync(handle.db, cache.db, runtime)
+        const deps = sync.syncGemnasium.mock.calls[0]?.[2]
+        expect(typeof deps?.osvRanges).toBe('function')
+    })
+
+    // Per-cell, not per-source: an operator with OSV on for npm and off for PyPI must not have a PyPI
+    // gemnasium record resolved out of the PyPI OSV cache.
+    it('refuses the OSV tier for an ecosystem whose OSV cell is off', async function () {
+        enableOsv('npm')
+        await runSync(handle.db, cache.db, runtime)
+        const deps = sync.syncGemnasium.mock.calls[0]?.[2]
+        expect(deps?.osvRanges?.('PyPI', 'django', ['CVE-1'])).toBeNull()
     })
 
     it('mirrors the resulting status with the free-space reading', async function () {

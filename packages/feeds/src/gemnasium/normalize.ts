@@ -1,4 +1,4 @@
-import type { GemnasiumAdvisoryRow, GemnasiumRange } from '@sentinello/core'
+import type { GemnasiumAdvisoryRow, GemnasiumRange, GemnasiumRangeSource } from '@sentinello/core'
 import { severityFromCvss } from './cvss'
 
 // Parses a single gemnasium-db advisory (one *.yml file, already YAML-parsed to an object) into the
@@ -45,9 +45,16 @@ export function normalizeGemnasiumRecord(record: unknown, ecosystem: string, slu
     if (!advisoryId) return []
 
     const fixedVersions = stringArray(r.fixed_versions)
-    const parsed = parseAffectedRange(typeof r.affected_range === 'string' ? r.affected_range : '', fixedVersions)
-    // A record we can't match on at all (no range AND no enumerated version) is not worth caching.
-    if (parsed.ranges.length === 0 && parsed.versions.length === 0) return []
+    const parsed = parseAffectedRange(
+        typeof r.affected_range === 'string' ? r.affected_range : '',
+        fixedVersions,
+        typeof r.affected_versions === 'string' ? r.affected_versions : ''
+    )
+    // An 'unresolved' row carries no ranges and no versions, so it can never match anything — but it IS
+    // cached, because the worker's resolution pass needs to see it to recover a range from a sibling
+    // advisory or the OSV cache (and to delete it when neither can). Dropping it here instead, as this
+    // used to, is what left the fabricated-range path as the only way such a record ever matched.
+    if (parsed.source !== 'unresolved' && parsed.ranges.length === 0 && parsed.versions.length === 0) return []
 
     const severity = severityFromCvss(
         typeof r.cvss_v3 === 'string' ? r.cvss_v3 : null,
@@ -73,13 +80,15 @@ export function normalizeGemnasiumRecord(record: unknown, ecosystem: string, slu
         summary,
         url,
         malicious: false,
-        withdrawn: null
+        withdrawn: null,
+        rangeSource: parsed.source
     }]
 }
 
 type ParsedRange = {
     ranges: GemnasiumRange[]
     versions: string[]
+    source: GemnasiumRangeSource
 }
 
 // Maps gemnasium's machine-readable `affected_range` (+ the authoritative `fixed_versions`) into the
@@ -87,21 +96,35 @@ type ParsedRange = {
 //   - semver comparator form:  "<4.17.12", ">=4.0.0 <4.0.1", ">=1 <2 || >=3 <4"
 //   - maven-style interval notation: "(,4.1.2)", "[1.0.0,2.0.0)", "[1.0.0,)"
 //   - bare/"=" exact versions → enumerated `versions`
-// `||` separates disjoint ranges. When a single disjoint range is produced and a fixed version is known,
-// the authoritative `fixed_versions[0]` overrides the parsed upper bound (correctly handling `<=X`, where
-// the first fixed version is X's successor, which the comparator string can't express).
-export function parseAffectedRange(affectedRange: string, fixedVersions: string[]): ParsedRange {
+// `||` separates disjoint ranges.
+//
+// TWO rules here exist specifically to stop the parser inventing an affected set it was never given:
+//
+// 1. `affected_range: "<0"` is gemnasium's sentinel for "this record has NO machine-readable range" — it
+//    is the empty set by construction (nothing is below version 0), not a range that happens to be small.
+//    It appears on 698 of 10,777 npm advisories, almost always a GHSA-keyed stub whose CVE-keyed twin in
+//    the same package directory carries the real range. Such a record resolves to 'unresolved' and the
+//    recovery tiers take over; it must NEVER be widened into a real interval.
+//
+// 2. The authoritative-fixed override applies ONLY when `fixed_versions` holds exactly one entry.
+//    `fixed_versions` is an UNORDERED set with one fix per release branch, so `fixed_versions[0]` on a
+//    multi-branch advisory is an arbitrary pick — and pairing it with a single `[0, …)` interval claims
+//    every version below some other branch's fix is vulnerable. That is precisely how protobufjs
+//    GHSA-xq3m-2v4x-88gg (`fixed_versions: ["8.0.1", "7.5.5"]`) became `[0, 8.0.1)` and reported the
+//    fully-patched 7.6.5 as a critical RCE. With one entry the override is still right and still needed:
+//    it is the only way to express `<=X`, whose fix is X's successor.
+//
+//    The count check costs one record across the whole multi-ecosystem database: npm/sauce-connect-launcher
+//    GMS-2014-4 is `<=0.3.3` with `fixed_versions: ["0.3.5", "0.4.0"]`, so it now stores [0, 0.3.3) and
+//    under-includes 0.3.3 and 0.3.4. Repairing that properly needs a version comparator here — picking the
+//    lowest fix above the parsed bound — which the feeds layer deliberately does not carry. Under-including
+//    two patch versions of one dormant package is the acceptable side of this trade; the alternative is the
+//    arbitrary pick that produced the false criticals above.
+export function parseAffectedRange(affectedRange: string, fixedVersions: string[], affectedVersions: string = ''): ParsedRange {
     const ranges: GemnasiumRange[] = []
     const versions: string[] = []
     const trimmed = affectedRange.trim()
     const disjuncts = trimmed.length > 0 ? trimmed.split('||').map(trimToken).filter(nonEmpty) : []
-
-    if (disjuncts.length === 0) {
-        // No machine-readable range. If a fix is known, assume "everything before the fix is affected".
-        const fixed = fixedVersions[0]
-        if (fixed !== undefined) return { ranges: [{ introduced: '0', fixed }], versions }
-        return { ranges, versions }
-    }
 
     for (const disjunct of disjuncts) {
         const interval = parseDisjunct(disjunct)
@@ -113,14 +136,83 @@ export function parseAffectedRange(affectedRange: string, fixedVersions: string[
         }
     }
 
-    // Single range + a known fixed version: trust the authoritative fixed boundary over the parsed upper.
+    // Every parsed interval is empty (the `<0` sentinel, or anything else that matches no version), or
+    // there was no range to parse at all. Either way this record states no affected set — fall through to
+    // the prose, and failing that hand it to the resolution pass as 'unresolved'.
+    if (versions.length === 0 && ranges.every(isEmptyInterval)) {
+        const prose = parseAffectedVersionsProse(affectedVersions)
+        if (prose) return { ranges: prose, versions, source: 'prose' }
+        return { ranges: [], versions: [], source: 'unresolved' }
+    }
+
+    // Single range + exactly one known fixed version: trust the authoritative fixed boundary over the
+    // parsed upper bound. See rule 2 above for why the count check is load-bearing.
     const only = ranges[0]
     const authoritativeFixed = fixedVersions[0]
-    if (ranges.length === 1 && versions.length === 0 && only && authoritativeFixed !== undefined) {
+    if (ranges.length === 1 && versions.length === 0 && only && fixedVersions.length === 1 && authoritativeFixed !== undefined) {
         ranges[0] = { introduced: only.introduced, fixed: authoritativeFixed }
     }
 
-    return { ranges, versions }
+    return { ranges, versions, source: 'range' }
+}
+
+// An interval that can never match: an explicit upper bound at or below the lower bound. `<0` parses to
+// {introduced: '0', fixed: '0'} and lands here, as does the `<0.0.0` spelling of the same sentinel and any
+// other degenerate bound upstream may emit.
+function isEmptyInterval(range: GemnasiumRange): boolean {
+    if (range.fixed === null) return false
+    if (range.fixed === range.introduced) return true
+    return isZeroVersion(range.introduced) && isZeroVersion(range.fixed)
+}
+
+// "0", "0.0", "0.0.0" — the bottom of the version space however upstream spelled it.
+function isZeroVersion(version: string): boolean {
+    return /^0(\.0)*$/.test(version)
+}
+
+// gemnasium generates `affected_versions` from the same source data as `affected_range`, as one sentence
+// of comma-separated clauses: "All versions before 7.5.5, all versions starting from 8.0.0 before 8.0.1".
+// Where a record has BOTH, the two agree on 6,383 of 6,705 npm advisories and the remaining differences
+// are the `>=0.0.0-alpha` family, where "All versions" and ">= the lowest possible version" describe the
+// same set — so the prose is a sound fallback for the records that have no machine range at all.
+//
+// Parsing is deliberately all-or-nothing: ONE unrecognised clause discards the whole sentence rather than
+// yielding a partial affected set, because a dropped clause is a silently missed vulnerable range. Notably
+// "All versions up to X" is NOT handled — "up to" is an INCLUSIVE bound that the half-open [introduced,
+// fixed) shape cannot express without inventing X's successor, so those records stay unresolved and let a
+// sibling or OSV answer instead of guessing.
+export function parseAffectedVersionsProse(text: string): GemnasiumRange[] | null {
+    const sentence = text.replace(/\s+/g, ' ').trim()
+    if (sentence.length === 0) return null
+    const lower = sentence.toLowerCase()
+    // Explicit "nothing here" phrasings upstream uses in place of an affected set.
+    if (lower === 'none' || lower.startsWith('no version') || lower.startsWith('this advisory has been withdrawn')) return null
+
+    const out: GemnasiumRange[] = []
+    for (const clause of sentence.split(',')) {
+        const c = clause.trim()
+        const fromBefore = /^all versions starting from (\S+) before (\S+)$/i.exec(c)
+        if (fromBefore && fromBefore[1] && fromBefore[2]) {
+            out.push({ introduced: stripV(fromBefore[1]), fixed: stripV(fromBefore[2]) })
+            continue
+        }
+        const before = /^all versions before (\S+)$/i.exec(c)
+        if (before && before[1]) {
+            out.push({ introduced: '0', fixed: stripV(before[1]) })
+            continue
+        }
+        const from = /^all versions starting from (\S+)$/i.exec(c)
+        if (from && from[1]) {
+            out.push({ introduced: stripV(from[1]), fixed: null })
+            continue
+        }
+        if (/^all versions$/i.test(c)) {
+            out.push({ introduced: '0', fixed: null })
+            continue
+        }
+        return null
+    }
+    return out.length > 0 ? out : null
 }
 
 type Disjunct = {

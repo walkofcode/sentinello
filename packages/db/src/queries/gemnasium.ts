@@ -1,5 +1,10 @@
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
-import { GEMNASIUM_NORMALIZER_VERSION, type GemnasiumAdvisoryRow, type GemnasiumRange } from '@sentinello/core'
+import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm'
+import {
+    GEMNASIUM_NORMALIZER_VERSION,
+    type GemnasiumAdvisoryRow,
+    type GemnasiumRange,
+    type GemnasiumRangeSource
+} from '@sentinello/core'
 import type { GemnasiumDrizzleDb } from '../gemnasium-client'
 import { gemnasiumAdvisories, gemnasiumMeta } from '../gemnasium-schema'
 
@@ -7,7 +12,7 @@ import { gemnasiumAdvisories, gemnasiumMeta } from '../gemnasium-schema'
 // linking the SQLite layer (see packages/core/src/advisory-rows.ts). Re-exported here under their
 // historical names — every `from '@sentinello/db'` import site is unchanged, and the column mapping
 // below stays this module's business.
-export type { GemnasiumAdvisoryRow, GemnasiumRange }
+export type { GemnasiumAdvisoryRow, GemnasiumRange, GemnasiumRangeSource }
 
 export function gemnasiumRowKeyFor(advisoryId: string, ecosystem: string, packageName: string): string {
     return advisoryId + '|' + ecosystem + '|' + packageName
@@ -28,7 +33,8 @@ function toInsertRow(row: GemnasiumAdvisoryRow): InsertRow {
         summary: row.summary,
         url: row.url,
         malicious: row.malicious,
-        withdrawn: row.withdrawn
+        withdrawn: row.withdrawn,
+        rangeSource: row.rangeSource
     }
 }
 
@@ -46,7 +52,8 @@ function fromSelectRow(row: SelectRow): GemnasiumAdvisoryRow {
         summary: row.summary,
         url: row.url,
         malicious: row.malicious,
-        withdrawn: row.withdrawn
+        withdrawn: row.withdrawn,
+        rangeSource: parseRangeSource(row.rangeSource)
     }
 }
 
@@ -69,7 +76,8 @@ export function upsertGemnasiumAdvisories(db: GemnasiumDrizzleDb, rows: Gemnasiu
                         summary: values.summary,
                         url: values.url,
                         malicious: values.malicious,
-                        withdrawn: values.withdrawn
+                        withdrawn: values.withdrawn,
+                        rangeSource: values.rangeSource
                     }
                 })
                 .run()
@@ -121,6 +129,10 @@ export function deleteGemnasiumAdvisories(db: GemnasiumDrizzleDb, advisoryIds: s
 // Look up all advisories affecting any of the given package names in one ecosystem. Returns a Map
 // keyed by package name so the scanner can join against its resolved-package list. The `withdrawn`
 // filter is a structural mirror of the OSV lookup (gemnasium rows are always non-withdrawn).
+//
+// 'unresolved' rows are excluded. They carry no ranges so the matcher would ignore them anyway, but
+// filtering here keeps a record that states no affected set out of the scanner's input entirely rather
+// than relying on a downstream no-op.
 export function lookupGemnasiumByPackages(
     db: GemnasiumDrizzleDb,
     ecosystem: string,
@@ -138,7 +150,8 @@ export function lookupGemnasiumByPackages(
                 and(
                     eq(gemnasiumAdvisories.ecosystem, ecosystem),
                     inArray(gemnasiumAdvisories.packageName, slice),
-                    isNull(gemnasiumAdvisories.withdrawn)
+                    isNull(gemnasiumAdvisories.withdrawn),
+                    ne(gemnasiumAdvisories.rangeSource, 'unresolved')
                 )
             )
             .all()
@@ -158,6 +171,80 @@ export function lookupGemnasiumByPackages(
 export function countGemnasiumAdvisories(db: GemnasiumDrizzleDb): number {
     const row = db.select({ count: sql<number>`count(*)` }).from(gemnasiumAdvisories).get()
     return row?.count ?? 0
+}
+
+// --- range recovery for records that ship no machine-readable range ---
+
+// Every row whose range still wants improving: 'unresolved' (no range at all yet) and 'prose' (a range
+// read out of the generated sentence, which a sibling advisory's real range should outrank). Rows already
+// sourced from 'range' — or from a previous pass's 'sibling'/'osv' — are final and never revisited.
+export function listGemnasiumRowsNeedingRanges(db: GemnasiumDrizzleDb): GemnasiumAdvisoryRow[] {
+    return db
+        .select()
+        .from(gemnasiumAdvisories)
+        .where(inArray(gemnasiumAdvisories.rangeSource, ['unresolved', 'prose']))
+        .all()
+        .map(fromSelectRow)
+}
+
+// Candidate sibling advisories for one package: every row for that (ecosystem, packageName) that carries a
+// real machine-readable range. The caller picks the one whose `aliases` cross-reference the row being
+// resolved — that is the CVE-keyed twin of a GHSA-keyed stub.
+export function listGemnasiumSiblingCandidates(
+    db: GemnasiumDrizzleDb,
+    ecosystem: string,
+    packageName: string
+): GemnasiumAdvisoryRow[] {
+    return db
+        .select()
+        .from(gemnasiumAdvisories)
+        .where(
+            and(
+                eq(gemnasiumAdvisories.ecosystem, ecosystem),
+                eq(gemnasiumAdvisories.packageName, packageName),
+                eq(gemnasiumAdvisories.rangeSource, 'range')
+            )
+        )
+        .all()
+        .map(fromSelectRow)
+}
+
+export type GemnasiumRangeResolution = {
+    rowKey: string
+    ranges: GemnasiumRange[]
+    rangeSource: GemnasiumRangeSource
+}
+
+// Write recovered ranges back. Batched in one transaction — the resolution pass touches on the order of a
+// thousand rows after a full re-seed and far fewer after an incremental catch-up.
+export function applyGemnasiumRangeResolutions(db: GemnasiumDrizzleDb, resolutions: GemnasiumRangeResolution[]): number {
+    if (resolutions.length === 0) return 0
+    db.transaction(function txn(tx) {
+        for (const resolution of resolutions) {
+            tx.update(gemnasiumAdvisories)
+                .set({ rangesJson: JSON.stringify(resolution.ranges), rangeSource: resolution.rangeSource })
+                .where(eq(gemnasiumAdvisories.rowKey, resolution.rowKey))
+                .run()
+        }
+    })
+    return resolutions.length
+}
+
+// Drop the rows no tier could recover a range for. Deleting is the point: an advisory whose affected set
+// we cannot establish must not be guessed at, and leaving it cached as a permanently-inert row would only
+// inflate the record count the operator sees in Settings → Sources.
+export function deleteGemnasiumRowsByKey(db: GemnasiumDrizzleDb, rowKeys: string[]): number {
+    if (rowKeys.length === 0) return 0
+    const CHUNK = 500
+    let deleted = 0
+    db.transaction(function txn(tx) {
+        for (let i = 0; i < rowKeys.length; i += CHUNK) {
+            const slice = rowKeys.slice(i, i + CHUNK)
+            const result = tx.delete(gemnasiumAdvisories).where(inArray(gemnasiumAdvisories.rowKey, slice)).run()
+            deleted += result.changes
+        }
+    })
+    return deleted
 }
 
 // --- gemnasium_meta key/value helpers (sync cursor, seed flag, counts) ---
@@ -206,6 +293,14 @@ function parseStringArray(json: string): string[] {
     return parsed.filter(function isString(v): v is string {
         return typeof v === 'string'
     })
+}
+
+// The column is plain text (SQLite has no enum), so an unrecognised value — a hand-edited cache, or a row
+// written by a newer build — reads as 'range' rather than corrupting the union. That is the safe default:
+// it means "leave this row's ranges alone", never "widen them".
+function parseRangeSource(value: string): GemnasiumRangeSource {
+    if (value === 'prose' || value === 'sibling' || value === 'osv' || value === 'unresolved') return value
+    return 'range'
 }
 
 function parseRanges(json: string): GemnasiumRange[] {

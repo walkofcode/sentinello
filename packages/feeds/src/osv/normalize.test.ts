@@ -51,7 +51,9 @@ describe('normalizeOsvRecord — record gating', function () {
         expect(rows).toEqual([])
     })
 
-    it('collapses a package listed twice into one row', function () {
+    // One row, but carrying BOTH entries' affected sets. This used to assert only the row count, which is
+    // why it stayed green while the second entry's versions were being thrown away.
+    it('collapses a package listed twice into one row and keeps both affected sets', function () {
         const rows = normalizeOsvRecord(
             record({
                 affected: [
@@ -62,6 +64,7 @@ describe('normalizeOsvRecord — record gating', function () {
             'npm'
         )
         expect(rows).toHaveLength(1)
+        expect(rows[0]?.versions).toEqual(['1.0.0', '2.0.0'])
     })
 
     // Without a range or an enumerated version there is nothing to match on, so a plain advisory is
@@ -70,6 +73,100 @@ describe('normalizeOsvRecord — record gating', function () {
         const empty = { affected: [{ package: { name: 'lodash', ecosystem: 'npm' } }] }
         expect(normalizeOsvRecord({ id: 'GHSA-1', ...empty }, 'npm')).toEqual([])
         expect(normalizeOsvRecord({ id: 'MAL-1', ...empty }, 'npm')).toHaveLength(1)
+    })
+
+    // The emptiness check has to run AFTER the merge. An entry carrying only a package name followed by
+    // one carrying the ranges is a single package whose affected set arrives in pieces; testing the first
+    // entry alone would discard the advisory before its ranges were ever seen.
+    it('keeps a package whose affected set arrives on a later entry', function () {
+        const rows = normalizeOsvRecord(
+            record({
+                affected: [
+                    { package: { name: 'lodash', ecosystem: 'npm' } },
+                    {
+                        package: { name: 'lodash', ecosystem: 'npm' },
+                        ranges: [{ type: 'SEMVER', events: [{ introduced: '1.0.0' }, { fixed: '2.0.0' }] }]
+                    }
+                ]
+            }),
+            'npm'
+        )
+        expect(rows).toHaveLength(1)
+        expect(rows[0]?.ranges).toHaveLength(1)
+    })
+})
+
+// REGRESSION — OSV expresses a per-release-branch fix as one `affected` entry PER BRANCH for the same
+// package. The normalizer used to keep the first and `continue` past the rest, discarding 1,927 vulnerable
+// intervals across the npm export alone. Every one of those is a false NEGATIVE: a real vulnerability the
+// scanner could no longer see. Emitting one row per entry would not have helped either — the row key is
+// (advisoryId, ecosystem, packageName), so they would collide on upsert and one branch would still win.
+describe('normalizeOsvRecord — multi-branch advisories', function () {
+    // npm/minimatch GHSA-23c5-xmqv-rm74, verbatim: eight branches, of which only [10.0.0, 10.2.3) survived.
+    // A minimatch 3.0.4 or 9.0.0 install went unreported.
+    it('merges every branch of a real eight-entry advisory', function () {
+        const branches: [string, string][] = [
+            ['10.0.0', '10.2.3'],
+            ['9.0.0', '9.0.7'],
+            ['8.0.0', '8.0.6'],
+            ['7.0.0', '7.4.8'],
+            ['6.0.0', '6.2.2'],
+            ['5.0.0', '5.1.8'],
+            ['4.0.0', '4.2.5'],
+            ['0', '3.1.4']
+        ]
+        const rows = normalizeOsvRecord({
+            id: 'GHSA-23c5-xmqv-rm74',
+            affected: branches.map(function toEntry(branch) {
+                return {
+                    package: { name: 'minimatch', ecosystem: 'npm' },
+                    ranges: [{ type: 'SEMVER', events: [{ introduced: branch[0] }, { fixed: branch[1] }] }]
+                }
+            })
+        }, 'npm')
+        expect(rows).toHaveLength(1)
+        expect(rows[0]?.ranges).toHaveLength(8)
+        expect(rows[0]?.ranges).toContainEqual({ type: 'SEMVER', introduced: '0', fixed: '3.1.4', lastAffected: null })
+        expect(rows[0]?.ranges).toContainEqual({ type: 'SEMVER', introduced: '9.0.0', fixed: '9.0.7', lastAffected: null })
+    })
+
+    // npm/protobufjs GHSA-xq3m-2v4x-88gg — the same advisory whose gemnasium twin produced the false
+    // positive, failing in the opposite direction here: OSV kept only the 8.x branch, so a genuinely
+    // vulnerable protobufjs 7.0.0 was never reported.
+    it('keeps both branches of the protobufjs advisory', function () {
+        const rows = normalizeOsvRecord({
+            id: 'GHSA-xq3m-2v4x-88gg',
+            aliases: ['CVE-2026-41242'],
+            affected: [
+                {
+                    package: { name: 'protobufjs', ecosystem: 'npm' },
+                    ranges: [{ type: 'SEMVER', events: [{ introduced: '8.0.0' }, { fixed: '8.0.1' }] }]
+                },
+                {
+                    package: { name: 'protobufjs', ecosystem: 'npm' },
+                    ranges: [{ type: 'SEMVER', events: [{ introduced: '0' }, { fixed: '7.5.5' }] }]
+                }
+            ]
+        }, 'npm')
+        expect(rows[0]?.ranges).toEqual([
+            { type: 'SEMVER', introduced: '8.0.0', fixed: '8.0.1', lastAffected: null },
+            { type: 'SEMVER', introduced: '0', fixed: '7.5.5', lastAffected: null }
+        ])
+    })
+
+    // Merging is per package, not per record: two different packages in one advisory stay two rows.
+    it('does not merge across different packages', function () {
+        const rows = normalizeOsvRecord(
+            record({
+                affected: [
+                    { package: { name: 'lodash', ecosystem: 'npm' }, versions: ['1.0.0'] },
+                    { package: { name: 'underscore', ecosystem: 'npm' }, versions: ['2.0.0'] }
+                ]
+            }),
+            'npm'
+        )
+        expect(rows).toHaveLength(2)
+        expect(rows.map(function name(r) { return r.packageName })).toEqual(['lodash', 'underscore'])
     })
 })
 

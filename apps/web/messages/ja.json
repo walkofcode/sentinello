@@ -563,7 +563,7 @@
         "whoTitle": "開発者",
         "whoBody": "<company>Walk of Code LLC</company> および Sebastian Arena（<linkedin>LinkedIn</linkedin>）によって開発されました。",
         "advisoryTitle": "アドバイザリデータの出所",
-        "advisoryBody": "脆弱性データは GitHub Advisory Database に由来し、JavaScript については <code>npm audit</code> を介して npm レジストリのアドバイザリエンドポイント経由で取得されます。さらに、言語ごとに OSV と GitLab の gemnasium を有効にして（設定 → ソース）、JavaScript、Python、Go、Rust のパッケージをこれらの公開アドバイザリデータベースと照合できます。これにより npm audit が見落とすアドバイザリを検出し、既知の悪意あるパッケージを警告します。JavaScript 以外の言語はロックファイルからオフラインで解決され、ローカルにキャッシュされたアドバイザリと照合されます。あいまいなマニフェストは正常として扱うのではなく、部分的または監査不可として報告されます。",
+        "advisoryBody": "脆弱性データは GitHub Advisory Database に由来し、JavaScript については <code>npm audit</code> を介して npm レジストリのアドバイザリエンドポイント経由で取得されます。さらに、言語ごとに OSV と GitLab の gemnasium を有効にして（設定 → ソース）、JavaScript、Python、Go、Rust のパッケージをこれらの公開アドバイザリデータベースと照合できます。これにより npm audit が見落とすアドバイザリを検出し、既知の悪意あるパッケージを警告します。JavaScript 以外の言語はロックファイルからオフラインで解決され、ローカルにキャッシュされたアドバイザリと照合されます。あいまいなマニフェストは正常として扱うのではなく、部分的または監査不可として報告されます。 一部の gemnasium レコードには機械可読なバージョン範囲が含まれていません。Sentinello は、別の識別子で公開された同じアドバイザリ、アドバイザリ本文、または OSV を有効にしている場合に限りローカルにキャッシュされた OSV データから範囲を復元し、いずれでも解決できない場合は推測せずにそのレコードを破棄します。",
         "sendsTitle": "Sentinello が送信するもの",
         "tableDestination": "送信先",
         "tablePurpose": "目的",
