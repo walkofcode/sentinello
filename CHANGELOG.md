@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.1.1](https://github.com/walkofcode/sentinello/compare/v3.1.0...v3.1.1) (2026-08-14)
+
+
+### Bug Fixes
+
+* **feeds:** stop inventing gemnasium ranges and stop dropping OSV ones ([c3c5cc5](https://github.com/walkofcode/sentinello/commit/c3c5cc599e012cf7e9809eeb4879a1f8da4adc3a))
+* **feeds:** stop inventing gemnasium ranges and stop dropping OSV ones ([205a38a](https://github.com/walkofcode/sentinello/commit/205a38a7f14bcdecae5d526a7282edb0d9d26353))
+
+
+### Documentation
+
+* **releases:** add the 3.1.1 what's-new entry ([93619e5](https://github.com/walkofcode/sentinello/commit/93619e528590cbe05dda2ae883fff45308383008))
+
 ## [3.1.0](https://github.com/walkofcode/sentinello/compare/v3.0.1...v3.1.0) (2026-08-13)
 
 
