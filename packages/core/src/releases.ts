@@ -17,6 +17,7 @@ function stripVPrefix(value: string): string {
 // Newest first. The locale-independent version index. Adding a release = one entry here plus a
 // RELEASE_COPY entry in every locale below. See CLAUDE.md for the release-please version-sync flow.
 export const RELEASES: ReleaseEntry[] = [
+    { version: '3.1.1', date: '2026-08-14' },
     { version: '3.1.0', date: '2026-08-13' },
     { version: '3.0.1', date: '2026-08-04' },
     { version: '3.0.0', date: '2026-08-03' },
@@ -45,6 +46,14 @@ export const RELEASES: ReleaseEntry[] = [
 // this is plain TS data, not a next-intl message key (next-intl forbids '.' in keys).
 export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     en: {
+        '3.1.1': {
+            title: 'Advisory version ranges are right in both directions',
+            items: [
+                'Some GitLab gemnasium advisories ship no machine-readable version range at all — 698 of the 10,777 JavaScript ones. Sentinello had been filling that gap by assuming every version below the first listed fix was affected, but that list is unordered and holds one fix per release branch, so the guess regularly landed on the wrong branch. protobufjs 7.6.5 was reported as a critical remote code execution even though that branch was patched in 7.5.5, and three separate advisories each claimed every version of vite below 8.0.5 was vulnerable. Sentinello no longer invents a range. It recovers the real one from the same advisory as published under its other identifier, from the advisory’s own description, or — only if you have OSV switched on — from the OSV copy already on your machine, and it discards the record rather than guessing when none of those can answer. Expect some criticals to disappear',
+                'OSV describes an advisory fixed on several release branches as a separate entry per branch, and Sentinello was keeping the first and discarding the rest — 1,927 vulnerable version ranges for JavaScript alone, every one of them a real vulnerability it could no longer see. The minimatch advisory covers eight branches and only one survived, so an installed minimatch 3.0.4 or 9.0.0 went unreported; next and ua-parser-js lost branches the same way. Every branch is kept now. Expect some new findings to appear — those vulnerabilities were always present, they were simply invisible',
+                'Both advisory caches rebuild themselves the first time they sync after this upgrade, because the ranges they hold were produced by the old code. There is nothing to do — it happens on the daily schedule, or immediately from Settings → Sources → Refresh if you would rather not wait'
+            ]
+        },
         '3.1.0': {
             title: 'Muted findings get out of the way — and the database stops growing forever',
             items: [
@@ -209,6 +218,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Initial open-source release', items: ['The first public release of Sentinello'] }
     },
     es: {
+        '3.1.1': {
+            title: 'Los rangos de versiones de los avisos son correctos en ambos sentidos',
+            items: [
+                'Algunos avisos de GitLab gemnasium no incluyen ningún rango de versiones legible por máquina: 698 de los 10.777 de JavaScript. Sentinello rellenaba ese hueco suponiendo que todas las versiones por debajo de la primera corrección listada estaban afectadas, pero esa lista no está ordenada y contiene una corrección por rama de publicación, así que la suposición caía a menudo en la rama equivocada. protobufjs 7.6.5 se reportaba como ejecución remota de código crítica aunque esa rama se corrigió en 7.5.5, y tres avisos distintos afirmaban que todas las versiones de vite por debajo de 8.0.5 eran vulnerables. Sentinello ya no inventa rangos: recupera el real del mismo aviso publicado con su otro identificador, de la propia descripción del aviso o —solo si tienes OSV activado— de la copia de OSV que ya está en tu máquina, y descarta el registro en lugar de adivinar cuando ninguna de esas vías responde. Es de esperar que desaparezcan algunos críticos',
+                'OSV describe un aviso corregido en varias ramas como una entrada separada por rama, y Sentinello se quedaba con la primera y descartaba el resto: 1.927 rangos de versiones vulnerables solo en JavaScript, cada uno una vulnerabilidad real que ya no podía ver. El aviso de minimatch cubre ocho ramas y solo sobrevivía una, de modo que un minimatch 3.0.4 o 9.0.0 instalado no se reportaba; next y ua-parser-js perdían ramas del mismo modo. Ahora se conservan todas. Es de esperar que aparezcan hallazgos nuevos: esas vulnerabilidades siempre estuvieron ahí, simplemente eran invisibles',
+                'Ambas cachés de avisos se reconstruyen solas la primera vez que se sincronizan tras esta actualización, porque los rangos que contienen los produjo el código anterior. No hay nada que hacer: ocurre en la sincronización diaria, o al instante desde Ajustes → Fuentes → Actualizar si prefieres no esperar'
+            ]
+        },
         '3.1.0': {
             title: 'Los hallazgos silenciados se apartan, y la base de datos deja de crecer sin fin',
             items: [
@@ -376,6 +393,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primera versión de código abierto', items: ['El primer lanzamiento público de Sentinello'] }
     },
     fr: {
+        '3.1.1': {
+            title: 'Les plages de versions des avis sont justes dans les deux sens',
+            items: [
+                'Certains avis GitLab gemnasium ne fournissent aucune plage de versions exploitable — 698 des 10 777 avis JavaScript. Sentinello comblait ce vide en supposant que toutes les versions antérieures au premier correctif listé étaient touchées, mais cette liste n’est pas triée et contient un correctif par branche de publication : la supposition tombait donc souvent sur la mauvaise branche. protobufjs 7.6.5 était signalé comme exécution de code à distance critique alors que cette branche avait été corrigée en 7.5.5, et trois avis distincts affirmaient chacun que toutes les versions de vite antérieures à 8.0.5 étaient vulnérables. Sentinello n’invente plus de plage : il récupère la vraie depuis le même avis publié sous son autre identifiant, depuis la description de l’avis, ou — uniquement si OSV est activé — depuis la copie OSV déjà présente sur votre machine, et il écarte l’enregistrement plutôt que de deviner lorsque aucune de ces sources ne répond. Attendez-vous à voir disparaître certains critiques',
+                'OSV décrit un avis corrigé sur plusieurs branches par une entrée distincte pour chaque branche, et Sentinello gardait la première en écartant les autres — 1 927 plages de versions vulnérables pour le seul JavaScript, chacune une vulnérabilité réelle devenue invisible. L’avis minimatch couvre huit branches et une seule survivait : un minimatch 3.0.4 ou 9.0.0 installé n’était pas signalé ; next et ua-parser-js perdaient des branches de la même façon. Toutes les branches sont désormais conservées. Attendez-vous à voir apparaître de nouveaux résultats — ces vulnérabilités étaient déjà là, simplement invisibles',
+                'Les deux caches d’avis se reconstruisent d’eux-mêmes à leur première synchronisation après cette mise à jour, car les plages qu’ils contiennent ont été produites par l’ancien code. Rien à faire : cela se produit lors de la synchronisation quotidienne, ou immédiatement depuis Paramètres → Sources → Actualiser si vous préférez ne pas attendre'
+            ]
+        },
         '3.1.0': {
             title: 'Les résultats masqués s’effacent, et la base de données cesse de grossir sans fin',
             items: [
@@ -545,6 +570,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Première version open source', items: ['La première version publique de Sentinello'] }
     },
     de: {
+        '3.1.1': {
+            title: 'Versionsbereiche in Advisories stimmen in beide Richtungen',
+            items: [
+                'Manche GitLab-gemnasium-Advisories enthalten überhaupt keinen maschinenlesbaren Versionsbereich — 698 der 10.777 JavaScript-Einträge. Sentinello füllte diese Lücke mit der Annahme, alle Versionen unterhalb der ersten aufgeführten Korrektur seien betroffen. Diese Liste ist jedoch unsortiert und enthält eine Korrektur pro Release-Zweig, sodass die Annahme regelmäßig den falschen Zweig traf. protobufjs 7.6.5 wurde als kritische Remote-Code-Ausführung gemeldet, obwohl dieser Zweig in 7.5.5 behoben wurde, und drei verschiedene Advisories behaupteten jeweils, jede vite-Version unterhalb von 8.0.5 sei verwundbar. Sentinello erfindet keine Bereiche mehr: Es rekonstruiert den echten aus demselben Advisory unter seiner anderen Kennung, aus der Beschreibung des Advisories oder — nur wenn OSV aktiviert ist — aus der bereits lokal vorhandenen OSV-Kopie, und verwirft den Eintrag, statt zu raten, wenn nichts davon greift. Einige kritische Befunde werden verschwinden',
+                'OSV beschreibt ein über mehrere Release-Zweige behobenes Advisory als je einen Eintrag pro Zweig, und Sentinello behielt den ersten und verwarf den Rest — allein für JavaScript 1.927 verwundbare Versionsbereiche, jeder davon eine echte Schwachstelle, die dadurch unsichtbar wurde. Das minimatch-Advisory umfasst acht Zweige, von denen nur einer überlebte: ein installiertes minimatch 3.0.4 oder 9.0.0 wurde nicht gemeldet; next und ua-parser-js verloren Zweige auf dieselbe Weise. Jetzt bleiben alle Zweige erhalten. Es werden neue Befunde auftauchen — diese Schwachstellen waren immer da, nur unsichtbar',
+                'Beide Advisory-Caches bauen sich bei der ersten Synchronisierung nach diesem Update selbst neu auf, weil ihre gespeicherten Bereiche vom alten Code stammen. Es ist nichts zu tun: Es geschieht im täglichen Lauf oder sofort über Einstellungen → Quellen → Aktualisieren, wenn Sie nicht warten möchten'
+            ]
+        },
         '3.1.0': {
             title: 'Stummgeschaltete Funde treten zurück — und die Datenbank wächst nicht mehr endlos',
             items: [
@@ -715,6 +748,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         }
     },
     'pt-BR': {
+        '3.1.1': {
+            title: 'Os intervalos de versão dos avisos estão corretos nos dois sentidos',
+            items: [
+                'Alguns avisos do GitLab gemnasium não trazem nenhum intervalo de versões legível por máquina — 698 dos 10.777 de JavaScript. O Sentinello preenchia essa lacuna presumindo que todas as versões abaixo da primeira correção listada estavam afetadas, mas essa lista não é ordenada e contém uma correção por ramo de lançamento, então o palpite caía com frequência no ramo errado. O protobufjs 7.6.5 era reportado como execução remota de código crítica embora aquele ramo tenha sido corrigido em 7.5.5, e três avisos distintos afirmavam que toda versão do vite abaixo de 8.0.5 era vulnerável. O Sentinello não inventa mais intervalos: recupera o real do mesmo aviso publicado sob seu outro identificador, da própria descrição do aviso ou — somente se você tiver o OSV ativado — da cópia do OSV já presente na sua máquina, e descarta o registro em vez de adivinhar quando nenhuma dessas vias responde. Espere que alguns críticos desapareçam',
+                'O OSV descreve um aviso corrigido em vários ramos como uma entrada separada por ramo, e o Sentinello ficava com a primeira e descartava as demais — 1.927 intervalos de versões vulneráveis só em JavaScript, cada um deles uma vulnerabilidade real que deixou de ser vista. O aviso do minimatch cobre oito ramos e apenas um sobrevivia, de modo que um minimatch 3.0.4 ou 9.0.0 instalado não era reportado; next e ua-parser-js perdiam ramos do mesmo jeito. Agora todos os ramos são mantidos. Espere que apareçam novos achados — essas vulnerabilidades sempre estiveram lá, apenas invisíveis',
+                'Os dois caches de avisos se reconstroem sozinhos na primeira sincronização após esta atualização, porque os intervalos que guardam foram produzidos pelo código antigo. Não há nada a fazer: acontece na sincronização diária, ou imediatamente em Configurações → Fontes → Atualizar, se preferir não esperar'
+            ]
+        },
         '3.1.0': {
             title: 'As constatações silenciadas saem do caminho, e o banco de dados para de crescer sem fim',
             items: [
@@ -882,6 +923,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primeira versão de código aberto', items: ['O primeiro lançamento público do Sentinello'] }
     },
     it: {
+        '3.1.1': {
+            title: 'Gli intervalli di versione degli advisory sono corretti in entrambe le direzioni',
+            items: [
+                'Alcuni advisory di GitLab gemnasium non contengono alcun intervallo di versioni leggibile dalla macchina — 698 dei 10.777 per JavaScript. Sentinello colmava quel vuoto assumendo che tutte le versioni precedenti alla prima correzione elencata fossero interessate, ma quell’elenco non è ordinato e contiene una correzione per ramo di rilascio, così l’ipotesi finiva spesso sul ramo sbagliato. protobufjs 7.6.5 veniva segnalato come esecuzione di codice remoto critica benché quel ramo fosse stato corretto in 7.5.5, e tre advisory distinti sostenevano ciascuno che ogni versione di vite inferiore a 8.0.5 fosse vulnerabile. Sentinello non inventa più intervalli: recupera quello reale dallo stesso advisory pubblicato con l’altro identificatore, dalla descrizione dell’advisory stesso oppure — solo se hai OSV attivo — dalla copia di OSV già presente sulla tua macchina, e scarta il record anziché tirare a indovinare quando nessuna di queste vie risponde. Aspettati che alcuni critici spariscano',
+                'OSV descrive un advisory corretto su più rami di rilascio come una voce separata per ciascun ramo, e Sentinello teneva la prima scartando le altre — 1.927 intervalli di versioni vulnerabili per il solo JavaScript, ognuno una vulnerabilità reale diventata invisibile. L’advisory di minimatch copre otto rami e ne sopravviveva uno solo, così un minimatch 3.0.4 o 9.0.0 installato non veniva segnalato; next e ua-parser-js perdevano rami allo stesso modo. Ora vengono mantenuti tutti. Aspettati la comparsa di nuovi risultati: quelle vulnerabilità c’erano da sempre, erano solo invisibili',
+                'Entrambe le cache degli advisory si ricostruiscono da sole alla prima sincronizzazione dopo questo aggiornamento, perché gli intervalli che contengono sono stati prodotti dal codice precedente. Non c’è nulla da fare: avviene con la sincronizzazione quotidiana, o subito da Impostazioni → Sorgenti → Aggiorna se preferisci non aspettare'
+            ]
+        },
         '3.1.0': {
             title: 'I risultati silenziati si tolgono di mezzo, e il database smette di crescere all’infinito',
             items: [
@@ -1049,6 +1098,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Prima versione open source', items: ['La prima versione pubblica di Sentinello'] }
     },
     ja: {
+        '3.1.1': {
+            title: 'アドバイザリのバージョン範囲が両方向で正しくなりました',
+            items: [
+                'GitLab gemnasium のアドバイザリの中には、機械可読なバージョン範囲をまったく持たないものがあります（JavaScript では 10,777 件中 698 件）。Sentinello はその空白を「列挙された最初の修正版より前のすべてが影響を受ける」と仮定して埋めていましたが、この一覧は順不同でリリースブランチごとに 1 つの修正版を含むため、その推測はしばしば誤ったブランチを指していました。protobufjs 7.6.5 は当該ブランチが 7.5.5 で修正済みであるにもかかわらず重大なリモートコード実行として報告され、3 件の別々のアドバイザリがそれぞれ 8.0.5 未満のすべての vite を脆弱だと主張していました。Sentinello はもう範囲を捏造しません。別の識別子で公開された同一のアドバイザリ、アドバイザリ自身の説明文、または OSV を有効にしている場合に限りお使いのマシン上にある OSV のコピーから本来の範囲を復元し、いずれでも判明しない場合は推測せずにそのレコードを破棄します。いくつかの重大な検出結果が消えるはずです',
+                'OSV は複数のリリースブランチで修正されたアドバイザリを、ブランチごとに個別のエントリとして記述します。Sentinello は最初の 1 件だけを残して他を破棄していました。JavaScript だけで 1,927 件の脆弱なバージョン範囲が失われ、そのすべてが見えなくなった実際の脆弱性です。minimatch のアドバイザリは 8 つのブランチを対象としますが 1 つしか残らず、インストール済みの minimatch 3.0.4 や 9.0.0 は報告されませんでした。next や ua-parser-js も同様にブランチを失っていました。現在はすべてのブランチが保持されます。新しい検出結果が現れるはずですが、それらの脆弱性は以前から存在しており、単に見えていなかっただけです',
+                'このアップグレード後の最初の同期で、2 つのアドバイザリキャッシュはいずれも自動的に再構築されます。保持されている範囲が以前のコードで生成されたものだからです。操作は不要で、毎日の同期で実行されます。待ちたくない場合は「設定 → ソース → 更新」からすぐに実行できます'
+            ]
+        },
         '3.1.0': {
             title: 'ミュートした検出結果は視界から外れ、データベースは無限には増えなくなりました',
             items: [
@@ -1212,6 +1269,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '初のオープンソースリリース', items: ['Sentinello の最初の一般公開リリース'] }
     },
     'zh-CN': {
+        '3.1.1': {
+            title: '公告的版本范围在两个方向上都正确了',
+            items: [
+                '部分 GitLab gemnasium 公告完全不含机器可读的版本范围——JavaScript 的 10,777 条中有 698 条。Sentinello 此前通过假定“低于所列第一个修复版本的全部版本都受影响”来填补这个空缺，但该列表是无序的，且每个发布分支各有一个修复版本，因此这个猜测经常落在错误的分支上。protobufjs 7.6.5 被报告为严重的远程代码执行，尽管该分支已在 7.5.5 中修复；另有三条公告分别声称低于 8.0.5 的所有 vite 版本都存在漏洞。Sentinello 不再臆造范围：它会从以另一标识符发布的同一条公告、公告自身的描述，或——仅在你启用了 OSV 时——从你机器上已有的 OSV 副本中恢复真实范围；若以上都无法确定，则丢弃该记录而不做猜测。预计会有一些严重级别的结果消失',
+                'OSV 将一条在多个发布分支上修复的公告描述为每个分支一条独立条目，而 Sentinello 只保留第一条、丢弃其余——仅 JavaScript 就丢失了 1,927 个存在漏洞的版本范围，每一个都是它再也看不到的真实漏洞。minimatch 的公告涵盖八个分支，却只有一个幸存，因此已安装的 minimatch 3.0.4 或 9.0.0 未被报告；next 和 ua-parser-js 也以同样方式丢失了分支。现在所有分支都会保留。预计会出现一些新的结果——这些漏洞一直都在，只是此前不可见',
+                '升级后首次同步时，两个公告缓存都会自行重建，因为它们保存的范围是旧代码生成的。你无需做任何事：它会在每日同步中完成；若不想等待，也可从“设置 → 来源 → 刷新”立即执行'
+            ]
+        },
         '3.1.0': {
             title: '已静默的发现项彻底让位，数据库也不再无限膨胀',
             items: [
@@ -1355,6 +1420,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '首个开源版本', items: ['Sentinello 的首个公开发布版本'] }
     },
     ko: {
+        '3.1.1': {
+            title: '권고의 버전 범위가 양방향 모두 정확해졌습니다',
+            items: [
+                '일부 GitLab gemnasium 권고에는 기계가 읽을 수 있는 버전 범위가 전혀 없습니다 — JavaScript 10,777건 중 698건입니다. Sentinello는 그 공백을 “나열된 첫 번째 수정 버전보다 낮은 모든 버전이 영향을 받는다”고 가정해 메워 왔지만, 이 목록은 정렬되어 있지 않고 릴리스 브랜치마다 수정 버전이 하나씩 들어 있어 그 추측이 자주 엉뚱한 브랜치를 가리켰습니다. protobufjs 7.6.5는 해당 브랜치가 7.5.5에서 수정되었는데도 심각한 원격 코드 실행으로 보고되었고, 서로 다른 세 권고가 각각 8.0.5 미만의 모든 vite 버전이 취약하다고 주장했습니다. 이제 Sentinello는 범위를 지어내지 않습니다. 다른 식별자로 게시된 동일한 권고, 권고 자체의 설명, 또는 OSV를 켜 둔 경우에 한해 사용자 컴퓨터에 이미 있는 OSV 사본에서 실제 범위를 복구하며, 어느 것으로도 확인되지 않으면 추측하지 않고 해당 레코드를 폐기합니다. 일부 심각 등급 결과가 사라질 것입니다',
+                'OSV는 여러 릴리스 브랜치에서 수정된 권고를 브랜치마다 별도 항목으로 기술하는데, Sentinello는 첫 번째만 남기고 나머지를 버렸습니다 — JavaScript만으로 1,927개의 취약한 버전 범위이며, 하나하나가 더 이상 보이지 않게 된 실제 취약점입니다. minimatch 권고는 여덟 개 브랜치를 포함하지만 하나만 살아남아, 설치된 minimatch 3.0.4나 9.0.0이 보고되지 않았습니다. next와 ua-parser-js도 같은 방식으로 브랜치를 잃었습니다. 이제 모든 브랜치가 유지됩니다. 새로운 결과가 나타날 텐데, 그 취약점들은 늘 있었고 단지 보이지 않았을 뿐입니다',
+                '이번 업그레이드 후 첫 동기화에서 두 권고 캐시 모두 스스로 다시 만들어집니다. 저장된 범위가 이전 코드로 생성된 것이기 때문입니다. 따로 할 일은 없으며 매일 동기화에서 처리됩니다. 기다리고 싶지 않다면 설정 → 소스 → 새로 고침에서 즉시 실행할 수 있습니다'
+            ]
+        },
         '3.1.0': {
             title: '음소거한 발견 항목이 화면에서 비켜서고, 데이터베이스도 무한정 커지지 않습니다',
             items: [
@@ -1512,6 +1585,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '첫 오픈 소스 릴리스', items: ['Sentinello의 첫 공개 릴리스'] }
     },
     ru: {
+        '3.1.1': {
+            title: 'Диапазоны версий в рекомендациях верны в обе стороны',
+            items: [
+                'Некоторые рекомендации GitLab gemnasium вообще не содержат машиночитаемого диапазона версий — 698 из 10 777 для JavaScript. Sentinello закрывал этот пробел предположением, что затронуты все версии ниже первого перечисленного исправления, но этот список не упорядочен и содержит по одному исправлению на ветку выпуска, поэтому догадка регулярно попадала не в ту ветку. protobufjs 7.6.5 сообщался как критическое удалённое выполнение кода, хотя эта ветка была исправлена в 7.5.5, а три отдельные рекомендации утверждали, что уязвимы все версии vite ниже 8.0.5. Sentinello больше не выдумывает диапазоны: он восстанавливает настоящий из той же рекомендации, опубликованной под другим идентификатором, из её собственного описания или — только если у вас включён OSV — из копии OSV, уже имеющейся на вашей машине, а если ничто из этого не отвечает, отбрасывает запись, а не строит догадки. Часть критических находок исчезнет',
+                'OSV описывает рекомендацию, исправленную в нескольких ветках выпуска, отдельной записью на каждую ветку, а Sentinello оставлял первую и отбрасывал остальные — 1 927 уязвимых диапазонов версий только для JavaScript, и каждый из них — реальная уязвимость, ставшая невидимой. Рекомендация minimatch охватывает восемь веток, а выживала лишь одна, поэтому установленный minimatch 3.0.4 или 9.0.0 не сообщался; next и ua-parser-js теряли ветки так же. Теперь сохраняются все ветки. Появятся новые находки — эти уязвимости существовали всегда, просто были невидимы',
+                'Оба кэша рекомендаций перестраиваются сами при первой синхронизации после этого обновления, потому что хранящиеся в них диапазоны созданы прежним кодом. Ничего делать не нужно: это произойдёт при ежедневной синхронизации или сразу через «Настройки → Источники → Обновить», если не хотите ждать'
+            ]
+        },
         '3.1.0': {
             title: 'Заглушённые находки уходят с глаз долой, а база данных перестаёт расти без конца',
             items: [
