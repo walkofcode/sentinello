@@ -6,11 +6,15 @@ import {
     GEMNASIUM_NORMALIZER_VERSION,
     getConfigValue,
     openGemnasiumDb,
+    openOsvDb,
     runGemnasiumMigrations,
+    runOsvMigrations,
     setConfigValue,
     setGemnasiumMeta,
     upsertGemnasiumAdvisories,
+    upsertOsvAdvisories,
     type GemnasiumDrizzleDb,
+    type OsvDrizzleDb,
     type SqliteDb
 } from '@sentinello/db'
 import { sourceEnabledKey, sourceStatusKey } from '@sentinello/core'
@@ -48,7 +52,13 @@ vi.mock('node-cron', function mockNodeCron() {
 const sync = vi.hoisted(function makeSyncDouble() {
     return {
         feedDisabled: false,
-        syncGemnasium: vi.fn(async function syncGemnasium() {
+        // The parameters are declared even though the double ignores them: without them the mock's call
+        // tuple is empty and assertions about the third argument (the range-recovery deps) cannot type.
+        syncGemnasium: vi.fn(async function syncGemnasium(
+            _db: unknown,
+            _abortSignal?: unknown,
+            _resolveDeps?: { osvRanges?: (ecosystem: string, packageName: string, ids: string[]) => unknown }
+        ) {
             return { status: 'ok', upserted: 0, recordCount: 0, message: null }
         }),
         checkGemnasiumFreeSpace: vi.fn(async function checkGemnasiumFreeSpace() {
@@ -80,6 +90,10 @@ let priorEnv: string | undefined
 
 function enable(ecosystem: string, on = true): void {
     setConfigValue(handle.db, sourceEnabledKey('gemnasium' as never, ecosystem as never), on)
+}
+
+function enableOsv(ecosystem: string, on = true): void {
+    setConfigValue(handle.db, sourceEnabledKey('osv' as never, ecosystem as never), on)
 }
 
 function status(): unknown {
@@ -363,7 +377,32 @@ describe('runSync', function () {
     it('always delegates to the sync module, seeded or not', async function () {
         setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.seedComplete, true)
         await runSync(handle.db, cache.db, runtime)
-        expect(sync.syncGemnasium).toHaveBeenCalledWith(cache.db, runtime.abortController.signal)
+        expect(sync.syncGemnasium).toHaveBeenCalledWith(cache.db, runtime.abortController.signal, expect.any(Object))
+    })
+
+    // The OSV cache is the last tier of gemnasium's range recovery and it is strictly optional. With no
+    // (osv, ecosystem) cell enabled the tier must not be wired up at all — no OSV lookup is handed to the
+    // sync, so a record no sibling or prose could resolve is dropped rather than guessed at.
+    it('passes no OSV lookup when the OSV source is disabled', async function () {
+        await runSync(handle.db, cache.db, runtime)
+        const deps = sync.syncGemnasium.mock.calls[0]?.[2]
+        expect(deps?.osvRanges).toBeUndefined()
+    })
+
+    it('wires the OSV lookup in once any OSV cell is enabled', async function () {
+        enableOsv('npm')
+        await runSync(handle.db, cache.db, runtime)
+        const deps = sync.syncGemnasium.mock.calls[0]?.[2]
+        expect(typeof deps?.osvRanges).toBe('function')
+    })
+
+    // Per-cell, not per-source: an operator with OSV on for npm and off for PyPI must not have a PyPI
+    // gemnasium record resolved out of the PyPI OSV cache.
+    it('refuses the OSV tier for an ecosystem whose OSV cell is off', async function () {
+        enableOsv('npm')
+        await runSync(handle.db, cache.db, runtime)
+        const deps = sync.syncGemnasium.mock.calls[0]?.[2]
+        expect(deps?.osvRanges?.('PyPI', 'django', ['CVE-1'])).toBeNull()
     })
 
     it('mirrors the resulting status with the free-space reading', async function () {
@@ -385,6 +424,150 @@ describe('runSync', function () {
     it('reports a never-refreshed cache as null rather than zero', async function () {
         await runSync(handle.db, cache.db, runtime)
         expect(status()).toMatchObject({ refreshedAt: null, recordCount: 0 })
+    })
+})
+
+// The OSV-backed tier of gemnasium's range recovery, exercised against a REAL seeded osv.db rather than a
+// stub — the point of this tier is reading the other cache correctly, so a double would test nothing.
+//
+// gemnasium's range shape has no `type` and no `lastAffected`, so the conversion is all-or-nothing: any
+// range that cannot be expressed exactly refuses the whole advisory. That refusal is the entire safety
+// property here. This change exists because the old code preferred a fabricated range to no range, and a
+// GIT range (commit hashes) or an inclusive `last_affected` bound silently mistranslated is the same
+// mistake in a new place.
+describe('the OSV tier of the range recovery', function () {
+    let osv: { db: OsvDrizzleDb; sqlite: SqliteDb }
+    let osvPath: string
+    let priorOsvEnv: string | undefined
+
+    // The lookup is only valid WHILE the sync runs — runSync closes the OSV handle in its finally, so the
+    // connection is held for exactly as long as the recovery needs it and no longer. Calling it after the
+    // sync returned would hit a closed database, which is why this asks the question from inside the sync
+    // rather than capturing the closure and using it afterwards.
+    async function lookupDuringSync(ecosystem: string, packageName: string, ids: string[]): Promise<unknown> {
+        let answer: unknown
+        sync.syncGemnasium.mockImplementationOnce(async function capture(_db, _signal, deps) {
+            if (!deps || !deps.osvRanges) throw new Error('expected an OSV lookup to be wired in')
+            answer = deps.osvRanges(ecosystem, packageName, ids)
+            return { status: 'ok', upserted: 0, recordCount: 0, message: null }
+        })
+        const cache = openCache()
+        try {
+            await runSync(handle.db, cache.db, runtime)
+        } finally {
+            cache.sqlite.close()
+        }
+        return answer
+    }
+
+    function seed(rows: Parameters<typeof upsertOsvAdvisories>[1]): void {
+        upsertOsvAdvisories(osv.db, rows)
+    }
+
+    function osvRow(overrides: Record<string, unknown> = {}) {
+        return {
+            advisoryId: 'CVE-2026-41242',
+            ecosystem: 'npm',
+            packageName: 'protobufjs',
+            aliases: ['GHSA-xq3m-2v4x-88gg'],
+            ranges: [
+                { type: 'SEMVER', introduced: '0', fixed: '7.5.5', lastAffected: null },
+                { type: 'SEMVER', introduced: '8.0.0', fixed: '8.0.1', lastAffected: null }
+            ],
+            versions: [],
+            severity: 'CRITICAL',
+            summary: 'Arbitrary code execution in protobufjs',
+            url: null,
+            malicious: false,
+            withdrawn: null,
+            ...overrides
+        } as Parameters<typeof upsertOsvAdvisories>[1][number]
+    }
+
+    beforeEach(function openTheOsvCache() {
+        enableOsv('npm')
+        osvPath = join(handle.dir, 'osv.db')
+        priorOsvEnv = process.env.SENTINELLO_OSV_DB_PATH
+        process.env.SENTINELLO_OSV_DB_PATH = osvPath
+        const opened = openOsvDb(osvPath)
+        runOsvMigrations(opened.db)
+        osv = { db: opened.db, sqlite: opened.sqlite }
+    })
+
+    afterEach(function closeTheOsvCache() {
+        if (priorOsvEnv === undefined) delete process.env.SENTINELLO_OSV_DB_PATH
+        else process.env.SENTINELLO_OSV_DB_PATH = priorOsvEnv
+        osv.sqlite.close()
+    })
+
+    it('returns the OSV ranges for an advisory matched on its own id', async function () {
+        seed([osvRow()])
+        expect(await lookupDuringSync('npm', 'protobufjs', ['CVE-2026-41242'])).toEqual([
+            { introduced: '0', fixed: '7.5.5' },
+            { introduced: '8.0.0', fixed: '8.0.1' }
+        ])
+    })
+
+    // The gemnasium stub is keyed by GHSA while OSV keys the same vulnerability by CVE, so the alias list
+    // is what actually links them — the common case, not an edge one.
+    it('matches through the OSV row aliases', async function () {
+        seed([osvRow()])
+        expect(await lookupDuringSync('npm', 'protobufjs', ['GHSA-xq3m-2v4x-88gg'])).toEqual([
+            { introduced: '0', fixed: '7.5.5' },
+            { introduced: '8.0.0', fixed: '8.0.1' }
+        ])
+    })
+
+    it('answers null when OSV has nothing for the package', async function () {
+        expect(await lookupDuringSync('npm', 'protobufjs', ['GHSA-xq3m-2v4x-88gg'])).toBeNull()
+    })
+
+    // A different advisory for the same package must not lend it its ranges.
+    it('answers null when the package is known but the advisory is not', async function () {
+        seed([osvRow({ advisoryId: 'CVE-2022-25878', aliases: [] })])
+        expect(await lookupDuringSync('npm', 'protobufjs', ['GHSA-xq3m-2v4x-88gg'])).toBeNull()
+    })
+
+    // GIT ranges carry commit hashes, not versions. No comparator can evaluate one, so the advisory is
+    // refused whole rather than partially translated.
+    it('refuses an advisory carrying a GIT range', async function () {
+        seed([osvRow({ ranges: [{ type: 'GIT', introduced: 'abc123', fixed: 'def456', lastAffected: null }] })])
+        expect(await lookupDuringSync('npm', 'protobufjs', ['CVE-2026-41242'])).toBeNull()
+    })
+
+    // `last_affected` is an INCLUSIVE upper bound; gemnasium's `fixed` is exclusive. Translating it would
+    // either understate the range by one version or, dropped, overstate it by every version above.
+    it('refuses a range bounded by last_affected instead of a fix', async function () {
+        seed([osvRow({ ranges: [{ type: 'SEMVER', introduced: '0', fixed: null, lastAffected: '7.5.4' }] })])
+        expect(await lookupDuringSync('npm', 'protobufjs', ['CVE-2026-41242'])).toBeNull()
+    })
+
+    it('refuses an advisory with no ranges at all', async function () {
+        seed([osvRow({ ranges: [], versions: ['7.0.0'] })])
+        expect(await lookupDuringSync('npm', 'protobufjs', ['CVE-2026-41242'])).toBeNull()
+    })
+
+    // An open-ended range (vulnerable from X with no known fix) IS expressible — `fixed: null` means the
+    // same thing on both sides — so it must come through rather than being refused with the others.
+    it('keeps an open-ended range, which both shapes express alike', async function () {
+        seed([osvRow({ ranges: [{ type: 'ECOSYSTEM', introduced: '1.0.0', fixed: null, lastAffected: null }] })])
+        expect(await lookupDuringSync('npm', 'protobufjs', ['CVE-2026-41242'])).toEqual([{ introduced: '1.0.0', fixed: null }])
+    })
+
+    // The tier must never take the sync down with it. An unopenable cache degrades to "no OSV tier",
+    // which drops the unresolvable record — the safe direction.
+    it('degrades to no tier when the OSV cache cannot be opened', async function () {
+        process.env.SENTINELLO_OSV_DB_PATH = join(osvPath, 'not-a-directory', 'osv.db')
+        const cache = openCache()
+        try {
+            await runSync(handle.db, cache.db, runtime)
+        } finally {
+            cache.sqlite.close()
+        }
+        expect(sync.syncGemnasium.mock.calls[0]?.[2]?.osvRanges).toBeUndefined()
+        expect(errorLines().some(function mentionsIt(l) {
+            return l.includes('OSV cache unavailable for range recovery')
+        })).toBe(true)
     })
 })
 

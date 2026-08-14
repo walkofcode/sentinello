@@ -41,7 +41,13 @@ export const gemnasiumAdvisories = sqliteTable(
         // Always false for gemnasium (no malware class); kept for parity with osv_advisories.
         malicious: integer('malicious', { mode: 'boolean' }).notNull().default(false),
         // Always null for gemnasium (no withdrawn class); kept for parity so the lookup filter matches OSV.
-        withdrawn: integer('withdrawn')
+        withdrawn: integer('withdrawn'),
+        // Provenance of `rangesJson` — see GemnasiumRangeSource in @sentinello/core. Records whose
+        // `affected_range` is the empty-set sentinel `<0` carry no machine-readable range and land here as
+        // 'unresolved' with EMPTY ranges (so they can never match), for the worker's resolution pass to
+        // fill in from a sibling advisory or the OSV cache, or delete. Defaults to 'range' so the column
+        // reads correctly for rows written before it existed.
+        rangeSource: text('range_source').notNull().default('range')
     },
     function gemnasiumAdvisoriesIndexes(table) {
         return {

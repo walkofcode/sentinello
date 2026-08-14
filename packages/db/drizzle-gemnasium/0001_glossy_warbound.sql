@@ -1,0 +1,1 @@
+ALTER TABLE `gemnasium_advisories` ADD `range_source` text DEFAULT 'range' NOT NULL;

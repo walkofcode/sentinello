@@ -42,7 +42,17 @@ export function normalizeOsvRecord(record: unknown, ecosystem: string): OsvAdvis
     const url = pickUrl(r, advisoryId)
     const withdrawn = typeof r.withdrawn === 'string' ? Date.parse(r.withdrawn) || null : null
     const rows: OsvAdvisoryRow[] = []
-    const seenPackages = new Set<string>()
+    // One advisory routinely lists the SAME package in several `affected` entries — OSV's normal way of
+    // expressing a per-release-branch fix. minimatch GHSA-23c5-xmqv-rm74 ships eight of them (3.x through
+    // 10.x), `next` and `ua-parser-js` several each. Every entry's ranges belong to the same package, so
+    // they are MERGED into one row here.
+    //
+    // This used to `continue` past every entry after the first, keeping one branch and silently discarding
+    // the rest: 1,927 vulnerable intervals across the npm export alone, each one a real vulnerability the
+    // scanner could no longer see. The row key is (advisoryId, ecosystem, packageName), so emitting one row
+    // per entry instead would not fix it either — they would collide on upsert and the survivor would still
+    // carry a single branch. Merging is what makes the row match every affected branch.
+    const byPackage = new Map<string, OsvAdvisoryRow>()
     for (const affected of r.affected) {
         const pkg = affected.package
         // Keep only the ecosystem currently being synced (OSV uses the canonical ids 'npm'/'PyPI'/'Go'/
@@ -50,19 +60,19 @@ export function normalizeOsvRecord(record: unknown, ecosystem: string): OsvAdvis
         if (!pkg || pkg.ecosystem !== ecosystem) continue
         const packageName = typeof pkg.name === 'string' ? pkg.name : null
         if (!packageName) continue
-        // One advisory can list the same package twice; collapse to a single row with merged ranges.
-        if (seenPackages.has(packageName)) continue
-        seenPackages.add(packageName)
         // Parse the real affected set for ALL records, malware included. Malware advisories pin the
         // compromised builds in `versions` (e.g. ["4.4.2"]) and frequently carry a usable range too
         // (e.g. fsevents >=1.0.0 <1.2.11) — discarding either (the old `maliciousRange()` shortcut) is
         // what made the matcher flag clean, remediated versions as compromised.
         const ranges = extractRanges(affected.ranges)
         const versions = extractVersions(affected.versions)
-        // A record we can't match on at all (no range AND no enumerated version) is only worth keeping
-        // for malware, where the engine falls back to flag-by-presence; otherwise skip it.
-        if (ranges.length === 0 && versions.length === 0 && !malicious) continue
-        rows.push({
+        const existing = byPackage.get(packageName)
+        if (existing) {
+            for (const range of ranges) existing.ranges.push(range)
+            for (const version of versions) existing.versions.push(version)
+            continue
+        }
+        byPackage.set(packageName, {
             advisoryId,
             ecosystem,
             packageName,
@@ -75,6 +85,13 @@ export function normalizeOsvRecord(record: unknown, ecosystem: string): OsvAdvis
             malicious,
             withdrawn
         })
+    }
+    for (const row of byPackage.values()) {
+        // A record we can't match on at all (no range AND no enumerated version) is only worth keeping
+        // for malware, where the engine falls back to flag-by-presence; otherwise skip it. Checked after
+        // the merge, so a package whose ranges all arrived on a later `affected` entry is kept.
+        if (row.ranges.length === 0 && row.versions.length === 0 && !malicious) continue
+        rows.push(row)
     }
     return rows
 }

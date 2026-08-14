@@ -42,14 +42,22 @@ test.describe('the start hour', function () {
         await page.goto('/settings/schedule')
         await page.getByRole('button', { name: '24h', exact: true }).click()
 
-        await page.getByRole('button', { name: 'Start at' }).click()
+        const startAt = page.getByRole('button', { name: 'Start at' })
+        // The seeded start hour is six hours from now, so it lands on a different value every run — and
+        // once a day it lands on whatever fixed hour this test would pick. Selecting the hour already
+        // stored writes nothing, so no "Saved" ever appears and the test fails purely on the clock (it
+        // did, at 21:20 UTC, where seed.ts yields exactly 03:00). Choose an hour it is NOT showing.
+        const current = await startAt.textContent()
+        const target = current?.includes('03:00') ? '09:00' : '03:00'
+
+        await startAt.click()
         await expect(page.getByRole('option', { name: '00:00' })).toBeVisible()
         await expect(page.getByRole('option', { name: '23:00' })).toBeVisible()
-        await page.getByRole('option', { name: '03:00' }).click()
+        await page.getByRole('option', { name: target }).click()
 
         await expect(page.getByText('Saved', { exact: true })).toBeVisible()
         await page.reload()
-        await expect(page.getByRole('button', { name: 'Start at' })).toContainText('03:00')
+        await expect(startAt).toContainText(target)
     })
 })
 
