@@ -32,6 +32,8 @@ export function normalizeGemnasiumRecord(record: unknown, ecosystem: string, slu
     // "npm/@babel/cli" → "@babel/cli", "pypi/Django" → "Django".
     const rawName = slug.slice(slugPrefix.length)
     if (rawName.length === 0) return []
+    // An advisory upstream has retracted contributes nothing, whatever versions it still names.
+    if (isRetractedUpstream(r)) return []
     // PyPI advisories must key on the PEP 503 canonical name (lower-case, runs of -_. collapsed) so they
     // match the resolver's normalized names; other ecosystems use the slug name as-is.
     const packageName = ecosystem === 'PyPI' ? normalizePyName(rawName) : rawName
@@ -84,6 +86,38 @@ export function normalizeGemnasiumRecord(record: unknown, ecosystem: string, slu
         withdrawn: null,
         rangeSource: parsed.source
     }]
+}
+
+// Whether gemnasium has retracted this advisory upstream.
+//
+// This exists because of a gap in gemnasium's schema, not a quirk of one record. OSV has a formal
+// `withdrawn` field (an RFC3339 timestamp; absent means not withdrawn) and we filter on it. GitHub drops
+// withdrawn advisories from the database npm-audit reads, so they never arrive. gemnasium-db's documented
+// schema — see its own README's field reference — has NO withdrawn, status or retracted field at all. Its
+// only way to retract is to rewrite the record in place: the title becomes the marker, the description
+// explains, and `affected_range` is usually set to an empty range.
+//
+// What it does NOT do is clear `affected_versions` or `fixed_versions`, so a retracted record still names
+// the versions it claimed before retraction — npm/express CVE-2024-51999 is titled "False Positive" and
+// still carries "All versions before 4.22.0, all versions starting from 5.0.0 before 5.2.0". Anything that
+// reads those fields reinstates precisely the finding gemnasium withdrew.
+//
+// Three markers, all inherited from the GitHub advisories gemnasium imports, covering 372 records across
+// npm/PyPI/Go/crates.io: 278 "Duplicate Advisory:", 43 "Withdrawn Advisory:", 35 false positives, plus 16
+// whose title reads normally and whose description alone carries the withdrawal.
+//
+// The false-positive test is deliberately an EXACT title match rather than a substring, because a real
+// advisory can be *about* a false positive: go/github.com/sigstore/cosign CVE-2026-39395 is titled
+// "Cosign's verify-blob-attestation reports false positive when payload parsing fails" and must keep
+// reporting. Same reason the other two anchor to the start of the title.
+function isRetractedUpstream(record: GemnasiumYaml): boolean {
+    const title = typeof record.title === 'string' ? record.title.trim().toLowerCase() : ''
+    if (title === 'false positive') return true
+    if (title.startsWith('withdrawn advisory:')) return true
+    if (title.startsWith('duplicate advisory:')) return true
+    const description = typeof record.description === 'string' ? record.description.toLowerCase() : ''
+    if (description.includes('marked as false positive') || description.includes('marked as a false positive')) return true
+    return description.includes('this advisory has been withdrawn')
 }
 
 type ParsedRange = {

@@ -96,4 +96,10 @@ export type GemnasiumAdvisoryRow = {
 //     "affects nothing" into "affects everything below an arbitrarily-picked branch fix" (protobufjs 7.6.5
 //     and every vite below 8.0.5 were reported critical by that path). Adds `rangeSource` + the recovery
 //     tiers, so an existing cache must rebuild.
-export const GEMNASIUM_NORMALIZER_VERSION = 3
+// v4: drop advisories gemnasium has retracted upstream. Its schema carries no `withdrawn` field — unlike
+//     OSV, whose formal one we already filter on, and unlike GitHub, which removes withdrawn entries from
+//     the database npm-audit reads — so a retracted gemnasium record stays in the export with only its
+//     title rewritten ("False Positive", "Withdrawn Advisory: …", "Duplicate Advisory: …") while still
+//     naming the versions it claimed beforehand. 372 such records across npm/PyPI/Go/crates.io were being
+//     reported as live findings, npm's express among them. Forces a re-seed so the cached rows go.
+export const GEMNASIUM_NORMALIZER_VERSION = 4

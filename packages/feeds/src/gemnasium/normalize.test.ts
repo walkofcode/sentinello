@@ -327,6 +327,110 @@ describe('normalizeGemnasiumRecord — the "<0" empty-set sentinel', function ()
     })
 })
 
+// gemnasium-db's schema has no `withdrawn` field — OSV's formal one is what we filter on there, and GitHub
+// simply removes withdrawn entries before npm-audit ever sees them. gemnasium retracts by rewriting the
+// record in place and leaving `affected_versions` / `fixed_versions` describing what it used to claim, so
+// anything reading those reinstates the finding upstream withdrew. 372 records across npm/PyPI/Go/crates.io
+// carry one of these markers.
+describe('normalizeGemnasiumRecord — advisories retracted upstream', function () {
+    // REGRESSION — npm/express/CVE-2024-51999.yml, verbatim. Retracted, yet the prose still names the
+    // range it claimed before retraction, so reading it reported express across six real projects.
+    it('drops a record retracted as a false positive, prose and all', function () {
+        const rows = normalizeGemnasiumRecord({
+            identifier: 'CVE-2024-51999',
+            identifiers: ['CVE-2024-51999', 'GHSA-pj86-cfqh-vqx6'],
+            package_slug: 'npm/express',
+            title: 'False Positive',
+            description: 'This advisory has been marked as False Positive and removed.',
+            affected_range: '<0',
+            fixed_versions: [],
+            affected_versions: 'All versions before 4.22.0, all versions starting from 5.0.0 before 5.2.0'
+        }, 'npm', 'npm/')
+        expect(rows).toEqual([])
+    })
+
+    // The lower-case spelling gemnasium also uses (npm/express-hbs CVE-2021-32820).
+    it('drops it whatever the marker capitalisation', function () {
+        const rows = normalizeGemnasiumRecord(
+            record({ title: 'False positive', description: 'This advisory has been marked as a False Positive.' }),
+            'npm',
+            'npm/'
+        )
+        expect(rows).toEqual([])
+    })
+
+    // 278 records — the largest class by far, and the one that shows up as a second finding for a package
+    // that already has the real advisory (npm/braces GHSA-g95f-p29q-9xw4 alongside GMS-2019-5).
+    it('drops an advisory withdrawn as a duplicate of another', function () {
+        const rows = normalizeGemnasiumRecord(
+            record({ title: 'Duplicate Advisory: Regular Expression Denial of Service in braces', package_slug: 'npm/braces' }),
+            'npm',
+            'npm/'
+        )
+        expect(rows).toEqual([])
+    })
+
+    it('drops a withdrawn advisory', function () {
+        const rows = normalizeGemnasiumRecord(
+            record({ title: 'Withdrawn Advisory: Bootstrap Cross-Site Scripting (XSS) vulnerability' }),
+            'npm',
+            'npm/'
+        )
+        expect(rows).toEqual([])
+    })
+
+    // Both spellings occur upstream, and a record can carry the marker in the description while its title
+    // still reads as an ordinary advisory — so the description is checked independently of the title.
+    it('drops one marked a false positive in the description without the article', function () {
+        const rows = normalizeGemnasiumRecord(
+            record({
+                title: 'Prototype Pollution in lodash',
+                description: 'This advisory has been marked as False Positive and removed.'
+            }),
+            'npm',
+            'npm/'
+        )
+        expect(rows).toEqual([])
+    })
+
+    // 16 records read as ordinary advisories in the title and carry the withdrawal only in the description.
+    it('drops one whose withdrawal is stated only in the description', function () {
+        const rows = normalizeGemnasiumRecord(
+            record({
+                title: 'Angular: SSRF via protocol-relative and backslash URLs',
+                description: '## Duplicate Advisory\nThis advisory has been withdrawn because it is a duplicate of GHSA-xxxx.'
+            }),
+            'npm',
+            'npm/'
+        )
+        expect(rows).toEqual([])
+    })
+
+    // The reason the title tests anchor rather than search. This is a REAL advisory that happens to be
+    // about a false positive in someone else's tool, and it must keep reporting.
+    it('keeps a real advisory whose title merely mentions a false positive', function () {
+        const rows = normalizeGemnasiumRecord({
+            identifier: 'CVE-2026-39395',
+            identifiers: ['CVE-2026-39395'],
+            package_slug: 'go/github.com/sigstore/cosign',
+            title: "Cosign's verify-blob-attestation reports false positive when payload parsing fails",
+            affected_range: '>=3.0.0 <3.0.6||<2.6.3',
+            fixed_versions: ['3.0.6', '2.6.3']
+        }, 'Go', 'go/')
+        expect(rows).toHaveLength(1)
+        expect(rows[0]?.ranges.length).toBeGreaterThan(0)
+    })
+
+    it('keeps an advisory whose description merely discusses false positives', function () {
+        const rows = normalizeGemnasiumRecord(
+            record({ description: 'The scanner emits a false positive when the header is absent.' }),
+            'npm',
+            'npm/'
+        )
+        expect(rows).toHaveLength(1)
+    })
+})
+
 describe('parseAffectedRange — no machine-readable range', function () {
     // The old contract was "assume everything before the fix is affected". That is the fabrication this
     // change removes: with no range and nothing but fixed_versions, the record states no affected set.
