@@ -224,6 +224,17 @@ describe('normalizeGemnasiumRecord — metadata', function () {
         expect(rows[0]?.severity).toBeNull()
     })
 
+    // YAML happily produces a number where a version string is expected (`fixed_versions: [2]`), and the
+    // list is still the authoritative fix boundary for a single-branch advisory.
+    it('coerces a numeric entry in a string list', function () {
+        const rows = normalizeGemnasiumRecord(
+            record({ affected_range: '<1.0.0', fixed_versions: [2, '', null] }),
+            'npm',
+            'npm/'
+        )
+        expect(rows[0]?.ranges).toEqual([{ introduced: '0', fixed: '2' }])
+    })
+
     // An affected_range that is not a string is read as absent. With no machine range to work from the
     // record is unresolved — NOT silently widened to [0, fixed_versions[0]).
     it('treats a non-string affected_range as absent and leaves the record unresolved', function () {

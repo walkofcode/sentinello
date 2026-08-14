@@ -50,11 +50,12 @@ export function normalizeGemnasiumRecord(record: unknown, ecosystem: string, slu
         fixedVersions,
         typeof r.affected_versions === 'string' ? r.affected_versions : ''
     )
-    // An 'unresolved' row carries no ranges and no versions, so it can never match anything — but it IS
-    // cached, because the worker's resolution pass needs to see it to recover a range from a sibling
-    // advisory or the OSV cache (and to delete it when neither can). Dropping it here instead, as this
-    // used to, is what left the fabricated-range path as the only way such a record ever matched.
-    if (parsed.source !== 'unresolved' && parsed.ranges.length === 0 && parsed.versions.length === 0) return []
+    // Every record is now cached, including the ones that state no affected set. An 'unresolved' row
+    // carries no ranges and no versions, so it can never match anything — but the worker's resolution pass
+    // needs to SEE it to recover a range from a sibling advisory or the OSV cache, and to delete it when
+    // neither can. Dropping it here instead, as this used to, is what left the fabricated-range path as
+    // the only way such a record ever matched. There is deliberately no emptiness check left: a 'range' or
+    // 'prose' source is only returned with at least one range or version, so it could never fire.
 
     const severity = severityFromCvss(
         typeof r.cvss_v3 === 'string' ? r.cvss_v3 : null,
@@ -212,7 +213,9 @@ export function parseAffectedVersionsProse(text: string): GemnasiumRange[] | nul
         }
         return null
     }
-    return out.length > 0 ? out : null
+    // At least one clause always exists (split never yields an empty list) and an unparseable one returns
+    // above, so reaching here means every clause produced an interval.
+    return out
 }
 
 type Disjunct = {

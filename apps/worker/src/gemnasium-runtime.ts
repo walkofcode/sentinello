@@ -16,6 +16,7 @@ import {
     type GemnasiumRange,
     type OsvDrizzleDb
 } from '@sentinello/db'
+import { errText } from '@sentinello/feeds'
 import {
     createGemnasiumScanner,
     type GemnasiumAdvisory,
@@ -60,7 +61,7 @@ export function createGemnasiumController(mainDb: DrizzleDb, runtime: WorkerRunt
             try {
                 current = startGemnasiumRuntime(mainDb, runtime)
             } catch (err) {
-                console.error('[gemnasium] runtime failed to start: ' + ((err instanceof Error && err.message) || String(err)))
+                console.error('[gemnasium] runtime failed to start: ' + errText(err))
                 current = null
             }
             return
@@ -153,7 +154,7 @@ export function startGemnasiumRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime)
 
     if (!gemnasiumFeedDisabled()) {
         const initial = runSync(mainDb, gemnasiumDb, runtime).catch(function onErr(err: unknown) {
-            console.error('[gemnasium] initial sync failed: ' + ((err instanceof Error && err.message) || String(err)))
+            console.error('[gemnasium] initial sync failed: ' + errText(err))
         })
         runtime.track(initial)
     } else {
@@ -162,7 +163,7 @@ export function startGemnasiumRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime)
 
     const task: ScheduledTask = cron.schedule(SYNC_CRON, function onTick() {
         const work = runSync(mainDb, gemnasiumDb, runtime).catch(function onErr(err: unknown) {
-            console.error('[gemnasium] scheduled sync failed: ' + ((err instanceof Error && err.message) || String(err)))
+            console.error('[gemnasium] scheduled sync failed: ' + errText(err))
         })
         runtime.track(work)
     }, { name: 'sentinello-gemnasium-sync' })
@@ -215,7 +216,7 @@ function openOsvForResolution(mainDb: DrizzleDb): OsvResolutionHandle | null {
     try {
         opened = openOsvDb()
     } catch (err) {
-        console.error('[gemnasium] OSV cache unavailable for range recovery: ' + ((err instanceof Error && err.message) || String(err)))
+        console.error('[gemnasium] OSV cache unavailable for range recovery: ' + errText(err))
         return null
     }
     return {
