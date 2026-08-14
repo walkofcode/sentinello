@@ -1,0 +1,1 @@
+ALTER TABLE `gemnasium_advisories` DROP COLUMN `range_source`;

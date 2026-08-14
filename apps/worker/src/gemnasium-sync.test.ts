@@ -122,10 +122,6 @@ function meta<T>(key: string): T | null {
     return getGemnasiumMeta<T>(db, key)
 }
 
-function logLines(): string[] {
-    return vi.mocked(console.log).mock.calls.map(function first(c) { return String(c[0]) })
-}
-
 // Puts the cache in the state where the incremental path is eligible: seeded, current normalizer, and a
 // known provenance sha.
 function markSeeded(sha = 'sha-old'): void {
@@ -462,48 +458,6 @@ describe('syncGemnasium — the full rebuild', function () {
         feeds.fetchGemnasiumHeadSha.mockResolvedValue('sha-observed')
         await syncGemnasium(db)
         expect(meta<string>(GEMNASIUM_META_KEYS.headSha)).toBe('sha-observed')
-    })
-
-    // Range recovery runs as a post-pass over the WHOLE cache, not over the batch being written, because a
-    // record with no machine-readable range is resolved against a sibling advisory that may arrive in any
-    // batch. It also runs before the record count is read, since dropping an unrecoverable row changes it.
-    it('recovers a range from a sibling once the whole archive has landed', async function () {
-        feeds.streamGemnasiumArchive.mockImplementation(stream([
-            { rows: [row({ advisoryId: 'GHSA-stub', packageName: 'protobufjs', ranges: [], rangeSource: 'unresolved' })], lastModified: null },
-            { rows: [row({
-                advisoryId: 'CVE-2026-41242',
-                packageName: 'protobufjs',
-                aliases: ['GHSA-stub'],
-                ranges: [{ introduced: '0', fixed: '7.5.5' }, { introduced: '8.0.0', fixed: '8.0.1' }]
-            })], lastModified: null }
-        ]))
-
-        const result = await syncGemnasium(db)
-
-        expect(result.status).toBe('ok')
-        const found = lookupGemnasiumByPackages(db, 'npm', ['protobufjs']).get('protobufjs') || []
-        const stub = found.find(function byId(r) { return r.advisoryId === 'GHSA-stub' })
-        expect(stub?.rangeSource).toBe('sibling')
-        expect(stub?.ranges).toEqual([{ introduced: '0', fixed: '7.5.5' }, { introduced: '8.0.0', fixed: '8.0.1' }])
-    })
-
-    // An unrecoverable record is deleted rather than guessed at, so the reported record count must be the
-    // one taken AFTER the recovery pass — otherwise Settings → Sources overstates what the cache holds.
-    it('drops an unrecoverable record and counts the cache after doing so', async function () {
-        feeds.streamGemnasiumArchive.mockImplementation(stream([
-            { rows: [
-                row(),
-                row({ advisoryId: 'GHSA-orphan', packageName: 'lonely', ranges: [], rangeSource: 'unresolved' })
-            ], lastModified: null }
-        ]))
-
-        const result = await syncGemnasium(db)
-
-        expect(result.recordCount).toBe(1)
-        expect(countGemnasiumAdvisories(db)).toBe(1)
-        expect(logLines().some(function mentionsRecovery(l) {
-            return l.includes('range recovery') && l.includes('1 dropped as unresolvable')
-        })).toBe(true)
     })
 
     // Only safe after the full stream succeeded — which is exactly why it is not in the loop.

@@ -48,7 +48,6 @@ function advisory(overrides: Partial<GemnasiumAdvisoryRow> = {}): GemnasiumAdvis
         url: 'https://example.test/advisory/1',
         malicious: false,
         withdrawn: null,
-        rangeSource: 'range',
         ...overrides
     }
 }
