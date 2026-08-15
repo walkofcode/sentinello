@@ -58,6 +58,13 @@ COPY pnpm-lock.yaml package.json pnpm-workspace.yaml turbo.json tsconfig.base.js
 
 # Workspace manifests only — re-running `pnpm install` because one of these changed is cheap;
 # re-running because a random src file changed is what we're avoiding here.
+#
+# EVERY workspace package the image builds must be listed. pnpm installs a package's dependencies
+# only if its manifest exists at install time, and `COPY packages ./packages` below happens AFTER
+# the install — so a package missing here gets no node_modules at all, and the build fails on its
+# first bare import. `packages/versions` was missing and went unnoticed because nothing in the image
+# imported it until apps/web/lib/version.ts did; the next image build after that was this one.
+# apps/cli and apps/homepage are absent deliberately — neither ships in the image.
 COPY apps/web/package.json apps/web/
 COPY apps/worker/package.json apps/worker/
 COPY packages/db/package.json packages/db/
@@ -65,6 +72,7 @@ COPY packages/core/package.json packages/core/
 COPY packages/feeds/package.json packages/feeds/
 COPY packages/notifications/package.json packages/notifications/
 COPY packages/scanners/package.json packages/scanners/
+COPY packages/versions/package.json packages/versions/
 
 # Strict-mode install — exact versions only, .npmrc minimum-release-age in force.
 #
