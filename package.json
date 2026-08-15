@@ -22,6 +22,8 @@
         "build": "turbo run build",
         "dev": "turbo run dev --filter='./apps/*'",
         "lint": "turbo run lint",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
         "typecheck": "turbo run typecheck",
         "test": "vitest run",
         "test:watch": "vitest",

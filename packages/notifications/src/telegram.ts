@@ -6,9 +6,9 @@ import type { NotificationSender, RenderedMessage, SendResult } from './types'
 
 const REQUEST_TIMEOUT_MS = 10_000
 
-export const sendTelegram: NotificationSender = async function sendTelegram(target, message) {
-    return doSendTelegram(target, message)
-}
+// The annotation is what checks doSendTelegram against the NotificationSender contract; the wrapper
+// this replaces added a stack frame and nothing else.
+export const sendTelegram: NotificationSender = doSendTelegram
 
 async function doSendTelegram(target: NotificationTarget, message: RenderedMessage): Promise<SendResult> {
     const config = target.config as TelegramTargetConfig
