@@ -1,7 +1,7 @@
 {
     "Meta": {
         "title": "Sentinello — early-warning CVE monitoring for your whole portfolio",
-        "description": "Self-hosted, open-source dependency-vulnerability monitoring across languages — JavaScript by default, with Python, Go, and Rust opt-in. Point it at your repositories and get one triage queue for known CVEs across every project.",
+        "description": "Self-hosted, open-source dependency-vulnerability monitoring for Node.js projects. Point it at your repositories and get one triage queue for known CVEs across every project.",
         "tagline": "CVE early-warning for your whole portfolio",
         "tabTitle": "Sentinello — multi-language CVE monitoring"
     },
@@ -38,7 +38,7 @@
     },
     "Hero": {
         "title": "An early-warning system for the dependencies you stopped watching.",
-        "subtitle": "In the AI age you ship more projects than you can maintain. Sentinello watches every one and surfaces known CVEs in their dependencies — JavaScript by default, with Python, Go, and Rust a toggle away — so a forgotten project never becomes an incident.",
+        "subtitle": "In the AI age you ship more projects than you can maintain. Sentinello watches every one and surfaces known CVEs in their Node.js dependencies — so a forgotten project never becomes an incident.",
         "commandCaption": "Run it in one command:",
         "ctaPrimary": "Read the quick start",
         "ctaSecondary": "Star on GitHub",
@@ -89,14 +89,12 @@
         "queueBody": "See and triage CVEs across your whole portfolio in one place — instead of npm audit scattered across a dozen checkouts.",
         "browseTitle": "Browse by project or library",
         "browseBody": "Drill into any repository for its findings, fix versions, and history — or pivot to a vulnerable package to see every project it affects and mute it everywhere at once.",
-        "polyglotTitle": "Multi-language scanning",
-        "polyglotBody": "Scans JavaScript out of the box and adds Python, Go, and Rust with a per-language toggle — parsing each project's lockfile offline and matching it against OSV and GitLab gemnasium advisories.",
         "exportTitle": "Advisory export",
         "exportBody": "Export findings for a project or library as Markdown, with a customizable remediation prompt for your team or an LLM.",
         "scanningTitle": "Continuous scanning",
         "scanningBody": "A background worker rescans on a schedule, so new advisories show up without you remembering to check.",
         "sourcesTitle": "Multiple sources",
-        "sourcesBody": "Beyond npm audit: match against the OSV database for broader CVE coverage and known-malicious package detection.",
+        "sourcesBody": "Beyond npm audit: match against OSV and GitLab gemnasium for broader CVE coverage and known-malicious package detection.",
         "notificationsTitle": "Notifications & webhooks",
         "notificationsBody": "Get failure and finding alerts via Slack, Telegram, or a plain webhook — scoped per root or project, in the language you choose. JSON or plain-text payloads for an auto-fix agent.",
         "selfContainedTitle": "Single image, single file",
@@ -108,7 +106,9 @@
         "languagesTitle": "10 languages",
         "languagesBody": "The portal UI, scan reason codes, and statuses are localized to 10 languages.",
         "mcpTitle": "MCP server",
-        "mcpBody": "Connect Claude Desktop, Cursor, and other MCP clients to query findings, projects, and libraries — and trigger scans — without leaving the chat."
+        "mcpBody": "Connect Claude Desktop, Cursor, and other MCP clients to query findings, projects, and libraries — and trigger scans — without leaving the chat.",
+        "corroborationTitle": "Findings that agree",
+        "corroborationBody": "When several sources report the same vulnerability it stays one finding — carrying which of them agreed, graded at the worst severity any of them gave it."
     },
     "Screenshots": {
         "title": "Screenshots",

@@ -18,7 +18,9 @@ const ROWS: { key: string; cells: Record<Column, Cell> }[] = [
     { key: 'selfHosted', cells: { sentinello: 'yes', depTrack: 'yes', snyk: 'no', dependabot: 'no' } },
     { key: 'singleBinary', cells: { sentinello: 'yes', depTrack: 'no', snyk: 'no', dependabot: 'no' } },
     { key: 'aiNative', cells: { sentinello: 'yes', depTrack: 'no', snyk: 'partial', dependabot: 'no' } },
-    { key: 'polyglot', cells: { sentinello: 'yes', depTrack: 'yes', snyk: 'yes', dependabot: 'yes' } },
+    // Sentinello scans Node.js only. The others genuinely are polyglot, and a comparison table
+    // that flatters us on a row we lose is worth nothing to the reader it is meant to help.
+    { key: 'polyglot', cells: { sentinello: 'no', depTrack: 'yes', snyk: 'yes', dependabot: 'yes' } },
     { key: 'enterprisePolicy', cells: { sentinello: 'partial', depTrack: 'yes', snyk: 'yes', dependabot: 'partial' } }
 ]
 

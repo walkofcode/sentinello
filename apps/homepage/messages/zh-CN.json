@@ -1,7 +1,7 @@
 {
     "Meta": {
         "title": "Sentinello — 面向整个项目组合的 CVE 早期预警监控",
-        "description": "跨语言的自托管、开源依赖漏洞监控 —— 默认 JavaScript，可选 Python、Go 和 Rust。把它指向你的仓库，即可在一个分诊队列中查看所有项目的已知 CVE。",
+        "description": "面向 Node.js 项目的自托管、开源依赖漏洞监控。把它指向你的仓库，即可在一个分诊队列中查看所有项目的已知 CVE。",
         "tagline": "面向整个项目组合的 CVE 早期预警",
         "tabTitle": "Sentinello — 多语言 CVE 监控"
     },
@@ -38,7 +38,7 @@
     },
     "Hero": {
         "title": "为那些你不再盯着看的依赖，提供一套早期预警系统。",
-        "subtitle": "在 AI 时代，你发布的项目多过你能维护的数量。Sentinello 会盯住其中的每一个，揭示其依赖中已知的 CVE —— 默认 JavaScript，Python、Go 和 Rust 只需一个开关 —— 让被遗忘的项目永远不会演变成事故。",
+        "subtitle": "在 AI 时代，你发布的项目多过你能维护的数量。Sentinello 会盯住其中的每一个，揭示其 Node.js 依赖中已知的 CVE —— 让被遗忘的项目永远不会演变成事故。",
         "commandCaption": "一条命令即可运行：",
         "ctaPrimary": "阅读快速开始",
         "ctaSecondary": "在 GitHub 上加星",
@@ -89,14 +89,12 @@
         "queueBody": "在一个地方查看并分诊整个组合的 CVE —— 而不是散落在十几个检出目录里的 npm audit。",
         "browseTitle": "按项目或库浏览",
         "browseBody": "深入任意仓库，查看它的发现、修复版本和历史 —— 或切换到某个易受攻击的包，看它影响的每一个项目，并一次性在所有项目中将其静音。",
-        "polyglotTitle": "多语言扫描",
-        "polyglotBody": "开箱即扫 JavaScript，并通过逐语言开关加入 Python、Go 和 Rust —— 离线解析每个项目的锁文件，并与 OSV 和 GitLab gemnasium 公告进行比对。",
         "exportTitle": "公告导出",
         "exportBody": "将项目或库的发现导出为 Markdown，并附带可为你的团队或 LLM 自定义的修复提示。",
         "scanningTitle": "持续扫描",
         "scanningBody": "后台工作进程按计划重新扫描，新的公告会自动出现，无需你记得去检查。",
         "sourcesTitle": "多种来源",
-        "sourcesBody": "不止 npm audit：与 OSV 数据库匹配，获得更广的 CVE 覆盖并检测已知恶意软件包。",
+        "sourcesBody": "不止 npm audit：同时与 OSV 和 GitLab gemnasium 匹配，获得更广的 CVE 覆盖并检测已知恶意软件包。",
         "notificationsTitle": "通知与 Webhook",
         "notificationsBody": "通过 Slack、Telegram 或一个普通 Webhook 接收失败与发现的告警 —— 可按 root 或项目划分范围，并使用你选择的语言。JSON 或纯文本负载，可直接交给自动修复代理。",
         "selfContainedTitle": "一个镜像，一个文件",
@@ -108,7 +106,9 @@
         "languagesTitle": "10 种语言",
         "languagesBody": "门户界面、扫描原因代码和状态均已本地化为 10 种语言。",
         "mcpTitle": "MCP 服务器",
-        "mcpBody": "连接 Claude Desktop、Cursor 等 MCP 客户端，无需离开聊天即可查询发现、项目和库，并触发扫描。"
+        "mcpBody": "连接 Claude Desktop、Cursor 等 MCP 客户端，无需离开聊天即可查询发现、项目和库，并触发扫描。",
+        "corroborationTitle": "彼此印证的发现",
+        "corroborationBody": "当多个来源报告同一个漏洞时，它仍然是一条发现 —— 并带上哪些来源与之一致，按其中任一给出的最严重等级来评定。"
     },
     "Screenshots": {
         "title": "截图",

@@ -1,7 +1,7 @@
 {
     "Meta": {
         "title": "Sentinello — monitoramento antecipado de CVE para todo o seu portfólio",
-        "description": "Monitoramento de vulnerabilidades de dependências em várias linguagens, auto-hospedado e de código aberto — JavaScript por padrão, com Python, Go e Rust opcionais. Aponte-o para os seus repositórios e tenha uma única fila de triagem para os CVEs conhecidos de cada projeto.",
+        "description": "Monitoramento de vulnerabilidades de dependências para projetos Node.js, auto-hospedado e de código aberto. Aponte-o para os seus repositórios e tenha uma única fila de triagem para os CVEs conhecidos de cada projeto.",
         "tagline": "Alerta antecipado de CVE para todo o seu portfólio",
         "tabTitle": "Sentinello — monitoramento de CVE multilinguagem"
     },
@@ -38,7 +38,7 @@
     },
     "Hero": {
         "title": "Um sistema de alerta antecipado para as dependências que você parou de vigiar.",
-        "subtitle": "Na era da IA você publica mais projetos do que consegue manter. O Sentinello vigia cada um e revela os CVEs conhecidos em suas dependências — JavaScript por padrão, com Python, Go e Rust a um clique — para que um projeto esquecido nunca vire um incidente.",
+        "subtitle": "Na era da IA você publica mais projetos do que consegue manter. O Sentinello vigia cada um e revela os CVEs conhecidos em suas dependências Node.js — para que um projeto esquecido nunca vire um incidente.",
         "commandCaption": "Execute com um único comando:",
         "ctaPrimary": "Leia o guia rápido",
         "ctaSecondary": "Dar estrela no GitHub",
@@ -89,14 +89,12 @@
         "queueBody": "Veja e faça a triagem de CVEs de todo o seu portfólio em um só lugar — em vez de npm audit espalhado por uma dúzia de cópias.",
         "browseTitle": "Navegue por projeto ou biblioteca",
         "browseBody": "Entre em qualquer repositório para ver seus achados, versões de correção e histórico — ou pule para um pacote vulnerável para ver todos os projetos afetados e silenciá-lo em todos de uma vez.",
-        "polyglotTitle": "Varredura multilinguagem",
-        "polyglotBody": "Escaneia JavaScript de imediato e adiciona Python, Go e Rust com um interruptor por linguagem — analisando o lockfile de cada projeto offline e comparando-o com os avisos do OSV e do gemnasium do GitLab.",
         "exportTitle": "Exportação de avisos",
         "exportBody": "Exporte os achados de um projeto ou biblioteca como Markdown, com um prompt de remediação personalizável para a sua equipe ou um LLM.",
         "scanningTitle": "Escaneamento contínuo",
         "scanningBody": "Um processo em segundo plano reescaneia conforme um agendamento, então novos avisos aparecem sem você precisar lembrar de verificar.",
         "sourcesTitle": "Múltiplas fontes",
-        "sourcesBody": "Além do npm audit: comparação com o banco de dados OSV para maior cobertura de CVEs e detecção de pacotes maliciosos conhecidos.",
+        "sourcesBody": "Além do npm audit: comparação com o OSV e com o gemnasium do GitLab para maior cobertura de CVEs e detecção de pacotes maliciosos conhecidos.",
         "notificationsTitle": "Notificações e webhooks",
         "notificationsBody": "Receba alertas de falhas e achados via Slack, Telegram ou um webhook simples — definidos por root ou projeto, no idioma que você escolher. Payloads em JSON ou texto simples para um agente de correção automática.",
         "selfContainedTitle": "Uma imagem, um arquivo",
@@ -108,7 +106,9 @@
         "languagesTitle": "10 idiomas",
         "languagesBody": "A interface do portal, os códigos de motivo de escaneamento e os status estão traduzidos para 10 idiomas.",
         "mcpTitle": "Servidor MCP",
-        "mcpBody": "Conecte o Claude Desktop, o Cursor e outros clientes MCP para consultar achados, projetos e bibliotecas — e iniciar varreduras — sem sair do chat."
+        "mcpBody": "Conecte o Claude Desktop, o Cursor e outros clientes MCP para consultar achados, projetos e bibliotecas — e iniciar varreduras — sem sair do chat.",
+        "corroborationTitle": "Ocorrências que concordam",
+        "corroborationBody": "Quando várias fontes relatam a mesma vulnerabilidade ela continua sendo uma só ocorrência — trazendo quais delas concordaram, classificada pela pior severidade que qualquer uma tenha dado."
     },
     "Screenshots": {
         "title": "Capturas",
