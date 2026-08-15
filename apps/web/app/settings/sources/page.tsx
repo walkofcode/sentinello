@@ -46,6 +46,9 @@ export default async function SourcesSettingsPage() {
                 displayName: source.displayName,
                 enabled: getSourceEnabled(db, source.id, eco.id),
                 cacheBacked: source.cacheBacked,
+                // `defaultEnabled` IS the definition of the built-in source: the one that is on out of
+                // the box, which is exactly the one an operator must not be able to switch off.
+                builtIn: source.defaultEnabled,
                 status
             }
         })
