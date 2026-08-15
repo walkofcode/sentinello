@@ -58,6 +58,48 @@ jobs:
             - name: Build
               run: pnpm build
 
+    # The image is the primary artifact for every operator who is not using the CLI, and until 3.3.1
+    # nothing built it before a tag was already cut. v3.3.0 shipped to npm and GitHub with no image on
+    # either registry: the Dockerfile copies workspace manifests one by one before `pnpm install`, and
+    # packages/versions was missing from that list, so it got no node_modules and the web build died on
+    # its first bare import. Every job above was green for that commit and stayed green, because
+    # `pnpm build` at the repo root installs the whole workspace and never exercises the subset the
+    # image installs. Only building the image finds this.
+    #
+    # Deliberately NOT path-filtered. The tempting filter — Dockerfile plus the workspace manifests —
+    # would have skipped the very commit that broke it: 4292629 added an `import` to
+    # apps/web/lib/version.ts and touched nothing else. A missing manifest is latent until some source
+    # file reaches for the package, so the trigger is an ordinary .ts edit anywhere in the image's
+    # dependency graph. Any filter narrow enough to be worth having is narrow enough to miss it.
+    #
+    # amd64 only, and no push. The failure mode is architecture-independent (pnpm resolution, not
+    # native compilation), so the second arch would double the cost to re-prove the same thing —
+    # publish-image.yml still builds both on native runners at release time. The GHA cache scope is
+    # separate from that workflow's so a PR can never poison the cache a release build reads.
+    docker-image:
+        name: container image builds
+        runs-on: ubuntu-latest
+        # A cold cache runs long (apt, better-sqlite3/sharp compiles, next build, nvm install); the
+        # six-hour default would burn a runner rather than fail.
+        timeout-minutes: 45
+        steps:
+            - uses: actions/checkout@v5
+
+            - uses: docker/setup-buildx-action@v4
+
+            - name: Build image
+              uses: docker/build-push-action@v7
+              with:
+                  context: .
+                  file: ./Dockerfile
+                  platforms: linux/amd64
+                  push: false
+                  # Never a real version — this image is thrown away and must not look publishable.
+                  build-args: |
+                      SENTINELLO_VERSION=ci
+                  cache-from: type=gha,scope=ci-linux-amd64
+                  cache-to: type=gha,mode=max,scope=ci-linux-amd64
+
     cli-e2e:
         name: cli end-to-end (node ${{ matrix.node }})
         runs-on: ubuntu-latest

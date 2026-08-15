@@ -7,6 +7,20 @@
 #   - workflow_dispatch → manual run. Defaults to build-only (no push) for dry-run smoke tests;
 #     flip the `push` input to true to actually publish (useful for re-publishing `latest` off main).
 #
+# The `version` input — republishing an image for a version whose tag cannot build one:
+#   Image tags are derived from the git ref, so a release whose tree fails to build an image has no
+#   way back: re-cutting the tag is off the table once the GitHub Release and npm publish point at it.
+#   That is exactly what happened to v3.3.0. Setting `version` decouples the published tag from the
+#   ref — run against a ref that DOES build, and the image publishes under the version you name.
+#   It emits that ONE tag and nothing else: no `latest`, no `X.Y`, no `sha-`, so a retroactive
+#   republish can never displace a newer release at a shared tag. Leave it blank for every normal
+#   release; on a tag push it is unset and the ref-derived tag set applies as before.
+
+# Provenance caveat, for whoever reaches for `version` next: the image it produces is NOT reproducible
+# from the tag it is named after — it is built from whatever ref you dispatched, and its provenance
+# attestation records that ref honestly. Prefer shipping a new patch version. Only republish when
+# something already depends on the old version string and cannot be moved.
+#
 # Build topology — why a matrix `build` + two parallel `publish-*` jobs:
 #   - linux/amd64 builds on ubuntu-latest (native amd64) and linux/arm64 builds on
 #     ubuntu-24.04-arm (native arm64). Free on public repos. No QEMU emulation = ~5-10× faster.
@@ -42,6 +56,10 @@ on:
                 description: 'Push built image to registries (false = build only)'
                 type: boolean
                 default: false
+            version:
+                description: 'Republish under this exact version, e.g. 3.3.0 (blank = derive tags from the ref, the normal release path)'
+                type: string
+                default: ''
 
 env:
     GHCR_IMAGE: ghcr.io/walkofcode/sentinello
@@ -102,6 +120,19 @@ jobs:
                       ${{ env.GHCR_IMAGE }}
                       ${{ env.HUB_IMAGE }}
 
+            # A republish bakes in the version it is being published AS, not the one its ref implies —
+            # an image tagged 3.3.0 must report 3.3.0 in the footer and /api/health, and its update
+            # banner then correctly offers the newer release. On the release path `inputs.version` is
+            # unset (a tag push populates no `inputs` context at all) and this resolves to the
+            # ref-derived version, exactly as before.
+            - name: Resolve the version this image is published as
+              id: version
+              run: |
+                  resolved='${{ inputs.version }}'
+                  if [ -z "$resolved" ]; then resolved='${{ steps.meta.outputs.version }}'; fi
+                  echo "Publishing as: $resolved"
+                  echo "value=$resolved" >> "$GITHUB_OUTPUT"
+
             - name: Build and push by digest
               id: build
               uses: docker/build-push-action@v7
@@ -109,9 +140,14 @@ jobs:
                   context: .
                   file: ./Dockerfile
                   platforms: ${{ matrix.platform }}
-                  labels: ${{ steps.meta.outputs.labels }}
+                  # The explicit version label is restated last so a republish does not inherit
+                  # metadata-action's ref-derived one, which would name the branch it was built from.
+                  # On the release path both values are identical and it is a no-op.
+                  labels: |
+                      ${{ steps.meta.outputs.labels }}
+                      org.opencontainers.image.version=${{ steps.version.outputs.value }}
                   build-args: |
-                      SENTINELLO_VERSION=${{ steps.meta.outputs.version }}
+                      SENTINELLO_VERSION=${{ steps.version.outputs.value }}
                   # ONE output line with two comma-separated names. Buildx then produces a
                   # SINGLE manifest list and pushes it to both registries — guaranteeing the
                   # content-addressed digest is identical at GHCR and Hub.
@@ -172,8 +208,13 @@ jobs:
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
+            # Exactly one of the next two steps runs. Both export DOCKER_METADATA_OUTPUT_JSON, which is
+            # all the steps below read, so they need no branching of their own. Two whole steps rather
+            # than per-pattern `enable=` guards on one: a republish must emit its single tag and no
+            # other, and getting that wrong means overwriting `latest` with an older release.
             - name: Extract image metadata (tags)
               id: meta
+              if: ${{ inputs.version == '' }}
               uses: docker/metadata-action@v6
               with:
                   images: ${{ env.GHCR_IMAGE }}
@@ -184,6 +225,15 @@ jobs:
                       type=sha,prefix=sha-,format=short
                       type=raw,value=latest,enable={{is_default_branch}}
                       type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+            - name: Extract image metadata (republish — the named version only)
+              id: meta-republish
+              if: ${{ inputs.version != '' }}
+              uses: docker/metadata-action@v6
+              with:
+                  images: ${{ env.GHCR_IMAGE }}
+                  tags: |
+                      type=raw,value=${{ inputs.version }}
 
             - name: Create multi-arch manifest and push
               working-directory: /tmp/digests
@@ -226,8 +276,10 @@ jobs:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+            # See publish-ghcr for why this is two steps rather than one with `enable=` guards.
             - name: Extract image metadata (tags)
               id: meta
+              if: ${{ inputs.version == '' }}
               uses: docker/metadata-action@v6
               with:
                   images: ${{ env.HUB_IMAGE }}
@@ -238,6 +290,15 @@ jobs:
                       type=sha,prefix=sha-,format=short
                       type=raw,value=latest,enable={{is_default_branch}}
                       type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+            - name: Extract image metadata (republish — the named version only)
+              id: meta-republish
+              if: ${{ inputs.version != '' }}
+              uses: docker/metadata-action@v6
+              with:
+                  images: ${{ env.HUB_IMAGE }}
+                  tags: |
+                      type=raw,value=${{ inputs.version }}
 
             - name: Create multi-arch manifest and push
               working-directory: /tmp/digests
