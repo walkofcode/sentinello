@@ -257,9 +257,9 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     },
     es: {
         '3.3.1': {
-            title: 'Dieselbe Version wie 3.3.0, mit einem Docker-Image, das baut',
+            title: 'La misma versión que 3.3.0, con una imagen de Docker que sí compila',
             items: [
-                '3.3.0 wurde auf npm und GitHub veröffentlicht, doch sein Container-Image ließ sich nicht bauen — auf GHCR und Docker Hub gibt es kein 3.3.0. Das Dockerfile listet jedes Workspace-Paket auf, das es installiert, und eines davon — das Paket für den Versionsvergleich — fehlte dort seit jeher. Bis zu dieser Version importierte es nichts im Image, deshalb fiel es nie auf. 3.3.1 ist 3.3.0 plus diese eine Zeile: identischer Anwendungscode, ein funktionierendes Image. Wer den Container betreibt, sollte auf 3.3.1 wechseln; für die CLI war 3.3.0 bereits korrekt.'
+                '3.3.0 se publicó en npm y GitHub, pero su imagen de contenedor falló al compilar, así que no hay 3.3.0 en GHCR ni en Docker Hub. El Dockerfile enumera cada paquete del workspace que instala, y uno de ellos —el de comparación de versiones— nunca había estado en la lista. Nada dentro de la imagen lo importaba hasta esta versión, así que la omisión jamás había importado. 3.3.1 es 3.3.0 más esa única línea: el mismo código de aplicación, una imagen que funciona. Si usás el contenedor, actualizá a 3.3.1; si usás la CLI, 3.3.0 ya estaba bien.'
             ]
         },
         '3.3.0': {
@@ -467,9 +467,9 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     },
     fr: {
         '3.3.1': {
-            title: 'La misma versión que 3.3.0, con una imagen de Docker que sí compila',
+            title: 'La même version que 3.3.0, avec une image Docker qui se construit',
             items: [
-                '3.3.0 se publicó en npm y GitHub, pero su imagen de contenedor falló al compilar, así que no hay 3.3.0 en GHCR ni en Docker Hub. El Dockerfile enumera cada paquete del workspace que instala, y uno de ellos —el de comparación de versiones— nunca había estado en la lista. Nada dentro de la imagen lo importaba hasta esta versión, así que la omisión jamás había importado. 3.3.1 es 3.3.0 más esa única línea: el mismo código de aplicación, una imagen que funciona. Si usás el contenedor, actualizá a 3.3.1; si usás la CLI, 3.3.0 ya estaba bien.'
+                '3.3.0 a été publiée sur npm et GitHub, mais son image de conteneur n’a pas pu être construite : il n’y a donc pas de 3.3.0 sur GHCR ni sur Docker Hub. Le Dockerfile énumère chaque paquet du workspace qu’il installe, et l’un d’eux — celui de comparaison de versions — n’y avait jamais figuré. Rien dans l’image ne l’importait avant cette version, si bien que l’oubli n’avait jamais eu de conséquence. 3.3.1, c’est 3.3.0 plus cette seule ligne : code applicatif identique, image fonctionnelle. Si vous utilisez le conteneur, passez à 3.3.1 ; pour la CLI, 3.3.0 était déjà correcte.'
             ]
         },
         '3.3.0': {
@@ -679,9 +679,9 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     },
     de: {
         '3.3.1': {
-            title: 'La même version que 3.3.0, avec une image Docker qui se construit',
+            title: 'Dieselbe Version wie 3.3.0, mit einem Docker-Image, das baut',
             items: [
-                '3.3.0 a été publiée sur npm et GitHub, mais son image de conteneur n’a pas pu être construite : il n’y a donc pas de 3.3.0 sur GHCR ni sur Docker Hub. Le Dockerfile énumère chaque paquet du workspace qu’il installe, et l’un d’eux — celui de comparaison de versions — n’y avait jamais figuré. Rien dans l’image ne l’importait avant cette version, si bien que l’oubli n’avait jamais eu de conséquence. 3.3.1, c’est 3.3.0 plus cette seule ligne : code applicatif identique, image fonctionnelle. Si vous utilisez le conteneur, passez à 3.3.1 ; pour la CLI, 3.3.0 était déjà correcte.'
+                '3.3.0 wurde auf npm und GitHub veröffentlicht, doch sein Container-Image ließ sich nicht bauen — auf GHCR und Docker Hub gibt es kein 3.3.0. Das Dockerfile listet jedes Workspace-Paket auf, das es installiert, und eines davon — das Paket für den Versionsvergleich — fehlte dort seit jeher. Bis zu dieser Version importierte es nichts im Image, deshalb fiel es nie auf. 3.3.1 ist 3.3.0 plus diese eine Zeile: identischer Anwendungscode, ein funktionierendes Image. Wer den Container betreibt, sollte auf 3.3.1 wechseln; für die CLI war 3.3.0 bereits korrekt.'
             ]
         },
         '3.3.0': {
@@ -892,9 +892,9 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     },
     'pt-BR': {
         '3.3.1': {
-            title: 'La stessa release della 3.3.0, con un’immagine Docker che si costruisce',
+            title: 'A mesma versão da 3.3.0, com uma imagem Docker que compila',
             items: [
-                'La 3.3.0 è stata pubblicata su npm e GitHub, ma la sua immagine container non si è costruita: su GHCR e Docker Hub non esiste una 3.3.0. Il Dockerfile elenca ogni pacchetto del workspace che installa, e uno di essi — quello per il confronto delle versioni — non era mai stato elencato. Fino a questa release nulla nell’immagine lo importava, quindi l’omissione non aveva mai avuto effetto. La 3.3.1 è la 3.3.0 più quell’unica riga: stesso codice applicativo, immagine funzionante. Se usi il container, passa alla 3.3.1; se usi la CLI, la 3.3.0 era già corretta.'
+                'A 3.3.0 foi publicada no npm e no GitHub, mas sua imagem de contêiner falhou ao compilar, então não existe 3.3.0 no GHCR nem no Docker Hub. O Dockerfile lista cada pacote do workspace que instala, e um deles — o de comparação de versões — nunca havia sido listado. Nada dentro da imagem o importava até esta versão, então a omissão jamais tinha feito diferença. A 3.3.1 é a 3.3.0 mais essa única linha: mesmo código de aplicação, imagem funcionando. Se você usa o contêiner, atualize para 3.3.1; se usa a CLI, a 3.3.0 já estava correta.'
             ]
         },
         '3.3.0': {
@@ -1102,9 +1102,9 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     },
     it: {
         '3.3.1': {
-            title: '3.3.0 と同じリリース、ただしビルドできる Docker イメージ付き',
+            title: 'La stessa release della 3.3.0, con un’immagine Docker che si costruisce',
             items: [
-                '3.3.0 は npm と GitHub には公開されましたが、コンテナイメージのビルドに失敗したため、GHCR にも Docker Hub にも 3.3.0 はありません。Dockerfile はインストールするワークスペースパッケージを 1 つずつ列挙しますが、そのうちバージョン比較のパッケージだけが最初から記載されていませんでした。今回のリリースまでイメージ内の何もそれを import していなかったため、この欠落は一度も表面化しませんでした。3.3.1 は 3.3.0 にその 1 行を足しただけです。アプリケーションのコードは同一で、イメージが正しくビルドされます。コンテナを使っている場合は 3.3.1 へ、CLI を使っている場合は 3.3.0 のままで問題ありません。'
+                'La 3.3.0 è stata pubblicata su npm e GitHub, ma la sua immagine container non si è costruita: su GHCR e Docker Hub non esiste una 3.3.0. Il Dockerfile elenca ogni pacchetto del workspace che installa, e uno di essi — quello per il confronto delle versioni — non era mai stato elencato. Fino a questa release nulla nell’immagine lo importava, quindi l’omissione non aveva mai avuto effetto. La 3.3.1 è la 3.3.0 più quell’unica riga: stesso codice applicativo, immagine funzionante. Se usi il container, passa alla 3.3.1; se usi la CLI, la 3.3.0 era già corretta.'
             ]
         },
         '3.3.0': {
@@ -1312,9 +1312,9 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     },
     ja: {
         '3.3.1': {
-            title: '3.3.0과 같은 릴리스, 다만 빌드되는 Docker 이미지 포함',
+            title: '3.3.0 と同じリリース、ただしビルドできる Docker イメージ付き',
             items: [
-                '3.3.0은 npm과 GitHub에는 게시되었지만 컨테이너 이미지 빌드가 실패해 GHCR과 Docker Hub에는 3.3.0이 없습니다. Dockerfile은 설치할 워크스페이스 패키지를 하나씩 나열하는데, 그중 버전 비교 패키지만 처음부터 빠져 있었습니다. 이번 릴리스 전까지는 이미지 안의 어떤 것도 그 패키지를 import하지 않았기 때문에 이 누락이 한 번도 드러나지 않았습니다. 3.3.1은 3.3.0에 그 한 줄을 더한 것입니다. 애플리케이션 코드는 동일하고 이미지가 정상적으로 빌드됩니다. 컨테이너를 쓰신다면 3.3.1로 올리시고, CLI를 쓰신다면 3.3.0으로 이미 문제가 없습니다.'
+                '3.3.0 は npm と GitHub には公開されましたが、コンテナイメージのビルドに失敗したため、GHCR にも Docker Hub にも 3.3.0 はありません。Dockerfile はインストールするワークスペースパッケージを 1 つずつ列挙しますが、そのうちバージョン比較のパッケージだけが最初から記載されていませんでした。今回のリリースまでイメージ内の何もそれを import していなかったため、この欠落は一度も表面化しませんでした。3.3.1 は 3.3.0 にその 1 行を足しただけです。アプリケーションのコードは同一で、イメージが正しくビルドされます。コンテナを使っている場合は 3.3.1 へ、CLI を使っている場合は 3.3.0 のままで問題ありません。'
             ]
         },
         '3.3.0': {
@@ -1518,9 +1518,9 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     },
     'zh-CN': {
         '3.3.1': {
-            title: 'A mesma versão da 3.3.0, com uma imagem Docker que compila',
+            title: '与 3.3.0 相同的版本，但 Docker 镜像可以构建',
             items: [
-                'A 3.3.0 foi publicada no npm e no GitHub, mas sua imagem de contêiner falhou ao compilar, então não existe 3.3.0 no GHCR nem no Docker Hub. O Dockerfile lista cada pacote do workspace que instala, e um deles — o de comparação de versões — nunca havia sido listado. Nada dentro da imagem o importava até esta versão, então a omissão jamais tinha feito diferença. A 3.3.1 é a 3.3.0 mais essa única linha: mesmo código de aplicação, imagem funcionando. Se você usa o contêiner, atualize para 3.3.1; se usa a CLI, a 3.3.0 já estava correta.'
+                '3.3.0 已发布到 npm 和 GitHub，但它的容器镜像构建失败，因此 GHCR 和 Docker Hub 上都没有 3.3.0。Dockerfile 会逐个列出它要安装的工作区包，而其中负责版本比较的那个包一直没有被列进去。在本次发布之前，镜像里没有任何东西 import 它，所以这个遗漏从未产生过影响。3.3.1 就是 3.3.0 加上那一行：应用代码完全相同，镜像可以正常构建。如果你运行容器，请升级到 3.3.1；如果你使用 CLI，3.3.0 本来就是正确的。'
             ]
         },
         '3.3.0': {
@@ -1704,9 +1704,9 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     },
     ko: {
         '3.3.1': {
-            title: 'Тот же выпуск, что и 3.3.0, но с собирающимся Docker-образом',
+            title: '3.3.0과 같은 릴리스, 다만 빌드되는 Docker 이미지 포함',
             items: [
-                '3.3.0 опубликована в npm и на GitHub, но её контейнерный образ не собрался — поэтому 3.3.0 нет ни в GHCR, ни в Docker Hub. Dockerfile перечисляет каждый пакет рабочего пространства, который устанавливает, и один из них — пакет сравнения версий — там никогда не значился. До этого выпуска ничто в образе его не импортировало, поэтому пропуск ни разу не проявился. 3.3.1 — это 3.3.0 плюс одна строка: код приложения тот же, образ собирается. Если вы запускаете контейнер, переходите на 3.3.1; для CLI версия 3.3.0 уже была верной.'
+                '3.3.0은 npm과 GitHub에는 게시되었지만 컨테이너 이미지 빌드가 실패해 GHCR과 Docker Hub에는 3.3.0이 없습니다. Dockerfile은 설치할 워크스페이스 패키지를 하나씩 나열하는데, 그중 버전 비교 패키지만 처음부터 빠져 있었습니다. 이번 릴리스 전까지는 이미지 안의 어떤 것도 그 패키지를 import하지 않았기 때문에 이 누락이 한 번도 드러나지 않았습니다. 3.3.1은 3.3.0에 그 한 줄을 더한 것입니다. 애플리케이션 코드는 동일하고 이미지가 정상적으로 빌드됩니다. 컨테이너를 쓰신다면 3.3.1로 올리시고, CLI를 쓰신다면 3.3.0으로 이미 문제가 없습니다.'
             ]
         },
         '3.3.0': {
@@ -1904,9 +1904,9 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     },
     ru: {
         '3.3.1': {
-            title: '与 3.3.0 相同的版本，但 Docker 镜像可以构建',
+            title: 'Тот же выпуск, что и 3.3.0, но с собирающимся Docker-образом',
             items: [
-                '3.3.0 已发布到 npm 和 GitHub，但它的容器镜像构建失败，因此 GHCR 和 Docker Hub 上都没有 3.3.0。Dockerfile 会逐个列出它要安装的工作区包，而其中负责版本比较的那个包一直没有被列进去。在本次发布之前，镜像里没有任何东西 import 它，所以这个遗漏从未产生过影响。3.3.1 就是 3.3.0 加上那一行：应用代码完全相同，镜像可以正常构建。如果你运行容器，请升级到 3.3.1；如果你使用 CLI，3.3.0 本来就是正确的。'
+                '3.3.0 опубликована в npm и на GitHub, но её контейнерный образ не собрался — поэтому 3.3.0 нет ни в GHCR, ни в Docker Hub. Dockerfile перечисляет каждый пакет рабочего пространства, который устанавливает, и один из них — пакет сравнения версий — там никогда не значился. До этого выпуска ничто в образе его не импортировало, поэтому пропуск ни разу не проявился. 3.3.1 — это 3.3.0 плюс одна строка: код приложения тот же, образ собирается. Если вы запускаете контейнер, переходите на 3.3.1; для CLI версия 3.3.0 уже была верной.'
             ]
         },
         '3.3.0': {
