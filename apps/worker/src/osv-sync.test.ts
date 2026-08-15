@@ -29,8 +29,10 @@ import type { OsvAdvisoryRow } from '@sentinello/core'
 //   - the ecosystem is marked UNSEEDED before its rows are cleared, and seedComplete flips back only
 //     after the full stream succeeds. In between, a concurrent scan must treat the ecosystem as
 //     not-downloaded — a half-rebuilt cache that still reports seeded reads as "no vulnerabilities".
-//   - the incremental cursor advances only on success. An advisory whose fetch failed is left cleared
-//     and absent, so the next sync re-reads it; advancing regardless would skip it permanently.
+//   - an advisory is REPLACED, not cleared-then-refetched. The rows go only once the replacement is in
+//     hand, and the cursor advances only when every changed id was processed. Deleting first meant any
+//     timeout erased that advisory, and the cursor moved past it regardless — losing it until the next
+//     full re-seed, silently, on a sync that reported success.
 //
 // @sentinello/feeds is stubbed — the real thing downloads ~100 MB per ecosystem — but the cache is a real
 // migrated osv.db, so every meta write, upsert, delete and count below is the production query.
@@ -395,8 +397,7 @@ describe('incrementalSyncOsv', function () {
         expect(countOsvAdvisories(db, ECO)).toBe(0)
     })
 
-    // One advisory failing must not abort the pass. Its rows are already cleared, so it is simply absent
-    // until the next sync re-reads it — which it will, because the cursor only advances on success.
+    // One advisory failing must not abort the pass, and must not cost the operator that advisory.
     it('skips an advisory whose fetch failed and keeps going', async function () {
         feeds.fetchOsvChangedIds.mockResolvedValue({
             status: 'ok',
@@ -405,13 +406,45 @@ describe('incrementalSyncOsv', function () {
             etag: null
         })
         feeds.fetchOsvAdvisoryRows
-            .mockRejectedValueOnce(new Error('404'))
+            .mockRejectedValueOnce(new Error('connection reset'))
             .mockResolvedValueOnce([row()])
 
         const result = await incrementalSyncOsv(db, ECO)
 
         expect(result).toMatchObject({ status: 'ok', upserted: 1 })
         expect(countOsvAdvisories(db, ECO)).toBe(1)
+    })
+
+    // The rows go only once their replacement is in hand. Clearing first traded a stale advisory for no
+    // advisory on every transient network failure — and a missing advisory is a finding that silently
+    // stops being reported.
+    it('keeps the existing rows when the replacement cannot be fetched', async function () {
+        upsertOsvAdvisories(db, [row({ advisoryId: 'GHSA-bad', packageName: 'lodash' })])
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-bad'], newestIso: null, etag: null })
+        feeds.fetchOsvAdvisoryRows.mockRejectedValue(new Error('connection reset'))
+
+        await incrementalSyncOsv(db, ECO)
+
+        expect(lookupOsvByPackages(db, ECO, ['lodash']).get('lodash')).toHaveLength(1)
+    })
+
+    // …and the cursor stays put, so the id is retried rather than left behind it forever. Repeating the
+    // window is idempotent; skipping an id is not recoverable.
+    it('holds the cursor when an advisory could not be re-read', async function () {
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastModified, ECO), '2026-01-01T00:00:00Z')
+        feeds.fetchOsvChangedIds.mockResolvedValue({
+            status: 'ok',
+            ids: ['GHSA-bad'],
+            newestIso: '2026-01-02T00:00:00Z',
+            etag: 'etag-new'
+        })
+        feeds.fetchOsvAdvisoryRows.mockRejectedValue(new Error('connection reset'))
+
+        await incrementalSyncOsv(db, ECO)
+
+        expect(meta<string>(OSV_META_KEYS.lastModified)).toBe('2026-01-01T00:00:00Z')
+        expect(meta<string>(OSV_META_KEYS.modifiedIdsEtag)).toBeNull()
+        expect(meta<string>(OSV_META_KEYS.lastError)).toContain('could not be re-read')
     })
 
     // Past a certain volume, fetching one advisory at a time costs far more than re-downloading the whole
