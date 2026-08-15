@@ -286,16 +286,17 @@ describe('detectEcosystems and detectPackageManager', function () {
         expect(detectEcosystems(root)).toContain('npm')
     })
 
-    it('detects a non-npm ecosystem from its resolver manifest', async function () {
+    // Preview ecosystems are not detected at all, rather than detected and then ignored downstream.
+    // Stamping an id on the project produced a coverage row for an ecosystem no source would ever answer
+    // for, which reads to an operator as "found and handled" when nothing was scanned.
+    it('ignores a preview ecosystem manifest', async function () {
         const root = await makeTree({ 'Cargo.lock': '[[package]]\n' })
-        expect(detectEcosystems(root)).toContain('crates.io')
+        expect(detectEcosystems(root)).toEqual([])
     })
 
-    it('detects several ecosystems in one directory', async function () {
+    it('detects only the offered ecosystems in a mixed directory', async function () {
         const root = await makeTree({ 'package.json': PKG, 'go.mod': 'module x\n' })
-        const ecosystems = detectEcosystems(root)
-        expect(ecosystems).toContain('npm')
-        expect(ecosystems).toContain('Go')
+        expect(detectEcosystems(root)).toEqual(['npm'])
     })
 
     it('reports no ecosystems for a plain directory', async function () {

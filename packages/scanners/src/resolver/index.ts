@@ -1,6 +1,6 @@
 import { access } from 'node:fs/promises'
 import { join } from 'node:path'
-import { ECOSYSTEMS } from '@sentinello/core'
+import { STABLE_ECOSYSTEMS } from '@sentinello/core'
 import type { DetectedLockfile } from '../types'
 import { parseGoMod } from './go'
 import { makeGraph } from './graph'
@@ -29,13 +29,16 @@ export async function resolveProject(
     return null
 }
 
-// Multi-manifest discovery for one project directory. For each ecosystem in the central registry, find the
-// first present manifest (in the registry's preference order) and record it — one manifest per ecosystem,
-// so a single directory yields one project spanning JavaScript + Python + Go + Rust. The runner resolves
-// each of these into its own graph.
+// Multi-manifest discovery for one project directory. For each OFFERED ecosystem, find the first present
+// manifest (in the registry's preference order) and record it — one manifest per ecosystem, so a single
+// directory can yield one project spanning several. The runner resolves each of these into its own graph.
+//
+// Preview ecosystems are skipped rather than detected-and-then-ignored. Detecting them stamped their id
+// onto the project and produced per-ecosystem coverage rows for an ecosystem no source would ever answer
+// for, which reads to an operator as "found and handled" when nothing was scanned at all.
 export async function detectManifests(projectPath: string): Promise<DetectedManifest[]> {
     const out: DetectedManifest[] = []
-    for (const eco of ECOSYSTEMS) {
+    for (const eco of STABLE_ECOSYSTEMS) {
         for (const kind of eco.resolverKinds) {
             const absolutePath = join(projectPath, kind)
             if (await fileExists(absolutePath)) {

@@ -126,17 +126,19 @@ describe('reading the source matrix', function () {
         expect(enabledGemnasiumEcosystems(handle.db)).toEqual([])
     })
 
-    // This was previously npm-only, which silently ignored every non-npm cell an operator enabled.
-    it('counts a non-npm cell as the source being on', function () {
+    // The cell list is per-ecosystem and reads every enabled cell, not just npm's — but an ecosystem in
+    // preview is never one of them, whatever its config key says. Promote it in the registry and these two
+    // become 'PyPI' and ['npm', 'Go'] again with no change here.
+    it('does not count a preview cell as the source being on', function () {
         enable('PyPI')
-        expect(gemnasiumSourceEnabled(handle.db)).toBe(true)
-        expect(enabledGemnasiumEcosystems(handle.db)).toEqual(['PyPI'])
+        expect(gemnasiumSourceEnabled(handle.db)).toBe(false)
+        expect(enabledGemnasiumEcosystems(handle.db)).toEqual([])
     })
 
     it('lists enabled cells in registry order', function () {
         enable('Go')
         enable('npm')
-        expect(enabledGemnasiumEcosystems(handle.db)).toEqual(['npm', 'Go'])
+        expect(enabledGemnasiumEcosystems(handle.db)).toEqual(['npm'])
     })
 
     it('goes off again when the last cell is disabled', function () {
@@ -160,11 +162,13 @@ describe('createGemnasiumController — lazy lifecycle', function () {
         expect(existsSync(cachePath)).toBe(true)
     })
 
-    // The archive is one download covering every ecosystem, so enabling PyPI alone still starts it.
-    it('starts on a non-npm cell alone', function () {
+    // The archive is one download covering every ecosystem, so any enabled cell starts the runtime — but a
+    // preview cell is not an enabled cell, so it must not cause a 51 MB download for an ecosystem nothing
+    // will ever be scanned against.
+    it('does not start on a preview cell alone', function () {
         enable('PyPI')
         const controller = createGemnasiumController(handle.db, runtime)
-        expect(controller.getScanner()).not.toBeNull()
+        expect(controller.getScanner()).toBeNull()
     })
 
     it('starts on reload once the source is enabled', function () {

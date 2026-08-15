@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import ignoreFactory from 'ignore'
-import { ECOSYSTEMS, type EcosystemId, type PackageManager } from '@sentinello/core'
+import { STABLE_ECOSYSTEMS, type EcosystemId, type PackageManager } from '@sentinello/core'
 
 // Project discovery: walk a directory tree and report every directory that carries at least one
 // ecosystem's manifest. Shared by the worker (which walks mounted /roots on a schedule and reconciles the
@@ -226,7 +226,7 @@ function detectProject(rootPath: string, dir: string): DiscoveredProject | null 
 // records the coverage gap); every other ecosystem is keyed on the presence of any of its resolver kinds.
 export function detectEcosystems(dir: string): EcosystemId[] {
     const out: EcosystemId[] = []
-    for (const eco of ECOSYSTEMS) {
+    for (const eco of STABLE_ECOSYSTEMS) {
         if (eco.id === 'npm') {
             if (existsFile(join(dir, 'package.json'))) out.push(eco.id)
             continue

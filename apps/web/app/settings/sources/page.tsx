@@ -3,7 +3,7 @@ import { getTranslations } from 'next-intl/server'
 import { getConfigValue, getSourceEnabled } from '@sentinello/db'
 import {
     DEFAULT_ECOSYSTEM,
-    ECOSYSTEMS,
+    STABLE_ECOSYSTEMS,
     LEGACY_SOURCE_CONFIG_KEYS,
     SOURCES,
     sourceStatusKey,
@@ -24,7 +24,7 @@ export default async function SourcesSettingsPage() {
     // never drift on ecosystem/source identity. Each cell carries its persisted enabled flag (read through
     // getSourceEnabled, which applies the per-cell key, legacy-key fallback, and per-source default) and,
     // for cache-backed sources, the worker's last sync-status snapshot.
-    const rows: LanguageRowVM[] = ECOSYSTEMS.map(function toRow(eco) {
+    const rows: LanguageRowVM[] = STABLE_ECOSYSTEMS.map(function toRow(eco) {
         const cells: SourceCellVM[] = SOURCES.filter(function supports(source) {
             return sourceSupportsEcosystem(source.id, eco.id)
         }).map(function toCell(source): SourceCellVM {

@@ -143,15 +143,19 @@ describe('reading the source matrix', function () {
 
     // The source is a family of per-ecosystem cells, so enabling the first language is what starts it.
     it('treats any single enabled cell as the source being on', function () {
-        enable('PyPI')
+        enable('npm')
         expect(osvSourceEnabled(handle.db)).toBe(true)
-        expect(enabledOsvEcosystems(handle.db)).toEqual(['PyPI'])
+        expect(enabledOsvEcosystems(handle.db)).toEqual(['npm'])
     })
 
-    it('lists enabled cells in registry order rather than enablement order', function () {
+    // A preview ecosystem is never an enabled cell. It cannot start the source on its own, and it cannot
+    // add itself to a list that a stable cell has already started — which is what keeps its 200 MB export
+    // from being downloaded for an ecosystem nothing will be scanned against.
+    it('excludes a preview cell from the enabled list', function () {
         enable('crates.io')
+        expect(osvSourceEnabled(handle.db)).toBe(false)
         enable('npm')
-        expect(enabledOsvEcosystems(handle.db)).toEqual(['npm', 'crates.io'])
+        expect(enabledOsvEcosystems(handle.db)).toEqual(['npm'])
     })
 
     it('drops a cell that was turned back off', function () {
@@ -386,9 +390,9 @@ describe('startOsvRuntime', function () {
     })
 
     it('mirrors an initial snapshot for every enabled cell', function () {
-        enable('PyPI')
+        enable('npm')
         startOsvRuntime(handle.db, runtime)
-        expect(getConfigValue(handle.db, sourceStatusKey('osv' as never, 'PyPI' as never))).not.toBeNull()
+        expect(getConfigValue(handle.db, sourceStatusKey('osv' as never, 'npm' as never))).not.toBeNull()
     })
 
     it('runs a sync on the scheduled tick and tracks it', async function () {
@@ -500,16 +504,21 @@ describe('runSync — seed or catch up', function () {
         expect(logLines().some(function m(l) { return l.includes('seeding cache (first run)') })).toBe(true)
     })
 
-    // Each OSV ecosystem is its own download, so one being mid-rebuild must not drag a current sibling
-    // onto the expensive path.
-    it('decides the path per ecosystem rather than for the source as a whole', async function () {
+    // Each OSV ecosystem is its own download and runSync decides seed-vs-incremental per ecosystem. The
+    // two-ecosystem form of this assertion — one mid-rebuild must not drag a current sibling onto the
+    // expensive path — cannot be written while npm is the only ecosystem offered; restore it from git
+    // history when a second one is promoted out of preview in the registry.
+    //
+    // What is testable now, and matters more today: a preview cell is not synced at all, so enabling one
+    // cannot trigger its export download.
+    it('does not sync a preview ecosystem', async function () {
         enable('npm')
-        enable('PyPI')
+        enable('crates.io')
         markSeeded('npm')
         await runSync(handle.db, cache.db, runtime)
         expect(sync.incrementalSyncOsv).toHaveBeenCalledTimes(1)
-        expect(sync.seedOsv).toHaveBeenCalledTimes(1)
-        expect(sync.seedOsv.mock.calls[0]?.[1]).toBe('PyPI')
+        expect(sync.incrementalSyncOsv.mock.calls[0]?.[1]).toBe('npm')
+        expect(sync.seedOsv).not.toHaveBeenCalled()
     })
 
     it('stops before the first ecosystem when already aborted', async function () {

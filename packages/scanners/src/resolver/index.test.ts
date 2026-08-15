@@ -97,13 +97,15 @@ describe('detectManifests', function () {
         expect(await detectManifests(dir)).toEqual([])
     })
 
-    it('detects one manifest per ecosystem', async function () {
+    // One manifest per OFFERED ecosystem. A preview ecosystem's manifest is passed over entirely, so no
+    // graph, no coverage row and no scan is ever attributed to it.
+    it('detects one manifest per offered ecosystem and skips previews', async function () {
         await write('package-lock.json', NPM_LOCK)
         await write('requirements.txt', 'a==1.0.0\n')
         await write('go.mod', 'require github.com/a/b v1.0.0\n')
         await write('Cargo.lock', CARGO_LOCK)
         const found = await detectManifests(dir)
-        expect(found.map(function eco(m) { return m.ecosystem }).sort()).toEqual(['Go', 'PyPI', 'crates.io', 'npm'])
+        expect(found.map(function eco(m) { return m.ecosystem })).toEqual(['npm'])
     })
 
     // Only the first match per ecosystem, in registry preference order — a repo carrying both a
@@ -117,9 +119,9 @@ describe('detectManifests', function () {
     })
 
     it('records the absolute path of what it found', async function () {
-        await write('go.mod', 'require github.com/a/b v1.0.0\n')
+        await write('package-lock.json', NPM_LOCK)
         const found = await detectManifests(dir)
-        expect(found[0]?.absolutePath).toBe(join(dir, 'go.mod'))
+        expect(found[0]?.absolutePath).toBe(join(dir, 'package-lock.json'))
     })
 
     it('ignores a directory that happens to share a manifest name', async function () {

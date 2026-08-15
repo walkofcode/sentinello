@@ -1,7 +1,7 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
-import { ECOSYSTEMS, SOURCES, sourceSupportsEcosystem, type NotificationSourceScope, type SourceCell } from '@sentinello/core'
+import { STABLE_ECOSYSTEMS, SOURCES, sourceSupportsEcosystem, type NotificationSourceScope, type SourceCell } from '@sentinello/core'
 import { Label } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { EcosystemBadge } from '@/components/findings/ecosystem-badge'
@@ -75,7 +75,7 @@ export function SourceScopeField(props: Props) {
                 </label>
                 {mode === 'selected' ? (
                     <div className="ml-6 flex flex-col gap-3 border-l pl-3">
-                        {ECOSYSTEMS.map(function ecoBlock(eco) {
+                        {STABLE_ECOSYSTEMS.map(function ecoBlock(eco) {
                             const cells = SOURCES.filter(function supports(s) {
                                 return sourceSupportsEcosystem(s.id, eco.id)
                             })

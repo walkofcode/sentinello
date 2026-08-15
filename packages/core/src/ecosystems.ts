@@ -26,12 +26,28 @@ export type SourceCell = {
 
 export type EcosystemLanguage = 'javascript' | 'python' | 'go' | 'rust'
 
+// Whether an ecosystem is finished enough to be offered to an operator.
+//
+// 'preview' is not a soft warning — it removes the ecosystem from the product surface entirely: its cells
+// are absent from Settings → Sources, getSourceEnabled refuses them even if a config key says otherwise,
+// discovery does not look for its manifests, and no advisory export is downloaded for it. The registry
+// still describes it in full, so promoting one is this single field and nothing else.
+//
+// Python, Go and Rust are 'preview' because their matching is not merely incomplete, it is wrong in ways
+// that report as clean: fix derivation and version ordering are semver-only (a Django 4.2 advisory
+// recommended "upgrade to 3.2.23"), OSV's PyPI names are not PEP 503-canonicalized so they never join the
+// resolver's, and gemnasium's range parser cannot read PEP 440 comma intersections. A source that answers
+// "no vulnerabilities" for the wrong reason is worse than one that is not offered.
+export type EcosystemStatus = 'stable' | 'preview'
+
 export type EcosystemDefinition = {
     // Stable internal id / config-key slug / persisted value / OSV feed dir. e.g. 'npm'.
     id: EcosystemId
     language: EcosystemLanguage
-    // UI label, e.g. 'JavaScript'.
+    // UI label, e.g. 'Node.js'.
     displayName: string
+    // Whether this ecosystem is offered to operators at all — see EcosystemStatus.
+    status: EcosystemStatus
     // Canonical OSV feed dir, e.g. 'npm' | 'PyPI' | 'Go' | 'crates.io'. Built into the OSV export path.
     osvEcosystem: string
     // gemnasium-db package-type directory name.
@@ -46,7 +62,10 @@ export const ECOSYSTEMS: EcosystemDefinition[] = [
     {
         id: 'npm',
         language: 'javascript',
-        displayName: 'JavaScript',
+        // The registry ecosystem is npm and the toolchain is Node — 'JavaScript' overclaimed, naming a
+        // language rather than the package ecosystem actually scanned.
+        displayName: 'Node.js',
+        status: 'stable',
         osvEcosystem: 'npm',
         gemnasiumPackageType: 'npm',
         resolverKinds: ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock'],
@@ -56,6 +75,7 @@ export const ECOSYSTEMS: EcosystemDefinition[] = [
         id: 'PyPI',
         language: 'python',
         displayName: 'Python',
+        status: 'preview',
         osvEcosystem: 'PyPI',
         gemnasiumPackageType: 'pypi',
         resolverKinds: ['poetry.lock', 'Pipfile.lock', 'requirements.txt', 'uv.lock'],
@@ -65,6 +85,7 @@ export const ECOSYSTEMS: EcosystemDefinition[] = [
         id: 'Go',
         language: 'go',
         displayName: 'Go',
+        status: 'preview',
         osvEcosystem: 'Go',
         gemnasiumPackageType: 'go',
         resolverKinds: ['go.mod', 'go.sum'],
@@ -74,6 +95,7 @@ export const ECOSYSTEMS: EcosystemDefinition[] = [
         id: 'crates.io',
         language: 'rust',
         displayName: 'Rust',
+        status: 'preview',
         osvEcosystem: 'crates.io',
         gemnasiumPackageType: 'cargo',
         resolverKinds: ['Cargo.lock'],
@@ -81,9 +103,23 @@ export const ECOSYSTEMS: EcosystemDefinition[] = [
     }
 ]
 
-// The ecosystem every pre-polyglot row is backfilled to, and the value the worker stamps until Phases
-// 3–4 light up non-npm resolvers. Centralized so no caller re-types the 'npm' literal.
+// The ecosystem every pre-polyglot row is backfilled to. Centralized so no caller re-types the 'npm'
+// literal.
 export const DEFAULT_ECOSYSTEM: EcosystemId = 'npm'
+
+// The ecosystems actually offered to operators. Every surface that ENUMERATES ecosystems — the Sources
+// matrix, manifest discovery, the per-cell config reader — walks this rather than ECOSYSTEMS, so a preview
+// ecosystem cannot be configured, scanned, downloaded for, or reported on. Lookups by id (getEcosystem,
+// ecosystemForOsvId) deliberately still resolve preview entries: rows persisted by an earlier build have
+// to stay readable and correctly labelled.
+export const STABLE_ECOSYSTEMS: EcosystemDefinition[] = ECOSYSTEMS.filter(function stable(eco) {
+    return eco.status === 'stable'
+})
+
+export function isEcosystemStable(id: string): boolean {
+    const def = getEcosystem(id)
+    return def !== null && def.status === 'stable'
+}
 
 // Every known source id, ordered by dedup priority (npm-audit authoritative first). Mirrors the worker's
 // selectScanners ordering so config, visibility, and scan order all agree.

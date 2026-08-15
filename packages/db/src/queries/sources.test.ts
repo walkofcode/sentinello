@@ -75,9 +75,16 @@ describe('getSourceEnabled defaults', function () {
         expect(getSourceEnabled(db, 'osv')).toBe(true)
     })
 
+    // A preview ecosystem cannot be switched on, and a stored key saying otherwise is not honoured — an
+    // ecosystem withdrawn because its matching reports clean for the wrong reasons must not come back
+    // through a config value left behind by an earlier build.
+    it('refuses a preview ecosystem however the config reads', function () {
+        setConfigValue(db, sourceEnabledKey('osv', 'PyPI'), true)
+        expect(getSourceEnabled(db, 'osv', 'PyPI')).toBe(false)
+    })
+
     it('keeps ecosystems independent', function () {
         setConfigValue(db, sourceEnabledKey('osv', 'PyPI'), true)
-        expect(getSourceEnabled(db, 'osv', 'PyPI')).toBe(true)
         expect(getSourceEnabled(db, 'osv', 'npm')).toBe(false)
     })
 })
