@@ -1,4 +1,5 @@
-import { satisfies, validRange, valid, coerce } from 'semver'
+import { satisfies, validRange } from 'semver'
+import { normalizeSemver } from '@sentinello/versions'
 import type { RawFinding } from './types'
 
 // Result of cross-checking audit findings against the lockfile-resolved installed versions.
@@ -56,20 +57,8 @@ function shouldKeep(finding: RawFinding): boolean {
     return false
 }
 
-// Range syntax that can never appear in a concrete installed version. Checked BEFORE coerce() because
-// coerce is happy to read an operator off the front and return the number behind it — '<4.17.21' becomes
-// 4.17.21, which is the first FIXED version, the exact opposite of what is installed.
-const RANGE_SYNTAX = /[<>=^~|*]|\s-\s|(^|\.)[xX](\.|$)/
-
-// Accepts strict semver as-is; otherwise tries coerce ('v1.2.3', '1.2', '1' → '1.x.x').
-// Returns null when the input is not coercible to a valid semver (git URLs, file: specs, etc.) or when
-// it is a range rather than a version — see RANGE_SYNTAX above. Null means "cannot reason about it",
-// which shouldKeep turns into keeping the finding.
-function normalizeVersion(raw: string): string | null {
-    const strict = valid(raw)
-    if (strict !== null) return strict
-    if (RANGE_SYNTAX.test(raw)) return null
-    const coerced = coerce(raw)
-    if (coerced === null) return null
-    return coerced.version
-}
+// Accepts strict semver as-is; otherwise tries coerce ('v1.2.3', '1.2', '1' → '1.x.x'), and refuses range
+// syntax whose coerced value would mean something else entirely. That rule now lives in
+// @sentinello/versions and is shared with the matcher's comparator, which previously lacked it.
+// Null means "cannot reason about it", which shouldKeep turns into keeping the finding.
+const normalizeVersion = normalizeSemver

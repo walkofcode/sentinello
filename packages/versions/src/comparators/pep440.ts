@@ -1,4 +1,4 @@
-import type { VersionComparator } from '../types'
+import type { VersionComparator } from '../comparator'
 
 // The Python-ecosystem version comparator (PEP 440). PyPI versions are NOT semver — they have epochs
 // (`1!2.0`), implicit-zero release padding (`1.0` == `1.0.0`), pre-releases (`a`/`b`/`rc` with the
@@ -83,6 +83,24 @@ function stripTrailingZeros(release: number[]): number[] {
     let end = release.length
     while (end > 1 && release[end - 1] === 0) end--
     return release.slice(0, end)
+}
+
+// A canonical string for a parsed version: two spellings of the same version produce the same key, so
+// string equality on it is a correct equality test.
+//
+// `normalize` used to return the trimmed input instead, which meant the matcher's exact-version check
+// (a raw string compare) never matched `1.0` against an advisory that enumerated `1.0.0`. That is a silent
+// false negative on precisely the records where exactness matters most — PyPI malware advisories, which
+// pin the compromised builds by exact version rather than by range.
+function canonicalPep440(v: Pep440): string {
+    const parts: string[] = []
+    if (v.epoch > 0) parts.push(v.epoch.toString() + '!')
+    parts.push(stripTrailingZeros(v.release).join('.'))
+    if (v.pre) parts.push(v.pre.letter + v.pre.n.toString())
+    if (v.post !== null) parts.push('.post' + v.post.toString())
+    if (v.dev !== null) parts.push('.dev' + v.dev.toString())
+    if (v.local) parts.push('+' + v.local.join('.'))
+    return parts.join('')
 }
 
 // Lexicographic numeric tuple compare; a prefix is less than its extension (so 1 < 1.0.1).
@@ -173,23 +191,37 @@ function comparePep440(a: Pep440, b: Pep440): number {
     return cmpLocal(a.local, b.local)
 }
 
-// VersionComparator over PEP 440. `normalize` returns the trimmed input when it parses (and null when it
-// can't, so the matcher skips it — never a false positive); gte/lt re-parse and compare with the full
-// ordering. gte/lt assume normalized (parseable) inputs from the matcher; a parse miss yields a safe false.
+// Compare two raw strings, or null when either fails to parse. Every ordering function funnels through
+// this so a parse miss yields a safe `false` rather than an arbitrary ordering.
+function cmp(a: string, b: string): number | null {
+    const pa = parsePep440(a)
+    const pb = parsePep440(b)
+    if (!pa || !pb) return null
+    return comparePep440(pa, pb)
+}
+
+// VersionComparator over PEP 440. `normalize` returns a canonical key when the input parses (and null when
+// it can't, so the matcher skips it — never a false positive); the orderings re-parse and compare with the
+// full PEP 440 ordering.
 export const pep440Comparator: VersionComparator = {
     normalize(raw: string): string | null {
-        return parsePep440(raw) === null ? null : raw.trim()
+        const parsed = parsePep440(raw)
+        return parsed === null ? null : canonicalPep440(parsed)
+    },
+    gt(a: string, b: string): boolean {
+        const r = cmp(a, b)
+        return r !== null && r > 0
     },
     gte(a: string, b: string): boolean {
-        const pa = parsePep440(a)
-        const pb = parsePep440(b)
-        if (!pa || !pb) return false
-        return comparePep440(pa, pb) >= 0
+        const r = cmp(a, b)
+        return r !== null && r >= 0
     },
     lt(a: string, b: string): boolean {
-        const pa = parsePep440(a)
-        const pb = parsePep440(b)
-        if (!pa || !pb) return false
-        return comparePep440(pa, pb) < 0
+        const r = cmp(a, b)
+        return r !== null && r < 0
+    },
+    lte(a: string, b: string): boolean {
+        const r = cmp(a, b)
+        return r !== null && r <= 0
     }
 }

@@ -1,5 +1,6 @@
 import type { CurrentFindingRow } from '@sentinello/db'
 import { compareSeverity, maxSeverity, type Severity } from '@sentinello/core'
+import { highestVersion } from '@sentinello/versions'
 
 export type LibraryGroup = {
     ecosystem: string
@@ -54,7 +55,7 @@ export function groupByLibrary(findings: CurrentFindingRow[]): LibraryGroup[] {
             severities,
             advisoryCount: rows.length,
             fixedCount,
-            recommendedUpgrade: pickHighestVersion(fixVersions),
+            recommendedUpgrade: highestVersion(fixVersions),
             partial,
             allMuted,
             devOnly,
@@ -71,49 +72,4 @@ export function groupByLibrary(findings: CurrentFindingRow[]): LibraryGroup[] {
 
 function uniq<T>(values: T[]): T[] {
     return Array.from(new Set(values))
-}
-
-// fixVersion values are extracted from advisory ranges by the scanner via regex
-// (pickFirstVersionFromRange in packages/scanners/src/npm-audit.ts), so they're plain
-// "x.y.z" or "x.y.z-prerelease" strings. We compare numerically segment by segment to
-// avoid pulling in a full semver dep for what's a 20-line problem.
-function pickHighestVersion(versions: string[]): string | null {
-    const [first] = versions
-    if (!first) return null
-    let best = first
-    for (const candidate of versions) {
-        if (compareVersions(candidate, best) > 0) best = candidate
-    }
-    return best
-}
-
-export function compareVersions(a: string, b: string): number {
-    const [aBase, aPre] = splitPrerelease(a)
-    const [bBase, bPre] = splitPrerelease(b)
-    const aParts = aBase.split('.').map(toIntOrZero)
-    const bParts = bBase.split('.').map(toIntOrZero)
-    const len = Math.max(aParts.length, bParts.length)
-    for (let i = 0; i < len; i++) {
-        const ai = aParts[i] || 0
-        const bi = bParts[i] || 0
-        if (ai > bi) return 1
-        if (ai < bi) return -1
-    }
-    // Stable semver rule: a version with a prerelease tag is LOWER than the same version without.
-    if (aPre === null && bPre !== null) return 1
-    if (aPre !== null && bPre === null) return -1
-    if (aPre === null && bPre === null) return 0
-    return (aPre as string).localeCompare(bPre as string)
-}
-
-function splitPrerelease(v: string): [string, string | null] {
-    const stripped = v.replace(/^[v=]+/, '')
-    const dash = stripped.indexOf('-')
-    if (dash === -1) return [stripped, null]
-    return [stripped.slice(0, dash), stripped.slice(dash + 1)]
-}
-
-function toIntOrZero(s: string): number {
-    const n = parseInt(s, 10)
-    return Number.isFinite(n) ? n : 0
 }

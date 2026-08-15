@@ -23,6 +23,7 @@
     },
     "dependencies": {
         "@sentinello/core": "workspace:*",
+        "@sentinello/versions": "workspace:*",
         "ignore": "7.0.5",
         "js-yaml": "4.3.1",
         "semver": "7.7.4",

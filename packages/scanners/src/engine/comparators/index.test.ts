@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ECOSYSTEMS, getEcosystem } from '@sentinello/core'
 import { acceptedRangeTypesForEcosystem, comparatorForEcosystem } from './index'
-import { semverComparator } from './semver'
-import { pep440Comparator } from './pep440'
+import { pep440Comparator, semverComparator } from '@sentinello/versions'
 
 vi.mock('@sentinello/core', async function mockCore(importOriginal) {
     const actual = await importOriginal<typeof import('@sentinello/core')>()

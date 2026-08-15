@@ -137,11 +137,20 @@ type ParsedRange = {
 }
 
 // Maps gemnasium's machine-readable `affected_range` (+ the authoritative `fixed_versions`) into the
-// half-open [introduced, fixed) intervals the matcher consumes. Handles:
-//   - semver comparator form:  "<4.17.12", ">=4.0.0 <4.0.1", ">=1 <2 || >=3 <4"
-//   - maven-style interval notation: "(,4.1.2)", "[1.0.0,2.0.0)", "[1.0.0,)"
+// bounded intervals the matcher consumes. Handles:
+//   - semver comparator form:  "<4.17.12", ">=4.0.0 <4.0.1", ">1.2.8", "<=2.0.0", ">=1 <2 || >=3 <4"
+//   - maven-style interval notation: "(,4.1.2)", "[1.0.0,2.0.0)", "[1.0.0,2.0.0]", "(1.0.0,)"
 //   - bare/"=" exact versions -> enumerated `versions`
 // `||` separates disjoint ranges.
+//
+// EVERY BOUND KEEPS ITS OWN INCLUSIVITY. This function used to emit half-open [introduced, fixed) intervals
+// exclusively, because that was the only shape the range type could hold, so `>` was stored as `>=` and
+// `<=` as `<`. Both roundings were defended in comments as erring in the safe direction. Neither did:
+//   - `>X` → `>=X` reports the boundary version as vulnerable. gemnasium states the 2021 `rc` hijack as
+//     `>1.2.8`, and 1.2.8 is the last CLEAN release — the version the advisory's own `solution` field tells
+//     you to downgrade TO. Rounding reported it as critical malware, unfixable, on every project using it.
+//   - `<=X` → `<X` silently drops a genuinely affected version, and when the two bounds coincided
+//     (`>=X <=X`, "exactly this version") the interval read as empty and the whole record was discarded.
 //
 // `affected_range` is the ONLY input. gemnasium's own field reference calls it "the range of affected
 // versions, machine-readable syntax used by the package manager", and calls `affected_versions` "the range
@@ -154,17 +163,14 @@ type ParsedRange = {
 // multi-branch advisory is an arbitrary pick — and pairing it with a single `[0, …)` interval claims every
 // version below some other branch's fix is vulnerable. That is precisely how protobufjs
 // GHSA-xq3m-2v4x-88gg (`fixed_versions: ["8.0.1", "7.5.5"]`) became `[0, 8.0.1)` and reported the
-// fully-patched 7.6.5 as a critical RCE. With one entry the override is still right and still needed: it is
-// the only way to express `<=X`, whose fix is X's successor.
+// fully-patched 7.6.5 as a critical RCE. With one entry the override still earns its place: a known fix
+// version is a better upper bound than a parsed one, and it names the remediation target.
 //
-// The count check costs one record across the whole multi-ecosystem database: npm/sauce-connect-launcher
-// GMS-2014-4 is `<=0.3.3` with `fixed_versions: ["0.3.5", "0.4.0"]`, so it now stores [0, 0.3.3) and
-// under-includes 0.3.3 and 0.3.4. Repairing that properly needs a version comparator here — picking the
-// lowest fix above the parsed bound — which the feeds layer deliberately does not carry. Under-including
-// two patch versions of one dormant package is the acceptable side of this trade; the alternative is the
-// arbitrary pick that produced the false criticals above.
+// It is no longer needed to express `<=X` — that has its own representation now — which also settles the
+// npm/sauce-connect-launcher GMS-2014-4 case this comment used to concede: `<=0.3.3` with two branch fixes
+// skips the override and is stored as `[0, 0.3.3]`, including 0.3.3 exactly as the advisory states.
 export function parseAffectedRange(affectedRange: string, fixedVersions: string[]): ParsedRange {
-    const ranges: GemnasiumRange[] = []
+    const ranges: BuiltRange[] = []
     const versions: string[] = []
     const trimmed = affectedRange.trim()
     const disjuncts = trimmed.length > 0 ? trimmed.split('||').map(trimToken).filter(nonEmpty) : []
@@ -175,7 +181,7 @@ export function parseAffectedRange(affectedRange: string, fixedVersions: string[
         if (interval.exact !== null) {
             versions.push(interval.exact)
         } else {
-            ranges.push({ introduced: interval.introduced, fixed: interval.fixed })
+            ranges.push(toRange(interval.introduced, interval.introducedExclusive, interval.fixed, interval.lastAffected))
         }
     }
 
@@ -189,16 +195,39 @@ export function parseAffectedRange(affectedRange: string, fixedVersions: string[
     const only = ranges[0]
     const authoritativeFixed = fixedVersions[0]
     if (ranges.length === 1 && versions.length === 0 && only && fixedVersions.length === 1 && authoritativeFixed !== undefined) {
-        ranges[0] = { introduced: only.introduced, fixed: authoritativeFixed }
+        // A known fix version supersedes the parsed upper bound, inclusive or not — `fixed` IS the
+        // remediation target. The lower bound and its inclusivity are the advisory's own and are kept.
+        ranges[0] = toRange(only.introduced, only.introducedExclusive === true, authoritativeFixed, null)
     }
 
     return { ranges, versions }
 }
 
-// An interval that can never match: an explicit upper bound at or below the lower bound. `<0` parses to
-// {introduced: '0', fixed: '0'} and lands here, as does the `<0.0.0` spelling of the same sentinel and any
-// other degenerate bound upstream may emit.
-function isEmptyInterval(range: GemnasiumRange): boolean {
+// Both upper bounds are optional on the shared range type (OSV-shaped sources may omit them), but every
+// range built HERE sets both explicitly. Saying so in the type keeps `undefined` out of the predicates
+// below instead of leaving them with an arm nothing can reach.
+type BuiltRange = GemnasiumRange & { fixed: string | null; lastAffected: string | null }
+
+// `introducedExclusive` is a sparse flag: an absent one and an explicit `false` mean the same thing, so
+// only `true` is ever written. Keeps the cached JSON — and every test expectation — to one shape.
+function toRange(introduced: string, introducedExclusive: boolean, fixed: string | null, lastAffected: string | null): BuiltRange {
+    const range: BuiltRange = { introduced, fixed, lastAffected }
+    if (introducedExclusive) range.introducedExclusive = true
+    return range
+}
+
+// An interval that can never match. `<0` parses to {introduced: '0', fixed: '0'} and lands here, as does
+// the `<0.0.0` spelling of the same sentinel and any other degenerate bound upstream may emit.
+//
+// Inclusivity is load-bearing here, which it was not when every upper bound was exclusive: `[X, X]` matches
+// exactly X and is NOT empty, while `[X, X)` and `(X, X]` both are. Before `<=` had its own representation
+// it collapsed into `fixed`, so an advisory spelled `>=X <=X` — "exactly this one version is affected" —
+// became {introduced: X, fixed: X}, was judged empty here, and the ENTIRE record was dropped by the caller.
+function isEmptyInterval(range: BuiltRange): boolean {
+    if (range.lastAffected !== null) {
+        // An inclusive upper bound admits its own version unless the lower bound excludes it.
+        return range.introducedExclusive === true && range.lastAffected === range.introduced
+    }
     if (range.fixed === null) return false
     if (range.fixed === range.introduced) return true
     return isZeroVersion(range.introduced) && isZeroVersion(range.fixed)
@@ -211,7 +240,12 @@ function isZeroVersion(version: string): boolean {
 
 type Disjunct = {
     introduced: string
+    // ">" rather than ">=": the lower bound itself is not affected.
+    introducedExclusive: boolean
+    // Exclusive upper bound ("<X") — also the fix target.
     fixed: string | null
+    // Inclusive upper bound ("<=X", or a maven "]" close): vulnerable THROUGH this version.
+    lastAffected: string | null
     // Set when the disjunct is a single exact version ("=1.2.3" / "1.2.3"); goes to enumerated versions.
     exact: string | null
 }
@@ -222,9 +256,12 @@ function parseDisjunct(disjunct: string): Disjunct | null {
     return parseComparatorForm(disjunct)
 }
 
-// Maven-style interval notation: "(," / "[" open, "," separates lower,upper, ")" / "]" close. We map to
-// a half-open [introduced, fixed) range; close-bracket inclusivity is ignored (rare for npm).
+// Maven-style interval notation: "(" / "[" open, "," separates lower,upper, ")" / "]" close. Bracket
+// inclusivity is the whole meaning of the notation — "[" and "(" differ, and so do "]" and ")" — so both
+// ends are read. Treating "]" as ")" (which this did before) silently excludes a version the advisory
+// explicitly includes.
 function parseIntervalNotation(disjunct: string): Disjunct | null {
+    const open = disjunct[0]
     const close = disjunct[disjunct.length - 1]
     if (close !== ')' && close !== ']') return null
     const inner = disjunct.slice(1, -1)
@@ -232,49 +269,63 @@ function parseIntervalNotation(disjunct: string): Disjunct | null {
     if (comma < 0) {
         // "[1.2.3]" — a single exact version.
         const exact = inner.trim()
-        return exact.length > 0 ? { introduced: '0', fixed: null, exact } : null
+        return exact.length > 0
+            ? { introduced: '0', introducedExclusive: false, fixed: null, lastAffected: null, exact }
+            : null
     }
     const lo = inner.slice(0, comma).trim()
     const hi = inner.slice(comma + 1).trim()
+    const hasUpper = hi.length > 0
     return {
         introduced: lo.length > 0 ? lo : '0',
-        fixed: hi.length > 0 ? hi : null,
+        // An open "(" excludes the lower bound — but only when one was actually given; "(,2.0.0)" has no
+        // lower bound at all and starts from the bottom of the version space inclusively.
+        introducedExclusive: open === '(' && lo.length > 0,
+        fixed: hasUpper && close === ')' ? hi : null,
+        lastAffected: hasUpper && close === ']' ? hi : null,
         exact: null
     }
 }
 
 // Comparator form: space-separated tokens like ">=1.0.0", "<2.0.0", "<=2", ">1", "=1.2.3", or a bare
-// "1.2.3". Builds a single [introduced, fixed) interval (or an exact version for "="/bare).
+// "1.2.3". Builds a single bounded interval (or an exact version for "="/bare). Every operator keeps its
+// own inclusivity — none is rounded into another.
 function parseComparatorForm(disjunct: string): Disjunct | null {
     const tokens = disjunct.split(/\s+/).filter(nonEmpty)
     if (tokens.length === 0) return null
     let introduced = '0'
+    let introducedExclusive = false
     let fixed: string | null = null
+    let lastAffected: string | null = null
     for (const token of tokens) {
         const op = readOperator(token)
-        if (!op) continue
-        if (op.operator === '=' ) {
+        if (!op) return null
+        if (op.operator === '=') {
             // A single pinned version: surface as an exact version rather than a range.
-            return { introduced: '0', fixed: null, exact: op.version }
+            return { introduced: '0', introducedExclusive: false, fixed: null, lastAffected: null, exact: op.version }
         }
         if (op.operator === '>=' || op.operator === '>') {
-            // ">" is treated as inclusive lower bound (introduced is inclusive in our half-open model); at
-            // worst this flags the exact boundary version, which is the security-conservative direction.
             introduced = op.version
+            introducedExclusive = op.operator === '>'
         } else if (op.operator === '<') {
             fixed = op.version
-        } else if (op.operator === '<=') {
-            // "<=X" means X is affected, but the half-open [introduced, fixed) model can't include X
-            // without its successor. The authoritative fixed_versions override (in the caller) fixes this
-            // when a fix is known; absent that, fall back to fixed=X — under-including only the exact
-            // boundary X, which is far safer than null (which would flag every version forever).
-            fixed = op.version
+            lastAffected = null
+        } else {
+            // "<=X" says X ITSELF is affected. That is an inclusive upper bound, which the range type now
+            // carries directly — no successor version needed, and nothing to under-include.
+            lastAffected = op.version
+            fixed = null
         }
     }
-    return { introduced, fixed, exact: null }
+    return { introduced, introducedExclusive, fixed, lastAffected, exact: null }
 }
 
 type Operator = { operator: '>=' | '>' | '<=' | '<' | '='; version: string }
+
+// A concrete version: digits, dot-separated, with an optional prerelease/build tail. Deliberately NOT a
+// full semver/PEP 440 grammar — it only has to tell a version apart from range syntax this parser does not
+// implement.
+const BARE_VERSION = /^[0-9]+(\.[0-9]+)*([-+][0-9A-Za-z.-]*)?$/
 
 function readOperator(token: string): Operator | null {
     if (token.startsWith('>=')) return { operator: '>=', version: stripV(token.slice(2)) }
@@ -282,9 +333,12 @@ function readOperator(token: string): Operator | null {
     if (token.startsWith('>')) return { operator: '>', version: stripV(token.slice(1)) }
     if (token.startsWith('<')) return { operator: '<', version: stripV(token.slice(1)) }
     if (token.startsWith('=')) return { operator: '=', version: stripV(token.slice(1)) }
-    // Bare version → exact pin.
+    // Bare version → exact pin, but ONLY if it really is a version. The old fallthrough pinned any
+    // unrecognised token verbatim, so "^1.0.0", "~1.0.0" and "!=1.0.0" each became an "exact version" that
+    // no installed version can ever equal — a row cached as a live advisory that matches nothing, ever.
+    // Refusing the token drops the record instead, which is the honest outcome for syntax we cannot read.
     const bare = stripV(token)
-    return bare.length > 0 ? { operator: '=', version: bare } : null
+    return BARE_VERSION.test(bare) ? { operator: '=', version: bare } : null
 }
 
 function stripV(raw: string): string {

@@ -26,11 +26,11 @@ export type { OsvAdvisory, OsvLookup, OsvRange, OsvScannerDeps } from './osv'
 export { createGemnasiumScanner, GEMNASIUM_SCANNER_NAME } from './gemnasium'
 export type { GemnasiumAdvisory, GemnasiumLookup, GemnasiumRange, GemnasiumScannerDeps } from './gemnasium'
 export { matchAdvisories } from './engine/matcher'
-export { semverComparator } from './engine/comparators/semver'
-export { pep440Comparator } from './engine/comparators/pep440'
+// Version semantics live in @sentinello/versions; re-exported here so existing consumers keep one import.
+export { semverComparator, pep440Comparator } from '@sentinello/versions'
 export { reconcileAgainstReported, findingIdentityKeys, escalatedSeverity } from './engine/reconcile'
 export type { CorroborationEvent, ReconcileResult, ReportedAdvisory } from './engine/reconcile'
-export type { CanonicalAdvisory, CanonicalRange, VersionComparator } from './engine/types'
+export type { CanonicalAdvisory, VersionRange, VersionComparator } from './engine/types'
 
 const registry = new Map<string, ScannerPlugin>()
 registry.set(npmAuditPlugin.name, npmAuditPlugin)

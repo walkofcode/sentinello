@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { matchAdvisories } from './matcher'
-import { semverComparator } from './comparators/semver'
-import type { CanonicalAdvisory, CanonicalRange } from './types'
+import { semverComparator } from '@sentinello/versions'
+import type { CanonicalAdvisory, VersionRange } from './types'
 import type { ResolvedPackage } from '../resolver/types'
 
 const SEMVER_TYPES = ['SEMVER', 'ECOSYSTEM']
@@ -33,7 +33,7 @@ function advisory(id: string, overrides: Partial<CanonicalAdvisory> = {}): Canon
     }
 }
 
-function range(introduced: string, fixed: string | null, overrides: Partial<CanonicalRange> = {}): CanonicalRange {
+function range(introduced: string, fixed: string | null, overrides: Partial<VersionRange> = {}): VersionRange {
     return { type: 'SEMVER', introduced, fixed, ...overrides }
 }
 

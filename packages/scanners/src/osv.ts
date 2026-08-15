@@ -1,3 +1,4 @@
+import type { VersionRange } from '@sentinello/versions'
 import { acceptedRangeTypesForEcosystem, comparatorForEcosystem } from './engine/comparators'
 import { matchAdvisories } from './engine/matcher'
 import type { CanonicalAdvisory } from './engine/types'
@@ -6,16 +7,11 @@ import type { RawFinding, ScanContext, ScannerPlugin, ScanResult } from './types
 
 export const OSV_SCANNER_NAME = 'osv'
 
-// One normalized OSV version range. `fixed` null means there is no clean fix boundary; `lastAffected` (when
-// set) is then an inclusive upper bound (OSV `last_affected`), and when both are null the range is
-// open-ended. `type` is the OSV `range.type` ('SEMVER' | 'ECOSYSTEM' | 'GIT'), carried so non-SEMVER
-// ecosystems (PyPI/Go/Rust) keep their semantics; the ecosystem's comparator interprets the version strings.
-export type OsvRange = {
-    type: string
-    introduced: string
-    fixed: string | null
-    lastAffected: string | null
-}
+// One normalized OSV version range — the shared range type, not a restatement of it. `fixed` null means
+// there is no clean fix boundary; `lastAffected` (when set) is then an inclusive upper bound (OSV
+// `last_affected`), and when both are null the range is open-ended. `type` is the OSV `range.type`
+// ('SEMVER' | 'ECOSYSTEM' | 'GIT'), carried so non-SEMVER ecosystems (PyPI/Go/Rust) keep their semantics.
+export type OsvRange = VersionRange
 
 // The advisory shape the OSV feed hands the scanner. Mirrors the db's OsvAdvisoryRow but is redeclared
 // here so the scanners package stays free of a direct @sentinello/db dependency — the worker adapts db

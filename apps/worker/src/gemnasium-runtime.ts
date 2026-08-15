@@ -1,5 +1,5 @@
 import cron, { type ScheduledTask } from 'node-cron'
-import { DEFAULT_ECOSYSTEM, ECOSYSTEMS, GEMNASIUM_SCANNER_NAME, sourceStatusKey, type EcosystemId, type SourceStatus } from '@sentinello/core'
+import { DEFAULT_ECOSYSTEM, ECOSYSTEMS, GEMNASIUM_SCANNER_NAME, sourceStatusKey, type EcosystemId, type GemnasiumAdvisoryRow, type SourceStatus } from '@sentinello/core'
 import {
     GEMNASIUM_META_KEYS,
     GEMNASIUM_NORMALIZER_VERSION,
@@ -214,15 +214,8 @@ function writeStatus(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb, freeByt
     setConfigValue(mainDb, sourceStatusKey('gemnasium', DEFAULT_ECOSYSTEM), status)
 }
 
-function toScannerAdvisory(row: {
-    advisoryId: string
-    aliases: string[]
-    ranges: { introduced: string; fixed: string | null }[]
-    versions: string[]
-    severity: string | null
-    summary: string | null
-    url: string | null
-}): GemnasiumAdvisory {
+// Takes the real row type rather than restating its shape inline — see the OSV twin for why.
+function toScannerAdvisory(row: GemnasiumAdvisoryRow): GemnasiumAdvisory {
     return {
         advisoryId: row.advisoryId,
         aliases: row.aliases,

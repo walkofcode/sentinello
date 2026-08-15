@@ -92,7 +92,10 @@ describe('upsertGemnasiumAdvisories', function () {
     it('round-trips every field', function () {
         const row = advisory({
             versions: ['1.0.0', '1.0.1'],
-            ranges: [{ introduced: '1.0.0', fixed: '2.0.0' }, { introduced: '3.0.0', fixed: null }],
+            ranges: [
+                { introduced: '1.0.0', fixed: '2.0.0', lastAffected: null },
+                { introduced: '3.0.0', fixed: null, lastAffected: '3.9.9' }
+            ],
             aliases: ['CVE-1', 'GMS-2'],
             malicious: true
         })
@@ -409,13 +412,13 @@ describe('defensive column parsing', function () {
 
     it('defaults a missing or non-string fixed bound to null', function () {
         expect(corrupt({ rangesJson: '[{"introduced":"0"},{"introduced":"1.0.0","fixed":9}]' })?.ranges).toEqual([
-            { introduced: '0', fixed: null },
-            { introduced: '1.0.0', fixed: null }
+            { introduced: '0', fixed: null, lastAffected: null },
+            { introduced: '1.0.0', fixed: null, lastAffected: null }
         ])
     })
 
     it('keeps a well-formed range alongside a broken one', function () {
         const json = '[{"bogus":true},{"introduced":"1.0.0","fixed":"2.0.0"}]'
-        expect(corrupt({ rangesJson: json })?.ranges).toEqual([{ introduced: '1.0.0', fixed: '2.0.0' }])
+        expect(corrupt({ rangesJson: json })?.ranges).toEqual([{ introduced: '1.0.0', fixed: '2.0.0', lastAffected: null }])
     })
 })

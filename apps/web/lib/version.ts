@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { getConfigValue } from '@sentinello/db'
+import { compareVersions } from '@sentinello/versions'
 import { getDb } from '@/lib/db'
 
 // Source of truth for the version shown in the UI footer and /api/health, plus the
@@ -34,27 +35,8 @@ export type VersionInfo = {
 let cachedVersion: string | null = null
 let cachedInfo: { data: VersionInfo; expiresAt: number } | null = null
 
-function parseSegment(s: string): number {
-    const n = parseInt(s, 10)
-    return Number.isFinite(n) && n || 0
-}
-
 function stripVPrefix(s: string): string {
     return s.startsWith('v') && s.slice(1) || s
-}
-
-function compareSemVer(a: string, b: string): number {
-    // split() always yields at least one element, but noUncheckedIndexedAccess cannot see that.
-    const pa = (stripVPrefix(a).split('-')[0] ?? '').split('.').map(parseSegment)
-    const pb = (stripVPrefix(b).split('-')[0] ?? '').split('.').map(parseSegment)
-    const len = Math.max(pa.length, pb.length)
-    for (let i = 0; i < len; i++) {
-        const da = pa[i] || 0
-        const db = pb[i] || 0
-        if (da > db) return 1
-        if (da < db) return -1
-    }
-    return 0
 }
 
 function findRootPackageVersion(): string | null {
@@ -153,7 +135,7 @@ export async function getVersionInfo(): Promise<VersionInfo> {
         const release = await fetchLatestRelease(feedUrl)
         const latestRaw = release.tag_name || ''
         const latest = stripVPrefix(latestRaw) || null
-        const updateAvailable = latest !== null && compareSemVer(current, latest) < 0
+        const updateAvailable = latest !== null && compareVersions(current, latest) < 0
         const info: VersionInfo = {
             current,
             latest,
