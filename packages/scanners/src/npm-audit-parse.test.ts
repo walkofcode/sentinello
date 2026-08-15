@@ -719,6 +719,22 @@ describe('normalizePnpmAuditOutput — the remaining arms', function () {
         expect(out[0]?.severity).toBe('moderate')
     })
 
+    // The leniency must catch an unreadable value WITHOUT also filling in an absent one. z.optional
+    // short-circuits before the inner schema, so undefined stays undefined — and that is load-bearing
+    // beyond tidiness: pickSeverity prefers via.severity over vuln.severity, so a schema that turned
+    // every missing via severity into 'moderate' would outrank every real severity the vulnerability
+    // reported, silently flattening the whole document to moderate.
+    it('leaves an absent severity undefined instead of filling it in at the schema', function () {
+        const result = pnpmAuditSchema.safeParse({
+            advisories: { 1234: { id: 1234, module_name: 'lodash', findings: [] } }
+        })
+
+        expect(result.success).toBe(true)
+        const advisories = (result.data as { advisories: Record<string, { severity?: string }> }).advisories
+        expect(advisories['1234']).toBeDefined()
+        expect(advisories['1234']?.severity).toBeUndefined()
+    })
+
     it('skips a null advisory entry', function () {
         const doc = pnpmDoc({ 1234: null })
         expect(normalizePnpmAuditOutput(doc, PROD_CLASSIFIER)).toEqual([])
