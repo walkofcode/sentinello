@@ -1,6 +1,10 @@
 import { errorAlert, expect, test } from './test-fixtures'
 
-// Settings → Sources: the Languages × Sources matrix.
+// Settings → Sources: the per-ecosystem switches, and the reference table that explains each source.
+//
+// Only 'stable' ecosystems are offered, and npm is the only one today, so the page renders one
+// Node.js block of three cells. Preview ecosystems have no switch at all — that is the point of
+// EcosystemStatus, so there is nothing here to assert about PyPI/Go/crates.io.
 //
 // The seed leaves exactly one cell active — OSV · npm, with npm-audit off because it spawns the
 // package manager and needs the registry. That is not incidental to this file, it is what makes the
@@ -15,11 +19,24 @@ test.describe('the source matrix', function () {
     test('renders one switch per (source, ecosystem) cell, named for both', async function ({ page }) {
         await page.goto('/settings/sources')
 
-        // The accessible name is 'label · ecosystem' precisely because the label alone repeats down the
-        // page — four ecosystems each offer OSV, so "OSV" identifies nothing on its own.
+        // The accessible name stays 'label · ecosystem' even while npm is the only ecosystem offered:
+        // the label alone stops identifying a cell the moment a second one is promoted, and a name
+        // that changes shape on promotion is a name every assertion here has to be rewritten around.
         await expect(page.getByRole('switch', { name: OSV_NPM })).toHaveAttribute('aria-checked', 'true')
         await expect(page.getByRole('switch', { name: NPM_AUDIT_NPM })).toHaveAttribute('aria-checked', 'false')
-        await expect(page.getByRole('switch', { name: 'OSV · PyPI' })).toHaveAttribute('aria-checked', 'false')
+        await expect(page.getByRole('switch')).toHaveCount(3)
+    })
+
+    // The controls say whether a source is on; this table is the only place that says what it IS.
+    // Losing it would leave an operator toggling a 204 MB download with nothing explaining the cost.
+    test('explains every source in the reference table, apart from the switches', async function ({ page }) {
+        await page.goto('/settings/sources')
+
+        const table = page.getByRole('table')
+        await expect(table.getByRole('row')).toHaveCount(4)
+        await expect(table.getByText('registry.npmjs.org')).toBeVisible()
+        await expect(table.getByText('osv-vulnerabilities.storage.googleapis.com')).toBeVisible()
+        await expect(table.getByText('gitlab.com')).toBeVisible()
     })
 
     test('a cell can be enabled and disabled once another one is active', async function ({ page }) {
@@ -97,12 +114,14 @@ test.describe('cache-backed source status', function () {
     test('reports the seeded cache as up to date with its record count', async function ({ page }) {
         await page.goto('/settings/sources')
 
-        await expect(page.getByText('Sync status')).toBeVisible()
         await expect(page.getByText('Up to date')).toBeVisible()
         // 35 rows: the five original fixtures plus the thirty bulk advisories.
         await expect(page.getByText('35 advisories cached')).toBeVisible()
     })
 
+    // Refresh is an icon-only control now, so its accessible name is the ONLY thing naming it. If
+    // that aria-label is ever dropped the button becomes unreachable to a screen reader, and this
+    // getByRole is what notices.
     test('acknowledges a refresh request without claiming it has finished', async function ({ page }) {
         await page.goto('/settings/sources')
 

@@ -10,6 +10,7 @@ import {
     sourceSupportsEcosystem,
     type SourceStatus
 } from '@sentinello/core'
+import { SourceReferenceTable } from '@/components/settings/source-reference-table'
 import { SourcesForm, type SourceCellVM, type LanguageRowVM } from '@/components/settings/sources-form'
 import { getDb } from '@/lib/db'
 
@@ -55,5 +56,10 @@ export default async function SourcesSettingsPage() {
             cells
         }
     })
-    return <SourcesForm rows={rows} />
+    return (
+        <div className="space-y-6">
+            <SourcesForm rows={rows} />
+            <SourceReferenceTable />
+        </div>
+    )
 }
