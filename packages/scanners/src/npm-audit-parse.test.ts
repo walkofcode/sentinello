@@ -16,7 +16,8 @@ import {
     pickInstalledVersion,
     pickPnpmAdvisoryId,
     pickSeverity,
-    pickVulnerableRange
+    pickVulnerableRange,
+    pnpmAuditSchema
 } from './npm-audit-parse'
 import type { DepClassifier, ModernAudit, PnpmAudit, Vulnerability, ViaObject } from './npm-audit-parse'
 import type { DetectedLockfile } from './types'
@@ -168,10 +169,13 @@ describe('pickGhsaIdFromUrl and pickAdvisoryId', function () {
 })
 
 describe('pickSeverity, pickFixAvailability, pickVulnerableRange', function () {
-    it('prefers the via severity over the vulnerability severity, defaulting to info', function () {
+    // The default is 'moderate', not 'info': npm has told us there IS a vulnerability and only withheld
+    // its grade, so calling it informational is a downgrade of our own invention that drops it out of
+    // every filter set above the floor.
+    it('prefers the via severity over the vulnerability severity, defaulting to moderate', function () {
         expect(pickSeverity(via({ severity: 'critical' }), vuln({ severity: 'low' }))).toBe('critical')
         expect(pickSeverity(via(), vuln({ severity: 'low' }))).toBe('low')
-        expect(pickSeverity(via(), vuln())).toBe('info')
+        expect(pickSeverity(via(), vuln())).toBe('moderate')
     })
 
     it('reads fix availability from all three shapes', function () {
@@ -382,7 +386,7 @@ describe('normalizePnpmAuditOutput — the pnpm shape', function () {
             packageName: 'lodash',
             installedVersion: '',
             vulnerableRange: '',
-            severity: 'info',
+            severity: 'moderate',
             fixAvailable: false,
             fixVersion: null,
             depPath: []
@@ -675,7 +679,7 @@ describe('normalizePnpmAuditOutput — the remaining arms', function () {
         expect(out[0]?.depPath).toEqual([])
     })
 
-    it('defaults a missing severity to info rather than dropping the advisory', function () {
+    it('defaults a missing severity to moderate rather than dropping the advisory', function () {
         const doc = pnpmDoc({
             1234: {
                 id: 1234,
@@ -686,7 +690,33 @@ describe('normalizePnpmAuditOutput — the remaining arms', function () {
                 findings: [{ version: '4.17.11', paths: ['lodash'] }]
             }
         })
-        expect(normalizePnpmAuditOutput(doc, PROD_CLASSIFIER)[0]?.severity).toBe('info')
+        expect(normalizePnpmAuditOutput(doc, PROD_CLASSIFIER)[0]?.severity).toBe('moderate')
+    })
+
+    // A grade npm has never emitted before must cost that one advisory its precision, not cost the
+    // project its entire scan. The schema is applied as a whole-document safeParse in npm-audit.ts, so
+    // a closed enum here failed the parse outright — every finding in the run discarded and the project
+    // reported unauditable over a single word. Parsed through the real schema, not a hand-built object,
+    // because the leniency being asserted lives in the schema rather than in the normalizer.
+    it('keeps the document parseable when one advisory carries an unknown severity', function () {
+        const result = pnpmAuditSchema.safeParse({
+            advisories: {
+                1234: {
+                    id: 1234,
+                    module_name: 'lodash',
+                    title: 'x',
+                    url: 'https://example.test/1234',
+                    severity: 'catastrophic',
+                    vulnerable_versions: '<4.17.21',
+                    findings: [{ version: '4.17.11', paths: ['lodash'] }]
+                }
+            }
+        })
+
+        expect(result.success).toBe(true)
+        const out = normalizePnpmAuditOutput(result.data as PnpmAudit, PROD_CLASSIFIER)
+        expect(out).toHaveLength(1)
+        expect(out[0]?.severity).toBe('moderate')
     })
 
     it('skips a null advisory entry', function () {

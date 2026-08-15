@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
-import { sourceEnabledKey } from '@sentinello/core'
+import { sourceEnabledKey, type Severity } from '@sentinello/core'
 import { openDb } from '../client'
 import type { DrizzleDb, SqliteDb } from '../client'
 import { runMigrations } from '../migrate'
@@ -492,7 +492,9 @@ describe('listCurrentFindingsForProject', function () {
     it('sorts a severity the source capitalised with its own grade, not below info', function () {
         scanProject('project-1', [
             finding({ advisoryId: 'CVE-2024-info', packageName: 'aaa', severity: 'info' }),
-            finding({ advisoryId: 'CVE-2024-shout', packageName: 'zzz', severity: 'CRITICAL' })
+            // Cast because the Severity type says this cannot happen while the TEXT column says it can —
+            // which is the whole reason the ORDER BY has to normalise rather than match verbatim.
+            finding({ advisoryId: 'CVE-2024-shout', packageName: 'zzz', severity: 'CRITICAL' as Severity })
         ])
 
         const rows = listCurrentFindingsForProject(db, 'project-1', T0 + DAY)

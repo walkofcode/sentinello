@@ -15,7 +15,15 @@ import { pickSafeFixVersion } from './version-fix'
 
 const SEVERITY_VALUES = ['critical', 'high', 'moderate', 'low', 'info'] as const
 
-const severitySchema = z.enum(SEVERITY_VALUES)
+// Lenient on purpose. This schema is applied inside a whole-document safeParse, so a closed enum meant
+// that ONE advisory carrying a grade npm had not used before failed the parse for the entire project —
+// every finding in it discarded and the scan reported unauditable, because of a single word. Falling
+// back to 'moderate' matches the policy core's severityWeight and the matcher's mapSeverity already
+// state for an unrecognised grade: never downgrade something we could not read.
+//
+// Only the severity leaf is lenient. The surrounding object shapes stay strict, which is what
+// audit_schema_mismatch exists to catch.
+const severitySchema = z.enum(SEVERITY_VALUES).catch('moderate')
 
 const viaObjectSchema = z
     .object({
@@ -280,10 +288,14 @@ export function pickAdvisoryId(via: ViaObject): string | null {
     return fallbackAdvisoryHash(via)
 }
 
+// The fallback is 'moderate', not 'info'. npm reported a vulnerability here; the only thing missing is
+// how bad it is. Grading that 'info' is a downgrade Sentinello invented, and it hides the finding from
+// every operator whose minimum-severity filter sits above the floor — the quietest way to lose a real
+// advisory. Same policy as core's severityWeight and the matcher's mapSeverity.
 export function pickSeverity(via: ViaObject, vuln: Vulnerability): Severity {
     if (via.severity) return via.severity
     if (vuln.severity) return vuln.severity
-    return 'info'
+    return 'moderate'
 }
 
 export function pickFixAvailability(fix: FixAvailable | undefined): { fixAvailable: boolean; fixVersion: string | null } {
@@ -414,7 +426,9 @@ export function normalizePnpmAuditOutput(parsed: PnpmAudit, classifier: DepClass
         const adv = advisories[idKey]
         if (!adv) continue
         const advisoryId = pickPnpmAdvisoryId(adv, idKey)
-        const severity: Severity = adv.severity || 'info'
+        // 'moderate' rather than 'info' for the same reason as pickSeverity: a graded-less advisory is
+        // an unknown, not a harmless one.
+        const severity: Severity = adv.severity || 'moderate'
         const patched = adv.patched_versions || null
         const recommendation = adv.recommendation || null
         const vulnRange = adv.vulnerable_versions || ''

@@ -77,6 +77,21 @@ describe('renderSingleFinding', function () {
         expect(out.title).toBe('[HIGH] lodash@4.17.20 in api')
     })
 
+    // findings.severity is a plain TEXT column written from whatever a feed said, so the Severity type
+    // is a claim rather than a guarantee. Indexing the label map directly used to hand an operator an
+    // alert titled "[undefined]" — the one line they read first, saying nothing at all.
+    it.each(['HIGH', ' high ', 'catastrophic'])('never titles an alert [undefined] for severity %j', function (severity) {
+        const out = renderSingleFinding({
+            projectName: 'api',
+            gitBranch: null,
+            finding: finding({ severity: severity as Finding['severity'] }),
+            isBaseline: false,
+            portalBaseUrl: null
+        })
+        expect(out.title).not.toContain('undefined')
+        expect(out.markdown).not.toContain('undefined')
+    })
+
     it('marks a first-scan finding as baseline', function () {
         const out = renderSingleFinding({
             projectName: 'api',
