@@ -1,6 +1,7 @@
 import {
     buildAdvisoryMarkdown,
     resolveExportPrompt,
+    DEFAULT_ECOSYSTEM,
     type ExportFinding,
     type Finding,
     type Locale,
@@ -11,6 +12,7 @@ import {
 } from '@sentinello/core'
 import {
     selectDispatchablePairs,
+    findFindingByIdentity,
     recordAttempt,
     recordSuccess,
     recordFailure,
@@ -134,11 +136,24 @@ async function dispatchGroup(input: DispatchGroupInput): Promise<void> {
     const failureEvents: NotificationEvent[] = input.group.events.filter(function isFailure(e): boolean {
         return e.eventType === 'scan_failure'
     })
-    if (findingEvents.length > 0) {
-        const matchedFindings = mapEventsToFindings(findingEvents, input.findingsByEventId)
-        const isBaseline = matchedFindings.every(function noPriorNotify(_, idx): boolean {
-            const event = findingEvents[idx]
-            return event !== undefined && event.firstNotifiedAt === null
+    // Pair each event with the finding it describes, and dispatch ONLY the pairs. An event we cannot
+    // describe must not be swept into the message, because postAndRecord marks every event it is handed
+    // as delivered — which is how two open high-severity findings came to be permanently marked notified
+    // by a message that listed nothing.
+    //
+    // selectDispatchablePairs is scoped to the PROJECT while this function runs once per SCANNER, so a
+    // pass routinely receives events belonging to a source that has not run yet (or ran and failed to
+    // deliver). Those are hydrated from the findings table rather than dropped: the alternative leaves a
+    // real finding waiting for its own source's next pass, which never comes if that source is disabled.
+    const matched = matchEventsToFindings(input.db, findingEvents, input.findingsByEventId)
+    if (matched.length > 0) {
+        const matchedFindings = matched.map(function pickFinding(m) { return m.finding })
+        const matchedEvents = matched.map(function pickEvent(m) { return m.event })
+        // Paired, so this reads each finding's OWN event. Indexing findingEvents by the matched array's
+        // position desynchronised the moment anything was dropped, and `[].every()` is vacuously true —
+        // an entirely unmatched batch reported itself as a baseline scan.
+        const isBaseline = matchedEvents.every(function noPriorNotify(event): boolean {
+            return event.firstNotifiedAt === null
         })
         const message: RenderedMessage = renderBatchedFindings({
             projectName: project.name,
@@ -167,7 +182,7 @@ async function dispatchGroup(input: DispatchGroupInput): Promise<void> {
         await postAndRecord({
             db: input.db,
             target: input.group.target,
-            events: findingEvents,
+            events: matchedEvents,
             message,
             dryRun: input.dryRun,
             at: input.at
@@ -268,14 +283,43 @@ function indexFindingsByEventId(findings: Finding[], _projectId: string): Map<st
     return byKey
 }
 
-function mapEventsToFindings(events: NotificationEvent[], findingsByKey: Map<string, Finding>): Finding[] {
-    const out: Finding[] = []
+// One event and the finding it describes. Kept as a pair rather than two positionally-aligned arrays:
+// the arrays could not stay aligned, because an event with no finding has to be dropped from one and not
+// the other.
+type MatchedEvent = { event: NotificationEvent; finding: Finding }
+
+// Resolves each event to its finding, preferring the scan that just ran and falling back to the findings
+// table. An event with no open finding — resolved since it was recorded, or belonging to a source whose
+// rows are gone — yields no pair, so it is neither described nor consumed: it simply stays pending and is
+// reconsidered next scan, which is what makes a regression re-notify.
+function matchEventsToFindings(
+    db: DrizzleDb,
+    events: NotificationEvent[],
+    findingsByKey: Map<string, Finding>
+): MatchedEvent[] {
+    const out: MatchedEvent[] = []
     for (const event of events) {
         if (event.advisoryId === null || event.packageName === null) continue
         // event.scanner carries the persisted source identity for finding events (matches finding.source).
-        const key = identityTupleKey(event.projectId, event.scanner, event.ecosystem ?? '', event.advisoryId, event.packageName)
-        const match = findingsByKey.get(key)
-        if (match) out.push(match)
+        // A legacy event with no ecosystem resolves to npm, the same COALESCE the dispatch query applies
+        // (notification-deliveries.ts) and the same fallback every findings read path uses — everything was
+        // npm before the polyglot migration, so that is what those rows are. This used to fall back to ''
+        // instead, which cannot equal any real ecosystem: the event passed the dispatch filter as npm and
+        // then failed to match as '', leaving it selected on every scan and describable on none.
+        const key = identityTupleKey(event.projectId, event.scanner, event.ecosystem ?? DEFAULT_ECOSYSTEM, event.advisoryId, event.packageName)
+        const fromThisScan = findingsByKey.get(key)
+        if (fromThisScan) {
+            out.push({ event, finding: fromThisScan })
+            continue
+        }
+        const persisted = findFindingByIdentity(db, {
+            projectId: event.projectId,
+            source: event.scanner,
+            ecosystem: event.ecosystem ?? DEFAULT_ECOSYSTEM,
+            advisoryId: event.advisoryId,
+            packageName: event.packageName
+        })
+        if (persisted) out.push({ event, finding: persisted })
     }
     return out
 }

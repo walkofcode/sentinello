@@ -10,6 +10,7 @@ import {
     insertNotificationTarget,
     insertScan,
     listEventsForProject,
+    mergeFindingsForScan,
     openDb,
     runMigrations,
     setConfigValue,
@@ -292,21 +293,143 @@ describe('notifyForCompletedScan — matching events to findings', function () {
         await notify(outcome([finding()]))
     }
 
-    it('skips an event whose advisory id was never backfilled', async function () {
+    // An event with no advisory id cannot be keyed against anything, so it is not describable. The rule is
+    // that an undescribable event is neither described NOR consumed: sending a "found vulnerabilities"
+    // message listing nothing is the visible half of the bug, and marking the event delivered anyway is the
+    // half that costs a real finding its only notification.
+    it('sends nothing for an event whose advisory id was never backfilled', async function () {
         await seedEventThenRedispatch('UPDATE notification_events SET advisory_id = NULL')
 
-        expect(send).toHaveBeenCalledTimes(1)
-        expect(send.mock.calls[0]?.[1].webhook.findings).toEqual([])
+        expect(send).not.toHaveBeenCalled()
     })
 
-    // ecosystem joined the identity tuple in Phase 2, so a legacy row carries NULL there. It falls back
-    // to '' rather than 'npm' on purpose: '' cannot collide with a real ecosystem id, so the row simply
-    // fails to match instead of being attributed to npm's findings.
-    it('does not match a legacy event with no ecosystem against an npm finding', async function () {
+    it('leaves an undescribable event pending rather than marking it delivered', async function () {
+        await seedEventThenRedispatch('UPDATE notification_events SET advisory_id = NULL')
+
+        const [event] = listEventsForProject(db, PROJECT_ID)
+        expect(event?.firstNotifiedAt).toBeNull()
+        expect(getDelivery(db, event?.id ?? '', TARGET_ID)).toBeNull()
+    })
+
+    // ecosystem joined the identity tuple in Phase 2, so a legacy row carries NULL there. It resolves to
+    // npm — the same COALESCE the dispatch query already applies to this column, and what those rows are:
+    // everything was npm before the polyglot migration. Falling back to '' instead made the row pass the
+    // dispatch filter as npm and then match nothing, so it was re-selected on every scan and describable on
+    // none — which is exactly the state that produces an empty notification.
+    it('matches a legacy event with no ecosystem against the npm finding', async function () {
         await seedEventThenRedispatch('UPDATE notification_events SET ecosystem = NULL')
 
         expect(send).toHaveBeenCalledTimes(1)
-        expect(send.mock.calls[0]?.[1].webhook.findings).toEqual([])
+        expect(send.mock.calls[0]?.[1].webhook.findings).toHaveLength(1)
+        expect(send.mock.calls[0]?.[1].webhook.findings[0].packageName).toBe('lodash')
+    })
+})
+
+// notifyForCompletedScan runs once per SCANNER, but selectDispatchablePairs is scoped to the PROJECT — so
+// a pass is routinely handed events belonging to a source that has not run yet, or that ran and failed to
+// deliver. This is the production failure that motivated the rule: on 2026-08-15 npm-audit's pass picked up
+// two undelivered osv events, matched neither against its own findings, sent a "found vulnerabilities in
+// woc-ide" message listing nothing, and recorded both as delivered — permanently. The two findings were
+// still open and had never been described to anyone.
+describe('notifyForCompletedScan — an event belonging to another source', function () {
+    async function seedUndeliveredEventFromOsv(): Promise<void> {
+        insertNotificationTarget(db, target())
+        send.mockImplementationOnce(async function fail() {
+            return { ok: false as const, errorText: 'network down' }
+        })
+        await notify(outcome([finding()]))
+        send.mockClear()
+    }
+
+    it('sends nothing when the pass cannot describe the pending event', async function () {
+        await seedUndeliveredEventFromOsv()
+
+        // npm-audit's pass: its outcome carries none of osv's findings, and no finding row exists to
+        // hydrate from either.
+        await notify(outcome([], { scanner: 'npm-audit', source: 'npm-audit' }))
+
+        expect(send).not.toHaveBeenCalled()
+    })
+
+    it('does not consume the event it could not describe', async function () {
+        await seedUndeliveredEventFromOsv()
+        await notify(outcome([], { scanner: 'npm-audit', source: 'npm-audit' }))
+
+        const [event] = listEventsForProject(db, PROJECT_ID)
+        expect(event?.firstNotifiedAt).toBeNull()
+        expect(getDelivery(db, event?.id ?? '', TARGET_ID)?.firstSucceededAt).toBeNull()
+    })
+
+    // The hydration lookup and the in-memory lookup have to agree on what a NULL ecosystem means, or the
+    // event passes the dispatch filter as npm (which COALESCEs it) and then matches nothing on either path.
+    it('hydrates a legacy event with no ecosystem as npm', async function () {
+        await seedUndeliveredEventFromOsv()
+        sqlite.exec('UPDATE notification_events SET ecosystem = NULL')
+        mergeFindingsForScan(db, {
+            projectId: PROJECT_ID,
+            scanner: 'osv',
+            scanId: SCAN_ID,
+            scanFinishedAt: T0,
+            incoming: [{
+                projectId: PROJECT_ID,
+                scanner: 'osv',
+                source: 'osv',
+                ecosystem: 'npm',
+                advisoryId: 'CVE-2024-1',
+                advisoryTitle: 'Prototype pollution',
+                advisoryUrl: 'https://example.test/1',
+                packageName: 'lodash',
+                installedVersion: '4.17.11',
+                vulnerableRange: '<4.17.21',
+                severity: 'high',
+                fixAvailable: true,
+                fixVersion: '4.17.21',
+                depPath: ['lodash'],
+                isProd: true,
+                isDev: false
+            }]
+        })
+
+        await notify(outcome([], { scanner: 'npm-audit', source: 'npm-audit' }))
+
+        expect(send).toHaveBeenCalledTimes(1)
+        expect(send.mock.calls[0]?.[1].webhook.findings).toHaveLength(1)
+    })
+
+    it('describes the finding by hydrating it from the findings table', async function () {
+        await seedUndeliveredEventFromOsv()
+        // The osv finding is persisted, as it is in production — the lifecycle merge wrote it before the
+        // dispatch that failed.
+        mergeFindingsForScan(db, {
+            projectId: PROJECT_ID,
+            scanner: 'osv',
+            scanId: SCAN_ID,
+            scanFinishedAt: T0,
+            incoming: [{
+                projectId: PROJECT_ID,
+                scanner: 'osv',
+                source: 'osv',
+                ecosystem: 'npm',
+                advisoryId: 'CVE-2024-1',
+                advisoryTitle: 'Prototype pollution',
+                advisoryUrl: 'https://example.test/1',
+                packageName: 'lodash',
+                installedVersion: '4.17.11',
+                vulnerableRange: '<4.17.21',
+                severity: 'high',
+                fixAvailable: true,
+                fixVersion: '4.17.21',
+                depPath: ['lodash'],
+                isProd: true,
+                isDev: false
+            }]
+        })
+
+        await notify(outcome([], { scanner: 'npm-audit', source: 'npm-audit' }))
+
+        expect(send).toHaveBeenCalledTimes(1)
+        expect(send.mock.calls[0]?.[1].webhook.findings).toHaveLength(1)
+        expect(send.mock.calls[0]?.[1].webhook.findings[0].packageName).toBe('lodash')
     })
 })
 
