@@ -1,5 +1,6 @@
 import type { CurrentFindingRow } from '@sentinello/db'
 import { compareSeverity, severityWeight, type Severity } from '@sentinello/core'
+import { compareVersions } from '@sentinello/versions'
 import { parseJsonArray } from '@/lib/format'
 
 // A findings row collapsed across sources and dependency paths. The raw table stores one row per
@@ -56,20 +57,6 @@ function advisoryKey(row: CurrentFindingRow): string {
     return advisoryIdentity(row.advisoryTitle, row.advisoryId)
 }
 
-function compareSemver(a: string, b: string): number {
-    const pa = a.split('.')
-    const pb = b.split('.')
-    const len = Math.max(pa.length, pb.length)
-    for (let i = 0; i < len; i++) {
-        const na = parseInt(pa[i] ?? '0', 10)
-        const nb = parseInt(pb[i] ?? '0', 10)
-        const va = Number.isNaN(na) ? 0 : na
-        const vb = Number.isNaN(nb) ? 0 : nb
-        if (va !== vb) return va - vb
-    }
-    return 0
-}
-
 // npm audit joins multiple hoisted copies into one comma-separated installedVersion ("4.17.21, 4.17.11")
 // while OSV emits one concrete version per row; union them across the bucket so the merged row shows every
 // affected version once, sorted, regardless of which source contributed it.
@@ -81,7 +68,7 @@ function unionInstalledVersions(bucket: CurrentFindingRow[]): string {
             if (v.length > 0) seen.add(v)
         }
     }
-    return [...seen].sort(compareSemver).join(', ')
+    return [...seen].sort(compareVersions).join(', ')
 }
 
 // The advisory text/link shown for a merged row: prefer a row that actually has a URL, and among those
@@ -151,7 +138,7 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
         }
         if (preferAdvisory(r, advisoryRow)) advisoryRow = r
         if (r.fixAvailable && r.fixVersion) {
-            if (!fixRow || compareSemver(r.fixVersion, fixRow.fixVersion as string) > 0) fixRow = r
+            if (!fixRow || compareVersions(r.fixVersion, fixRow.fixVersion as string) > 0) fixRow = r
         }
     }
     grades.sort(function worstFirst(a, b) {

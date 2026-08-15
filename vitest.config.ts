@@ -156,16 +156,16 @@ export default defineConfig({
             //        npm-audit-parse.ts:381, version-fix.ts:38/52/76/82 (a Range's comparators carry
             //        versions that already passed valid()), npm-audit.ts:70 (`!entry` on a key just
             //        read off Object.keys), version.ts:48-49 (whose own comment says so),
-            //        findings.ts:285 (`row?.count ?? 0` — a COUNT(*) always returns a row) and
+            //        findings.ts:285, db/queries/gemnasium.ts:162 and db/queries/osv.ts:150
+            //        (`row?.count ?? 0` — a COUNT(*) always returns a row) and
             //        findings.ts:224 (`if (!best) throw` — the loop above assigns on its first pass).
             //        Wave 11: core/advisory-export.ts:336 (`if (!finding) break` inside
             //        `for (let i = offset; i < sorted.length; i++)`) and core/releases.ts:1352
             //        (`RELEASES[0] || null` — RELEASES is a literal array in the same file, and an
             //        empty one would mean the product has shipped no releases).
-            //     c. A guard a caller upstream already made impossible. gemnasium/normalize.ts:293
+            //     c. A guard a caller upstream already made impossible. gemnasium/normalize.ts:291
             //        (parseComparatorForm's empty-token check — the disjunct split filters empty
-            //        entries before it) and :309 (its final else-if, which only `<=` can reach because
-            //        the four other operators are handled above); gemnasium/feed.ts:166
+            //        entries before it); gemnasium/feed.ts:166
             //        (advisoryIdFromPath's empty-id ternary — the `dot > 0` split cannot produce
             //        one); cli/ui.ts:60 (formatDuration's ms branch, whose only call site is guarded
             //        by `remaining > 1` second, so the argument is always over 1000);
@@ -341,10 +341,25 @@ export default defineConfig({
                 'packages/notifications/src/resolve.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'packages/db/src/queries/osv.ts': { statements: 99, branches: 93, functions: 99, lines: 99 },
                 'packages/db/src/queries/notifications.ts': { statements: 99, branches: 95, functions: 99, lines: 99 },
+                // Version and range semantics: what a bound MEANS. A wrong answer here is a false
+                // positive on a clean version or a missed vulnerable one, and neither announces itself —
+                // npm/rc 1.2.8 was reported as critical malware for exactly this reason. These floors are
+                // the highest in the repo because the differential test against node-semver
+                // (feeds/gemnasium/range-fidelity.test.ts) can only check what the parser produces; the
+                // bound evaluator and the formatters need their own.
+                'packages/versions/src/range.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+                'packages/versions/src/match.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+                'packages/versions/src/parse.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
                 // The gemnasium path, end to end: normalizer, cache, and scanner. A regression in the
                 // range parsing or the purge logic is silent, so each gets its own floor.
                 'packages/feeds/src/gemnasium/normalize.ts': { statements: 99, branches: 98, functions: 99, lines: 99 },
-                'packages/db/src/queries/gemnasium.ts': { statements: 99, branches: 96, functions: 99, lines: 99 },
+                // 96 → 94 is NOT a relaxation of what is tested. parseRanges' field-by-field rebuild moved
+                // out of this file into packages/versions/src/parse.ts (where it is pinned at 100 above,
+                // and where a shared implementation can no longer silently drop a field one store adds).
+                // Those branches were covered, so removing them shrank the denominator and left the file's
+                // one deliberately-unreachable arm — the `row?.count ?? 0` at :162, inventoried above — as
+                // a larger share of it. Nothing here became untested.
+                'packages/db/src/queries/gemnasium.ts': { statements: 99, branches: 94, functions: 99, lines: 99 },
                 'packages/db/src/gemnasium-client.ts': { statements: 99, branches: 99, functions: 99, lines: 99 },
                 'packages/scanners/src/gemnasium.ts': { statements: 97, branches: 94, functions: 99, lines: 99 },
                 // Produces the "upgrade to this version" advice shown next to every finding.

@@ -178,6 +178,9 @@ importers:
       '@sentinello/notifications':
         specifier: workspace:*
         version: link:../../packages/notifications
+      '@sentinello/versions':
+        specifier: workspace:*
+        version: link:../../packages/versions
       class-variance-authority:
         specifier: 0.7.1
         version: 0.7.1
@@ -298,13 +301,20 @@ importers:
         specifier: 4.21.0
         version: 4.21.0
 
-  packages/core: {}
+  packages/core:
+    dependencies:
+      '@sentinello/versions':
+        specifier: workspace:*
+        version: link:../versions
 
   packages/db:
     dependencies:
       '@sentinello/core':
         specifier: workspace:*
         version: link:../core
+      '@sentinello/versions':
+        specifier: workspace:*
+        version: link:../versions
       better-sqlite3:
         specifier: 12.9.0
         version: 12.9.0
@@ -330,6 +340,9 @@ importers:
       '@sentinello/core':
         specifier: workspace:*
         version: link:../core
+      '@sentinello/versions':
+        specifier: workspace:*
+        version: link:../versions
       js-yaml:
         specifier: 4.3.1
         version: 4.3.1
@@ -343,9 +356,15 @@ importers:
       '@types/node':
         specifier: 25.6.0
         version: 25.6.0
+      '@types/semver':
+        specifier: 7.7.1
+        version: 7.7.1
       '@types/unzipper':
         specifier: 0.10.11
         version: 0.10.11
+      semver:
+        specifier: 7.7.4
+        version: 7.7.4
 
   packages/notifications:
     dependencies:
@@ -365,6 +384,9 @@ importers:
       '@sentinello/core':
         specifier: workspace:*
         version: link:../core
+      '@sentinello/versions':
+        specifier: workspace:*
+        version: link:../versions
       ignore:
         specifier: 7.0.5
         version: 7.0.5
@@ -384,6 +406,16 @@ importers:
       '@types/node':
         specifier: 25.6.0
         version: 25.6.0
+      '@types/semver':
+        specifier: 7.7.1
+        version: 7.7.1
+
+  packages/versions:
+    dependencies:
+      semver:
+        specifier: 7.7.4
+        version: 7.7.4
+    devDependencies:
       '@types/semver':
         specifier: 7.7.1
         version: 7.7.1

@@ -1,7 +1,5 @@
 import { getEcosystem } from '@sentinello/core'
-import type { VersionComparator } from '../types'
-import { pep440Comparator } from './pep440'
-import { semverComparator } from './semver'
+import { pep440Comparator, semverComparator, type VersionComparator } from '@sentinello/versions'
 
 // The ecosystem → version-comparator routing the OSV matcher uses. Keyed by the central registry's
 // `comparator` id (not the ecosystem id) so several ecosystems can share one implementation: npm, Go, and

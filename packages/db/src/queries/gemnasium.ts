@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { GEMNASIUM_NORMALIZER_VERSION, type GemnasiumAdvisoryRow, type GemnasiumRange } from '@sentinello/core'
+import { parseVersionRanges } from '@sentinello/versions'
 import type { GemnasiumDrizzleDb } from '../gemnasium-client'
 import { gemnasiumAdvisories, gemnasiumMeta } from '../gemnasium-schema'
 
@@ -209,15 +210,7 @@ function parseStringArray(json: string): string[] {
     })
 }
 
+// Shared with the OSV cache — see parseVersionRanges for why this must not be rebuilt field by field.
 function parseRanges(json: string): GemnasiumRange[] {
-    const parsed = JSON.parse(json) as unknown
-    if (!Array.isArray(parsed)) return []
-    const out: GemnasiumRange[] = []
-    for (const entry of parsed) {
-        if (entry && typeof entry === 'object' && typeof (entry as GemnasiumRange).introduced === 'string') {
-            const e = entry as GemnasiumRange
-            out.push({ introduced: e.introduced, fixed: typeof e.fixed === 'string' ? e.fixed : null })
-        }
-    }
-    return out
+    return parseVersionRanges(json)
 }

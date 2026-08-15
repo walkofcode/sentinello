@@ -128,7 +128,7 @@ describe('parsePep440', function () {
 })
 
 describe('pep440Comparator.normalize', function () {
-    it('returns the trimmed input when it parses', function () {
+    it('returns a canonical form when it parses', function () {
         expect(pep440Comparator.normalize('  1.2.3 ')).toBe('1.2.3')
     })
 
@@ -136,6 +136,58 @@ describe('pep440Comparator.normalize', function () {
     // preferable to a false positive here.
     it('returns null when it does not parse', function () {
         expect(pep440Comparator.normalize('not-a-version')).toBeNull()
+    })
+
+    // REGRESSION. This used to return the trimmed input verbatim, so the matcher's exact-version check — a
+    // string comparison on the normalized values — never matched "1.0" against an advisory that enumerated
+    // "1.0.0", even though PEP 440 says they ARE the same version. Malware advisories are precisely the
+    // ones that pin exact versions, so the miss landed where exactness matters most.
+    it.each([
+        ['1.0', '1.0.0'],
+        ['1.0.0', '1'],
+        ['1.0.0.0', '1.0'],
+        ['v1.0', '1.0.0'],
+        ['1.0.0-rc1', '1.0rc1'],
+        ['1!2.0', '1!2'],
+        ['1.0.post1', '1.0.0.post1'],
+        ['1.0+ubuntu.1', '1.0.0+ubuntu-1']
+    ])('gives %j and %j the same canonical form', function (a, b) {
+        const canonical = pep440Comparator.normalize(a)
+        expect(canonical).not.toBeNull()
+        expect(pep440Comparator.normalize(b)).toBe(canonical)
+    })
+
+    it('keeps genuinely different versions distinct', function () {
+        expect(pep440Comparator.normalize('1.0.1')).not.toBe(pep440Comparator.normalize('1.0'))
+        expect(pep440Comparator.normalize('1.0rc1')).not.toBe(pep440Comparator.normalize('1.0'))
+        expect(pep440Comparator.normalize('1!1.0')).not.toBe(pep440Comparator.normalize('1.0'))
+        expect(pep440Comparator.normalize('1.0.dev1')).not.toBe(pep440Comparator.normalize('1.0'))
+    })
+
+    // The canonical form is fed straight back into the ordering functions, so it has to remain parseable.
+    it('produces a form that parses back to the same canonical form', function () {
+        for (const raw of ['1.0', '1.0rc1', '1!2.0', '1.0.post1', '1.0.dev1', '1.0+ubuntu.1']) {
+            const once = pep440Comparator.normalize(raw)
+            expect(once).not.toBeNull()
+            expect(pep440Comparator.normalize(once as string)).toBe(once)
+        }
+    })
+})
+
+describe('pep440Comparator strict orderings', function () {
+    it('distinguishes strict from non-strict at the boundary', function () {
+        expect(pep440Comparator.gt('1.0', '1.0.0')).toBe(false)
+        expect(pep440Comparator.gt('1.0.1', '1.0')).toBe(true)
+        expect(pep440Comparator.lte('1.0', '1.0.0')).toBe(true)
+        expect(pep440Comparator.lte('1.0.1', '1.0')).toBe(false)
+    })
+
+    // An unparseable side yields false from every ordering, so a bad bound can never be read as "matches".
+    it('returns false from both strict orderings when a side does not parse', function () {
+        expect(pep440Comparator.gt('nope', '1.0')).toBe(false)
+        expect(pep440Comparator.gt('1.0', 'nope')).toBe(false)
+        expect(pep440Comparator.lte('nope', '1.0')).toBe(false)
+        expect(pep440Comparator.lte('1.0', 'nope')).toBe(false)
     })
 })
 

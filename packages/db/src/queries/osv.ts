@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { OSV_NORMALIZER_VERSION, type OsvAdvisoryRow, type OsvRange } from '@sentinello/core'
+import { parseVersionRanges } from '@sentinello/versions'
 import type { OsvDrizzleDb } from '../osv-client'
 import { osvAdvisories, osvMeta } from '../osv-schema'
 
@@ -212,22 +213,12 @@ function parseStringArray(json: string): string[] {
     })
 }
 
+// Shared with the gemnasium cache — see parseVersionRanges for why this must not be rebuilt field by field.
+// OSV additionally defaults an absent `range.type`: the matcher drops untyped ranges when type-filtering is
+// active, so a row written by an older normalizer would go unmatched rather than merely unlabelled. (A
+// normalizer-version bump forces a full re-seed, so this only guards a transient mid-rebuild read.)
 function parseRanges(json: string): OsvRange[] {
-    const parsed = JSON.parse(json) as unknown
-    if (!Array.isArray(parsed)) return []
-    const out: OsvRange[] = []
-    for (const entry of parsed) {
-        if (entry && typeof entry === 'object' && typeof (entry as OsvRange).introduced === 'string') {
-            const e = entry as OsvRange
-            out.push({
-                // Default the new fields for any row written by an older normalizer (a normalizer-version
-                // bump forces a full re-seed, so this only guards a transient mid-rebuild read).
-                type: typeof e.type === 'string' ? e.type : 'SEMVER',
-                introduced: e.introduced,
-                fixed: typeof e.fixed === 'string' ? e.fixed : null,
-                lastAffected: typeof e.lastAffected === 'string' ? e.lastAffected : null
-            })
-        }
-    }
-    return out
+    return parseVersionRanges(json).map(function withDefaultType(range) {
+        return range.type === undefined ? { ...range, type: 'SEMVER' } : range
+    })
 }

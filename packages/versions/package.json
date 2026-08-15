@@ -1,9 +1,9 @@
 {
-    "name": "@sentinello/core",
+    "name": "@sentinello/versions",
     "version": "0.1.0",
     "private": true,
     "license": "MIT",
-    "description": "Shared domain types for Sentinello (the literal contract between worker and portal).",
+    "description": "The single implementation of version and range semantics: the range type, per-ecosystem comparators, and range formatting.",
     "type": "module",
     "main": "./src/index.ts",
     "types": "./src/index.ts",
@@ -18,6 +18,9 @@
         "typecheck": "tsc -p tsconfig.json --noEmit"
     },
     "dependencies": {
-        "@sentinello/versions": "workspace:*"
+        "semver": "7.7.4"
+    },
+    "devDependencies": {
+        "@types/semver": "7.7.1"
     }
 }

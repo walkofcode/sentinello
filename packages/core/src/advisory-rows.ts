@@ -5,17 +5,20 @@
 // stack into an npx-distributed bundle. @sentinello/db re-exports these under its historical names, so
 // every existing import site keeps working and the persisted column mapping stays db's business.
 
-// A normalized OSV version range. `fixed` is null when there is no clean fix boundary; in that case
-// `lastAffected` (OSV `last_affected`), when set, is an INCLUSIVE upper bound, and when both are null the
-// range is open-ended (vulnerable from `introduced` onward, as every MAL- malicious record is stored).
-// `type` is OSV's `range.type` ('SEMVER' | 'ECOSYSTEM' | 'GIT') — preserved so non-SEMVER ecosystems
-// (PyPI/Go/Rust) keep enough semantics for their comparator to evaluate the range correctly.
-export type OsvRange = {
-    type: string
-    introduced: string
-    fixed: string | null
-    lastAffected: string | null
-}
+// Both feeds normalize into the ONE range type, `VersionRange` from @sentinello/versions. These two names
+// remain because the row shapes are named after their feeds and ~40 import sites read better that way —
+// but they are aliases, not separate declarations, and that is the point.
+//
+// They used to be two independent shapes (OSV's with `type` + `lastAffected`, gemnasium's with neither),
+// restated structurally in the scanners package, again inline in the worker, and rebuilt field-by-field by
+// the db read path. Five copies of one concept, converted at every boundary — which is how the db's
+// reconstruction came to silently drop any field the others added, and how gemnasium ended up with no way
+// to express an inclusive upper bound at all despite the matcher having supported one for OSV all along.
+export type { VersionRange } from '@sentinello/versions'
+
+import type { VersionRange } from '@sentinello/versions'
+
+export type OsvRange = VersionRange
 
 // One denormalized advisory→package row, the shape the scanner consumes. `rowKey` is synthesized by
 // the writer; callers building rows for upsert pass everything except it.
@@ -47,12 +50,10 @@ export type OsvAdvisoryRow = {
 // cache alike — invalidates on exactly the same signal.
 export const OSV_NORMALIZER_VERSION = 4
 
-// gemnasium states its affected set as plain introduced/fixed pairs — no range `type` discriminator and no
-// `last_affected` equivalent — so it stays a distinct shape rather than being force-fitted onto OsvRange.
-export type GemnasiumRange = {
-    introduced: string
-    fixed: string | null
-}
+// gemnasium carries no range `type` discriminator, so its rows leave that field unset — but it very much
+// does state inclusive upper bounds (`<=X`, maven `[a,b]`) and exclusive lower ones (`>X`), so it uses the
+// same range type as OSV rather than a reduced one that cannot represent them.
+export type GemnasiumRange = VersionRange
 
 // One denormalized advisory→package row from gemnasium-db. Mirrors OsvAdvisoryRow field for field apart
 // from the range shape, so both stores and both scanners read alike.
@@ -89,4 +90,12 @@ export type GemnasiumAdvisoryRow = {
 //     rather than having a range rebuilt for it from `affected_versions` — which gemnasium's own field
 //     reference calls display text, and which on a retracted record still describes the withdrawn claim.
 //     Forces a re-seed so the cached rows go.
-export const GEMNASIUM_NORMALIZER_VERSION = 4
+// v5: bounds keep their own inclusivity instead of being rounded into a half-open interval. `>X` no longer
+//     becomes `>=X` (which reported the boundary version as affected — npm/rc GMS-2021-3 is `>1.2.8`, and
+//     1.2.8 is the CLEAN release the advisory tells you to stay on, so every project holding it got a
+//     critical, unfixable malware finding). `<=X` and a maven `]` close no longer become exclusive, which
+//     had been dropping the boundary version silently, and an advisory spelled `>=X <=X` no longer collapses
+//     to an empty interval that discarded the whole record. Range syntax this parser cannot read (`^1.0.0`,
+//     `~1.0.0`, `!=1.0.0`) is now refused rather than cached as an exact-version pin that matches nothing
+//     forever. Every cached range carries the new fields, so an existing cache must rebuild.
+export const GEMNASIUM_NORMALIZER_VERSION = 5

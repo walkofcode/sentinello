@@ -1,3 +1,4 @@
+import type { VersionRange } from '@sentinello/versions'
 import { comparatorForEcosystem } from './engine/comparators'
 import { matchAdvisories } from './engine/matcher'
 import type { CanonicalAdvisory } from './engine/types'
@@ -6,12 +7,10 @@ import type { RawFinding, ScanContext, ScannerPlugin, ScanResult } from './types
 
 export const GEMNASIUM_SCANNER_NAME = 'gemnasium'
 
-// One normalized gemnasium version range. `fixed` null means open-ended (vulnerable from `introduced`
-// with no known fix).
-export type GemnasiumRange = {
-    introduced: string
-    fixed: string | null
-}
+// One normalized gemnasium version range — the shared range type, not a restatement of it. This was
+// previously redeclared here field for field, which is how the engine and the feed came to hold two
+// different ideas of what a bound is.
+export type GemnasiumRange = VersionRange
 
 // The advisory shape the gemnasium cache hands the scanner. Mirrors the db's GemnasiumAdvisoryRow but is
 // redeclared here so the scanners package stays free of a direct @sentinello/db dependency — the worker

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CurrentFindingRow } from '@sentinello/db'
-import { compareVersions, groupByLibrary } from './group-by-library'
+import { groupByLibrary } from './group-by-library'
 
 function row(overrides: Partial<CurrentFindingRow> = {}): CurrentFindingRow {
     return {
@@ -140,41 +140,5 @@ describe('groupByLibrary', function () {
 
     it('returns nothing for no findings', function () {
         expect(groupByLibrary([])).toEqual([])
-    })
-})
-
-describe('compareVersions', function () {
-    it.each([
-        ['1.0.1', '1.0.0'],
-        ['1.1.0', '1.0.9'],
-        ['2.0.0', '1.99.99'],
-        ['1.0.10', '1.0.9'],
-        ['1.0.0', '1.0.0-beta'],
-        ['1.0.0-beta', '1.0.0-alpha'],
-        ['1.0.1', '1.0'],
-        ['v2.0.0', '1.0.0']
-    ] as Array<[string, string]>)('ranks %s above %s', function (higher, lower) {
-        expect(compareVersions(higher, lower)).toBeGreaterThan(0)
-        expect(compareVersions(lower, higher)).toBeLessThan(0)
-    })
-
-    it.each([
-        ['1.0.0', '1.0.0'],
-        ['1.0.0', 'v1.0.0'],
-        ['1.0.0', '=1.0.0'],
-        ['1.0', '1.0.0'],
-        ['1.0.0-beta', '1.0.0-beta']
-    ] as Array<[string, string]>)('ranks %s equal to %s', function (a, b) {
-        expect(compareVersions(a, b)).toBe(0)
-    })
-
-    // Numeric comparison per segment, so a double-digit patch must not lose to a single digit the way
-    // a string compare would.
-    it('compares segments numerically rather than lexically', function () {
-        expect(compareVersions('1.0.10', '1.0.9')).toBeGreaterThan(0)
-    })
-
-    it('treats an unparseable segment as zero', function () {
-        expect(compareVersions('1.x.0', '1.0.0')).toBe(0)
     })
 })

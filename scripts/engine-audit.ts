@@ -45,14 +45,21 @@ async function sleep(ms: number): Promise<void> {
 }
 
 // --- OSV public API ground truth (independent of our osv.db cache) ---
-const apiCache = new Map<string, { ranges: { introduced: string; fixed: string | null }[]; versions: string[] } | null>()
+// NOTE: everything below deliberately re-implements range evaluation instead of importing
+// @sentinello/versions. That is the one place in this repo where a second implementation is the POINT —
+// an oracle that shares code with the thing it audits agrees with it by construction and can only ever
+// confirm a bug. It must, however, be independently CORRECT: it previously dropped `last_affected` at both
+// the parse and the match step, so every advisory bounded that way was reported here as a false positive
+// of ours when the finding was real.
+type OsvGroundTruthRange = { introduced: string; fixed: string | null; lastAffected: string | null }
+const apiCache = new Map<string, { ranges: OsvGroundTruthRange[]; versions: string[] } | null>()
 async function fetchOsvGroundTruth(advisoryId: string, packageName: string) {
     const cacheKey = advisoryId + '|' + packageName
     if (apiCache.has(cacheKey)) return apiCache.get(cacheKey)
     try {
         const res = await axios.get('https://api.osv.dev/v1/vulns/' + encodeURIComponent(advisoryId), { timeout: 15000 })
         const data = res.data as { affected?: Array<{ package?: { ecosystem?: string; name?: string }; ranges?: any[]; versions?: string[] }> }
-        const ranges: { introduced: string; fixed: string | null }[] = []
+        const ranges: OsvGroundTruthRange[] = []
         const versions: string[] = []
         for (const aff of data.affected || []) {
             if (!aff.package || aff.package.ecosystem !== NPM || aff.package.name !== packageName) continue
@@ -60,11 +67,21 @@ async function fetchOsvGroundTruth(advisoryId: string, packageName: string) {
             for (const r of aff.ranges || []) {
                 if (r.type !== 'SEMVER' || !Array.isArray(r.events)) continue
                 let introduced: string | null = null
+                let lastAffected: string | null = null
                 for (const e of r.events) {
-                    if (typeof e.introduced === 'string') introduced = e.introduced
-                    else if (typeof e.fixed === 'string' && introduced !== null) { ranges.push({ introduced, fixed: e.fixed }); introduced = null }
+                    if (typeof e.introduced === 'string') {
+                        introduced = e.introduced
+                        lastAffected = null
+                    } else if (typeof e.fixed === 'string' && introduced !== null) {
+                        ranges.push({ introduced, fixed: e.fixed, lastAffected: null })
+                        introduced = null
+                        lastAffected = null
+                    } else if (typeof e.last_affected === 'string' && introduced !== null) {
+                        // OSV's INCLUSIVE upper bound: vulnerable through this version, no fix above it.
+                        lastAffected = e.last_affected
+                    }
                 }
-                if (introduced !== null) ranges.push({ introduced, fixed: null })
+                if (introduced !== null) ranges.push({ introduced, fixed: null, lastAffected })
             }
         }
         const out = { ranges, versions }
@@ -77,7 +94,8 @@ async function fetchOsvGroundTruth(advisoryId: string, packageName: string) {
 }
 
 // Independent affected check (does NOT call the engine): exact-version membership OR range containment.
-function independentlyAffected(installedRaw: string, ranges: { introduced: string; fixed: string | null }[], versions: string[]): boolean {
+// Bounds are handed to node-semver as a range STRING with the right operator, so `<=` stays `<=`.
+function independentlyAffected(installedRaw: string, ranges: OsvGroundTruthRange[], versions: string[]): boolean {
     const norm = (v: string) => valid(v) || (coerce(v)?.version ?? null)
     const installed = norm(installedRaw)
     for (const v of versions) {
@@ -88,10 +106,11 @@ function independentlyAffected(installedRaw: string, ranges: { introduced: strin
     if (!installed) return false
     for (const r of ranges) {
         const lo = r.introduced === '0' ? '0.0.0' : norm(r.introduced)
-        const hi = r.fixed ? norm(r.fixed) : null
         if (!lo) continue
-        const range = hi ? '>=' + lo + ' <' + hi : '>=' + lo
-        try { if (satisfies(installed, range)) return true } catch {}
+        const fixed = r.fixed ? norm(r.fixed) : null
+        const lastAffected = r.lastAffected ? norm(r.lastAffected) : null
+        const upper = fixed ? ' <' + fixed : (lastAffected ? ' <=' + lastAffected : '')
+        try { if (satisfies(installed, '>=' + lo + upper)) return true } catch {}
     }
     return false
 }

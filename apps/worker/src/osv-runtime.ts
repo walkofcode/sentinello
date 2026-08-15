@@ -5,6 +5,7 @@ import {
     getEcosystem,
     sourceStatusKey,
     type EcosystemId,
+    type OsvAdvisoryRow,
     type OsvSourceStatus
 } from '@sentinello/core'
 import {
@@ -285,16 +286,10 @@ function writeStatus(mainDb: DrizzleDb, osvDb: OsvDrizzleDb, ecosystem: Ecosyste
     setConfigValue(mainDb, sourceStatusKey('osv', ecosystem), status)
 }
 
-function toScannerAdvisory(row: {
-    advisoryId: string
-    aliases: string[]
-    ranges: { type: string; introduced: string; fixed: string | null; lastAffected: string | null }[]
-    versions: string[]
-    severity: string | null
-    summary: string | null
-    url: string | null
-    malicious: boolean
-}): OsvAdvisory {
+// Takes the real row type rather than restating its shape inline. The inline version had to be edited by
+// hand every time the row gained a field, and a structural type that has drifted from the one it mirrors
+// still compiles right up until the moment it doesn't.
+function toScannerAdvisory(row: OsvAdvisoryRow): OsvAdvisory {
     return {
         advisoryId: row.advisoryId,
         aliases: row.aliases,

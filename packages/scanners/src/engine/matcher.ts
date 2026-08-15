@@ -1,8 +1,15 @@
 import type { Severity } from '@sentinello/core'
+import { formatRange, formatRanges, versionInRange, type FormatOptions } from '@sentinello/versions'
 import type { ResolvedPackage } from '../resolver/types'
 import type { RawFinding } from '../types'
 import { pickSafeFixVersion } from '../version-fix'
 import type { CanonicalAdvisory, VersionComparator } from './types'
+
+// The finding card shows the shorter "0"; a string handed to node-semver's Range parser needs a full
+// triple. That is the ONLY difference between the two renderings — they used to be two separate functions,
+// and the copy feeding fix derivation had quietly lost the inclusive-upper-bound case entirely.
+const DISPLAY_FORMAT: FormatOptions = { zero: '0' }
+const SEMVER_FORMAT: FormatOptions = { zero: '0.0.0' }
 
 // THE matching engine. Given the resolved packages and the advisories affecting each (already normalized
 // to CanonicalAdvisory by a feed adapter), decide which installed version is affected and build findings.
@@ -90,8 +97,10 @@ function matchOne(
     return buildFinding(pkg, advisory, severity, fixVersion, rangesToDisplay(ranges, exactVersions))
 }
 
-// A version is affected when it equals an enumerated exact version OR falls in [introduced, fixed) for
-// any range. We track the lowest `fixed` boundary at/above the install as the fix target.
+// A version is affected when it equals an enumerated exact version OR falls inside any range. Each bound
+// is evaluated with the inclusivity the range declares — `>X` excludes X, `<=X` includes it — rather than
+// being forced into a half-open interval and rounded. We track the lowest `fixed` boundary at/above the
+// install as the fix target.
 function isAffected(
     installedRaw: string,
     ranges: CanonicalAdvisory['affected']['ranges'],
@@ -111,29 +120,16 @@ function isAffected(
     let affected = false
     let firstFixed: string | null = null
     for (const range of ranges) {
-        const introduced = range.introduced === '0' ? '0.0.0' : comparator.normalize(range.introduced)
-        if (introduced === null) continue
-        if (!comparator.gte(installed, introduced)) continue
-        const fixed = range.fixed ? comparator.normalize(range.fixed) : null
-        if (fixed !== null) {
-            // Half-open [introduced, fixed): affected when installed < fixed; `fixed` is the fix target.
-            if (comparator.lt(installed, fixed)) {
-                affected = true
-                if (firstFixed === null || comparator.lt(fixed, firstFixed)) {
-                    firstFixed = fixed
-                }
-            }
-            continue
-        }
-        // No `fixed`. If OSV gave a `last_affected`, treat it as an INCLUSIVE upper bound (vulnerable
-        // through that version, no known fix above it) — `installed <= lastAffected` is `gte(last, installed)`.
-        const lastAffected = range.lastAffected ? comparator.normalize(range.lastAffected) : null
-        if (lastAffected !== null) {
-            if (comparator.gte(lastAffected, installed)) affected = true
-            continue
-        }
-        // Neither `fixed` nor `last_affected`: open-ended vulnerable range with no known fix.
+        // Bound evaluation lives with the range type, so this and every other reader of a range agree on
+        // exactly what its bounds mean.
+        if (!versionInRange(installedRaw, range, comparator)) continue
         affected = true
+        // Track the lowest `fixed` boundary above the install as the remediation target. A range bounded by
+        // `lastAffected` has no fix by definition and contributes none.
+        const fixed = range.fixed ? comparator.normalize(range.fixed) : null
+        if (fixed !== null && (firstFixed === null || comparator.lt(fixed, firstFixed))) {
+            firstFixed = fixed
+        }
     }
     return { affected, firstFixed }
 }
@@ -164,40 +160,25 @@ function buildFinding(
     }
 }
 
-// Human-readable affected range for the finding card: enumerated versions render as `=X`, ranges as the
-// half-open `>=lo <hi` (or `>=lo` when open-ended). Replaces the old hardcoded `*` for malware.
+// Human-readable affected range for the finding card: enumerated versions render as `=X`, ranges through
+// the shared formatter so the operator shown is the operator the advisory stated. Replaces the old
+// hardcoded `*` for malware.
 function rangesToDisplay(
     ranges: CanonicalAdvisory['affected']['ranges'],
     exactVersions: string[]
 ): string {
     const parts: string[] = []
     for (const v of exactVersions) parts.push('=' + v)
-    for (const range of ranges) {
-        const lo = range.introduced === '0' ? '0' : range.introduced
-        if (range.fixed) {
-            parts.push('>=' + lo + ' <' + range.fixed)
-        } else if (range.lastAffected) {
-            parts.push('>=' + lo + ' <=' + range.lastAffected)
-        } else {
-            parts.push('>=' + lo)
-        }
-    }
+    for (const range of ranges) parts.push(formatRange(range, DISPLAY_FORMAT))
     return parts.length > 0 ? parts.join(' || ') : '*'
 }
 
-// pickSafeFixVersion can derive a fix from the vulnerable range's upper bound, so feed it the ranges as a
-// semver string (exact-version-only advisories have no range and thus no derivable fix target).
+// pickSafeFixVersion derives a fix from the vulnerable range's upper bound, so feed it the ranges as a
+// semver string (exact-version-only advisories have no range and thus no derivable fix target). Same
+// formatter as the display path: when this rendered its own string it dropped `lastAffected`, so every
+// such advisory looked vulnerable-forever and no fix version was ever suggested for it.
 function vulnerableRangeForFix(ranges: CanonicalAdvisory['affected']['ranges']): string {
-    const parts: string[] = []
-    for (const range of ranges) {
-        const lo = range.introduced === '0' ? '0.0.0' : range.introduced
-        if (range.fixed) {
-            parts.push('>=' + lo + ' <' + range.fixed)
-        } else {
-            parts.push('>=' + lo)
-        }
-    }
-    return parts.join(' || ')
+    return formatRanges(ranges, SEMVER_FORMAT)
 }
 
 // OSV/GHSA severity buckets are upper-case (CRITICAL/HIGH/MODERATE/LOW). Map to our lower-case union;

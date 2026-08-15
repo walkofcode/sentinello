@@ -19,12 +19,15 @@
     },
     "dependencies": {
         "@sentinello/core": "workspace:*",
+        "@sentinello/versions": "workspace:*",
         "js-yaml": "4.3.1",
         "unzipper": "0.12.3"
     },
     "devDependencies": {
         "@types/js-yaml": "4.0.9",
         "@types/node": "25.6.0",
-        "@types/unzipper": "0.10.11"
+        "@types/semver": "7.7.1",
+        "@types/unzipper": "0.10.11",
+        "semver": "7.7.4"
     }
 }
