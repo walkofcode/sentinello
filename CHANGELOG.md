@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.3.1](https://github.com/walkofcode/sentinello/compare/v3.3.0...v3.3.1) (2026-08-15)
+
+
+### Bug Fixes
+
+* **docker:** install every workspace package the image builds ([ae63ade](https://github.com/walkofcode/sentinello/commit/ae63adedf1cee9cc4f6631372e479987cdc138ed))
+
+
+### Documentation
+
+* **releases:** a corrected 3.3.0 image now exists, so stop saying it does not ([d552da0](https://github.com/walkofcode/sentinello/commit/d552da006b015276034b10a1df6f37229b1ab3d1))
+* **releases:** give every locale its own language in the 3.3.1 notes ([5de2572](https://github.com/walkofcode/sentinello/commit/5de2572dcef740337e405d3622469851f74687f0))
+
 ## [3.3.0](https://github.com/walkofcode/sentinello/compare/v3.2.0...v3.3.0) (2026-08-15)
 
 
