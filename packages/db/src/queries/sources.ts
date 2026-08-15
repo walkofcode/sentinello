@@ -82,6 +82,22 @@ export function getActiveSourceCells(db: DrizzleDb): SourceCell[] {
     return cells
 }
 
+// "Which cells can actually RUN?" — getActiveSourceCells filtered by ecosystem availability, i.e. the
+// per-cell equivalent of getSourceEnabled.
+//
+// This is the set the "always a source on" invariant has to count, and counting the ungated set instead
+// is a hole that withdrawing an ecosystem opened. An operator who enabled osv for Python under an
+// earlier build still has sources.osv.PyPI.enabled=true in app_config; that cell can never run again,
+// but it is still "active" for visibility purposes so its historical findings stay readable. Counted as
+// remaining coverage, it would let them switch off every npm cell, be told the write succeeded, and be
+// left with nothing that can scan — the exact outcome the invariant exists to prevent, reached through
+// the control that promises to prevent it.
+export function getRunnableSourceCells(db: DrizzleDb): SourceCell[] {
+    return getActiveSourceCells(db).filter(function runnable(cell) {
+        return isEcosystemStable(cell.ecosystem)
+    })
+}
+
 // The distinct active source ids (deduped across ecosystems), derived from getActiveSourceCells so it can
 // never reintroduce the old scanner-only / npm-only semantics. Today's UI source-filter chips still present
 // a flat source list (the full Languages × Sources matrix is Phase 5); this gives them a source-cell-backed

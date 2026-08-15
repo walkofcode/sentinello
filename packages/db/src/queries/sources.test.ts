@@ -12,7 +12,7 @@ import { upsertProject } from './projects'
 import { insertScan } from './scans'
 import { mergeFindingsForScan } from './findings'
 import { listCurrentFindingsForProject } from './dashboard'
-import { activeSourceCellClause, getActiveSourceCells, getActiveSources, getSourceEnabled } from './sources'
+import { activeSourceCellClause, getActiveSourceCells, getActiveSources, getRunnableSourceCells, getSourceEnabled } from './sources'
 
 // A (source, ecosystem) cell decides whether findings from that source are visible at all, so a bug
 // here either hides real vulnerabilities or shows ones the operator switched off. The default state
@@ -151,6 +151,32 @@ describe('getActiveSourceCells', function () {
     it('can end up empty when every cell is disabled', function () {
         setConfigValue(db, sourceEnabledKey('npm-audit', 'npm'), false)
         expect(getActiveSourceCells(db)).toEqual([])
+    })
+})
+
+// The counterpart to getActiveSourceCells, and the distinction is load-bearing: "visible" keeps a
+// withdrawn ecosystem's findings readable, "runnable" is what the always-a-source-on invariant counts.
+// Conflating them lets a leftover preview cell stand in for coverage that cannot exist.
+describe('getRunnableSourceCells', function () {
+    it('agrees with getActiveSourceCells while every enabled cell is stable', function () {
+        setConfigValue(db, sourceEnabledKey('osv', 'npm'), true)
+        expect(getRunnableSourceCells(db)).toEqual(getActiveSourceCells(db))
+    })
+
+    it('drops a preview-ecosystem cell that the visibility set deliberately keeps', function () {
+        setConfigValue(db, sourceEnabledKey('osv', 'PyPI'), true)
+        expect(getActiveSourceCells(db)).toContainEqual({ source: 'osv', ecosystem: 'PyPI' })
+        expect(getRunnableSourceCells(db)).not.toContainEqual({ source: 'osv', ecosystem: 'PyPI' })
+    })
+
+    // The whole point. An operator upgrading from a build that offered Python keeps that config key;
+    // if it counted as remaining coverage, the invariant would wave through disabling the last cell
+    // that can actually scan.
+    it('is empty when only preview cells remain, so the invariant still bites', function () {
+        setConfigValue(db, sourceEnabledKey('osv', 'PyPI'), true)
+        setConfigValue(db, sourceEnabledKey('npm-audit', 'npm'), false)
+        expect(getActiveSourceCells(db)).not.toEqual([])
+        expect(getRunnableSourceCells(db)).toEqual([])
     })
 })
 

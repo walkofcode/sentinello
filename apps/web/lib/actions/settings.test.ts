@@ -824,6 +824,21 @@ describe('updateSourceCellAction', function () {
         expect(signalKinds()).toEqual([])
     })
 
+    // Withdrawing Python/Go/Rust to preview left a way through the invariant. An operator who had
+    // enabled osv for Python under an earlier build still carries that config key; the cell can never
+    // run again, but it stays in the VISIBILITY set so its old findings remain readable. Counting that
+    // set here let them switch off the last npm cell, be told it saved, and be left unable to scan
+    // anything — the invariant reporting success while producing the state it exists to forbid.
+    it('does not let a withdrawn ecosystem stand in for the last runnable cell', async function () {
+        await updateSourceCellAction({ source: 'osv', ecosystem: 'PyPI', enabled: true })
+
+        expect(
+            await rejection(updateSourceCellAction({ source: 'npm-audit', ecosystem: 'npm', enabled: false }))
+        ).toContain('At least one vulnerability source must stay enabled')
+
+        expect(getConfigValue(handle.db, sourceEnabledKey('npm-audit', 'npm'))).toBeNull()
+    })
+
     it('rejects an ecosystem outside the registry', async function () {
         await expect(
             updateSourceCellAction({ source: 'osv', ecosystem: 'CocoaPods', enabled: true })
