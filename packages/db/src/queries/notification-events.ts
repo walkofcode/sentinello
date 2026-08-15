@@ -36,7 +36,8 @@ export type UpsertResult = {
 }
 
 // On new key: INSERT with first_seen_at = at, first_notified_at = null.
-// On existing key: UPDATE last_seen_at = at (other fields untouched).
+// On existing key: UPDATE last_seen_at = at AND severity (see upsertByIdentityKey for why severity
+// specifically must be refreshed).
 export function upsertFindingEvent(db: DrizzleDb, input: UpsertFindingEventInput): UpsertResult {
     const identityKey = findingIdentityKey({
         projectId: input.projectId,
@@ -123,8 +124,18 @@ function upsertByIdentityKey(db: DrizzleDb, input: UpsertInternalInput): UpsertR
         .where(eq(notificationEvents.identityKey, input.identityKey))
         .get()
     if (existing) {
+        // `severity` is refreshed, not left at whatever the first sighting wrote. It is not a
+        // descriptive field: selectDispatchablePairs applies the target's severity_filter against THIS
+        // column, so a stale value decides whether an alert is sent at all. A finding re-graded between
+        // scans — most often by cross-source escalation to the worst grade any source gave it — was
+        // otherwise frozen at its first grade forever, because nothing else ever wrote this column
+        // again. On a real instance that left 135 events below the finding's actual severity, 41 of
+        // them recording a critical as low/high/moderate. A null severity (scan_failure events) is not
+        // written, so it can never overwrite a finding event's grade.
+        const values: { lastSeenAt: number; severity?: Severity } = { lastSeenAt: input.at }
+        if (input.severity !== null) values.severity = input.severity
         db.update(notificationEvents)
-            .set({ lastSeenAt: input.at })
+            .set(values)
             .where(eq(notificationEvents.id, existing.id))
             .run()
         return { eventId: existing.id, isNew: false }

@@ -101,6 +101,23 @@ export function maxSeverity(severities: string[]): Severity {
     return best
 }
 
+// The severity a corroborated finding is reported at: the worst grade any source gave it.
+//
+// Sources genuinely disagree — gemnasium computes from the CVSS vector while npm-audit takes GHSA's
+// bucket — and the cautious reading is the right one for a scanner: if any database considers a flaw
+// critical, treating it as critical is the error that costs least. This is deliberately NOT display-only.
+// It moves the finding between severity buckets everywhere: dashboard tiles, project totals, the CLI's
+// --fail-on gate and notification thresholds.
+//
+// It lives in core rather than beside either caller because BOTH the scanner (which escalates the
+// in-memory survivor) and the db writer (which persists the escalation) have to answer this identically,
+// and neither package may import the other. They each had their own copy, which is the arrangement that
+// lets two answers drift apart without anything failing to compile.
+export function escalatedSeverity(own: Severity, corroborations: FindingCorroboration[]): Severity {
+    if (corroborations.length === 0) return own
+    return maxSeverity([own, ...corroborations.map(function grade(c) { return c.severity })])
+}
+
 // 'unknown' represents a project that has package.json but no recognized lockfile.
 // The worker still records these so operators can see the coverage gap in the catalog;
 // the scanner returns status='unauditable' with reason='no lockfile' for them.

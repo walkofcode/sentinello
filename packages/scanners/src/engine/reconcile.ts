@@ -1,4 +1,4 @@
-import { DEFAULT_ECOSYSTEM, maxSeverity, type FindingCorroboration, type Severity } from '@sentinello/core'
+import { DEFAULT_ECOSYSTEM, escalatedSeverity, type FindingCorroboration, type Severity } from '@sentinello/core'
 import type { RawFinding } from '../types'
 
 // Canonical identity for a finding: the advisory id plus any cross-reference aliases (CVE/GHSA),
@@ -116,14 +116,8 @@ function firstReported(existing: Map<string, ReportedAdvisory>, keys: string[]):
     return null
 }
 
-// The severity a corroborated finding is reported at: the worst grade any source gave it.
-//
-// Sources genuinely disagree — gemnasium computes from the CVSS vector while npm-audit takes GHSA's
-// bucket — and the cautious reading is the right one for a scanner: if any database considers a flaw
-// critical, treating it as critical is the error that costs least. This is deliberately NOT display-only.
-// It moves the finding between severity buckets everywhere: dashboard tiles, project totals, the CLI's
-// --fail-on gate and notification thresholds. A cautious severity that does not gate CI is half a posture.
-export function escalatedSeverity(own: Severity, corroborations: FindingCorroboration[]): Severity {
-    if (corroborations.length === 0) return own
-    return maxSeverity([own, ...corroborations.map(function grade(c) { return c.severity })])
-}
+// Re-exported from @sentinello/core, where the ONE implementation lives. It used to be declared here and
+// again inside packages/db's applyFindingCorroborations — the scanner escalating its in-memory survivor
+// and the writer persisting that escalation, computing the same rule twice with nothing tying them
+// together. Keeping the name exported from here preserves every existing import site.
+export { escalatedSeverity }

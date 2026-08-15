@@ -695,7 +695,7 @@ describe('applyFindingCorroborations', function () {
     })
 
     it('does nothing when the scan touched no findings', function () {
-        expect(applyFindingCorroborations(db, [], new Map())).toBe(0)
+        expect(applyFindingCorroborations(db, [], new Map())).toEqual({ written: 0, severities: new Map() })
     })
 
     // Same posture as dep paths: provenance is worth losing rather than taking down every query that
