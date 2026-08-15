@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.2.1](https://github.com/walkofcode/sentinello/compare/v3.2.0...v3.2.1) (2026-08-15)
+
+
+### Bug Fixes
+
+* **feeds:** keep every advisory version bound exactly as stated ([4292629](https://github.com/walkofcode/sentinello/commit/42926293142dbd0670e9623df30fb152c4c6f5a6))
+
+
+### Documentation
+
+* **about:** stop claiming gemnasium ranges are recovered from other sources ([9e23cbc](https://github.com/walkofcode/sentinello/commit/9e23cbc55b2397cfec42789bdd0922f8f17d35ae))
+* **releases:** add the range-precision items to the 3.2.0 notes ([56b9bca](https://github.com/walkofcode/sentinello/commit/56b9bca27af01c5ad46ca671bb477e8d1f766615))
+* **releases:** move the range-precision notes to 3.2.1 ([5c8a1fe](https://github.com/walkofcode/sentinello/commit/5c8a1feebb25d0fd9c0896bf0133fef91750c4a3))
+
 ## [3.2.0](https://github.com/walkofcode/sentinello/compare/v3.1.1...v3.2.0) (2026-08-15)
 
 
