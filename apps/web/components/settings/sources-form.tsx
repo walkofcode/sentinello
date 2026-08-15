@@ -1,13 +1,11 @@
 'use client'
 
-import { useState, useTransition, type ReactNode } from 'react'
+import { useState, useTransition } from 'react'
 import { useTranslations } from 'next-intl'
-import { RefreshCw, ShieldAlert } from 'lucide-react'
-import type { EcosystemId, EcosystemLanguage, SourceId, SourceStatus } from '@sentinello/core'
-import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { RefreshCw } from 'lucide-react'
+import { ECOSYSTEMS, type EcosystemId, type EcosystemLanguage, type SourceId, type SourceStatus } from '@sentinello/core'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
-import { EcosystemBadge } from '@/components/findings/ecosystem-badge'
 import { formatRelativeTime } from '@/lib/format'
 import { refreshSourceAction, updateSourceCellAction } from '@/lib/actions/settings'
 
@@ -17,6 +15,9 @@ export type SourceCellVM = {
     displayName: string
     enabled: boolean
     cacheBacked: boolean
+    // The built-in source — on out of the box and not something an operator turns off. Its switch is
+    // locked once on; the server refuses the write regardless.
+    builtIn: boolean
     status: SourceStatus | null
 }
 
@@ -31,30 +32,18 @@ type Props = {
     rows: LanguageRowVM[]
 }
 
-// The source provenance badge (matches source-tags.tsx so Settings and the triage table read the same).
-function sourceBadge(source: SourceId): { variant: BadgeProps['variant']; label: string } {
-    if (source === 'osv') return { variant: 'osv', label: 'OSV' }
-    if (source === 'npm-audit') return { variant: 'npm', label: 'npm' }
-    if (source === 'gemnasium') return { variant: 'gemnasium', label: 'gemnasium' }
-    return { variant: 'muted', label: source }
-}
+// Read off the registry rather than named in the copy, so promoting an ecosystem retires the note
+// on its own instead of leaving a sentence that still calls a shipped language "in development".
+const PREVIEW_ECOSYSTEMS = ECOSYSTEMS.filter(function preview(eco) {
+    return eco.status === 'preview'
+})
 
-// Per-source help / provisioning copy keys. npm-audit runs live (no cache); OSV and gemnasium download an
-// advisory export per enabled ecosystem.
-function sourceHelpKey(source: SourceId): string {
-    if (source === 'npm-audit') return 'sources.npmAuditHelp'
-    if (source === 'osv') return 'sources.osvHelp'
-    return 'sources.gemnasiumHelp'
-}
-function sourceDisclosureKey(source: SourceId): string {
-    if (source === 'gemnasium') return 'sources.gemnasiumDownloadDisclosure'
-    return 'sources.downloadDisclosure'
-}
-
-// The Languages × Sources matrix: rows = languages (from the central ECOSYSTEMS registry), cells =
-// the sources that answer for that language. JavaScript ships npm-audit on (toggleable) plus optional
-// OSV/gemnasium; Python/Go/Rust default off, each with OSV as the default cell + optional gemnasium. The
-// "always a source on" invariant is enforced server-side on every toggle.
+// The controls only. What each source IS — what it adds, what it downloads, when it acts — lives in
+// SourceReferenceTable below this on the page: that copy is per-source, while these switches are
+// per (source, ecosystem) cell, so repeating it here restated the same paragraph once per language.
+//
+// One line per source. The ecosystem name is a heading ABOVE its panel, not a row inside it, and no
+// row carries a provenance badge: a pill reading "OSV" beside the words "OSV" is the same word twice.
 export function SourcesForm({ rows }: Props) {
     const t = useTranslations('Settings')
 
@@ -66,49 +55,53 @@ export function SourcesForm({ rows }: Props) {
             </div>
             {rows.map(function languageBlock(row) {
                 return (
-                    <div key={row.ecosystem} className="space-y-3 rounded-(--radius-card) border bg-card p-6">
-                        <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-semibold">{row.displayName}</h3>
-                            <EcosystemBadge ecosystem={row.ecosystem} />
-                        </div>
-                        <div className="space-y-3">
+                    <div key={row.ecosystem} className="space-y-2">
+                        <h3 className="text-sm font-semibold">{row.displayName}</h3>
+                        <div className="divide-y rounded-(--radius-card) border bg-card px-5">
                             {row.cells.map(function cell(c) {
-                                const badge = sourceBadge(c.source)
-                                return (
-                                    <SourceCell
-                                        key={c.source + ':' + c.ecosystem}
-                                        cell={c}
-                                        label={c.displayName}
-                                        help={t(sourceHelpKey(c.source))}
-                                        badge={<Badge variant={badge.variant}>{badge.label}</Badge>}
-                                        disclosure={c.cacheBacked ? t(sourceDisclosureKey(c.source)) : null}
-                                    />
-                                )
+                                return <SourceCell key={c.source + ':' + c.ecosystem} cell={c} label={c.displayName} />
                             })}
                         </div>
                     </div>
                 )
             })}
+            {PREVIEW_ECOSYSTEMS.length > 0 ? (
+                <p className="text-xs text-muted-foreground">
+                    {t('sources.previewNote', { names: PREVIEW_ECOSYSTEMS.map(ecosystemName).join(', ') })}
+                </p>
+            ) : null}
         </div>
     )
+}
+
+function ecosystemName(eco: { displayName: string }): string {
+    return eco.displayName
 }
 
 type SourceCellProps = {
     cell: SourceCellVM
     label: string
-    help: string
-    badge: ReactNode
-    disclosure: string | null
 }
 
-// One (source, ecosystem) cell: toggle + (for cache-backed sources) provisioning disclosure, sync status,
-// and refresh. The toggle writes the single cell key; the server action enforces the "always a source on"
-// invariant and rejects disabling the last active cell.
-function SourceCell({ cell, label, help, badge, disclosure }: SourceCellProps) {
+// One (source, ecosystem) cell on one row: name, whether it is the built-in, its sync state when it has
+// one, and the switch. The toggle writes the single cell key; the server action enforces the "always a
+// source on" invariant and rejects disabling the last runnable cell.
+//
+// This page does NOT use the shared <SaveStatus />, which every other settings form does. That component
+// reserves a line of height for one form with one save button; here there are N independent switches, so
+// it reserved N lines and pushed three rows over 500px. The same answers appear in the same place
+// instead — the word beside the switch you just moved, in a live region — and a rejected write still
+// interrupts through role="alert".
+//
+// The refresh signal is per SOURCE, not per cell (refreshSourceAction takes only the source id), so
+// once a second ecosystem ships this button will repeat across that source's rows and should be
+// hoisted to one control per source.
+function SourceCell({ cell, label }: SourceCellProps) {
     const t = useTranslations('Settings')
     const tc = useTranslations('Common')
     const tt = useTranslations('Time')
     const [enabled, setEnabled] = useState(cell.enabled)
+    const [saved, setSaved] = useState(false)
     const [pending, startTransition] = useTransition()
     const [refreshing, startRefresh] = useTransition()
     const [refreshRequested, setRefreshRequested] = useState(false)
@@ -117,6 +110,7 @@ function SourceCell({ cell, label, help, badge, disclosure }: SourceCellProps) {
 
     function toggle(next: boolean) {
         setError(null)
+        setSaved(false)
         // Optimistic flip; revert if the server rejects (e.g. the invariant blocks disabling the last cell).
         setEnabled(next)
         startTransition(async function persist() {
@@ -131,7 +125,9 @@ function SourceCell({ cell, label, help, badge, disclosure }: SourceCellProps) {
             if (!result.ok) {
                 setEnabled(!next)
                 setError(result.errorText)
+                return
             }
+            setSaved(true)
         })
     }
     function refresh() {
@@ -141,94 +137,93 @@ function SourceCell({ cell, label, help, badge, disclosure }: SourceCellProps) {
         })
     }
 
-    const freeGib = status && status.freeBytes !== null
-        ? (status.freeBytes / (1024 * 1024 * 1024)).toFixed(1)
-        : null
+    const seeded = status !== null && status.seedComplete
+    const failing = status !== null && status.lastError !== null
 
     return (
-        <div className="rounded-md border bg-background p-4">
-            <div className="flex items-start justify-between gap-4">
-                <div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{label}</span>
-                        {badge}
-                        {cell.cacheBacked ? (
-                            <Badge variant="muted">{t('sources.optional')}</Badge>
-                        ) : (
-                            <Badge variant="muted">{t('sources.defaultOn')}</Badge>
-                        )}
-                    </div>
-                    <p className="mt-1 text-xs text-muted-foreground">{help}</p>
+        <div className="py-3">
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="text-sm font-medium">{label}</span>
+
+                    {/* Sync state on the SAME line as the name and the switch. It used to be a bordered
+                        band of three stacked rows below them; every field it carried is still here. */}
+                    {cell.cacheBacked && enabled ? (
+                        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span aria-hidden className={'size-1.5 shrink-0 rounded-full ' + stateDotClass(seeded, failing)} />
+                            <span className="font-medium text-foreground">
+                                {seeded ? t('sources.seeded') : t('sources.seeding')}
+                            </span>
+                            {seeded ? (
+                                <>
+                                    <span aria-hidden>·</span>
+                                    <span>{t('sources.recordCount', { n: status.recordCount })}</span>
+                                </>
+                            ) : null}
+                            <span aria-hidden>·</span>
+                            <span>
+                                <span className="sr-only">{t('sources.lastRefreshed')}: </span>
+                                {formatRelativeTime(status?.refreshedAt ?? null, tt)}
+                            </span>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-6"
+                                onClick={refresh}
+                                disabled={refreshing}
+                                aria-label={t('sources.refreshNow')}
+                            >
+                                <RefreshCw className={'h-3.5 w-3.5' + (refreshing ? ' animate-spin' : '')} />
+                            </Button>
+                        </span>
+                    ) : null}
                 </div>
+
                 <div className="flex shrink-0 items-center gap-2.5 text-sm">
-                    <span className="text-muted-foreground">
-                        {enabled ? t('sources.enabled') : t('sources.disabled')}
+                    <span className="text-muted-foreground" aria-live="polite">
+                        {toggleLabel(pending, saved, enabled, tc, t)}
                     </span>
+                    {/* The built-in source cannot be switched off — it is what Sentinello scans with.
+                        Locked only once it is ON, so a cell an operator could never have turned off
+                        themselves is still recoverable from the UI rather than needing a DB write. */}
                     <Switch
                         checked={enabled}
-                        disabled={pending}
+                        disabled={pending || (cell.builtIn && enabled)}
                         onCheckedChange={toggle}
                         aria-label={label + ' · ' + cell.ecosystem}
                     />
                 </div>
             </div>
 
+            {/* Both of these are rare and transient, so they cost no height until they have something to
+                say. A sync failure is status, not a rejected write — no role="alert" on it, leaving the
+                invariant rejection as the only thing that interrupts a screen reader. */}
+            {status && status.lastError ? (
+                <p className="mt-1.5 text-xs text-[color:var(--color-sev-high)]">
+                    {t('sources.lastError')}: {status.lastError}
+                </p>
+            ) : null}
+            {refreshRequested ? (
+                <p className="mt-1.5 text-xs text-muted-foreground">{t('sources.refreshQueued')}</p>
+            ) : null}
             {error ? (
-                <p role="alert" className="mt-2 text-xs text-[color:var(--color-sev-high)]">{error}</p>
+                <p role="alert" className="mt-1.5 text-xs text-[color:var(--color-sev-high)]">{error}</p>
             ) : null}
-
-            {/* Provisioning disclosure — cache-backed sources only, when off OR not yet seeded. */}
-            {disclosure && (!enabled || !status || !status.seedComplete) ? (
-                <div className="mt-3 flex items-start gap-2 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
-                    <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span>
-                        {disclosure}
-                        {freeGib !== null ? ' ' + t('sources.freeSpace', { gib: freeGib }) : ''}
-                    </span>
-                </div>
-            ) : null}
-
-            {/* Sync status — cache-backed sources only, once enabled. */}
-            {cell.cacheBacked && enabled ? (
-                <div className="mt-3 space-y-2 border-t pt-3">
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                        <span className="text-muted-foreground">
-                            {t('sources.syncStatus')}:{' '}
-                            {status && status.seedComplete ? (
-                                <span className="font-medium text-foreground">{t('sources.seeded')}</span>
-                            ) : (
-                                <span className="font-medium text-foreground">{t('sources.seeding')}</span>
-                            )}
-                        </span>
-                        {status && status.seedComplete ? (
-                            <span className="text-muted-foreground">
-                                {t('sources.recordCount', { n: status.recordCount })}
-                            </span>
-                        ) : null}
-                        <span className="text-muted-foreground">
-                            {t('sources.lastRefreshed')}: {formatRelativeTime(status?.refreshedAt ?? null, tt)}
-                        </span>
-                    </div>
-                    {status && status.lastError ? (
-                        <p className="text-xs text-[color:var(--color-sev-high)]">
-                            {t('sources.lastError')}: {status.lastError}
-                        </p>
-                    ) : null}
-                    <div className="flex items-center gap-3 pt-1">
-                        <Button type="button" variant="outline" size="sm" onClick={refresh} disabled={refreshing}>
-                            <RefreshCw className="h-4 w-4" />
-                            {refreshing ? tc('saving') : t('sources.refreshNow')}
-                        </Button>
-                        {refreshRequested ? (
-                            <span className="text-xs text-muted-foreground">{t('sources.refreshQueued')}</span>
-                        ) : null}
-                    </div>
-                </div>
-            ) : null}
-
-            <div className="h-4 text-xs text-muted-foreground" aria-live="polite">
-                {pending ? tc('saving') : ''}
-            </div>
         </div>
     )
+}
+
+type Translate = (key: string) => string
+
+function toggleLabel(pending: boolean, saved: boolean, enabled: boolean, tc: Translate, t: Translate): string {
+    if (pending) return tc('saving')
+    if (saved) return tc('saved')
+    return enabled ? t('sources.enabled') : t('sources.disabled')
+}
+
+function stateDotClass(seeded: boolean, failing: boolean): string {
+    if (failing) return 'bg-[color:var(--color-sev-high)]'
+    if (seeded) return 'bg-success'
+    return 'bg-warning'
 }

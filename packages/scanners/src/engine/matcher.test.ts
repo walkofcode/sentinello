@@ -33,6 +33,26 @@ function advisory(id: string, overrides: Partial<CanonicalAdvisory> = {}): Canon
     }
 }
 
+// A withdrawn advisory is a retracted claim. The check lives in the matcher rather than in each source's
+// lookup query, because the CLI reads its rows from a file and has no query to put it in — so the portal
+// dropped them and the CLI reported them.
+describe('matchAdvisories — withdrawn', function () {
+    it('matches nothing for a withdrawn advisory', function () {
+        const withdrawn = advisory('GHSA-1', {
+            withdrawn: 1_700_000_000_000,
+            affected: { ranges: [range('0', '4.17.21')], exactVersions: [] }
+        })
+        const byPackage = new Map([['lodash', [withdrawn]]])
+        expect(matchAdvisories([pkg('lodash', '4.17.11')], byPackage, semverComparator)).toEqual([])
+    })
+
+    it('still matches the same advisory once it is not withdrawn', function () {
+        const live = advisory('GHSA-1', { affected: { ranges: [range('0', '4.17.21')], exactVersions: [] } })
+        const byPackage = new Map([['lodash', [live]]])
+        expect(matchAdvisories([pkg('lodash', '4.17.11')], byPackage, semverComparator)).toHaveLength(1)
+    })
+})
+
 function range(introduced: string, fixed: string | null, overrides: Partial<VersionRange> = {}): VersionRange {
     return { type: 'SEMVER', introduced, fixed, ...overrides }
 }

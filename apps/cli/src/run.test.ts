@@ -57,6 +57,10 @@ vi.mock('@sentinello/scanners', async function mockScanners(importOriginal) {
 
 const { main, resolveDestination, enabledSources } = await import('./run')
 
+// A feed that yields nothing, for the paths where a seed is declined or skipped and the stream must
+// still be a valid async iterable.
+async function* zeroBatches() {}
+
 const EXIT_OK = 0
 const EXIT_ERROR = 1
 const EXIT_THRESHOLD = 2
@@ -277,7 +281,6 @@ describe('scanning', function () {
     // and reporting a false all-clear.
     it('exits clean without scanning when the seed is declined', async function () {
         await makeProject('web')
-        const zeroBatches = async function* stream() {}
         feeds.streamOsvSeed.mockImplementation(zeroBatches)
         feeds.streamGemnasiumArchive.mockImplementation(zeroBatches)
         setTty(process.stdout, false)

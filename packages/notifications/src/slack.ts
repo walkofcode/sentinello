@@ -10,9 +10,9 @@ const REQUEST_TIMEOUT_MS = 10_000
 // renders natively (basic *bold* and bullet points). We do NOT use Slack Block Kit in v1 — keeping the
 // payload portable across other webhook compatibilities is more valuable than richer formatting.
 
-export const sendSlack: NotificationSender = async function sendSlack(target, message) {
-    return doSendSlack(target, message)
-}
+// The annotation is the point: it is what checks doSendSlack against the NotificationSender contract.
+// It used to wrap the call in a second function expression, which added a stack frame and bought nothing.
+export const sendSlack: NotificationSender = doSendSlack
 
 async function doSendSlack(target: NotificationTarget, message: RenderedMessage): Promise<SendResult> {
     const config = target.config as SlackTargetConfig

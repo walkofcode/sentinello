@@ -89,6 +89,33 @@ describe('versionInRange — zero lower bound', function () {
         const r = range({ introduced, fixed: '2.0.0' })
         expect(versionInRange('1.0.0', r, semverComparator)).toBe(true)
     })
+
+    // A prerelease of 0.0.0 sorts BELOW the release 0.0.0, so normalizing the bound to `0.0.0` and asking
+    // `gte` excluded it. Go modules without a tagged release are all pinned to exactly this shape, which
+    // made them match no advisory at all — the scan reported ok with zero findings.
+    it.each([
+        ['v0.0.0-20180523222229-09b5706aa936', 'a Go pseudo-version'],
+        ['0.0.0-alpha.1', 'a Rust pre-1.0 alpha'],
+        ['0.0.0-experimental-cb5084d1c', 'an npm experimental build']
+    ])('matches %s (%s) against a range starting at zero', function (installed) {
+        expect(versionInRange(installed, range({ introduced: '0', fixed: '2.0.0' }), semverComparator)).toBe(true)
+        expect(versionInRange(installed, range({ introduced: '0', fixed: null }), semverComparator)).toBe(true)
+    })
+
+    // The Go case the advisories themselves state: "everything up to this commit". Both bounds are 0.0.0
+    // prereleases, so the interval is real and ordering between them decides it.
+    it('bounds one Go pseudo-version against another', function () {
+        const r = range({ introduced: '0', fixed: '0.0.0-20180523222229-09b5706aa936' })
+        expect(versionInRange('v0.0.0-20180101000000-aaaaaaaaaaaa', r, semverComparator)).toBe(true)
+        expect(versionInRange('v0.0.0-20190101000000-bbbbbbbbbbbb', r, semverComparator)).toBe(false)
+    })
+
+    // `>0` names a boundary the advisory deliberately excluded, so it is still compared, not waved through.
+    it('still applies an exclusive zero lower bound', function () {
+        const r = range({ introduced: '0.0.0', introducedExclusive: true, fixed: '2.0.0' })
+        expect(versionInRange('0.0.0', r, semverComparator)).toBe(false)
+        expect(versionInRange('1.0.0', r, semverComparator)).toBe(true)
+    })
 })
 
 // The same bound rules, driven by a comparator with entirely different version semantics — which is the

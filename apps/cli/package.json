@@ -41,7 +41,6 @@
     },
     "scripts": {
         "build": "tsup",
-        "dev": "tsx src/cli.ts",
         "lint": "eslint . --max-warnings 0",
         "typecheck": "tsc -p tsconfig.json --noEmit"
     },

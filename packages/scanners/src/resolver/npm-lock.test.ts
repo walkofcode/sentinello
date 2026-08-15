@@ -180,10 +180,19 @@ describe('parseNpmLock scope classification', function () {
         }
     )
 
-    it('forces a direct dev dependency to dev', async function () {
+    it('marks a direct dev dependency dev', async function () {
+        await writeManifest({ devDependencies: { a: '^1.0.0' } })
+        const graph = await parseNpmLock(dir, await writeLock({ packages: { 'node_modules/a': { version: '1.0.0', dev: true } } }))
+        expect(graph?.packages[0]?.scope).toMatchObject({ isProd: false, isDev: true })
+    })
+
+    // npm omits `dev` exactly when it has proved the node is reachable from production. A direct dev
+    // dependency that a prod dependency ALSO pulls in is reachable from both, and the manifest must not
+    // overrule the lockfile into hiding it from the prod view.
+    it('keeps prod when the lockfile says the node is prod-reachable', async function () {
         await writeManifest({ devDependencies: { a: '^1.0.0' } })
         const graph = await parseNpmLock(dir, await writeLock({ packages: { 'node_modules/a': { version: '1.0.0' } } }))
-        expect(graph?.packages[0]?.scope).toMatchObject({ isProd: false, isDev: true })
+        expect(graph?.packages[0]?.scope).toMatchObject({ isProd: true, isDev: true })
     })
 
     // Listed in both — prod wins, because shipping it is the riskier reading.

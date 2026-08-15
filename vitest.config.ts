@@ -171,9 +171,9 @@ export default defineConfig({
             //        by `remaining > 1` second, so the argument is always over 1000);
             //        npm-audit.ts:296 and :375; runtime.ts:42; scan-request-poller.ts:53.
             //        Wave 10 added five more, all confirmed rather than assumed:
-            //        notifier.ts:130 (dispatchGroup's `if (!project) return` — its ONE call site
+            //        notifier.ts:132 (dispatchGroup's `if (!project) return` — its ONE call site
             //        passes the project notifyForCompletedScan already null-checked at :52);
-            //        notifier.ts:288 (webhookRoot(null) — projects.root_id is a RESTRICT foreign key
+            //        notifier.ts:332 (webhookRoot(null) — projects.root_id is a RESTRICT foreign key
             //        and the client sets `foreign_keys = ON`, so a project whose root row is missing
             //        cannot exist); mcp/tools/actions.ts:165 and :166 (`advisoryId || null` inside
             //        the non-project branch, which the `scope === 'finding'` guard above already
@@ -240,6 +240,18 @@ export default defineConfig({
             //        preview and foldPreLetter maps every one of those onto a PRE_RANK key). Also
             //        discovery.ts:284, and — already noted under apps/web/lib/mcp/auth.ts's floor
             //        below — `match[1] ?? ''` on a regex that fills group 1 whenever it matches at all.
+            //
+            //     h. An arm a REGISTRY CONSTANT currently forecloses, which a one-line edit restores.
+            //        Distinct from (c) because nothing about the call site is wrong and nothing should be
+            //        deleted: the code is correct, general, and will be reached again the moment the
+            //        constant changes. scanners/discovery.ts:234-237, detectEcosystems' non-npm arm —
+            //        it iterates STABLE_ECOSYSTEMS, npm `continue`s at :232, and npm is the only entry
+            //        while PyPI/Go/crates.io sit at status 'preview' in core/src/ecosystems.ts. Promote
+            //        one and the arm is live again with no change here beyond raising this file's floors
+            //        back. THIS SHAPE IS A TRAP: an entry here ages badly, because it is unreachable for
+            //        a reason that is expected to stop being true. Anything filed under (h) must name the
+            //        constant AND the value that revives it, so the next reader can check in one grep
+            //        rather than re-deriving it.
             //
             //  2. Genuinely reachable arms that cost more setup than they have been worth so far.
             //     Believed empty. That sentence has now been wrong three times running (see the
@@ -518,7 +530,15 @@ export default defineConfig({
                 // Walks read-only mounts it does not control, so its unreadable-path handling is not
                 // padding: one bad permission must not abort the scan of every other project under the
                 // same root.
-                'packages/scanners/src/discovery.ts': { statements: 98, branches: 97, functions: 99, lines: 99 },
+                //
+                // 98/97/99 → 95/94/95 is NOT a relaxation of what is tested; no test was removed and no
+                // behaviour went uncovered. detectEcosystems now iterates STABLE_ECOSYSTEMS, and with
+                // PyPI/Go/crates.io at status 'preview' that list holds npm alone — whose arm `continue`s
+                // before the resolver-kinds loop at :234-237, leaving a correct, general block that
+                // nothing can reach. It is inventoried as shape (h) above. RAISE THESE BACK in the same
+                // commit that promotes any ecosystem to 'stable': the arm goes live again, and leaving
+                // the floors low would let a real regression in it pass unnoticed.
+                'packages/scanners/src/discovery.ts': { statements: 95, branches: 94, functions: 99, lines: 95 },
                 // The DOM-dependent hook, and the only place in the repo that needs jsdom. Total floors
                 // because it went from zero to 100% in one pass and there is no reason for it to slip:
                 // its flip-above and clamp-to-viewport branches are what stop a panel opening

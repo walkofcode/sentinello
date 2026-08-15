@@ -27,6 +27,12 @@ export type OsvAdvisory = {
     summary: string | null
     url: string | null
     malicious: boolean
+    // Epoch ms of OSV's `withdrawn` timestamp, or null. Carried on the shape rather than left to each
+    // lookup's own query: the portal dropped withdrawn rows in SQL and this field did not exist, so the
+    // CLI — which reads the same normalized rows out of a gzipped ndjson file with no WHERE clause to put
+    // it in — was structurally incapable of honouring it and reported retracted advisories as live
+    // findings. 585 of the rows in a real npm cache carry one.
+    withdrawn: number | null
 }
 
 // Injected by the worker: given an ecosystem (the canonical OSV id, e.g. 'npm' | 'PyPI' | 'Go' |
@@ -135,7 +141,7 @@ function toCanonicalAdvisory(packageName: string, ecosystem: string, advisory: O
         severity: advisory.severity,
         summary: advisory.summary,
         url: advisory.url,
-        withdrawn: null
+        withdrawn: advisory.withdrawn
     }
 }
 

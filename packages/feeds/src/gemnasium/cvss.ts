@@ -1,3 +1,5 @@
+import type { Severity } from '@sentinello/core'
+
 // gemnasium advisories ship CVSS *vectors* (cvss_v3 / cvss_v2), not the bucketed severity that OSV/GHSA
 // records carry. To produce the same severity vocabulary the matcher consumes (critical/high/moderate/
 // low), we compute the CVSS base score from the vector and bucket it per the CVSS spec. v3 is preferred
@@ -20,7 +22,13 @@ const V2_AU: Record<string, number> = { M: 0.45, S: 0.56, N: 0.704 }
 const V2_CIA: Record<string, number> = { N: 0, P: 0.275, C: 0.66 }
 
 // Lower-case severity bucket the matcher's mapSeverity() accepts directly.
-export function severityFromCvss(cvssV3: string | null, cvssV2: string | null): string | null {
+//
+// Typed as Severity, not string. It used to be string, which let bucketV3 return a sixth label ('none',
+// for a 0.0 score) that is not in the union and that TypeScript therefore never questioned. Nothing
+// downstream knows that word: mapSeverity reads it as 'info' while core's severityWeight would score it
+// as unknown and weigh it 'moderate', so the same advisory ranked differently depending on which of the
+// two happened to look at it. The union is the contract; keeping it in the signature is what enforces it.
+export function severityFromCvss(cvssV3: string | null, cvssV2: string | null): Severity | null {
     const v3 = parseVector(cvssV3)
     if (v3) {
         const score = baseScoreV3(v3)
@@ -82,8 +90,11 @@ function roundUpV3(value: number): number {
     return (Math.floor(intInput / 10000) + 1) / 10
 }
 
-function bucketV3(score: number): string {
-    if (score === 0) return 'none'
+// The CVSS v3 qualitative scale calls a 0.0 score "None". Sentinello has no such grade, and the nearest
+// true statement is 'info' — a record with no measurable impact. Emitting the spec's word instead put a
+// value outside the Severity union into the pipeline.
+function bucketV3(score: number): Severity {
+    if (score === 0) return 'info'
     if (score < 4.0) return 'low'
     if (score < 7.0) return 'moderate'
     if (score < 9.0) return 'high'
@@ -106,8 +117,10 @@ function baseScoreV2(m: Record<string, string>): number | null {
     return Math.round(base * 10) / 10
 }
 
-// CVSS v2 has no "critical" band; its qualitative map tops out at High.
-function bucketV2(score: number): string {
+// CVSS v2 has no "critical" band; its qualitative map tops out at High. An advisory carrying only a v2
+// vector therefore cannot be graded critical from the vector alone — when another source also reports
+// it, corroboration keeps the worst grade any of them gave, which is where that ceiling gets lifted.
+function bucketV2(score: number): Severity {
     if (score < 4.0) return 'low'
     if (score < 7.0) return 'moderate'
     return 'high'

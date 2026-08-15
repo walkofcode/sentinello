@@ -6,9 +6,9 @@ import type { NotificationSender, RenderedMessage, SendResult, WebhookPayloadCon
 
 const REQUEST_TIMEOUT_MS = 10_000
 
-export const sendWebhook: NotificationSender = async function sendWebhook(target, message) {
-    return doSendWebhook(target, message)
-}
+// The annotation is what checks doSendWebhook against the NotificationSender contract; the wrapper
+// this replaces added a stack frame and nothing else.
+export const sendWebhook: NotificationSender = doSendWebhook
 
 async function doSendWebhook(target: NotificationTarget, message: RenderedMessage): Promise<SendResult> {
     const config = target.config as WebhookTargetConfig

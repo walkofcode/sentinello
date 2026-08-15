@@ -28,9 +28,12 @@ describe('severityFromCvss — CVSS v3.1 base vectors', function () {
         expect(severityFromCvss('CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:L', null)).toBe('low')
     })
 
-    // Zero impact short-circuits before the exploitability term is added.
-    it('scores a no-impact vector as none (0.0)', function () {
-        expect(severityFromCvss('CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N', null)).toBe('none')
+    // Zero impact short-circuits before the exploitability term is added. The CVSS spec calls that band
+    // "None"; Sentinello has no such grade, so it lands on 'info'. Returning the spec's own word put a
+    // sixth label into a five-value union, where mapSeverity read it as 'info' and core's severityWeight
+    // read it as unknown-and-therefore-moderate — the same advisory, two grades.
+    it('scores a no-impact vector as info (0.0), not a grade outside the union', function () {
+        expect(severityFromCvss('CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N', null)).toBe('info')
     })
 
     // CVSS "Roundup" rounds up to one decimal, so almost every real score arrives needing the bump.

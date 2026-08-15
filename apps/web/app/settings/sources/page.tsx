@@ -3,13 +3,14 @@ import { getTranslations } from 'next-intl/server'
 import { getConfigValue, getSourceEnabled } from '@sentinello/db'
 import {
     DEFAULT_ECOSYSTEM,
-    ECOSYSTEMS,
+    STABLE_ECOSYSTEMS,
     LEGACY_SOURCE_CONFIG_KEYS,
     SOURCES,
     sourceStatusKey,
     sourceSupportsEcosystem,
     type SourceStatus
 } from '@sentinello/core'
+import { SourceReferenceTable } from '@/components/settings/source-reference-table'
 import { SourcesForm, type SourceCellVM, type LanguageRowVM } from '@/components/settings/sources-form'
 import { getDb } from '@/lib/db'
 
@@ -24,7 +25,7 @@ export default async function SourcesSettingsPage() {
     // never drift on ecosystem/source identity. Each cell carries its persisted enabled flag (read through
     // getSourceEnabled, which applies the per-cell key, legacy-key fallback, and per-source default) and,
     // for cache-backed sources, the worker's last sync-status snapshot.
-    const rows: LanguageRowVM[] = ECOSYSTEMS.map(function toRow(eco) {
+    const rows: LanguageRowVM[] = STABLE_ECOSYSTEMS.map(function toRow(eco) {
         const cells: SourceCellVM[] = SOURCES.filter(function supports(source) {
             return sourceSupportsEcosystem(source.id, eco.id)
         }).map(function toCell(source): SourceCellVM {
@@ -45,6 +46,9 @@ export default async function SourcesSettingsPage() {
                 displayName: source.displayName,
                 enabled: getSourceEnabled(db, source.id, eco.id),
                 cacheBacked: source.cacheBacked,
+                // `defaultEnabled` IS the definition of the built-in source: the one that is on out of
+                // the box, which is exactly the one an operator must not be able to switch off.
+                builtIn: source.defaultEnabled,
                 status
             }
         })
@@ -55,5 +59,10 @@ export default async function SourcesSettingsPage() {
             cells
         }
     })
-    return <SourcesForm rows={rows} />
+    return (
+        <div className="space-y-6">
+            <SourcesForm rows={rows} />
+            <SourceReferenceTable />
+        </div>
+    )
 }

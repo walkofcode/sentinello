@@ -267,26 +267,40 @@ async function refreshOsv(options: SyncOptions, meta: CacheMeta, item: SyncPlanI
         touch(meta, 'osv', item.ecosystem, changed.etag)
         return { source: 'osv', ecosystem: item.ecosystem, status: 'unchanged', rowCount: state?.recordCount ?? 0, message: null }
     }
+    // Only the advisories we actually re-read are replaced. Dropping the whole changed set while appending
+    // just the successful subset deleted every id that timed out or was cut short by an abort — and the
+    // cursor then moved past them, so no later refresh reconsidered them. Each flaky run monotonically
+    // eroded the user's cache while reporting the sync as successful.
     const append: OsvAdvisoryRow[] = []
+    const replaced = new Set<string>()
+    let skipped = 0
     for (const id of changed.ids) {
-        if (options.abortSignal && options.abortSignal.aborted) break
+        if (options.abortSignal && options.abortSignal.aborted) {
+            skipped += 1
+            break
+        }
         try {
             const rows = await fetchOsvAdvisoryRows(id, item.ecosystem, fetchOptionsFor(options, item))
             for (const row of rows) append.push(row)
+            replaced.add(id)
         } catch {
-            // One advisory failing must not abort the pass. Its rows are dropped below and simply absent
-            // until the next refresh re-reads it, since the cursor only advances on a completed pass.
+            // One advisory failing must not abort the pass; its existing rows stay put until it is re-read.
+            skipped += 1
             continue
         }
     }
     const path = advisoryFilePath(options.cacheDir, 'osv', item.ecosystem)
-    const rowCount = await rewriteRows(path, { dropAdvisoryIds: new Set(changed.ids), append })
+    const rowCount = await rewriteRows(path, { dropAdvisoryIds: replaced, append })
+    // The cursor advances only on a complete pass, and the ETag is cleared when it does not — holding the
+    // cursor alone would let the next refresh answer "unchanged" from the ETag and never retry.
+    const complete = skipped === 0
+    const previousCursor = state?.cursorIso ?? null
     setSourceState(meta, 'osv', item.ecosystem, {
         normalizerVersion: OSV_NORMALIZER_VERSION,
         recordCount: rowCount,
         refreshedAt: Date.now(),
-        cursorIso: changed.newestIso ?? state?.cursorIso ?? null,
-        etag: changed.etag
+        cursorIso: complete ? (changed.newestIso ?? previousCursor) : previousCursor,
+        etag: complete ? changed.etag : null
     })
     return {
         source: 'osv',

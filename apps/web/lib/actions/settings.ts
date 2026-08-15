@@ -12,7 +12,7 @@ import {
     deleteNotificationTarget,
     deleteRoot,
     enqueueWorkerSignal,
-    getActiveSourceCells,
+    getRunnableSourceCells,
     getNotificationTargetById,
     getRootById,
     getRootByPath,
@@ -36,7 +36,7 @@ import type {
     NotificationTargetKind,
     Severity
 } from '@sentinello/core'
-import { getEcosystem, sourceEnabledKey, sourceSupportsEcosystem, type EcosystemId, type SourceId } from '@sentinello/core'
+import { getEcosystem, getSource, sourceEnabledKey, sourceSupportsEcosystem, type EcosystemId, type SourceId } from '@sentinello/core'
 import { senderFor } from '@sentinello/notifications'
 import { getDb } from '@/lib/db'
 import { run, UserFacingError, type ActionResult } from '@/lib/actions/action-result'
@@ -431,11 +431,27 @@ export async function updateSourceCellAction(input: { source: string; ecosystem:
             throw new Error('Source ' + parsed.source + ' does not answer for ecosystem ' + parsed.ecosystem)
         }
         const db = getDb()
-        // Enforce the invariant before writing: disabling the last active cell is rejected. getActiveSourceCells
-        // reflects the persisted state with per-cell defaults + legacy fallbacks, so the count is accurate even
-        // for cells that have never been written.
+        // The built-in source is not something an operator turns off — it is what Sentinello scans with,
+        // it needs no provisioning, and every other source is additive to it. Enforced here and not only
+        // by the disabled switch, because the switch is a hint and this is the rule.
+        //
+        // `defaultEnabled` is the definition rather than a hardcoded 'npm-audit': whichever source ships
+        // on out of the box is the one this protects.
         if (!parsed.enabled) {
-            const remaining = getActiveSourceCells(db).filter(function notThisCell(cell) {
+            const def = getSource(source)
+            if (def && def.defaultEnabled) {
+                throw new UserFacingError(def.displayName + ' is the built-in source and cannot be turned off.')
+            }
+        }
+        // Enforce the invariant before writing: disabling the last active cell is rejected. It reflects the
+        // persisted state with per-cell defaults + legacy fallbacks, so the count is accurate even for cells
+        // that have never been written.
+        //
+        // getRunnableSourceCells, NOT getActiveSourceCells: the latter deliberately keeps preview-ecosystem
+        // cells so their historical findings stay visible, and a leftover sources.osv.PyPI.enabled=true would
+        // otherwise satisfy "a source is still on" while being unable to scan anything.
+        if (!parsed.enabled) {
+            const remaining = getRunnableSourceCells(db).filter(function notThisCell(cell) {
                 return !(cell.source === source && cell.ecosystem === ecosystem)
             })
             if (remaining.length === 0) {

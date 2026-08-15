@@ -1,7 +1,7 @@
 {
     "Meta": {
         "title": "Sentinello — ポートフォリオ全体のための早期警告型CVE監視",
-        "description": "セルフホスト型・オープンソースの、複数言語にまたがる依存関係脆弱性監視。標準で JavaScript、オプションで Python・Go・Rust に対応。リポジトリを指定するだけで、すべてのプロジェクトにまたがる既知のCVEを1つのトリアージキューにまとめます。",
+        "description": "セルフホスト型・オープンソースの、Node.js プロジェクト向け依存関係脆弱性監視。リポジトリを指定するだけで、すべてのプロジェクトにまたがる既知の CVE を 1 つのトリアージキューにまとめます。",
         "tagline": "ポートフォリオ全体のためのCVE早期警告",
         "tabTitle": "Sentinello — 多言語対応の CVE 監視"
     },
@@ -38,7 +38,7 @@
     },
     "Hero": {
         "title": "見守るのをやめた依存関係のための、早期警告システム。",
-        "subtitle": "AIの時代、あなたは維持できる以上のプロジェクトをリリースしています。Sentinelloはそのすべてを見守り、依存関係に潜む既知のCVEを浮かび上がらせます — 標準で JavaScript、Python・Go・Rust も切り替えひとつで。忘れられたプロジェクトがインシデントになる前に。",
+        "subtitle": "AI の時代、あなたは維持できる以上のプロジェクトをリリースしています。Sentinello はそのすべてを見守り、Node.js 依存関係に潜む既知の CVE を浮かび上がらせます。忘れられたプロジェクトがインシデントになる前に。",
         "commandCaption": "コマンド1つで実行:",
         "ctaPrimary": "クイックスタートを読む",
         "ctaSecondary": "GitHubでスターを付ける",
@@ -89,14 +89,12 @@
         "queueBody": "十数個のチェックアウトに散らばった npm audit ではなく、ポートフォリオ全体のCVEを1か所で確認・トリアージできます。",
         "browseTitle": "プロジェクト別・ライブラリ別に見る",
         "browseBody": "任意のリポジトリを開いて、検出結果、修正バージョン、履歴を掘り下げる — あるいは脆弱なパッケージに切り替えて、影響を受けるすべてのプロジェクトを確認し、一度にすべてをミュートできます。",
-        "polyglotTitle": "多言語スキャン",
-        "polyglotBody": "標準で JavaScript をスキャンし、言語ごとの切り替えで Python・Go・Rust を追加できます — 各プロジェクトのロックファイルをオフラインで解析し、OSV と GitLab gemnasium のアドバイザリと照合します。",
         "exportTitle": "アドバイザリのエクスポート",
         "exportBody": "プロジェクトまたはライブラリの検出結果を Markdown でエクスポート。チームや LLM 向けにカスタマイズ可能な修復プロンプト付き。",
         "scanningTitle": "継続的なスキャン",
         "scanningBody": "バックグラウンドのワーカーがスケジュールに沿って再スキャンするので、確認を覚えていなくても新しいアドバイザリが表示されます。",
         "sourcesTitle": "複数のソース",
-        "sourcesBody": "npm audit を超えて、OSV データベースと照合し、より広い CVE カバレッジと既知の悪意あるパッケージの検出を実現します。",
+        "sourcesBody": "npm audit を超えて、OSV と GitLab gemnasium の両方と照合し、より広い CVE カバレッジと既知の悪意あるパッケージの検出を実現します。",
         "notificationsTitle": "通知とWebhook",
         "notificationsBody": "失敗や検出のアラートを、Slack、Telegram、またはシンプルなWebhookで受け取れます — ルートまたはプロジェクト単位でスコープ指定でき、言語も選べます。自動修正エージェント向けに JSON またはプレーンテキストのペイロードを送信します。",
         "selfContainedTitle": "1つのイメージ、1つのファイル",
@@ -108,7 +106,9 @@
         "languagesTitle": "10言語",
         "languagesBody": "ポータルのUI、スキャンの理由コード、ステータスは10言語にローカライズされています。",
         "mcpTitle": "MCP サーバー",
-        "mcpBody": "Claude Desktop や Cursor などの MCP クライアントを接続し、チャットを離れずに検出結果・プロジェクト・ライブラリを照会し、スキャンを実行できます。"
+        "mcpBody": "Claude Desktop や Cursor などの MCP クライアントを接続し、チャットを離れずに検出結果・プロジェクト・ライブラリを照会し、スキャンを実行できます。",
+        "corroborationTitle": "一致した検出結果",
+        "corroborationBody": "複数のソースが同じ脆弱性を報告しても、検出結果は 1 件のままです。どのソースが一致したかを併記し、そのいずれかが付けた最も重い評価で扱います。"
     },
     "Screenshots": {
         "title": "スクリーンショット",

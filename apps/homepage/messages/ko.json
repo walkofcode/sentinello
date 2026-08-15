@@ -1,7 +1,7 @@
 {
     "Meta": {
         "title": "Sentinello — 전체 포트폴리오를 위한 조기 경보형 CVE 모니터링",
-        "description": "여러 언어에 걸친 자체 호스팅, 오픈 소스 의존성 취약점 모니터링 — 기본은 JavaScript, 선택적으로 Python·Go·Rust 지원. 저장소를 가리키기만 하면 모든 프로젝트의 알려진 CVE를 하나의 분류 대기열에서 확인할 수 있습니다.",
+        "description": "Node.js 프로젝트를 위한 자체 호스팅, 오픈 소스 의존성 취약점 모니터링. 저장소를 가리키기만 하면 모든 프로젝트의 알려진 CVE를 하나의 분류 대기열에서 확인할 수 있습니다.",
         "tagline": "전체 포트폴리오를 위한 CVE 조기 경보",
         "tabTitle": "Sentinello — 다중 언어 CVE 모니터링"
     },
@@ -38,7 +38,7 @@
     },
     "Hero": {
         "title": "더 이상 지켜보지 않게 된 의존성을 위한 조기 경보 시스템.",
-        "subtitle": "AI 시대에는 유지할 수 있는 것보다 더 많은 프로젝트를 출시하게 됩니다. Sentinello는 그 하나하나를 지켜보며 의존성에 숨은 알려진 CVE를 드러냅니다 — 기본은 JavaScript, Python·Go·Rust는 토글 하나로 — 잊힌 프로젝트가 사고로 이어지기 전에.",
+        "subtitle": "AI 시대에는 유지할 수 있는 것보다 더 많은 프로젝트를 출시하게 됩니다. Sentinello는 그 하나하나를 지켜보며 Node.js 의존성에 숨은 알려진 CVE를 드러냅니다 — 잊힌 프로젝트가 사고로 이어지기 전에.",
         "commandCaption": "명령 하나로 실행:",
         "ctaPrimary": "빠른 시작 읽기",
         "ctaSecondary": "GitHub에서 별 누르기",
@@ -89,14 +89,12 @@
         "queueBody": "수십 개의 체크아웃에 흩어진 npm audit 대신, 전체 포트폴리오의 CVE를 한곳에서 보고 분류하세요.",
         "browseTitle": "프로젝트별 또는 라이브러리별 탐색",
         "browseBody": "어떤 저장소든 들어가 발견 결과, 수정 버전, 기록을 확인하거나 — 취약한 패키지로 전환해 영향을 받는 모든 프로젝트를 보고 한 번에 모든 곳에서 음소거하세요.",
-        "polyglotTitle": "다중 언어 스캔",
-        "polyglotBody": "기본으로 JavaScript를 스캔하고, 언어별 토글로 Python·Go·Rust를 추가합니다 — 각 프로젝트의 잠금 파일을 오프라인으로 분석해 OSV 및 GitLab gemnasium 권고와 대조합니다.",
         "exportTitle": "권고 내보내기",
         "exportBody": "프로젝트나 라이브러리의 발견 결과를 Markdown으로 내보내세요. 팀이나 LLM을 위해 맞춤 설정 가능한 해결 프롬프트가 포함됩니다.",
         "scanningTitle": "지속적인 스캔",
         "scanningBody": "백그라운드 워커가 일정에 따라 다시 스캔하므로, 확인하는 것을 기억하지 않아도 새 권고가 나타납니다.",
         "sourcesTitle": "다중 소스",
-        "sourcesBody": "npm audit를 넘어 OSV 데이터베이스와 대조하여 더 넓은 CVE 범위와 알려진 악성 패키지 탐지를 제공합니다.",
+        "sourcesBody": "npm audit를 넘어 OSV와 GitLab gemnasium 모두와 대조하여 더 넓은 CVE 범위와 알려진 악성 패키지 탐지를 제공합니다.",
         "notificationsTitle": "알림 및 웹훅",
         "notificationsBody": "실패와 발견 알림을 Slack, Telegram 또는 단순한 웹훅으로 받아보세요 — 루트나 프로젝트 단위로 범위를 지정하고, 선택한 언어로. 자동 수정 에이전트를 위한 JSON 또는 일반 텍스트 페이로드도 제공합니다.",
         "selfContainedTitle": "이미지 하나, 파일 하나",
@@ -108,7 +106,9 @@
         "languagesTitle": "10개 언어",
         "languagesBody": "포털 UI, 스캔 사유 코드, 상태가 10개 언어로 현지화되어 있습니다.",
         "mcpTitle": "MCP 서버",
-        "mcpBody": "Claude Desktop, Cursor 등 MCP 클라이언트를 연결해 채팅을 떠나지 않고 발견 항목, 프로젝트, 라이브러리를 조회하고 스캔을 실행하세요."
+        "mcpBody": "Claude Desktop, Cursor 등 MCP 클라이언트를 연결해 채팅을 떠나지 않고 발견 항목, 프로젝트, 라이브러리를 조회하고 스캔을 실행하세요.",
+        "corroborationTitle": "서로 일치하는 발견",
+        "corroborationBody": "여러 소스가 같은 취약점을 보고해도 발견 항목은 하나로 유지됩니다 — 어떤 소스가 일치했는지 함께 담고, 그중 가장 높은 심각도로 등급을 매깁니다."
     },
     "Screenshots": {
         "title": "스크린샷",

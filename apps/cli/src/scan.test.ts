@@ -135,6 +135,7 @@ function osvAdvisory(overrides: Partial<OsvAdvisory> = {}): OsvAdvisory {
         summary: 'Prototype pollution',
         url: null,
         malicious: false,
+        withdrawn: null,
         ...overrides
     }
 }

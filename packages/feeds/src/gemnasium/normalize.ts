@@ -1,4 +1,5 @@
 import type { GemnasiumAdvisoryRow, GemnasiumRange } from '@sentinello/core'
+import { isZeroVersion } from '@sentinello/versions'
 import { severityFromCvss } from './cvss'
 
 // Parses a single gemnasium-db advisory (one *.yml file, already YAML-parsed to an object) into the
@@ -231,11 +232,6 @@ function isEmptyInterval(range: BuiltRange): boolean {
     if (range.fixed === null) return false
     if (range.fixed === range.introduced) return true
     return isZeroVersion(range.introduced) && isZeroVersion(range.fixed)
-}
-
-// "0", "0.0", "0.0.0" — the bottom of the version space however upstream spelled it.
-function isZeroVersion(version: string): boolean {
-    return /^0(\.0)*$/.test(version)
 }
 
 type Disjunct = {

@@ -8,6 +8,7 @@ import {
     normalizeAuditOutput,
     normalizePnpmAuditOutput,
     parseYarnMajor,
+    pickAdvisoryAliases,
     pickAdvisoryId,
     pickAuditCommand,
     pickDepPath,
@@ -16,7 +17,8 @@ import {
     pickInstalledVersion,
     pickPnpmAdvisoryId,
     pickSeverity,
-    pickVulnerableRange
+    pickVulnerableRange,
+    pnpmAuditSchema
 } from './npm-audit-parse'
 import type { DepClassifier, ModernAudit, PnpmAudit, Vulnerability, ViaObject } from './npm-audit-parse'
 import type { DetectedLockfile } from './types'
@@ -167,11 +169,43 @@ describe('pickGhsaIdFromUrl and pickAdvisoryId', function () {
     })
 })
 
+// The numeric id stays primary because mutes and finding identity are persisted under it, so the GHSA
+// has to travel alongside as an alias — otherwise npm-audit's identity keys can never intersect the
+// GHSA/CVE keys OSV and gemnasium use, and cross-source dedup cannot fire for it at all.
+describe('pickAdvisoryAliases', function () {
+    it('keeps the GHSA from the url when the numeric id won', function () {
+        expect(pickAdvisoryAliases('1234', 'https://github.com/advisories/GHSA-a-b-c')).toEqual(['GHSA-a-b-c'])
+    })
+
+    it('prefers pnpm’s explicit github_advisory_id over parsing the url', function () {
+        expect(
+            pickAdvisoryAliases('1234', 'https://github.com/advisories/GHSA-from-url-x', 'GHSA-explicit-y-z')
+        ).toEqual(['GHSA-explicit-y-z'])
+    })
+
+    // An id is not an alias of itself: when npm omitted its numeric id the GHSA already IS advisoryId,
+    // and repeating it would put the same key in the set twice.
+    it('does not repeat the id as its own alias', function () {
+        expect(pickAdvisoryAliases('GHSA-a-b-c', 'https://github.com/advisories/GHSA-a-b-c')).toEqual([])
+        expect(pickAdvisoryAliases('ghsa-a-b-c', 'https://github.com/advisories/GHSA-A-B-C')).toEqual([])
+    })
+
+    it('is empty when no GHSA is available anywhere', function () {
+        expect(pickAdvisoryAliases('1234', 'https://example.test/nope')).toEqual([])
+        expect(pickAdvisoryAliases('1234', undefined)).toEqual([])
+        expect(pickAdvisoryAliases('1234', undefined, '')).toEqual([])
+        expect(pickAdvisoryAliases('1234', undefined, null)).toEqual([])
+    })
+})
+
 describe('pickSeverity, pickFixAvailability, pickVulnerableRange', function () {
-    it('prefers the via severity over the vulnerability severity, defaulting to info', function () {
+    // The default is 'moderate', not 'info': npm has told us there IS a vulnerability and only withheld
+    // its grade, so calling it informational is a downgrade of our own invention that drops it out of
+    // every filter set above the floor.
+    it('prefers the via severity over the vulnerability severity, defaulting to moderate', function () {
         expect(pickSeverity(via({ severity: 'critical' }), vuln({ severity: 'low' }))).toBe('critical')
         expect(pickSeverity(via(), vuln({ severity: 'low' }))).toBe('low')
-        expect(pickSeverity(via(), vuln())).toBe('info')
+        expect(pickSeverity(via(), vuln())).toBe('moderate')
     })
 
     it('reads fix availability from all three shapes', function () {
@@ -277,6 +311,10 @@ describe('normalizeAuditOutput — the npm 7+ shape', function () {
             isProd: true
         })
         expect(result.hadVulnerabilityWithoutConcreteAdvisory).toBe(false)
+        // The GHSA rides along as an alias. Without it the finding's only identity key is npm's
+        // numeric id, which no other source uses, so reconcile can never match it to the same
+        // advisory reported by OSV or gemnasium.
+        expect(result.findings[0]?.aliases).toEqual(['GHSA-p6mc'])
     })
 
     // A `via` entry that is a bare string is a transitive pointer to another vulnerable package,
@@ -382,7 +420,7 @@ describe('normalizePnpmAuditOutput — the pnpm shape', function () {
             packageName: 'lodash',
             installedVersion: '',
             vulnerableRange: '',
-            severity: 'info',
+            severity: 'moderate',
             fixAvailable: false,
             fixVersion: null,
             depPath: []
@@ -675,7 +713,7 @@ describe('normalizePnpmAuditOutput — the remaining arms', function () {
         expect(out[0]?.depPath).toEqual([])
     })
 
-    it('defaults a missing severity to info rather than dropping the advisory', function () {
+    it('defaults a missing severity to moderate rather than dropping the advisory', function () {
         const doc = pnpmDoc({
             1234: {
                 id: 1234,
@@ -686,7 +724,49 @@ describe('normalizePnpmAuditOutput — the remaining arms', function () {
                 findings: [{ version: '4.17.11', paths: ['lodash'] }]
             }
         })
-        expect(normalizePnpmAuditOutput(doc, PROD_CLASSIFIER)[0]?.severity).toBe('info')
+        expect(normalizePnpmAuditOutput(doc, PROD_CLASSIFIER)[0]?.severity).toBe('moderate')
+    })
+
+    // A grade npm has never emitted before must cost that one advisory its precision, not cost the
+    // project its entire scan. The schema is applied as a whole-document safeParse in npm-audit.ts, so
+    // a closed enum here failed the parse outright — every finding in the run discarded and the project
+    // reported unauditable over a single word. Parsed through the real schema, not a hand-built object,
+    // because the leniency being asserted lives in the schema rather than in the normalizer.
+    it('keeps the document parseable when one advisory carries an unknown severity', function () {
+        const result = pnpmAuditSchema.safeParse({
+            advisories: {
+                1234: {
+                    id: 1234,
+                    module_name: 'lodash',
+                    title: 'x',
+                    url: 'https://example.test/1234',
+                    severity: 'catastrophic',
+                    vulnerable_versions: '<4.17.21',
+                    findings: [{ version: '4.17.11', paths: ['lodash'] }]
+                }
+            }
+        })
+
+        expect(result.success).toBe(true)
+        const out = normalizePnpmAuditOutput(result.data as PnpmAudit, PROD_CLASSIFIER)
+        expect(out).toHaveLength(1)
+        expect(out[0]?.severity).toBe('moderate')
+    })
+
+    // The leniency must catch an unreadable value WITHOUT also filling in an absent one. z.optional
+    // short-circuits before the inner schema, so undefined stays undefined — and that is load-bearing
+    // beyond tidiness: pickSeverity prefers via.severity over vuln.severity, so a schema that turned
+    // every missing via severity into 'moderate' would outrank every real severity the vulnerability
+    // reported, silently flattening the whole document to moderate.
+    it('leaves an absent severity undefined instead of filling it in at the schema', function () {
+        const result = pnpmAuditSchema.safeParse({
+            advisories: { 1234: { id: 1234, module_name: 'lodash', findings: [] } }
+        })
+
+        expect(result.success).toBe(true)
+        const advisories = (result.data as { advisories: Record<string, { severity?: string }> }).advisories
+        expect(advisories['1234']).toBeDefined()
+        expect(advisories['1234']?.severity).toBeUndefined()
     })
 
     it('skips a null advisory entry', function () {

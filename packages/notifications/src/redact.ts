@@ -25,12 +25,21 @@ export function redactErrorText(text: string): string {
     return out
 }
 
+const HEAD = 8
+const TAIL = 4
+// How many characters the mask must actually hide before masking is worth preferring to dropping the
+// value outright. The guard used to be `length <= 6` while the head sliced 8 and the tail 4, so it only
+// checked the value was longer than the tail and never that the two halves did not meet: every secret
+// of 7 to 12 characters was reprinted in full — 'abcdefg' came back as 'abcdefg**REDACTED**defg' — and
+// a 13-character one gave up all but a single character. Requiring a real gap is what makes the
+// function's name true; below it, redacting entirely is the only honest answer.
+const MIN_HIDDEN = 8
+
 export function maskSecret(value: string): string {
     if (!value) return '**REDACTED**'
     const trimmed = value.trim()
-    if (trimmed.length <= 6) return '**REDACTED**'
-    const tail = trimmed.slice(-4)
-    return trimmed.slice(0, 8) + '**REDACTED**' + tail
+    if (trimmed.length < HEAD + TAIL + MIN_HIDDEN) return '**REDACTED**'
+    return trimmed.slice(0, HEAD) + '**REDACTED**' + trimmed.slice(-TAIL)
 }
 
 function asSlack(config: NotificationTargetConfig): SlackTargetConfig {

@@ -15,7 +15,15 @@ import { pickSafeFixVersion } from './version-fix'
 
 const SEVERITY_VALUES = ['critical', 'high', 'moderate', 'low', 'info'] as const
 
-const severitySchema = z.enum(SEVERITY_VALUES)
+// Lenient on purpose. This schema is applied inside a whole-document safeParse, so a closed enum meant
+// that ONE advisory carrying a grade npm had not used before failed the parse for the entire project —
+// every finding in it discarded and the scan reported unauditable, because of a single word. Falling
+// back to 'moderate' matches the policy core's severityWeight and the matcher's mapSeverity already
+// state for an unrecognised grade: never downgrade something we could not read.
+//
+// Only the severity leaf is lenient. The surrounding object shapes stay strict, which is what
+// audit_schema_mismatch exists to catch.
+const severitySchema = z.enum(SEVERITY_VALUES).catch('moderate')
 
 const viaObjectSchema = z
     .object({
@@ -280,10 +288,38 @@ export function pickAdvisoryId(via: ViaObject): string | null {
     return fallbackAdvisoryHash(via)
 }
 
+// The GHSA id npm hands us alongside its own numeric one, kept as a cross-reference alias.
+//
+// pickAdvisoryId deliberately still prefers the numeric id: it is what findings, mutes and
+// notification events have been keyed by since long before a GHSA was read out of the URL, and
+// changing it would orphan every mute an operator has ever written. But that id is npm's alone. OSV
+// and gemnasium key the same advisory by GHSA or CVE, so an identity built only from the numeric id
+// could never intersect theirs — findingIdentityKeys compared ["1093507"] against
+// ["ghsa-7px7-7xjx-hxm8", "cve-…"] and found nothing in common. Cross-source dedup therefore never
+// fired for an npm-audit finding even once: the same advisory was stored twice, counted twice on
+// every raw-row surface, notified twice, and the corroboration badge that exists to show two sources
+// agreeing could not appear on the one pairing it was written for.
+//
+// The GHSA was in hand the whole time, in the advisory URL npm already gives us.
+export function pickAdvisoryAliases(advisoryId: string, url: string | undefined, githubAdvisoryId?: string | null): string[] {
+    // pnpm names the GHSA outright; npm and yarn only carry it inside the advisory URL. An empty
+    // string is not a GHSA, so falling through to the URL is the right reading of one.
+    const explicit = typeof githubAdvisoryId === 'string' && githubAdvisoryId.length > 0 && githubAdvisoryId
+    const ghsa = explicit || pickGhsaIdFromUrl(url)
+    if (!ghsa) return []
+    // Already the primary id (npm omitted its numeric one), so it is not an alias of itself.
+    if (ghsa.toLowerCase() === advisoryId.toLowerCase()) return []
+    return [ghsa]
+}
+
+// The fallback is 'moderate', not 'info'. npm reported a vulnerability here; the only thing missing is
+// how bad it is. Grading that 'info' is a downgrade Sentinello invented, and it hides the finding from
+// every operator whose minimum-severity filter sits above the floor — the quietest way to lose a real
+// advisory. Same policy as core's severityWeight and the matcher's mapSeverity.
 export function pickSeverity(via: ViaObject, vuln: Vulnerability): Severity {
     if (via.severity) return via.severity
     if (vuln.severity) return vuln.severity
-    return 'info'
+    return 'moderate'
 }
 
 export function pickFixAvailability(fix: FixAvailable | undefined): { fixAvailable: boolean; fixVersion: string | null } {
@@ -355,6 +391,7 @@ export function normalizeOneVulnerability(vuln: Vulnerability, packageName: stri
         const cls = classifier.classify(packageName, installedVersion)
         const finding: RawFinding = {
             advisoryId,
+            aliases: pickAdvisoryAliases(advisoryId, via.url),
             advisoryTitle: via.title || null,
             advisoryUrl: via.url || null,
             packageName,
@@ -414,12 +451,16 @@ export function normalizePnpmAuditOutput(parsed: PnpmAudit, classifier: DepClass
         const adv = advisories[idKey]
         if (!adv) continue
         const advisoryId = pickPnpmAdvisoryId(adv, idKey)
-        const severity: Severity = adv.severity || 'info'
+        // 'moderate' rather than 'info' for the same reason as pickSeverity: a graded-less advisory is
+        // an unknown, not a harmless one.
+        const severity: Severity = adv.severity || 'moderate'
         const patched = adv.patched_versions || null
         const recommendation = adv.recommendation || null
         const vulnRange = adv.vulnerable_versions || ''
         const advisoryTitle = adv.title || null
         const advisoryUrl = adv.url || null
+        // pnpm names the GHSA outright rather than only in the URL, so prefer the explicit field.
+        const aliases = pickAdvisoryAliases(advisoryId, adv.url ?? undefined, adv.github_advisory_id)
         const packageName = adv.module_name
         const findings = adv.findings || []
         if (findings.length === 0) {
@@ -427,6 +468,7 @@ export function normalizePnpmAuditOutput(parsed: PnpmAudit, classifier: DepClass
             const cls = classifier.classify(packageName, null)
             out.push({
                 advisoryId,
+                aliases,
                 advisoryTitle,
                 advisoryUrl,
                 packageName,
@@ -450,6 +492,7 @@ export function normalizePnpmAuditOutput(parsed: PnpmAudit, classifier: DepClass
                 const cls = classifier.classify(packageName, f.version || null)
                 out.push({
                     advisoryId,
+                    aliases,
                     advisoryTitle,
                     advisoryUrl,
                     packageName,
@@ -469,6 +512,7 @@ export function normalizePnpmAuditOutput(parsed: PnpmAudit, classifier: DepClass
                 const cls = classifier.classify(packageName, f.version || null)
                 out.push({
                     advisoryId,
+                    aliases,
                     advisoryTitle,
                     advisoryUrl,
                     packageName,

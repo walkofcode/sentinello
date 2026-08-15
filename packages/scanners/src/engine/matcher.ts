@@ -69,6 +69,11 @@ function matchOne(
     comparator: VersionComparator,
     acceptedRangeTypes?: readonly string[]
 ): RawFinding | null {
+    // A withdrawn advisory is a claim upstream has retracted; it affects nothing, whatever versions it
+    // still names. Enforced HERE, in the one place every source's advisories pass through, rather than in
+    // each lookup's query — the portal filtered it in SQL and the CLI, reading the same rows from a file,
+    // had nowhere to put the same filter and reported retracted advisories as live findings.
+    if (advisory.withdrawn !== null) return null
     // Filter to the ranges this comparator may evaluate ONCE, then use the filtered set everywhere below
     // (matching, fix derivation, display) so a dropped range never leaks into any of them.
     const ranges = applicableRanges(advisory.affected.ranges, acceptedRangeTypes)

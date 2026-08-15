@@ -160,19 +160,30 @@ export async function incrementalSyncOsv(db: OsvDrizzleDb, ecosystem: EcosystemI
         return { status: 'ok', upserted: 0, recordCount: ecoCount(), message: 'no changes' }
     }
     let upserted = 0
+    // An advisory we could not re-read is an advisory we must not drop. This loop used to delete the old
+    // rows FIRST and fetch second, so any timeout, 5xx or worker shutdown erased that advisory — and the
+    // cursor then advanced regardless, putting the id permanently behind it. The comment claimed the cursor
+    // only advanced on success; it did not, so the loss was silent and survived until the next full re-seed.
+    //
+    // A 404 is not a failure here: fetchOsvAdvisoryRows returns [] for an advisory removed upstream or come
+    // back withdrawn, which is exactly the deletion signal, and the replace below applies it.
+    let skipped = 0
     for (const id of changed.ids) {
-        if (abortSignal && abortSignal.aborted) break
-        // Clear this ecosystem's prior rows for the advisory so a package dropped from `affected` doesn't
-        // linger — scoped to the ecosystem so a sibling ecosystem's rows for the same id survive.
-        deleteOsvAdvisories(db, [id], ecosystem)
+        if (abortSignal && abortSignal.aborted) {
+            // Every id not yet reached is unprocessed, so the cursor must not move past them either.
+            skipped += 1
+            break
+        }
         let rows
         try {
             rows = await fetchOsvAdvisoryRows(id, ecosystem, { abortSignal })
         } catch {
-            // A single advisory failing to fetch must not abort the pass; its rows are already cleared, so
-            // it is simply absent until the next sync re-reads it (the cursor only advances on success).
+            skipped += 1
             continue
         }
+        // Replace only now that the replacement is in hand. Scoped to the ecosystem so a sibling
+        // ecosystem's rows for the same id survive, and so a package dropped from `affected` does not linger.
+        deleteOsvAdvisories(db, [id], ecosystem)
         if (rows.length > 0) {
             upsertOsvAdvisories(db, rows)
             upserted += rows.length
@@ -181,9 +192,23 @@ export async function incrementalSyncOsv(db: OsvDrizzleDb, ecosystem: EcosystemI
     const recordCount = ecoCount()
     setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.recordCount, ecosystem), recordCount)
     setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.refreshedAt, ecosystem), Date.now())
-    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), null)
-    if (changed.newestIso) setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastModified, ecosystem), changed.newestIso)
-    if (changed.etag) setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.modifiedIdsEtag, ecosystem), changed.etag)
+    // The cursor advances only when every changed id was actually processed. Leaving it where it is costs a
+    // repeat of this window next sync — idempotent, and self-limiting because a window that keeps growing
+    // eventually crosses OSV_INCREMENTAL_MAX_IDS and re-seeds outright. Advancing it while ids went
+    // unprocessed is the one outcome that cannot be recovered from.
+    if (skipped === 0) {
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), null)
+        if (changed.newestIso) setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastModified, ecosystem), changed.newestIso)
+        if (changed.etag) setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.modifiedIdsEtag, ecosystem), changed.etag)
+    } else {
+        // The stored ETag is cleared as well as the cursor being held, and both halves are needed. Holding
+        // the cursor alone would not retry anything: the next sync would send the old ETag, OSV would answer
+        // 304, and the pass would return "not modified" without ever revisiting the ids it failed to read.
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.modifiedIdsEtag, ecosystem), null)
+        const message = skipped + ' of ' + changed.ids.length + ' changed advisories could not be re-read; keeping the previous cursor so they are retried'
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), message)
+        console.warn('[osv-sync] ' + ecosystem + ': ' + message)
+    }
     console.log('[osv-sync] incremental sync (' + ecosystem + '): ' + changed.ids.length + ' changed advisor(ies), ' + upserted + ' rows upserted')
     return { status: 'ok', upserted, recordCount, message: null }
 }

@@ -178,17 +178,27 @@ export type IntervalHours = 1 | 3 | 6 | 12 | 24
 // When unset, node-cron falls back to the worker's system timezone — same as before this field existed.
 export type Schedule = { intervalHours: IntervalHours; startHour?: number; timezone?: string }
 
-// Translate a chosen interval into a node-cron expression, anchored to startHour (0–23, worker local
-// time). 1h fires every hour and ignores the anchor. Other intervals fire at startHour and every
-// N hours after, listing the exact hours so the cadence begins at the chosen time of day rather than
-// at 00:00. e.g. 6h + startHour 2 -> "0 2,8,14,20 * * *"; 24h + startHour 9 -> "0 9 * * *".
+// Translate a chosen interval into a node-cron expression, anchored to startHour (0–23, interpreted in
+// the schedule's timezone). 1h fires every hour and ignores the anchor. Other intervals fire at startHour
+// and every N hours after, listing the exact hours so the cadence begins at the chosen time of day rather
+// than at 00:00. e.g. 6h + startHour 2 -> "0 2,8,14,20 * * *"; 24h + startHour 9 -> "0 9 * * *".
+//
+// The slots WRAP past midnight. They did not before: the hour list was built by counting up from the
+// anchor and stopping at 24, so every startHour >= intervalHours silently produced a slower cadence than
+// the operator selected, with a gap across midnight — and the UI went on reporting the interval they
+// picked. "Every 3 hours from 07:00" listed 7,10,13,16,19,22 and then did not run again until 07:00: six
+// scans a day instead of eight, with a nine-hour nightly blind window. Every IntervalHours value divides
+// 24, so the slot count is exact and the anchor is always among them.
 export function intervalHoursToCron(hours: IntervalHours, startHour = 0): string {
     const anchor = normalizeStartHour(startHour)
     if (hours === 1) return '0 * * * *'
     const slots: number[] = []
-    for (let h = anchor; h < 24; h = h + hours) {
-        slots.push(h)
+    for (let n = 0; n < 24 / hours; n++) {
+        slots.push((anchor + n * hours) % 24)
     }
+    slots.sort(function ascending(a, b) {
+        return a - b
+    })
     return '0 ' + slots.join(',') + ' * * *'
 }
 

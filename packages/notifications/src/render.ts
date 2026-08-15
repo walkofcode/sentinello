@@ -58,8 +58,18 @@ const SEVERITY_LABEL: Record<Severity, string> = {
     info: 'INFO'
 }
 
+// findings.severity is typed Severity but stored in a plain TEXT column with no CHECK constraint, and
+// it is written from whatever an advisory feed said. A direct index therefore returned undefined for
+// anything unexpected — including a row written before a grade was normalised — and the operator got an
+// alert headed "[undefined]". Echoing the value back uppercased says what the source actually claimed,
+// which is more use than a fabricated grade and can never print undefined.
+function severityLabel(severity: string): string {
+    const normalized = severity.trim().toLowerCase() as Severity
+    return SEVERITY_LABEL[normalized] || severity.trim().toUpperCase() || SEVERITY_LABEL.moderate
+}
+
 export function renderSingleFinding(input: RenderFindingInput): RenderedMessage {
-    const sev = SEVERITY_LABEL[input.finding.severity]
+    const sev = severityLabel(input.finding.severity)
     const fix = input.finding.fixAvailable && input.finding.fixVersion && (' → fix: ' + input.finding.fixVersion) || (input.finding.fixAvailable && ' → fix available' || ' → no fix available')
     const title = '[' + sev + '] ' + input.finding.packageName + '@' + input.finding.installedVersion + ' in ' + input.projectName
     const portalLink = buildProjectUrl(input.portalBaseUrl, input.finding.projectId)
@@ -138,7 +148,7 @@ export function renderScanFailure(input: RenderScanFailureInput): RenderedMessag
 }
 
 function formatLine(finding: Finding): string {
-    const sev = SEVERITY_LABEL[finding.severity]
+    const sev = severityLabel(finding.severity)
     return '• [' + sev + '] ' + finding.packageName + '@' + finding.installedVersion + ' (' + finding.advisoryId + ')'
 }
 

@@ -24,10 +24,11 @@ point it at, surfaces known CVEs in their dependencies, and gives you **one tria
 queue across every project** — instead of `npm audit` output scattered across a
 dozen checkouts, or finding out about a CVE from a headline days too late.
 
-It scans **JavaScript** out of the box and can also scan **Python, Go, and Rust**
-once you enable their sources in **Settings → Sources** (off by default). One
-project can span several ecosystems at once; findings land in the same queue
-regardless of language.
+It scans **Node.js** projects — `package-lock.json`, `pnpm-lock.yaml` and
+`yarn.lock` — against up to three advisory sources you pick in **Settings →
+Sources**. Python, Go and Rust are built but **not offered yet**: their version
+handling is not right, and a source that answers "no vulnerabilities" for the
+wrong reason is worse than one that isn't offered at all.
 
 "Why not just use Snyk or Dependabot?" Those live inside the CI pipeline you wired
 up — and the long tail never got one. Sentinello is for everything else: point it at
@@ -111,7 +112,7 @@ Three steps — no agents to install in your projects, no accounts to create:
    known CVEs on a schedule. For the **npm-audit** path it installs the Node
    version each project pins via `.nvmrc` when it needs to (the `sentinello-nvm`
    volume persists those so each version downloads only once); `nvm` is used only
-   on that path — the Python/Go/Rust sources resolve dependencies offline from
+   on that path — the OSV and gemnasium sources resolve dependencies offline from
    lockfiles and never invoke `nvm`.
 3. **Triage in one queue.** Every finding across every project lands in a single
    queue you can filter by severity — browse by project or by library, export a
@@ -120,9 +121,12 @@ Three steps — no agents to install in your projects, no accounts to create:
 
 ### What counts as a project
 
-Any directory holding a recognised manifest (`package.json`, `poetry.lock`, `go.mod`, `Cargo.lock`, …).
-Discovery stops descending as soon as it finds one, so a monorepo root is **one** project rather than one
-per workspace package — the same view `pnpm audit` takes.
+Any directory holding a recognised manifest (`package.json`, and the `package-lock.json` /
+`pnpm-lock.yaml` / `yarn.lock` that pins it). Discovery walks only the ecosystems actually offered, so
+a Python or Rust manifest is not detected at all — detecting one and then not auditing it would stamp a
+coverage row that reads as "found and handled". Discovery stops descending as soon as it finds a
+manifest, so a monorepo root is **one** project rather than one per workspace package — the same view
+`pnpm audit` takes.
 
 Three things are never scanned:
 
@@ -225,8 +229,8 @@ knobs make that posture safe — here's the whole picture in one place.
 - **Only mount roots you trust.** On the **npm-audit** path Sentinello runs `npm/pnpm/yarn audit`
   inside mounted roots. Audit is read-only and does **not** run package lifecycle scripts, but a
   hostile `.npmrc` could still redirect registry lookups — treat roots like code you'd run locally, and
-  mount them read-only. The Python/Go/Rust sources only **read** lockfiles (matched offline against the
-  local advisory cache) and run no package-manager command in the root.
+  mount them read-only. The OSV and gemnasium sources only **read** lockfiles (matched offline against
+  the local advisory cache) and run no package-manager command in the root.
 - **Webhook egress is fenced.** Webhook targets can't reach link-local / cloud-metadata addresses,
   can't use non-`http(s)` schemes, and don't follow redirects; `SENTINELLO_WEBHOOK_STRICT=true` also
   blocks private (RFC-1918) targets and requires `https`. Webhook URLs/headers never resolve `env:`.
@@ -239,15 +243,21 @@ knobs make that posture safe — here's the whole picture in one place.
 
 ## Vulnerability sources
 
-**Settings → Sources** is a **Languages × Sources matrix**: rows are languages (JavaScript, Python,
-Go, Rust) and each cell is an advisory source that answers for that language. You enable sources
-per-language, and an **"always a source on" invariant** stops you disabling the last active cell, so
-the system is never left source-blind.
+**Settings → Sources** lists the advisory sources that answer for **Node.js**, each with its own
+switch, and explains what every one of them adds, downloads and when it runs in a reference table
+below the switches. An **"always a source on" invariant** stops you disabling the last one that can
+actually run, so the system is never left source-blind.
 
-- **JavaScript** ships **npm audit** on by default (now toggleable), plus optional **OSV** and
-  **GitLab gemnasium** cells.
-- **Python, Go, and Rust** default **off**. Each offers **OSV** (the default cell) plus optional
-  **GitLab gemnasium**.
+- **npm audit** is on by default (and toggleable).
+- **OSV** and **GitLab gemnasium** are optional and off by default — each downloads an advisory
+  cache, so enabling one costs disk.
+
+Python, Go and Rust are implemented but **not offered**. Their fix derivation and version ordering are
+semver-only (an OSV Django advisory recommended "upgrade to 3.2.23" against an installed 4.2), OSV's
+PyPI names are not PEP 503-canonicalized so they never join the resolver's, and gemnasium's range
+parser cannot read PEP 440 comma intersections. Promoting one is a single field in the ecosystem
+registry once that is fixed; until then they are absent from the product surface entirely — no
+switch, no discovery, no download.
 
 **npm audit** runs the package manager's own audit (npm / pnpm / yarn audit against each project's
 lockfile) — the GitHub Advisory feed those tools carry. It needs no provisioning.
@@ -269,43 +279,29 @@ Findings that duplicate a higher-priority source (same advisory on the same pack
 gemnasium hit that npm audit already reported) are suppressed, so enabling an extra source only
 **adds** net-new findings to the same triage queue.
 
-### Coverage — read this before you rely on the non-JS sources
+### Scan reason codes
 
-Exact scanning needs a **true lockfile**. Where one exists (`package-lock.json` / `pnpm-lock.yaml` /
-`yarn.lock`, `poetry.lock` / `Pipfile.lock` / `uv.lock`, `Cargo.lock`) Sentinello resolves exact
-installed versions and audits them fully. Where it doesn't, coverage is **honestly partial** — and a
-scan reports its coverage state per ecosystem (`ok` / `partial` / `unauditable`) rather than implying
-full resolution:
+Alongside the npm/OSV reason codes, scans surface these operator-visible states (localized in the UI
+and in failure notifications). The graph-shape codes stay implemented and reachable — a Node.js
+project can be missing a lockfile, and the code that reports partial resolution is the same code that
+will report it for other ecosystems when they are promoted:
 
-- **`requirements.txt`** is audited for **pinned (`==`) entries only**. Unpinned, ranged, editable
-  (`-e`), or `-r`/`-c`-included entries can't be resolved to an exact version offline and are reported
-  as partial / unauditable, not silently passed.
-- **Go** coverage is a documented **conservative offline subset** — the offline module graph isn't
-  guaranteed complete, so Go scans can report a partial graph.
-
-"Polyglot" here means Sentinello *discovers and scans* these ecosystems — it does **not** mean every
-manifest yields a full, exact dependency graph.
-
-### Scan reason codes for the non-JS sources
-
-Alongside the existing npm/OSV reason codes, scans surface these operator-visible states (localized in
-the UI and in failure notifications):
-
-- **`partial_dependency_graph`** — some dependencies resolved to exact versions, others could not
-  (e.g. a `requirements.txt` mixing `==` pins with ranges; Go's offline graph isn't guaranteed full).
-- **`ambiguous_dependency_spec`** — a manifest exists but pins nothing auditable (all ranges / markers
-  / editable / `-r`/`-c` includes), so no exact version could be extracted.
-- **`unsupported_lockfile`** — a manifest/lockfile format Sentinello doesn't yet parse for that
-  ecosystem.
-- **`ecosystem_source_disabled`** — an ecosystem's manifests were found but no source is enabled for
-  it, so it can't be audited.
+- **`partial_dependency_graph`** — some dependencies resolved to exact versions and others could not,
+  so coverage is reported as partial rather than implying a full resolution.
+- **`ambiguous_dependency_spec`** — a manifest exists but pins nothing auditable, so no exact version
+  could be extracted.
+- **`unsupported_lockfile`** — a manifest/lockfile format Sentinello doesn't parse.
+- **`ecosystem_source_disabled`** — manifests were found but no source is enabled for that ecosystem,
+  so it can't be audited.
 - **`gemnasium_db_not_seeded` / `gemnasium_db_unavailable`** — the gemnasium cache hasn't been
   downloaded yet, or couldn't be opened (mirrors `osv_db_not_seeded` / `osv_db_unavailable`).
 
-**Provisioning.** Enabling **OSV** downloads the per-ecosystem export(s) into the data volume on first
-sync (the npm export is **~204 MB**; each additional enabled ecosystem adds its own export), then pulls
-~daily incremental updates. Enabling **GitLab gemnasium** downloads its advisory archive from
-`gitlab.com` (tens of MB) on first sync, then keeps it fresh from the repository's own commit history:
+None of these are reported as "clean". A scan that could not resolve something says so.
+
+**Provisioning.** Enabling **OSV** downloads the npm advisory export (**~204 MB**, needing ~600 MB
+free) into the data volume on first sync, then pulls ~daily incremental updates around 03:17. Enabling **GitLab gemnasium** downloads its advisory archive from
+`gitlab.com` (**~52 MB**, needing ~300 MB free) on first sync around 03:42, then keeps it fresh from
+the repository's own commit history:
 each sync reads the upstream HEAD commit, and fetches only the advisory files that changed since the
 last one. The full archive is re-downloaded only when that incremental path is unusable. Both
 normalized caches (`osv.db`, `gemnasium.db`) are fully **rebuildable** and stored separately from

@@ -29,6 +29,17 @@ export type VersionRange = {
     lastAffected?: string | null
 }
 
+// "0", "0.0", "0.0.0" — the bottom of the version space, however upstream spelled it. Feeds write this as
+// the lower bound of any advisory that affects a package from its very first release.
+//
+// It is NOT the release 0.0.0, and the difference is load-bearing: under semver a prerelease sorts BELOW
+// its release, so `>= 0.0.0` excludes 0.0.0-anything. Every Go module without a tagged release is pinned to
+// a pseudo-version (v0.0.0-20180523222229-09b5706aa936), which is exactly that shape — so comparing against
+// the release 0.0.0 made such a module fail the lower bound of every advisory, including open-ended ones.
+export function isZeroVersion(version: string): boolean {
+    return /^0(\.0)*$/.test(version.trim())
+}
+
 export type FormatOptions = {
     // How to spell the bottom of the version space. Display prefers the short "0"; a string destined for
     // node-semver's Range parser needs a full "0.0.0" triple.

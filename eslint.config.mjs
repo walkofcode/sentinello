@@ -77,7 +77,35 @@ export default [
                 { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }
             ],
             '@typescript-eslint/no-explicit-any': 'warn',
-            'no-console': 'off'
+            'no-console': 'off',
+
+            // The three house rules CLAUDE.md had been claiming were enforced here for as long as it has
+            // existed. They were not: tseslint.configs.recommended carries none of them, so all three
+            // were upheld by review alone. Turning them on across the whole monorepo produced exactly
+            // three violations, none of which were deliberate — which is the argument for the rules
+            // rather than against them.
+            //
+            // consistent-type-definitions lives in tseslint's `stylistic` preset, which this config does
+            // not load; declared individually so enabling it costs nothing else.
+            '@typescript-eslint/consistent-type-definitions': ['error', 'type'],
+            // There is no `no-enums` rule; the ban has to be spelled as a syntax restriction.
+            'no-restricted-syntax': ['error', { selector: 'TSEnumDeclaration', message: 'Use a union of string literals, not an enum.' }]
+        }
+    },
+
+    // `const fn = function` / `const fn = () =>`, banned in source but NOT in tests.
+    //
+    // Not a style exemption. A test double is written `const lookup: GemnasiumLookup = function …`
+    // precisely so the annotation checks the double against the interface it stands in for — that
+    // assertion is the reason the double can be trusted, and a function declaration cannot carry it.
+    // `let release = function release() {}` is likewise a mutable binding a declaration cannot express.
+    // Source code has no such case: the three senders that looked like one were wrapping a declaration
+    // that already existed, and now assign it directly.
+    {
+        files: ['**/*.ts', '**/*.tsx'],
+        ignores: ['**/*.test.ts', '**/*.test.tsx', 'tests/**'],
+        rules: {
+            'func-style': ['error', 'declaration', { allowArrowFunctions: false }]
         }
     },
 

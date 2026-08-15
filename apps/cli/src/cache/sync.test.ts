@@ -389,6 +389,22 @@ describe('runSync — OSV', function () {
         expect(feeds.fetchOsvAdvisoryRows).not.toHaveBeenCalled()
     })
 
+    // The rows of an advisory we could not re-read must survive. Dropping the whole changed set while
+    // appending only the successful subset deleted every id that timed out, and the cursor then moved past
+    // them — so each flaky run monotonically shrank the user's cache while reporting success.
+    it('keeps the rows of an advisory that failed to fetch', async function () {
+        await seedFile('osv', [osvRow({ advisoryId: 'GHSA-bad', packageName: 'lodash' })])
+        await seedState('osv', { cursorIso: '2026-06-01T00:00:00Z', etag: 'etag-0' })
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-bad'], etag: 'etag-2', newestIso: '2026-07-02T00:00:00Z' })
+        feeds.fetchOsvAdvisoryRows.mockRejectedValue(new Error('connection reset'))
+
+        const outcomes = await runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
+
+        expect(outcomes[0]?.rowCount).toBe(1)
+        // Cursor held so the id is retried, and the ETag cleared so the retry is not answered by a 304.
+        expect(await stateOf('osv')).toMatchObject({ cursorIso: '2026-06-01T00:00:00Z', etag: null })
+    })
+
     // One advisory failing must not abort the pass; the cursor only advances on a completed pass, so it
     // is simply re-read next time.
     it('drops an advisory that fails to fetch and keeps the rest of the pass', async function () {

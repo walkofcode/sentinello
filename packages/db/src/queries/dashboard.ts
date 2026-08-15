@@ -381,13 +381,7 @@ export function listCurrentFindingsForProject(
           ${depFilter}
           ${sourceFilter}
         ORDER BY
-            CASE f.severity
-                WHEN 'critical' THEN 0
-                WHEN 'high' THEN 1
-                WHEN 'moderate' THEN 2
-                WHEN 'low' THEN 3
-                ELSE 4
-            END,
+            ${severityRankSql('f')} DESC,
             f.package_name ASC
     `)
     return rows.map(function toRow(row): CurrentFindingRow {

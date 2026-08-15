@@ -1,6 +1,6 @@
 import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import { ulid } from 'ulid'
-import { maxSeverity, parseFindingCorroborations, type Finding, type FindingCorroboration } from '@sentinello/core'
+import { escalatedSeverity, parseFindingCorroborations, type Finding, type FindingCorroboration } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { findings } from '../schema'
 
@@ -452,12 +452,24 @@ function parseDepPath(json: string): string[] {
 // resolves an earlier one's findings — which means by the time a later source agrees, the row it agrees
 // with is already written. `touchedIds` is every finding active in this scan, so the corroboration set is
 // rebuilt in full: a source that stops reporting stops corroborating, instead of leaving a stale badge.
+// `severities` reports the grade this call actually persisted for every row whose severity it
+// reconsidered. Callers hold in-memory copies of these findings that were built BEFORE the escalation was
+// known, and anything reading `severity` off those stale copies — the notifier, which stamps it onto the
+// notification event the dispatch filter matches on — would otherwise use the pre-escalation grade. The
+// map is the escalation crossing back out, so nothing downstream has to recompute it and reach a
+// different answer.
+export type ApplyCorroborationsResult = {
+    written: number
+    severities: Map<string, Finding['severity']>
+}
+
 export function applyFindingCorroborations(
     db: DrizzleDb,
     touchedIds: string[],
     byFindingId: Map<string, { own: Finding['severity']; corroborations: FindingCorroboration[] }>
-): number {
-    if (touchedIds.length === 0) return 0
+): ApplyCorroborationsResult {
+    const severities = new Map<string, Finding['severity']>()
+    if (touchedIds.length === 0) return { written: 0, severities }
     let written = 0
     const CHUNK = 500
     db.transaction(function txn(tx) {
@@ -471,15 +483,15 @@ export function applyFindingCorroborations(
                 // Only the corroborated rows need their severity reconsidered; an uncorroborated one is
                 // already reported at its own source's grade.
                 if (entry && corroborations.length > 0) {
-                    values.severity = maxSeverity([entry.own, ...corroborations.map(function grade(c) {
-                        return c.severity
-                    })])
+                    const escalated = escalatedSeverity(entry.own, corroborations)
+                    values.severity = escalated
+                    severities.set(id, escalated)
                 }
                 tx.update(findings).set(values).where(eq(findings.id, id)).run()
                 written += 1
             }
         }
     })
-    return written
+    return { written, severities }
 }
 

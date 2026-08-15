@@ -4,6 +4,7 @@ import {
     ECOSYSTEMS,
     LEGACY_SOURCE_CONFIG_KEYS,
     SOURCE_IDS,
+    isEcosystemStable,
     sourceEnabledKey,
     type EcosystemId,
     type SourceCell,
@@ -28,11 +29,10 @@ function legacyEnabledKey(source: SourceId): string | null {
     return null
 }
 
-// Reads a (source, ecosystem) cell's enabled flag. Falls back to the pre-Phase-2 flat key for the npm
-// cell so an upgrade preserves the operator's prior osv/gemnasium choice until the worker boot migrates
-// the key to the per-cell scheme; then to the per-source default. Shared by the portal and worker so the
-// live flag is read identically everywhere.
-export function getSourceEnabled(db: DrizzleDb, source: SourceId, ecosystem: EcosystemId = DEFAULT_ECOSYSTEM): boolean {
+// The stored flag for a (source, ecosystem) cell, with no availability gate. Falls back to the pre-Phase-2
+// flat key for the npm cell so an upgrade preserves the operator's prior osv/gemnasium choice until the
+// worker boot migrates the key to the per-cell scheme; then to the per-source default.
+function readSourceCellFlag(db: DrizzleDb, source: SourceId, ecosystem: EcosystemId): boolean {
     const v = getConfigValue<boolean>(db, sourceEnabledKey(source, ecosystem))
     if (typeof v === 'boolean') return v
     if (ecosystem === DEFAULT_ECOSYSTEM) {
@@ -45,24 +45,57 @@ export function getSourceEnabled(db: DrizzleDb, source: SourceId, ecosystem: Eco
     return SOURCE_DEFAULT_ENABLED[source]
 }
 
-// The set of active (source, ecosystem) cells whose findings are currently visible in the portal. A cell
-// is one advisory source answering for one ecosystem. npm-audit is the built-in source (default on, now
-// disableable) and only answers for the npm ecosystem; OSV and gemnasium are opt-in per ecosystem
-// (Settings → Sources) and only contribute once the operator enables their cell. Disabling a cell does NOT
-// delete its finding rows — they simply fall out of this set so every current-findings read path hides
-// them, and re-enabling brings them back intact (original firstDetectedAt preserved; the next scan
-// refreshes / resolves them). Today only the npm cells exist; the same selection lights up the non-npm
-// cells unchanged once Phases 3–4 write them.
+// "May this cell RUN?" — the question every scan, sync and Settings toggle asks. Shared by the portal and
+// worker so the live flag is read identically everywhere.
+//
+// A preview ecosystem answers false whatever the config says. This is the single choke point they all go
+// through, which is what makes the registry's `status` field sufficient on its own: a
+// `sources.osv.PyPI.enabled=true` left behind by an earlier build, or written by hand, cannot resurrect an
+// ecosystem whose matching is known to report clean for the wrong reasons.
+export function getSourceEnabled(db: DrizzleDb, source: SourceId, ecosystem: EcosystemId = DEFAULT_ECOSYSTEM): boolean {
+    if (!isEcosystemStable(ecosystem)) return false
+    return readSourceCellFlag(db, source, ecosystem)
+}
+
+// "Whose findings may be SHOWN?" — deliberately a different question from getSourceEnabled, and therefore
+// deliberately NOT gated on ecosystem availability.
+//
+// A cell is one advisory source answering for one ecosystem. npm-audit is the built-in source (default on,
+// now disableable) and only answers for the npm ecosystem; OSV and gemnasium are opt-in per ecosystem
+// (Settings → Sources). Disabling a cell does NOT delete its finding rows — they simply fall out of this
+// set so every current-findings read path hides them, and re-enabling brings them back intact (original
+// firstDetectedAt preserved; the next scan refreshes / resolves them).
+//
+// Withdrawing an ecosystem to 'preview' stops it PRODUCING findings — no discovery, no scan, no sync — but
+// must not retroactively hide rows an operator already collected under it. Making rows vanish on upgrade is
+// its own kind of dishonesty, and the operator can still mute or resolve what is there. So this reads the
+// stored flag directly: the availability gate belongs on production and configuration, not on visibility.
 export function getActiveSourceCells(db: DrizzleDb): SourceCell[] {
     const cells: SourceCell[] = []
     for (const source of SOURCE_IDS) {
         for (const eco of ECOSYSTEMS) {
-            // npm-audit is JavaScript's native source — it never answers for a non-npm ecosystem.
+            // npm-audit is Node's native source — it never answers for a non-npm ecosystem.
             if (source === 'npm-audit' && eco.id !== DEFAULT_ECOSYSTEM) continue
-            if (getSourceEnabled(db, source, eco.id)) cells.push({ source, ecosystem: eco.id })
+            if (readSourceCellFlag(db, source, eco.id)) cells.push({ source, ecosystem: eco.id })
         }
     }
     return cells
+}
+
+// "Which cells can actually RUN?" — getActiveSourceCells filtered by ecosystem availability, i.e. the
+// per-cell equivalent of getSourceEnabled.
+//
+// This is the set the "always a source on" invariant has to count, and counting the ungated set instead
+// is a hole that withdrawing an ecosystem opened. An operator who enabled osv for Python under an
+// earlier build still has sources.osv.PyPI.enabled=true in app_config; that cell can never run again,
+// but it is still "active" for visibility purposes so its historical findings stay readable. Counted as
+// remaining coverage, it would let them switch off every npm cell, be told the write succeeded, and be
+// left with nothing that can scan — the exact outcome the invariant exists to prevent, reached through
+// the control that promises to prevent it.
+export function getRunnableSourceCells(db: DrizzleDb): SourceCell[] {
+    return getActiveSourceCells(db).filter(function runnable(cell) {
+        return isEcosystemStable(cell.ecosystem)
+    })
 }
 
 // The distinct active source ids (deduped across ecosystems), derived from getActiveSourceCells so it can

@@ -7,7 +7,7 @@
 // matcher ran had none of the range-syntax guard that a sibling module documented as necessary. Each copy
 // was individually reasonable; together they disagreed, and the disagreements were invisible.
 export type { VersionRange, FormatOptions } from './range'
-export { formatRange, formatRanges } from './range'
+export { formatRange, formatRanges, isZeroVersion } from './range'
 export { parseVersionRanges } from './parse'
 export { versionInRange } from './match'
 export { compareVersions, highestVersion } from './compare'

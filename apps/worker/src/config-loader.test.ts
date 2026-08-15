@@ -422,9 +422,24 @@ describe('intervalHoursToCron', function () {
         expect(intervalHoursToCron(24)).toBe('0 0 * * *')
     })
 
-    it('does not wrap past the end of the day', function () {
-        expect(intervalHoursToCron(6, 20)).toBe('0 20 * * *')
-        expect(intervalHoursToCron(12, 23)).toBe('0 23 * * *')
+    // The anchor is a starting point, not a ceiling. Stopping at midnight turned every anchor at or past
+    // the interval into a slower cadence than the operator chose — "every 6 hours from 20:00" ran once a
+    // day — while the Settings page kept reporting the interval they picked.
+    it('wraps past midnight so the full cadence is kept', function () {
+        expect(intervalHoursToCron(6, 20)).toBe('0 2,8,14,20 * * *')
+        expect(intervalHoursToCron(12, 23)).toBe('0 11,23 * * *')
+    })
+
+    // Whatever the anchor, the number of slots is 24 / interval and the anchor is always one of them.
+    it('always emits a full day of slots', function () {
+        for (const hours of [3, 6, 12, 24] as const) {
+            for (let anchor = 0; anchor < 24; anchor++) {
+                const slots = intervalHoursToCron(hours, anchor).split(' ')[1]?.split(',').map(Number) ?? []
+                expect(slots).toHaveLength(24 / hours)
+                expect(slots).toContain(anchor)
+                expect([...slots].sort(function ascending(a, b) { return a - b })).toEqual(slots)
+            }
+        }
     })
 
     // A bad anchor must still yield a valid cron expression; the scheduler cannot recover from a

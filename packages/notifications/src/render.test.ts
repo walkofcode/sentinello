@@ -77,6 +77,29 @@ describe('renderSingleFinding', function () {
         expect(out.title).toBe('[HIGH] lodash@4.17.20 in api')
     })
 
+    // findings.severity is a plain TEXT column written from whatever a feed said, so the Severity type
+    // is a claim rather than a guarantee. Indexing the label map directly used to hand an operator an
+    // alert titled "[undefined]" — the one line they read first, saying nothing at all.
+    it.each([
+        ['HIGH', 'HIGH'],
+        [' high ', 'HIGH'],
+        ['catastrophic', 'CATASTROPHIC'],
+        // Empty is the one case with nothing to echo back, so it falls to the same "unknown weighs
+        // moderate" policy core applies rather than printing an empty grade.
+        ['', 'MODERATE'],
+        ['   ', 'MODERATE']
+    ])('renders severity %j as %s rather than undefined', function (severity, expected) {
+        const out = renderSingleFinding({
+            projectName: 'api',
+            gitBranch: null,
+            finding: finding({ severity: severity as Finding['severity'] }),
+            isBaseline: false,
+            portalBaseUrl: null
+        })
+        expect(out.title).toBe('[' + expected + '] lodash@4.17.20 in api')
+        expect(out.markdown).not.toContain('undefined')
+    })
+
     it('marks a first-scan finding as baseline', function () {
         const out = renderSingleFinding({
             projectName: 'api',

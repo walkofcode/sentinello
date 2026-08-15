@@ -13,6 +13,7 @@ import {
     insertNotificationTarget,
     listNotificationTargets,
     listRoots,
+    setConfigValue,
     setTargetProjects,
     setTargetRoots,
     upsertFindingEvent
@@ -800,9 +801,28 @@ describe('updateSourceCellAction', function () {
     it('disables a cell once another one is active', async function () {
         await updateSourceCellAction({ source: 'osv', ecosystem: 'npm', enabled: true })
 
-        await updateSourceCellAction({ source: 'npm-audit', ecosystem: 'npm', enabled: false })
+        await updateSourceCellAction({ source: 'osv', ecosystem: 'npm', enabled: false })
 
-        expect(getConfigValue(handle.db, sourceEnabledKey('npm-audit', 'npm'))).toBe(false)
+        expect(getConfigValue(handle.db, sourceEnabledKey('osv', 'npm'))).toBe(false)
+    })
+
+    // npm audit is what Sentinello scans with out of the box: it needs no provisioning, and OSV and
+    // gemnasium are additive to it rather than alternatives. Turning it off is not a choice the portal
+    // offers, and the switch being disabled is a hint — this is the rule.
+    it('refuses to turn off the built-in source', async function () {
+        expect(
+            await rejection(updateSourceCellAction({ source: 'npm-audit', ecosystem: 'npm', enabled: false }))
+        ).toContain('built-in source and cannot be turned off')
+
+        expect(getConfigValue(handle.db, sourceEnabledKey('npm-audit', 'npm'))).toBeNull()
+    })
+
+    it('still lets the built-in source be switched back on', async function () {
+        setConfigValue(handle.db, sourceEnabledKey('npm-audit', 'npm'), false)
+
+        await updateSourceCellAction({ source: 'npm-audit', ecosystem: 'npm', enabled: true })
+
+        expect(getConfigValue(handle.db, sourceEnabledKey('npm-audit', 'npm'))).toBe(true)
     })
 
     // The "always a source on" invariant. npm-audit/npm is enabled by default and is the only active
@@ -810,18 +830,42 @@ describe('updateSourceCellAction', function () {
     //
     // Returned rather than thrown, deliberately: this sentence is the only thing that explains to an
     // operator why the switch flipped back, and a thrown one never reaches them in a production build.
+    // Now that the built-in source cannot be switched off through the portal, this state is only
+    // reachable by writing the flag directly — which the e2e harness does, because npm audit spawns a
+    // package manager and reaches the registry. The invariant is the backstop for exactly that, so the
+    // test has to build the state rather than rely on a fresh install being one toggle away from it.
     it('refuses to disable the last active cell', async function () {
+        setConfigValue(handle.db, sourceEnabledKey('npm-audit', 'npm'), false)
+        await updateSourceCellAction({ source: 'osv', ecosystem: 'npm', enabled: true })
+
         expect(
-            await rejection(updateSourceCellAction({ source: 'npm-audit', ecosystem: 'npm', enabled: false }))
+            await rejection(updateSourceCellAction({ source: 'osv', ecosystem: 'npm', enabled: false }))
         ).toContain('At least one vulnerability source must stay enabled')
 
-        expect(getConfigValue(handle.db, sourceEnabledKey('npm-audit', 'npm'))).toBeNull()
+        expect(getConfigValue(handle.db, sourceEnabledKey('osv', 'npm'))).toBe(true)
     })
 
     it('does not signal the worker when the invariant rejects the write', async function () {
         await rejection(updateSourceCellAction({ source: 'npm-audit', ecosystem: 'npm', enabled: false }))
 
         expect(signalKinds()).toEqual([])
+    })
+
+    // Withdrawing Python/Go/Rust to preview left a way through the invariant. An operator who had
+    // enabled osv for Python under an earlier build still carries that config key; the cell can never
+    // run again, but it stays in the VISIBILITY set so its old findings remain readable. Counting that
+    // set here let them switch off the last npm cell, be told it saved, and be left unable to scan
+    // anything — the invariant reporting success while producing the state it exists to forbid.
+    it('does not let a withdrawn ecosystem stand in for the last runnable cell', async function () {
+        setConfigValue(handle.db, sourceEnabledKey('npm-audit', 'npm'), false)
+        await updateSourceCellAction({ source: 'osv', ecosystem: 'PyPI', enabled: true })
+        await updateSourceCellAction({ source: 'osv', ecosystem: 'npm', enabled: true })
+
+        expect(
+            await rejection(updateSourceCellAction({ source: 'osv', ecosystem: 'npm', enabled: false }))
+        ).toContain('At least one vulnerability source must stay enabled')
+
+        expect(getConfigValue(handle.db, sourceEnabledKey('osv', 'npm'))).toBe(true)
     })
 
     it('rejects an ecosystem outside the registry', async function () {

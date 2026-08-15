@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ALL_SOURCES, applyConfigFile, explicitFlagNames, parseArgs, severityAtLeast } from './options'
+import { ALL_SOURCES, applyConfigFile, explicitFlagNames, parseArgs } from './options'
 import type { CliOptions } from './options'
 
 function optionsOf(argv: string[]): CliOptions {
@@ -316,18 +316,6 @@ describe('explicitFlagNames', function () {
     // as explicitly typed. This suppresses the config file for a flag the user never actually set.
     it('also records a flag-shaped VALUE as explicit', function () {
         expect(explicitFlagNames(['--exclude', '--depth'])).toEqual(new Set(['--exclude', '--depth']))
-    })
-})
-
-describe('severityAtLeast', function () {
-    it('is true when the value is at least as severe as the floor', function () {
-        expect(severityAtLeast('critical', 'low')).toBe(true)
-        expect(severityAtLeast('low', 'low')).toBe(true)
-    })
-
-    it('is false when the value is less severe than the floor', function () {
-        expect(severityAtLeast('low', 'critical')).toBe(false)
-        expect(severityAtLeast('info', 'moderate')).toBe(false)
     })
 })
 

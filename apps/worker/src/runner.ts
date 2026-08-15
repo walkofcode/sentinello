@@ -139,6 +139,20 @@ async function runProjectScanners(input: RunBatchInput, project: Project): Promi
         outcomes.push(outcome)
     }
     recordCorroborations(input.db, outcomes, corroborations)
+    // Notification comes AFTER corroboration, for the whole project at once, and this ordering is
+    // load-bearing rather than tidy. Escalation to the worst grade any source gave a finding is only
+    // knowable once every source has run, but notifying inside each scanner's own pass stamped the
+    // pre-escalation grade onto the notification event — the column selectDispatchablePairs filters on.
+    // A finding npm-audit called moderate and gemnasium called critical was dispatched (or, under a
+    // critical-only filter, silently not dispatched) as moderate, and nothing ever revisited it.
+    const dryRun = getConfigValue<boolean>(input.db, CONFIG_KEYS.dryRunNotify) || false
+    for (const outcome of outcomes) {
+        try {
+            await notifyForCompletedScan({ db: input.db, outcome, dryRun })
+        } catch (err) {
+            console.error('[runner] notifier failed for project ' + project.id + ': ' + errText(err))
+        }
+    }
     return outcomes
 }
 
@@ -172,7 +186,20 @@ function recordCorroborations(db: DrizzleDb, outcomes: ProjectScanOutcome[], eve
         }
     }
     if (touched.length === 0) return
-    applyFindingCorroborations(db, touched, byFindingId)
+    const applied = applyFindingCorroborations(db, touched, byFindingId)
+    // Fold what was persisted back onto the in-memory findings the caller still holds. Those objects were
+    // built by the lifecycle merge before any later source had run, so their severity and corroboration
+    // set are both pre-escalation — and they are exactly what the notifier reads to stamp the event and
+    // build the webhook payload. Reading the escalation back rather than recomputing it here is the point:
+    // one place decides the grade, everything else is told.
+    for (const outcome of outcomes) {
+        for (const finding of outcome.findings) {
+            const escalated = applied.severities.get(finding.id)
+            if (escalated !== undefined) finding.severity = escalated
+            const attached = byTarget.get(findingIdentity(finding))
+            if (attached) finding.corroborations = attached
+        }
+    }
 }
 
 function findingIdentity(finding: Finding): string {
@@ -277,14 +304,9 @@ async function runOneScanner(
         })
         return result.active
     })
-    const outcome: ProjectScanOutcome = { project, scan, findings: merged }
-    const dryRun = getConfigValue<boolean>(input.db, CONFIG_KEYS.dryRunNotify) || false
-    try {
-        await notifyForCompletedScan({ db: input.db, outcome, dryRun })
-    } catch (err) {
-        console.error('[runner] notifier failed for project ' + project.id + ': ' + errText(err))
-    }
-    return outcome
+    // Notification is deliberately NOT fired here — see the comment at the notify loop in
+    // runProjectScanners for why it has to wait until every source has had its say.
+    return { project, scan, findings: merged }
 }
 
 function makeErrorOutcome(project: Project, errorText: string, startedAt?: number, scanner = 'npm-audit'): ProjectScanOutcome {
