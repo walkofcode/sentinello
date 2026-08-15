@@ -568,11 +568,11 @@
         "title": "Sentinello",
         "intro": "集中监控你所有项目组合中的依赖漏洞——自托管，运行在你自己的基础设施上。",
         "notDoTitle": "Sentinello 不会做什么",
-        "notDoBody": "Sentinello 完全运行在你自己的基础设施上。它不会读取你的源代码——它通过定位项目的依赖清单文件和锁文件（<code>package.json</code> 以及 Python、Go 和 Rust 的锁文件）来发现项目——不会向任何地方上传任何内容，不会有遥测数据离开你的机器，没有中心账户，也不涉及任何 LLM 或 AI。对于 JavaScript，默认就是普通的 <code>npm audit</code>；可选的 OSV 和 gemnasium 来源（设置 → 来源，默认关闭）仅通过 HTTPS 获取公开的公告数据。",
+        "notDoBody": "Sentinello 完全运行在你自己的基础设施上。它不会读取你的源代码——它通过定位项目的依赖清单文件和锁文件（<code>package.json</code>、<code>package-lock.json</code>、<code>pnpm-lock.yaml</code>、<code>yarn.lock</code>）来发现项目——不会向任何地方上传任何内容，不会有遥测数据离开你的机器，没有中心账户，也不涉及任何 LLM 或 AI。默认就是普通的 <code>npm audit</code>；可选的 OSV 和 gemnasium 来源（设置 → 来源，默认关闭）仅通过 HTTPS 获取公开的公告数据。",
         "whoTitle": "由谁构建",
         "whoBody": "由 <company>Walk of Code LLC</company> 和 Sebastian Arena（<linkedin>LinkedIn</linkedin>）构建。",
         "advisoryTitle": "通告数据来自哪里",
-        "advisoryBody": "漏洞数据源自 GitHub Advisory Database，对于 JavaScript 通过 <code>npm audit</code> 经由 npm registry 的通告端点获取。你还可以按语言额外启用 OSV 和 GitLab 的 gemnasium（设置 → 来源），以将 JavaScript、Python、Go 和 Rust 软件包与这些公开的公告数据库进行匹配——捕获 npm audit 遗漏的公告并标记已知的恶意软件包。非 JavaScript 语言会从锁文件离线解析，并与本地缓存的公告进行匹配；含糊不清的清单文件会被报告为部分或无法审计，而不会被视为干净。在判断一条公告影响哪些版本时，Sentinello 只读取 gemnasium 自身的机器可读版本范围，以及该记录所列的修复版本。若某条记录的范围不选中任何版本，或使用了 Sentinello 未实现的语法，则该记录会被丢弃而不做猜测，也不会去查询其他来源来填补空缺。",
+        "advisoryBody": "漏洞数据源自 GitHub Advisory Database，通过 <code>npm audit</code> 经由 npm registry 的通告端点获取。你还可以额外启用 OSV 和 GitLab 的 gemnasium（设置 → 来源），以将你的 Node.js 软件包与这些公开的公告数据库进行匹配——捕获 npm audit 遗漏的公告并标记已知的恶意软件包。两者都会从锁文件离线解析依赖，并与本地缓存的公告副本进行匹配，因此扫描期间不会有任何逐项目的请求离开你的机器；含糊不清的清单文件会被报告为部分或无法审计，而不会被视为干净。在判断一条公告影响哪些版本时，Sentinello 只读取 gemnasium 自身的机器可读版本范围，以及该记录所列的修复版本。若某条记录的范围不选中任何版本，或使用了 Sentinello 未实现的语法，则该记录会被丢弃而不做猜测，也不会去查询其他来源来填补空缺。Python、Go 和 Rust 已经实现但尚未开放：它们的版本处理还不正确，而一个出于错误原因回答“没有漏洞”的来源，比根本不提供更糟糕。",
         "sendsTitle": "Sentinello 会发送出去什么",
         "tableDestination": "目标",
         "tablePurpose": "用途",
@@ -585,8 +585,8 @@
                 "disable": "核心功能——无法禁用"
             },
             "osv": {
-                "purpose": "为每个已启用的语言下载公开的 OSV 公告导出",
-                "when": "每日以及手动刷新时 — 仅在某语言启用 OSV 时",
+                "purpose": "下载 npm 生态系统的公开 OSV 公告导出",
+                "when": "每日约 03:17 以及手动刷新时 — 仅在启用 OSV 时",
                 "disable": "设置 → 来源（默认关闭），或 SENTINELLO_OSV_FEED_URL=off"
             },
             "github": {
@@ -601,7 +601,7 @@
             },
             "gemnasium": {
                 "purpose": "检查 gemnasium-db 仓库的变更并仅下载有变化的公告（首次同步时下载完整存档）",
-                "when": "每日，以及手动刷新 — 仅当某语言启用了 gemnasium 时",
+                "when": "每日约 03:42，以及手动刷新 — 仅当启用了 gemnasium 时",
                 "disable": "设置 → 来源（默认关闭），或 SENTINELLO_GEMNASIUM_FEED_URL=off"
             },
             "notifications": {
@@ -627,7 +627,7 @@
             "updateFeedUrl": "为更新横幅检查的订阅源；设为 off 可禁用更新检查。",
             "webhookStrict": "启用后，拒绝指向私有或回环地址的 webhook 目标，并要求使用 https。链路本地地址和云元数据地址始终被拒绝。",
             "osvFeedUrl": "OSV 通告导出的基础 URL，仅在启用 OSV 来源时使用；设为 off 可禁用所有 OSV 网络访问。",
-            "osvDbPath": "可重建的 OSV 公告缓存的位置；随每个已启用的语言增长，默认位于主数据库旁边。",
+            "osvDbPath": "可重建的 OSV 公告缓存的位置；默认位于主数据库旁边。",
             "gemnasiumFeedUrl": "GitLab gemnasium 公告归档的 URL，仅在启用 gemnasium 来源时使用；设为 off 可禁用所有 gemnasium 网络访问。",
             "gemnasiumDbPath": "可重建的 gemnasium 公告缓存的位置；默认位于主数据库旁边。"
         },

@@ -568,11 +568,11 @@
         "title": "Sentinello",
         "intro": "Centralized dependency-vulnerability monitoring across your portfolio — self-hosted, on your own infrastructure.",
         "notDoTitle": "What Sentinello does not do",
-        "notDoBody": "Sentinello runs entirely on your infrastructure. It does not read your source code — it discovers projects by locating their dependency manifests and lockfiles (<code>package.json</code> plus Python, Go, and Rust lockfiles) — nothing is uploaded anywhere, no telemetry leaves your machine, there is no central account, and no LLM or AI is involved. For JavaScript it is plain <code>npm audit</code> by default; the optional OSV and gemnasium sources (Settings → Sources, off by default) only fetch public advisory data over HTTPS.",
+        "notDoBody": "Sentinello runs entirely on your infrastructure. It does not read your source code — it discovers projects by locating their dependency manifests and lockfiles (<code>package.json</code>, <code>package-lock.json</code>, <code>pnpm-lock.yaml</code>, <code>yarn.lock</code>) — nothing is uploaded anywhere, no telemetry leaves your machine, there is no central account, and no LLM or AI is involved. By default it is plain <code>npm audit</code>; the optional OSV and gemnasium sources (Settings → Sources, off by default) only fetch public advisory data over HTTPS.",
         "whoTitle": "Who built it",
         "whoBody": "Built by <company>Walk of Code LLC</company> and Sebastian Arena (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "Where advisory data comes from",
-        "advisoryBody": "Vulnerability data originates from the GitHub Advisory Database, reached through the npm registry’s advisory endpoint via <code>npm audit</code> for JavaScript. You can additionally enable OSV and GitLab gemnasium per language (Settings → Sources) to match JavaScript, Python, Go, and Rust packages against those public advisory databases — catching advisories npm audit misses and flagging known-malicious packages. Non-JavaScript languages are resolved offline from lockfiles and matched against locally cached advisories; ambiguous manifests are reported as partial or unauditable rather than treated as clean. Sentinello reads only gemnasium’s own machine-readable version range — together with the fix version the record lists — to decide what an advisory affects. A record whose range selects no version, or is written in range syntax Sentinello does not implement, is discarded rather than guessed at, and no other source is consulted to fill the gap.",
+        "advisoryBody": "Vulnerability data originates from the GitHub Advisory Database, reached through the npm registry’s advisory endpoint via <code>npm audit</code>. You can additionally enable OSV and GitLab gemnasium (Settings → Sources) to match your Node.js packages against those public advisory databases — catching advisories npm audit misses and flagging known-malicious packages. Both resolve your dependencies offline from the lockfile and match them against a locally cached copy of the advisory data, so no per-project request leaves your machine at scan time; ambiguous manifests are reported as partial or unauditable rather than treated as clean. Sentinello reads only gemnasium’s own machine-readable version range — together with the fix version the record lists — to decide what an advisory affects. A record whose range selects no version, or is written in range syntax Sentinello does not implement, is discarded rather than guessed at, and no other source is consulted to fill the gap. Python, Go and Rust are built but not offered: their version handling is not yet right, and a source that answers “no vulnerabilities” for the wrong reason is worse than one that is not offered at all.",
         "sendsTitle": "What Sentinello sends out",
         "tableDestination": "Destination",
         "tablePurpose": "Purpose",
@@ -585,8 +585,8 @@
                 "disable": "Core function — not disableable"
             },
             "osv": {
-                "purpose": "Download the public OSV advisory export for each enabled language",
-                "when": "Daily, plus manual refresh — only when OSV is enabled for a language",
+                "purpose": "Download the public OSV advisory export for the npm ecosystem",
+                "when": "Daily around 03:17, plus manual refresh — only when OSV is enabled",
                 "disable": "Settings → Sources (off by default), or SENTINELLO_OSV_FEED_URL=off"
             },
             "github": {
@@ -601,7 +601,7 @@
             },
             "gemnasium": {
                 "purpose": "Check the gemnasium-db repository for changes and download the advisories that changed (the full archive on first sync)",
-                "when": "Daily, plus manual refresh — only when gemnasium is enabled for a language",
+                "when": "Daily around 03:42, plus manual refresh — only when gemnasium is enabled",
                 "disable": "Settings → Sources (off by default), or SENTINELLO_GEMNASIUM_FEED_URL=off"
             },
             "notifications": {
@@ -627,7 +627,7 @@
             "updateFeedUrl": "Feed checked for the update banner; set to off to disable update checks.",
             "webhookStrict": "When enabled, rejects webhook targets aimed at private or loopback addresses and requires https. Link-local and cloud-metadata addresses are always rejected.",
             "osvFeedUrl": "Base URL for the OSV advisory export, used only when the OSV source is enabled; set to off to disable all OSV network access.",
-            "osvDbPath": "Location of the rebuildable OSV advisory cache; grows per enabled language and defaults next to the main database.",
+            "osvDbPath": "Location of the rebuildable OSV advisory cache; defaults next to the main database.",
             "gemnasiumFeedUrl": "URL for the GitLab gemnasium advisory archive, used only when the gemnasium source is enabled; set to off to disable all gemnasium network access.",
             "gemnasiumDbPath": "Location of the rebuildable gemnasium advisory cache; defaults next to the main database."
         },

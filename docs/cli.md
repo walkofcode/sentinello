@@ -17,8 +17,9 @@ npx sentinello
 4. **Writes the advisory** — findings ordered by severity across every project, each tagged with the
    project it came from, preceded by a remediation prompt.
 
-Scope is JavaScript and TypeScript (npm, pnpm, yarn berry). The portal's Python, Go, and Rust support has
-not yet reached the CLI.
+Scope is Node.js (npm, pnpm, yarn berry) — the same ecosystem the portal scans. Python, Go and Rust are
+implemented in the shared scanners but offered by neither, because their version handling is not yet
+right.
 
 ## Output
 

@@ -568,11 +568,11 @@
         "title": "Sentinello",
         "intro": "Monitoreo centralizado de vulnerabilidades en dependencias de todo tu portafolio — autoalojado, en tu propia infraestructura.",
         "notDoTitle": "Lo que Sentinello no hace",
-        "notDoBody": "Sentinello se ejecuta por completo en tu infraestructura. No lee tu código fuente — descubre proyectos localizando sus manifiestos de dependencias y lockfiles (<code>package.json</code> más lockfiles de Python, Go y Rust) — no se sube nada a ningún lado, ninguna telemetría sale de tu máquina, no hay cuenta central y no interviene ningún LLM ni IA. Para JavaScript es simplemente <code>npm audit</code> de forma predeterminada; las fuentes opcionales OSV y gemnasium (Configuración → Fuentes, desactivadas por defecto) solo obtienen datos públicos de avisos por HTTPS.",
+        "notDoBody": "Sentinello se ejecuta por completo en tu infraestructura. No lee tu código fuente — descubre proyectos localizando sus manifiestos de dependencias y lockfiles (<code>package.json</code>, <code>package-lock.json</code>, <code>pnpm-lock.yaml</code>, <code>yarn.lock</code>) — no se sube nada a ningún lado, ninguna telemetría sale de tu máquina, no hay cuenta central y no interviene ningún LLM ni IA. De forma predeterminada es simplemente <code>npm audit</code>; las fuentes opcionales OSV y gemnasium (Configuración → Fuentes, desactivadas por defecto) solo obtienen datos públicos de avisos por HTTPS.",
         "whoTitle": "Quién lo construyó",
         "whoBody": "Construido por <company>Walk of Code LLC</company> y Sebastian Arena (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "De dónde provienen los datos de avisos",
-        "advisoryBody": "Los datos de vulnerabilidades provienen de la GitHub Advisory Database, accedida para JavaScript a través del endpoint de avisos del registro de npm vía <code>npm audit</code>. Además podés activar OSV y gemnasium de GitLab por lenguaje (Configuración → Fuentes) para comparar paquetes de JavaScript, Python, Go y Rust con esas bases de datos públicas de avisos — detectando avisos que npm audit pasa por alto y marcando paquetes maliciosos conocidos. Los lenguajes que no son JavaScript se resuelven sin conexión a partir de los lockfiles y se comparan con avisos almacenados en caché localmente; los manifiestos ambiguos se reportan como parciales o no auditables en lugar de tratarse como limpios. Sentinello solo lee el rango de versiones legible por máquina del propio gemnasium —junto con la versión corregida que indique el registro— para decidir a qué afecta un aviso. Un registro cuyo rango no selecciona ninguna versión, o que está escrito con una sintaxis que Sentinello no implementa, se descarta en lugar de adivinarlo, y no se consulta ninguna otra fuente para rellenar el hueco.",
+        "advisoryBody": "Los datos de vulnerabilidades provienen de la GitHub Advisory Database, accedida a través del endpoint de avisos del registro de npm vía <code>npm audit</code>. Además podés activar OSV y gemnasium de GitLab (Configuración → Fuentes) para comparar tus paquetes de Node.js con esas bases de datos públicas de avisos — detectando avisos que npm audit pasa por alto y marcando paquetes maliciosos conocidos. Ambas resuelven tus dependencias sin conexión a partir del lockfile y las comparan con una copia de los avisos almacenada en caché localmente, así que durante el escaneo ninguna petición por proyecto sale de tu máquina; los manifiestos ambiguos se reportan como parciales o no auditables en lugar de tratarse como limpios. Sentinello solo lee el rango de versiones legible por máquina del propio gemnasium —junto con la versión corregida que indique el registro— para decidir a qué afecta un aviso. Un registro cuyo rango no selecciona ninguna versión, o que está escrito con una sintaxis que Sentinello no implementa, se descarta en lugar de adivinarlo, y no se consulta ninguna otra fuente para rellenar el hueco. Python, Go y Rust están construidos pero no se ofrecen: su manejo de versiones todavía no es correcto, y una fuente que responde “sin vulnerabilidades” por los motivos equivocados es peor que una que directamente no se ofrece.",
         "sendsTitle": "Lo que Sentinello envía hacia afuera",
         "tableDestination": "Destino",
         "tablePurpose": "Propósito",
@@ -585,8 +585,8 @@
                 "disable": "Función central — no se puede deshabilitar"
             },
             "osv": {
-                "purpose": "Descargar el export público de avisos OSV para cada lenguaje habilitado",
-                "when": "A diario, además de actualización manual — solo cuando OSV está habilitado para un lenguaje",
+                "purpose": "Descargar el export público de avisos OSV del ecosistema npm",
+                "when": "A diario cerca de las 03:17, además de actualización manual — solo cuando OSV está habilitado",
                 "disable": "Configuración → Fuentes (desactivado por defecto), o SENTINELLO_OSV_FEED_URL=off"
             },
             "github": {
@@ -601,7 +601,7 @@
             },
             "gemnasium": {
                 "purpose": "Comprobar si hay cambios en el repositorio gemnasium-db y descargar los avisos que cambiaron (el archivo completo en la primera sincronización)",
-                "when": "A diario, además de actualización manual — solo cuando gemnasium está habilitado para un lenguaje",
+                "when": "A diario cerca de las 03:42, además de actualización manual — solo cuando gemnasium está habilitado",
                 "disable": "Configuración → Fuentes (desactivado por defecto), o SENTINELLO_GEMNASIUM_FEED_URL=off"
             },
             "notifications": {
@@ -627,7 +627,7 @@
             "updateFeedUrl": "Feed consultado para el banner de actualización; ponlo en off para deshabilitar las verificaciones de actualización.",
             "webhookStrict": "Cuando está habilitado, rechaza destinos de webhook dirigidos a direcciones privadas o de loopback y exige https. Las direcciones link-local y de metadatos de la nube siempre se rechazan.",
             "osvFeedUrl": "URL base de la exportación de avisos OSV, usada solo cuando la fuente OSV está habilitada; ponla en off para deshabilitar todo el acceso de red a OSV.",
-            "osvDbPath": "Ubicación de la caché reconstruible de avisos OSV; crece por cada lenguaje habilitado y por defecto se ubica junto a la base de datos principal.",
+            "osvDbPath": "Ubicación de la caché reconstruible de avisos OSV; por defecto se ubica junto a la base de datos principal.",
             "gemnasiumFeedUrl": "URL del archivo de avisos gemnasium de GitLab, usada solo cuando la fuente gemnasium está habilitada; poné off para desactivar todo el acceso de red de gemnasium.",
             "gemnasiumDbPath": "Ubicación de la caché reconstruible de avisos gemnasium; por defecto se ubica junto a la base de datos principal."
         },
