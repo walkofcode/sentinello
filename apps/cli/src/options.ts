@@ -46,6 +46,9 @@ export type ParseResult =
     | { kind: 'doctor'; options: CliOptions }
     | { kind: 'error'; message: string }
 
+// Presentation order for --severity's help text and the membership check behind isSeverity. NOT a
+// rank table: comparing severities goes through meetsSeverityFloor / severityWeight in core, which is
+// the one place that decides which of two grades is worse.
 const SEVERITIES: Severity[] = ['critical', 'high', 'moderate', 'low', 'info']
 
 function defaults(): CliOptions {
@@ -351,8 +354,4 @@ export function explicitFlagNames(argv: readonly string[]): Set<string> {
         out.add(eq === -1 ? arg : arg.slice(0, eq))
     }
     return out
-}
-
-export function severityAtLeast(value: Severity, floor: Severity): boolean {
-    return SEVERITIES.indexOf(value) <= SEVERITIES.indexOf(floor)
 }
