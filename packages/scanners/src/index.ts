@@ -28,7 +28,8 @@ export type { GemnasiumAdvisory, GemnasiumLookup, GemnasiumRange, GemnasiumScann
 export { matchAdvisories } from './engine/matcher'
 export { semverComparator } from './engine/comparators/semver'
 export { pep440Comparator } from './engine/comparators/pep440'
-export { reconcileAgainstReported, findingIdentityKeys } from './engine/reconcile'
+export { reconcileAgainstReported, findingIdentityKeys, escalatedSeverity } from './engine/reconcile'
+export type { CorroborationEvent, ReconcileResult, ReportedAdvisory } from './engine/reconcile'
 export type { CanonicalAdvisory, CanonicalRange, VersionComparator } from './engine/types'
 
 const registry = new Map<string, ScannerPlugin>()

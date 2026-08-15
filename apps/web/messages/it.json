@@ -472,7 +472,11 @@
         "rangeLabel": "Intervallo:",
         "malicious": "dannoso",
         "filterByEcosystem": "Filtra per linguaggio",
-        "ecosystemAll": "Tutti i linguaggi"
+        "ecosystemAll": "Tutti i linguaggi",
+        "grades": {
+            "label": "Valutazione per fonte",
+            "explain": "Sentinello riporta la valutazione più grave tra quelle delle fonti, per non sottostimare mai una vulnerabilità."
+        }
     },
     "Triage": {
         "alias": {

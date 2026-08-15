@@ -23,6 +23,7 @@ function finding(overrides: Partial<Finding> = {}): Finding {
         severity: 'high',
         fixAvailable: false,
         fixVersion: null,
+        corroborations: [],
         depPath: [],
         isProd: true,
         isDev: false,

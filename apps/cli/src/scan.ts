@@ -8,6 +8,7 @@ import {
     npmAuditPlugin,
     reconcileAgainstReported,
     resolveProjectGraphs,
+    type ReportedAdvisory,
     type DiscoveredProject,
     type RawFinding,
     type ResolvedGraph,
@@ -152,7 +153,7 @@ export async function scanProject(
 ): Promise<ProjectScanResult> {
     const findings: RawFinding[] = []
     const outcomes: ScannerOutcome[] = []
-    const reportedByPackage = new Map<string, Set<string>>()
+    const reportedByPackage = new Map<string, Map<string, ReportedAdvisory>>()
     const coverage = resolved.results.map(function toCoverage(result) {
         if (result.status === 'ok') return { ecosystem: result.ecosystem, status: result.status }
         return { ecosystem: result.ecosystem, status: result.status, reasonCode: result.reasonCode, details: result.details }
@@ -189,7 +190,10 @@ export async function scanProject(
             durationMs: result.durationMs
         })
         if (result.status !== 'ok') continue
-        for (const finding of reconcileAgainstReported(result.findings, reportedByPackage)) {
+        // Corroborations are attached to the surviving finding in place and its severity re-graded to
+        // the worst any source gave, so the report and the --fail-on gate both see the cautious value
+        // without the CLI needing anywhere to store it.
+        for (const finding of reconcileAgainstReported(result.findings, reportedByPackage, scanner.name).kept) {
             findings.push(finding)
         }
     }

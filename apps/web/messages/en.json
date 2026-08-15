@@ -472,7 +472,11 @@
         "rangeLabel": "Range:",
         "malicious": "malicious",
         "filterByEcosystem": "Filter by language",
-        "ecosystemAll": "All languages"
+        "ecosystemAll": "All languages",
+        "grades": {
+            "label": "How each source graded this",
+            "explain": "Sentinello reports the worst grade any source gave, so a vulnerability is never under-stated."
+        }
     },
     "Triage": {
         "alias": {

@@ -472,7 +472,11 @@
         "rangeLabel": "Faixa:",
         "malicious": "malicioso",
         "filterByEcosystem": "Filtrar por linguagem",
-        "ecosystemAll": "Todas as linguagens"
+        "ecosystemAll": "Todas as linguagens",
+        "grades": {
+            "label": "Como cada fonte classifica",
+            "explain": "O Sentinello reporta a pior classificação dada por qualquer fonte, para nunca subestimar uma vulnerabilidade."
+        }
     },
     "Triage": {
         "alias": {

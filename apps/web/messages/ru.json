@@ -472,7 +472,11 @@
         "rangeLabel": "Диапазон:",
         "malicious": "вредоносный",
         "filterByEcosystem": "Фильтр по языку",
-        "ecosystemAll": "Все языки"
+        "ecosystemAll": "Все языки",
+        "grades": {
+            "label": "Оценка каждым источником",
+            "explain": "Sentinello сообщает самую высокую оценку из данных любым источником, чтобы не занизить уязвимость."
+        }
     },
     "Triage": {
         "alias": {

@@ -17,7 +17,7 @@ function stripVPrefix(value: string): string {
 // Newest first. The locale-independent version index. Adding a release = one entry here plus a
 // RELEASE_COPY entry in every locale below. See CLAUDE.md for the release-please version-sync flow.
 export const RELEASES: ReleaseEntry[] = [
-    { version: '3.1.2', date: '2026-08-14' },
+    { version: '3.2.0', date: '2026-08-15' },
     { version: '3.1.1', date: '2026-08-14' },
     { version: '3.1.0', date: '2026-08-13' },
     { version: '3.0.1', date: '2026-08-04' },
@@ -47,9 +47,12 @@ export const RELEASES: ReleaseEntry[] = [
 // this is plain TS data, not a next-intl message key (next-intl forbids '.' in keys).
 export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     en: {
-        '3.1.2': {
-            title: 'Advisories that GitLab had already retracted stop being reported',
+        '3.2.0': {
+            title: 'Findings now show which sources agree — and retracted advisories stop being reported',
             items: [
+                'When more than one advisory database reports the same vulnerability, Sentinello has always kept a single finding — reporting one flaw three times because three databases know about it is noise. What it used to do was discard everything about the sources it collapsed, so a vulnerability confirmed independently by npm audit, OSV and GitLab gemnasium looked exactly like one that a single database had ever heard of. On a real instance that is two thirds of all findings. Each finding now carries the other sources that reported it, and their badges appear alongside the surviving one',
+                'A finding is reported at the WORST severity any source assigned it. The databases genuinely disagree — gemnasium computes severity from the CVSS vector while npm audit takes GitHub’s bucket — and for a scanner the cautious reading is the one worth acting on. This is not cosmetic: an escalated finding moves between severity buckets on the dashboard, in project totals, in the CLI’s <code>--fail-on</code> gate and in notification thresholds. Expect some counts to shift on the first scan after upgrading; nothing new was detected, the same findings are being graded more carefully',
+                'Where the sources disagree, the finding shows a control next to its severity that opens what each one actually said — its own advisory id and its own grade. It appears only when there is a disagreement to explain, so a finding everyone grades alike stays uncluttered',
                 'OSV records a withdrawal in a dedicated field and GitHub removes withdrawn advisories before <code>npm audit</code> ever sees them, but GitLab gemnasium has no such field in its schema. It retracts an advisory by rewriting the record in place — the title becomes “False Positive”, “Withdrawn Advisory: …” or “Duplicate Advisory: …” — while leaving the versions it used to name exactly where they were. Sentinello was reading those versions and reporting findings GitLab had explicitly taken back: 383 records across JavaScript, Python, Go and Rust, including one that reported <code>express</code> under the title “False Positive”. All of them are now dropped, which also removes a whole class of duplicate findings, since 278 of the 383 are advisories withdrawn for being duplicates of another one',
                 'The check matches the retraction markers exactly rather than searching for the words anywhere, so a genuine advisory that happens to be *about* a false positive still reports — Cosign’s CVE-2026-39395, titled “Cosign’s verify-blob-attestation reports false positive when payload parsing fails”, is unaffected',
                 'The gemnasium cache rebuilds itself on its first sync after this upgrade, so the retracted advisories disappear then. Nothing to do — it happens on the daily schedule, or immediately from Settings → Sources → Refresh'
@@ -227,9 +230,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Initial open-source release', items: ['The first public release of Sentinello'] }
     },
     es: {
-        '3.1.2': {
-            title: 'Los avisos que GitLab ya había retirado dejan de reportarse',
+        '3.2.0': {
+            title: 'Los hallazgos muestran qué fuentes coinciden, y los avisos retirados dejan de reportarse',
             items: [
+                'Cuando más de una base de datos de avisos reporta la misma vulnerabilidad, Sentinello siempre ha mantenido un único hallazgo: reportar un mismo fallo tres veces porque lo conocen tres bases de datos es ruido. Lo que hacía antes era descartar todo sobre las fuentes que colapsaba, así que una vulnerabilidad confirmada de forma independiente por npm audit, OSV y GitLab gemnasium se veía igual que otra que solo conocía una base de datos. En una instancia real eso son dos tercios de los hallazgos. Ahora cada hallazgo lleva las demás fuentes que lo reportaron, y sus etiquetas aparecen junto a la superviviente',
+                'Un hallazgo se reporta con la severidad MÁS ALTA que le haya asignado cualquier fuente. Las bases de datos discrepan de verdad —gemnasium calcula la severidad a partir del vector CVSS mientras que npm audit toma la categoría de GitHub— y para un escáner la lectura prudente es la que conviene aplicar. Esto no es cosmético: un hallazgo escalado cambia de categoría en el panel, en los totales del proyecto, en la barrera <code>--fail-on</code> de la CLI y en los umbrales de notificación. Es de esperar que algunos recuentos cambien en el primer escaneo tras actualizar; no se detectó nada nuevo, los mismos hallazgos se clasifican con más cautela',
+                'Cuando las fuentes discrepan, el hallazgo muestra un control junto a su severidad que abre lo que dijo cada una: su propio identificador de aviso y su propia clasificación. Solo aparece cuando hay una discrepancia que explicar, de modo que un hallazgo en el que todas coinciden se mantiene despejado',
                 'OSV registra la retirada en un campo específico y GitHub elimina los avisos retirados antes de que <code>npm audit</code> los vea, pero GitLab gemnasium no tiene ese campo en su esquema. Retira un aviso reescribiendo el registro: el título pasa a ser «False Positive», «Withdrawn Advisory: …» o «Duplicate Advisory: …», y deja intactas las versiones que nombraba antes. Sentinello leía esas versiones y reportaba hallazgos que GitLab había retirado explícitamente: 383 registros en JavaScript, Python, Go y Rust, incluido uno que reportaba <code>express</code> bajo el título «False Positive». Todos se descartan ahora, lo que además elimina toda una clase de hallazgos duplicados, ya que 278 de los 383 son avisos retirados por duplicar a otro',
                 'La comprobación busca los marcadores de retirada de forma exacta, no en cualquier parte del texto, así que un aviso legítimo que trate *sobre* un falso positivo se sigue reportando: el CVE-2026-39395 de Cosign, titulado «Cosign’s verify-blob-attestation reports false positive when payload parsing fails», no se ve afectado',
                 'La caché de gemnasium se reconstruye sola en su primera sincronización tras esta actualización, y entonces desaparecen los avisos retirados. No hay que hacer nada: ocurre en la sincronización diaria, o al instante desde Ajustes → Fuentes → Actualizar'
@@ -410,9 +416,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primera versión de código abierto', items: ['El primer lanzamiento público de Sentinello'] }
     },
     fr: {
-        '3.1.2': {
-            title: 'Les avis que GitLab avait déjà retirés ne sont plus signalés',
+        '3.2.0': {
+            title: 'Les résultats indiquent quelles sources concordent, et les avis retirés ne sont plus signalés',
             items: [
+                'Lorsque plusieurs bases d’avis signalent la même vulnérabilité, Sentinello n’a jamais conservé qu’un seul résultat : signaler trois fois la même faille parce que trois bases la connaissent, c’est du bruit. Mais tout ce qui concernait les sources fusionnées était jusqu’ici écarté, si bien qu’une vulnérabilité confirmée indépendamment par npm audit, OSV et GitLab gemnasium ressemblait exactement à une que seule une base avait jamais signalée. Sur une instance réelle, cela représente deux tiers des résultats. Chaque résultat porte désormais les autres sources qui l’ont signalé, et leurs badges apparaissent à côté de celui qui a survécu',
+                'Un résultat est signalé avec la sévérité LA PLUS ÉLEVÉE attribuée par une source. Les bases divergent réellement — gemnasium calcule la sévérité à partir du vecteur CVSS tandis que npm audit reprend la catégorie de GitHub — et pour un scanner, c’est la lecture prudente qu’il faut retenir. Ce n’est pas cosmétique : un résultat réévalué change de catégorie sur le tableau de bord, dans les totaux du projet, dans la barrière <code>--fail-on</code> de la CLI et dans les seuils de notification. Attendez-vous à des décomptes différents lors du premier scan après la mise à jour ; rien de nouveau n’a été détecté, les mêmes résultats sont simplement évalués avec plus de prudence',
+                'Là où les sources divergent, le résultat affiche à côté de sa sévérité un contrôle qui ouvre ce que chacune a réellement dit : son propre identifiant d’avis et sa propre évaluation. Il n’apparaît que lorsqu’il y a un désaccord à expliquer, de sorte qu’un résultat évalué de la même façon par tous reste épuré',
                 'OSV consigne un retrait dans un champ dédié et GitHub supprime les avis retirés avant même que <code>npm audit</code> ne les voie, mais GitLab gemnasium n’a pas ce champ dans son schéma. Il retire un avis en réécrivant l’enregistrement : le titre devient « False Positive », « Withdrawn Advisory: … » ou « Duplicate Advisory: … », tandis que les versions qu’il désignait restent en place. Sentinello lisait ces versions et signalait des résultats que GitLab avait explicitement retirés : 383 enregistrements pour JavaScript, Python, Go et Rust, dont un qui signalait <code>express</code> sous le titre « False Positive ». Tous sont désormais écartés, ce qui supprime aussi toute une catégorie de doublons, puisque 278 des 383 sont des avis retirés parce qu’ils faisaient doublon',
                 'La détection compare les marqueurs de retrait exactement plutôt que de chercher les mots n’importe où, si bien qu’un avis authentique portant *sur* un faux positif continue d’être signalé : le CVE-2026-39395 de Cosign, intitulé « Cosign’s verify-blob-attestation reports false positive when payload parsing fails », n’est pas affecté',
                 'Le cache gemnasium se reconstruit de lui-même à sa première synchronisation après cette mise à jour ; les avis retirés disparaissent alors. Rien à faire : cela se produit lors de la synchronisation quotidienne, ou immédiatement depuis Paramètres → Sources → Actualiser'
@@ -595,9 +604,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Première version open source', items: ['La première version publique de Sentinello'] }
     },
     de: {
-        '3.1.2': {
-            title: 'Von GitLab bereits zurückgezogene Advisories werden nicht mehr gemeldet',
+        '3.2.0': {
+            title: 'Befunde zeigen jetzt, welche Quellen übereinstimmen — und zurückgezogene Advisories werden nicht mehr gemeldet',
             items: [
+                'Wenn mehrere Advisory-Datenbanken dieselbe Schwachstelle melden, hat Sentinello immer nur EINEN Befund behalten — dieselbe Lücke dreimal zu melden, weil drei Datenbanken sie kennen, ist Rauschen. Verworfen wurde bislang aber auch alles über die zusammengeführten Quellen, sodass eine von npm audit, OSV und GitLab gemnasium unabhängig bestätigte Schwachstelle genauso aussah wie eine, die nur eine einzige Datenbank je gemeldet hat. Auf einer realen Instanz sind das zwei Drittel aller Befunde. Jeder Befund führt nun die weiteren Quellen mit, die ihn gemeldet haben, und ihre Badges erscheinen neben der verbliebenen',
+                'Ein Befund wird mit der HÖCHSTEN Schwere gemeldet, die ihm irgendeine Quelle gegeben hat. Die Datenbanken widersprechen sich tatsächlich — gemnasium berechnet die Schwere aus dem CVSS-Vektor, npm audit übernimmt GitHubs Einstufung — und für einen Scanner ist die vorsichtige Lesart die maßgebliche. Das ist nicht kosmetisch: Ein hochgestufter Befund wechselt die Kategorie im Dashboard, in den Projektsummen, im <code>--fail-on</code>-Gate der CLI und in den Benachrichtigungsschwellen. Beim ersten Scan nach dem Update werden sich einige Zahlen verschieben; es wurde nichts Neues gefunden, dieselben Befunde werden nur vorsichtiger bewertet',
+                'Wo die Quellen sich widersprechen, zeigt der Befund neben seiner Schwere ein Bedienelement, das öffnet, was jede Quelle tatsächlich gesagt hat — ihre eigene Advisory-Kennung und ihre eigene Einstufung. Es erscheint nur, wenn es einen Widerspruch zu erklären gibt, sodass ein einhellig bewerteter Befund unaufgeräumt bleibt',
                 'OSV vermerkt einen Rückzug in einem eigenen Feld, und GitHub entfernt zurückgezogene Advisories, bevor <code>npm audit</code> sie überhaupt sieht — GitLab gemnasium hat ein solches Feld in seinem Schema jedoch nicht. Es zieht ein Advisory zurück, indem es den Eintrag umschreibt: Der Titel wird zu „False Positive“, „Withdrawn Advisory: …“ oder „Duplicate Advisory: …“, während die zuvor genannten Versionen unverändert stehen bleiben. Sentinello las diese Versionen und meldete Befunde, die GitLab ausdrücklich zurückgenommen hatte: 383 Einträge über JavaScript, Python, Go und Rust hinweg, darunter einer, der <code>express</code> unter dem Titel „False Positive“ meldete. Alle werden nun verworfen, was zugleich eine ganze Klasse doppelter Befunde beseitigt — 278 der 383 sind Advisories, die als Duplikat eines anderen zurückgezogen wurden',
                 'Die Prüfung vergleicht die Rückzugsmarker exakt, statt die Wörter irgendwo im Text zu suchen. Ein echtes Advisory, das *von* einem False Positive handelt, wird daher weiterhin gemeldet: Cosigns CVE-2026-39395 mit dem Titel „Cosign’s verify-blob-attestation reports false positive when payload parsing fails“ bleibt unberührt',
                 'Der gemnasium-Cache baut sich bei der ersten Synchronisierung nach diesem Update selbst neu auf; dann verschwinden die zurückgezogenen Advisories. Es ist nichts zu tun: Es geschieht im täglichen Lauf oder sofort über Einstellungen → Quellen → Aktualisieren'
@@ -781,9 +793,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         }
     },
     'pt-BR': {
-        '3.1.2': {
-            title: 'Avisos que o GitLab já havia retirado deixam de ser reportados',
+        '3.2.0': {
+            title: 'Os achados mostram quais fontes concordam, e avisos retirados deixam de ser reportados',
             items: [
+                'Quando mais de uma base de avisos reporta a mesma vulnerabilidade, o Sentinello sempre manteve um único achado: reportar a mesma falha três vezes porque três bases a conhecem é ruído. O que ele fazia antes era descartar tudo sobre as fontes que unificava, então uma vulnerabilidade confirmada de forma independente pelo npm audit, pelo OSV e pelo GitLab gemnasium parecia idêntica a uma que só uma base jamais reportou. Numa instância real isso são dois terços dos achados. Agora cada achado carrega as demais fontes que o reportaram, e seus selos aparecem ao lado do sobrevivente',
+                'Um achado é reportado com a PIOR severidade atribuída por qualquer fonte. As bases realmente discordam — o gemnasium calcula a severidade a partir do vetor CVSS enquanto o npm audit adota a categoria do GitHub — e, para um scanner, a leitura cautelosa é a que vale agir. Isto não é cosmético: um achado elevado muda de categoria no painel, nos totais do projeto, na barreira <code>--fail-on</code> da CLI e nos limiares de notificação. Espere alguns números mudarem na primeira varredura após a atualização; nada novo foi detectado, os mesmos achados estão sendo classificados com mais cautela',
+                'Onde as fontes discordam, o achado exibe ao lado da severidade um controle que abre o que cada uma realmente disse: o identificador de aviso dela e a classificação dela. Ele só aparece quando há divergência a explicar, de modo que um achado avaliado igualmente por todas permanece limpo',
                 'O OSV registra a retirada em um campo próprio e o GitHub remove avisos retirados antes que o <code>npm audit</code> sequer os veja, mas o GitLab gemnasium não tem esse campo em seu esquema. Ele retira um aviso reescrevendo o registro: o título passa a ser “False Positive”, “Withdrawn Advisory: …” ou “Duplicate Advisory: …”, enquanto as versões que ele citava continuam ali. O Sentinello lia essas versões e reportava achados que o GitLab havia retirado explicitamente: 383 registros em JavaScript, Python, Go e Rust, incluindo um que reportava o <code>express</code> sob o título “False Positive”. Todos são descartados agora, o que também elimina toda uma classe de achados duplicados, já que 278 dos 383 são avisos retirados por duplicarem outro',
                 'A verificação compara os marcadores de retirada de forma exata, em vez de procurar as palavras em qualquer lugar, então um aviso legítimo que trate *sobre* um falso positivo continua sendo reportado: o CVE-2026-39395 do Cosign, intitulado “Cosign’s verify-blob-attestation reports false positive when payload parsing fails”, não é afetado',
                 'O cache do gemnasium se reconstrói sozinho na primeira sincronização após esta atualização, e então os avisos retirados desaparecem. Não há nada a fazer: acontece na sincronização diária, ou imediatamente em Configurações → Fontes → Atualizar'
@@ -964,9 +979,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primeira versão de código aberto', items: ['O primeiro lançamento público do Sentinello'] }
     },
     it: {
-        '3.1.2': {
-            title: 'Gli advisory che GitLab aveva già ritirato non vengono più segnalati',
+        '3.2.0': {
+            title: 'I risultati mostrano quali fonti concordano e gli advisory ritirati non vengono più segnalati',
             items: [
+                'Quando più database di advisory segnalano la stessa vulnerabilità, Sentinello ha sempre mantenuto UN solo risultato: segnalare tre volte lo stesso difetto perché lo conoscono tre database è rumore. Finora però scartava tutto ciò che riguardava le fonti accorpate, così una vulnerabilità confermata in modo indipendente da npm audit, OSV e GitLab gemnasium appariva identica a una che un solo database avesse mai segnalato. Su un’istanza reale si tratta di due terzi dei risultati. Ora ogni risultato porta con sé le altre fonti che lo hanno segnalato, e i loro badge compaiono accanto a quello sopravvissuto',
+                'Un risultato viene segnalato con la severità PIÙ ALTA assegnata da una qualsiasi fonte. I database non concordano davvero — gemnasium calcola la severità dal vettore CVSS mentre npm audit adotta la categoria di GitHub — e per uno scanner la lettura prudente è quella su cui agire. Non è un dettaglio estetico: un risultato innalzato cambia categoria nella dashboard, nei totali di progetto, nel gate <code>--fail-on</code> della CLI e nelle soglie di notifica. Aspettati che alcuni conteggi si spostino alla prima scansione dopo l’aggiornamento: non è stato rilevato nulla di nuovo, gli stessi risultati vengono valutati con più prudenza',
+                'Dove le fonti divergono, il risultato mostra accanto alla severità un controllo che apre ciò che ciascuna ha effettivamente detto: il proprio identificativo di advisory e la propria valutazione. Compare solo quando c’è un disaccordo da spiegare, così un risultato valutato allo stesso modo da tutti resta pulito',
                 'OSV registra un ritiro in un campo dedicato e GitHub rimuove gli advisory ritirati prima che <code>npm audit</code> li veda, ma GitLab gemnasium non ha quel campo nel proprio schema. Ritira un advisory riscrivendo il record: il titolo diventa «False Positive», «Withdrawn Advisory: …» o «Duplicate Advisory: …», mentre le versioni che indicava restano al loro posto. Sentinello leggeva quelle versioni e segnalava risultati che GitLab aveva esplicitamente ritirato: 383 record tra JavaScript, Python, Go e Rust, incluso uno che segnalava <code>express</code> con il titolo «False Positive». Ora vengono tutti scartati, il che elimina anche un’intera classe di risultati duplicati, dato che 278 dei 383 sono advisory ritirati perché duplicati di un altro',
                 'Il controllo confronta i marcatori di ritiro in modo esatto anziché cercare le parole ovunque, così un advisory autentico che parla *di* un falso positivo continua a essere segnalato: il CVE-2026-39395 di Cosign, intitolato «Cosign’s verify-blob-attestation reports false positive when payload parsing fails», non è interessato',
                 'La cache di gemnasium si ricostruisce da sola alla prima sincronizzazione dopo questo aggiornamento e gli advisory ritirati spariscono. Non c’è nulla da fare: avviene con la sincronizzazione quotidiana, o subito da Impostazioni → Sorgenti → Aggiorna'
@@ -1147,9 +1165,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Prima versione open source', items: ['La prima versione pubblica di Sentinello'] }
     },
     ja: {
-        '3.1.2': {
-            title: 'GitLab が既に撤回したアドバイザリが報告されなくなりました',
+        '3.2.0': {
+            title: '検出結果にどのソースが一致したかを表示し、撤回済みアドバイザリの報告を停止しました',
             items: [
+                '複数のアドバイザリデータベースが同じ脆弱性を報告する場合、Sentinello は常に検出結果を 1 件にまとめてきました。3 つのデータベースが知っているからといって同じ欠陥を 3 回報告するのはノイズだからです。しかし従来は統合されたソースの情報をすべて破棄していたため、npm audit・OSV・GitLab gemnasium が独立に確認した脆弱性が、1 つのデータベースしか報告していないものとまったく同じに見えていました。実際のインスタンスではこれが全検出結果の 3 分の 2 にあたります。今後は各検出結果がそれを報告した他のソースを保持し、残った 1 件のバッジと並べて表示します',
+                '検出結果は、いずれかのソースが付けた最も高い深刻度で報告されます。データベース間の評価は実際に食い違います（gemnasium は CVSS ベクトルから算出し、npm audit は GitHub の区分を採用します）。スキャナーにとっては慎重な読み方こそ行動の基準です。これは見た目だけの変更ではありません。引き上げられた検出結果は、ダッシュボード、プロジェクト合計、CLI の <code>--fail-on</code> ゲート、通知しきい値のいずれでも区分が変わります。アップグレード後の最初のスキャンで件数が動くことがありますが、新たに検出されたものはなく、同じ検出結果をより慎重に評価しているだけです',
+                'ソース間で評価が分かれている場合、検出結果の深刻度の横に、各ソースが実際に何と述べたか（そのソース独自のアドバイザリ ID と評価）を開くコントロールが表示されます。説明すべき不一致があるときだけ表示されるため、全ソースの評価が一致する検出結果は簡潔なままです',
                 'OSV は撤回を専用のフィールドに記録し、GitHub は撤回されたアドバイザリを <code>npm audit</code> に届く前に取り除きますが、GitLab gemnasium のスキーマにはそのようなフィールドがありません。gemnasium はレコードを書き換えることで撤回します。タイトルが「False Positive」「Withdrawn Advisory: …」「Duplicate Advisory: …」に変わる一方で、それまで挙げていたバージョンはそのまま残ります。Sentinello はそのバージョンを読み取り、GitLab が明確に取り下げた検出結果を報告していました。JavaScript・Python・Go・Rust を通じて 383 件のレコードが該当し、その中には「False Positive」というタイトルで <code>express</code> を報告するものもありました。これらはすべて破棄されます。383 件のうち 278 件は他のアドバイザリと重複するため撤回されたものなので、重複した検出結果の一群も同時に解消されます',
                 'この判定は撤回マーカーを完全一致で照合し、語句を本文中から探すことはしません。そのため、偽陽性そのものを扱う正当なアドバイザリは引き続き報告されます。「Cosign’s verify-blob-attestation reports false positive when payload parsing fails」という題の Cosign の CVE-2026-39395 は影響を受けません',
                 'gemnasium のキャッシュはこのアップグレード後の最初の同期で自動的に再構築され、その時点で撤回済みアドバイザリは消えます。操作は不要で、毎日の同期で実行されます。「設定 → ソース → 更新」からすぐに実行することもできます'
@@ -1326,9 +1347,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '初のオープンソースリリース', items: ['Sentinello の最初の一般公開リリース'] }
     },
     'zh-CN': {
-        '3.1.2': {
-            title: 'GitLab 已经撤回的公告不再被报告',
+        '3.2.0': {
+            title: '结果现在会显示哪些来源意见一致，且已撤回的公告不再被报告',
             items: [
+                '当多个公告数据库报告同一个漏洞时，Sentinello 一直只保留一条结果——因为三个数据库都知道就把同一个缺陷报告三次，那是噪音。但此前它会丢弃被合并来源的全部信息，于是一个由 npm audit、OSV 和 GitLab gemnasium 各自独立确认的漏洞，看上去与只有一个数据库听说过的漏洞毫无二致。在真实实例上这占全部结果的三分之二。现在每条结果都会带上其他报告过它的来源，其标记与保留下来的那条并列显示',
+                '一条结果会以任一来源给出的最高严重级别来报告。各数据库的评级确实存在分歧——gemnasium 依据 CVSS 向量计算，而 npm audit 采用 GitHub 的分级——对扫描器而言，值得据以行动的是更谨慎的那个读数。这并非只是外观改动：被提升的结果会在仪表盘、项目汇总、CLI 的 <code>--fail-on</code> 门禁以及通知阈值中改变所属级别。升级后的首次扫描可能出现计数变动；并没有检测到新的问题，只是同样的结果被更谨慎地评级了',
+                '在来源存在分歧时，结果会在严重级别旁显示一个控件，打开后可查看每个来源的实际说法——它自己的公告编号与自己的评级。它仅在存在需要解释的分歧时出现，因此各来源评级一致的结果仍保持简洁',
                 'OSV 用一个专门的字段记录撤回，GitHub 则在 <code>npm audit</code> 看到之前就移除已撤回的公告，但 GitLab gemnasium 的模式中没有这样的字段。它通过就地重写记录来撤回公告——标题变为“False Positive”“Withdrawn Advisory: …”或“Duplicate Advisory: …”，而此前列出的版本原封不动地留在那里。Sentinello 读取了这些版本，报告了 GitLab 已明确收回的结果：涉及 JavaScript、Python、Go 和 Rust 的 383 条记录，其中一条以“False Positive”为标题报告了 <code>express</code>。现在这些记录全部被丢弃，这同时消除了一整类重复结果——383 条中有 278 条正是因与其他公告重复而被撤回的',
                 '该判断以精确匹配撤回标记为准，而不是在文本中随处搜索这些词语，因此真正*讨论*误报的公告仍会被报告：标题为“Cosign’s verify-blob-attestation reports false positive when payload parsing fails”的 Cosign CVE-2026-39395 不受影响',
                 '升级后首次同步时，gemnasium 缓存会自行重建，届时已撤回的公告随之消失。你无需做任何事：它会在每日同步中完成，也可从“设置 → 来源 → 刷新”立即执行'
@@ -1485,9 +1509,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '首个开源版本', items: ['Sentinello 的首个公开发布版本'] }
     },
     ko: {
-        '3.1.2': {
-            title: 'GitLab이 이미 철회한 권고가 더 이상 보고되지 않습니다',
+        '3.2.0': {
+            title: '이제 어떤 소스가 일치하는지 보여주고, 철회된 권고는 보고하지 않습니다',
             items: [
+                '여러 권고 데이터베이스가 같은 취약점을 보고할 때 Sentinello는 언제나 하나의 결과만 유지해 왔습니다 — 세 데이터베이스가 안다고 해서 같은 결함을 세 번 보고하는 것은 잡음이기 때문입니다. 다만 이전에는 합쳐진 소스에 대한 정보를 모두 버렸기 때문에, npm audit과 OSV, GitLab gemnasium이 각각 독립적으로 확인한 취약점이 한 데이터베이스만 알고 있던 것과 똑같아 보였습니다. 실제 인스턴스에서는 이것이 전체 결과의 3분의 2에 해당합니다. 이제 각 결과는 그것을 보고한 다른 소스들을 함께 지니며, 해당 배지가 살아남은 항목 옆에 표시됩니다',
+                '결과는 어떤 소스든 부여한 가장 높은 심각도로 보고됩니다. 데이터베이스들은 실제로 서로 다르게 평가합니다 — gemnasium은 CVSS 벡터로 계산하고 npm audit은 GitHub의 등급을 따릅니다 — 스캐너에게는 신중한 쪽 해석이 행동의 기준이 됩니다. 이는 겉모습만의 변화가 아닙니다. 상향된 결과는 대시보드, 프로젝트 합계, CLI의 <code>--fail-on</code> 게이트, 알림 임계값 모두에서 등급 구간이 바뀝니다. 업그레이드 후 첫 스캔에서 수치가 달라질 수 있지만, 새로 발견된 것은 없고 같은 결과를 더 신중하게 평가한 것입니다',
+                '소스 간에 평가가 갈리는 경우, 결과의 심각도 옆에 각 소스가 실제로 무엇이라고 했는지 — 해당 소스의 권고 식별자와 등급 — 를 여는 컨트롤이 나타납니다. 설명할 이견이 있을 때만 표시되므로 모두가 같게 평가한 결과는 깔끔하게 유지됩니다',
                 'OSV는 철회를 전용 필드에 기록하고 GitHub은 철회된 권고를 <code>npm audit</code>이 보기도 전에 제거하지만, GitLab gemnasium의 스키마에는 그런 필드가 없습니다. gemnasium은 레코드를 그 자리에서 다시 써서 철회합니다 — 제목이 “False Positive”, “Withdrawn Advisory: …”, “Duplicate Advisory: …”로 바뀌는 한편, 이전에 지목했던 버전은 그대로 남습니다. Sentinello는 그 버전을 읽고 GitLab이 명시적으로 거둬들인 결과를 보고하고 있었습니다. JavaScript, Python, Go, Rust에 걸쳐 383건이며, 그중에는 “False Positive”라는 제목으로 <code>express</code>를 보고한 것도 있습니다. 이제 모두 폐기되며, 383건 중 278건이 다른 권고와 중복되어 철회된 것이므로 중복 결과 한 부류도 함께 사라집니다',
                 '이 검사는 철회 표식을 정확히 일치시키며 본문 아무 곳에서나 단어를 찾지 않습니다. 따라서 오탐 자체를 다루는 실제 권고는 계속 보고됩니다 — “Cosign’s verify-blob-attestation reports false positive when payload parsing fails”라는 제목의 Cosign CVE-2026-39395는 영향을 받지 않습니다',
                 'gemnasium 캐시는 이번 업그레이드 후 첫 동기화에서 스스로 다시 만들어지며 그때 철회된 권고가 사라집니다. 따로 할 일은 없고 매일 동기화에서 처리되며, 설정 → 소스 → 새로 고침에서 즉시 실행할 수도 있습니다'
@@ -1658,9 +1685,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '첫 오픈 소스 릴리스', items: ['Sentinello의 첫 공개 릴리스'] }
     },
     ru: {
-        '3.1.2': {
-            title: 'Рекомендации, уже отозванные GitLab, больше не сообщаются',
+        '3.2.0': {
+            title: 'Находки показывают, какие источники согласны, а отозванные рекомендации больше не сообщаются',
             items: [
+                'Когда одну и ту же уязвимость сообщают несколько баз рекомендаций, Sentinello всегда оставлял ОДНУ находку: сообщать об одном изъяне трижды лишь потому, что о нём знают три базы, — это шум. Но всё, что касалось объединённых источников, до сих пор отбрасывалось, и уязвимость, независимо подтверждённая npm audit, OSV и GitLab gemnasium, выглядела ровно так же, как та, о которой слышала лишь одна база. На реальном экземпляре это две трети всех находок. Теперь каждая находка несёт с собой остальные источники, сообщившие о ней, и их метки отображаются рядом с сохранившейся',
+                'Находка сообщается с САМОЙ ВЫСОКОЙ серьёзностью, которую ей присвоил любой источник. Базы действительно расходятся в оценках: gemnasium вычисляет серьёзность по вектору CVSS, а npm audit берёт категорию GitHub — и для сканера действовать стоит по осторожному прочтению. Это не косметика: повышенная находка меняет категорию на панели, в итогах проекта, в барьере <code>--fail-on</code> у CLI и в порогах уведомлений. При первом сканировании после обновления некоторые счётчики сдвинутся; ничего нового не обнаружено — те же находки оцениваются осторожнее',
+                'Там, где источники расходятся, рядом с серьёзностью находки появляется элемент управления, открывающий то, что сказал каждый источник: его собственный идентификатор рекомендации и его оценку. Он появляется только при наличии расхождения, поэтому находка, оценённая всеми одинаково, остаётся лаконичной',
                 'OSV фиксирует отзыв в отдельном поле, а GitHub удаляет отозванные рекомендации ещё до того, как их увидит <code>npm audit</code>, но у GitLab gemnasium такого поля в схеме нет. Он отзывает рекомендацию, переписывая запись на месте: заголовок становится «False Positive», «Withdrawn Advisory: …» или «Duplicate Advisory: …», а версии, которые она называла прежде, остаются на месте. Sentinello читал эти версии и сообщал о находках, которые GitLab явно отозвал: 383 записи по JavaScript, Python, Go и Rust, включая одну, сообщавшую об <code>express</code> под заголовком «False Positive». Теперь все они отбрасываются, что заодно устраняет целый класс дублирующихся находок — 278 из 383 отозваны именно как дубликаты другой рекомендации',
                 'Проверка сопоставляет маркеры отзыва точно, а не ищет слова где угодно в тексте, поэтому настоящая рекомендация, посвящённая ложному срабатыванию, по-прежнему сообщается: CVE-2026-39395 для Cosign с заголовком «Cosign’s verify-blob-attestation reports false positive when payload parsing fails» не затронут',
                 'Кэш gemnasium перестраивается сам при первой синхронизации после этого обновления, и тогда отозванные рекомендации исчезают. Ничего делать не нужно: это произойдёт при ежедневной синхронизации или сразу через «Настройки → Источники → Обновить»'

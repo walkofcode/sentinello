@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+    listFindingsForProject,
     listFindingsForScan,
     listScansForProject,
     openDb,
@@ -267,6 +268,79 @@ describe('runBatch — several scanners', function () {
         )
         const byScanner = new Map(outcomes.map(function e(o) { return [o.scan.scanner, o] }))
         expect(byScanner.get('osv')?.findings).toHaveLength(0)
+    })
+
+    // The suppressed finding is not lost — it becomes corroboration on the one that survived, written
+    // once at the end of the project scan because each scanner has already persisted its own findings
+    // by the time a later source agrees.
+    it('records the suppressed source as corroboration on the surviving finding', async function () {
+        await batch(
+            [
+                fakeScanner('npm-audit', okResult([rawFinding({ advisoryId: 'CVE-2024-1', severity: 'high' })])),
+                fakeScanner('osv', okResult([rawFinding({ advisoryId: 'GHSA-9', aliases: ['CVE-2024-1'], severity: 'high' })]))
+            ],
+            [project()]
+        )
+        const stored = listFindingsForProject(db, PROJECT_ID)
+        expect(stored).toHaveLength(1)
+        expect(stored[0]?.corroborations).toEqual([{ source: 'osv', advisoryId: 'GHSA-9', severity: 'high' }])
+    })
+
+    // Three databases agreeing is three corroborations, and each keeps the advisory id IT uses —
+    // gemnasium routinely has a GMS- id where npm-audit has a CVE.
+    it('accumulates one corroboration per agreeing source', async function () {
+        await batch(
+            [
+                fakeScanner('npm-audit', okResult([rawFinding({ advisoryId: 'CVE-2024-1' })])),
+                fakeScanner('osv', okResult([rawFinding({ advisoryId: 'GHSA-9', aliases: ['CVE-2024-1'] })])),
+                fakeScanner('gemnasium', okResult([rawFinding({ advisoryId: 'GMS-2021-3', aliases: ['CVE-2024-1'] })]))
+            ],
+            [project()]
+        )
+        const stored = listFindingsForProject(db, PROJECT_ID)
+        expect(stored).toHaveLength(1)
+        expect(stored[0]?.corroborations.map(function src(c) { return c.source })).toEqual(['osv', 'gemnasium'])
+        expect(stored[0]?.corroborations.map(function id(c) { return c.advisoryId })).toEqual(['GHSA-9', 'GMS-2021-3'])
+    })
+
+    // One source can reach the same surviving finding through two of its own advisories (both aliasing
+    // to it). That is still one corroborating source, not two.
+    it('records a source once even when it reaches the finding twice', async function () {
+        await batch(
+            [
+                fakeScanner('npm-audit', okResult([rawFinding({ advisoryId: 'CVE-2024-1' })])),
+                fakeScanner('osv', okResult([
+                    rawFinding({ advisoryId: 'GHSA-9', aliases: ['CVE-2024-1'] }),
+                    rawFinding({ advisoryId: 'GHSA-10', aliases: ['CVE-2024-1'] })
+                ]))
+            ],
+            [project()]
+        )
+        const stored = listFindingsForProject(db, PROJECT_ID)
+        expect(stored[0]?.corroborations).toHaveLength(1)
+        expect(stored[0]?.corroborations[0]?.source).toBe('osv')
+    })
+
+    // The cautious rule, end to end: if any source calls it critical, the stored finding is critical —
+    // which is what carries the escalation into the dashboard counts and the notification thresholds.
+    it('stores the worst grade any source gave', async function () {
+        await batch(
+            [
+                fakeScanner('npm-audit', okResult([rawFinding({ advisoryId: 'CVE-2024-1', severity: 'high' })])),
+                fakeScanner('gemnasium', okResult([
+                    rawFinding({ advisoryId: 'GMS-1', aliases: ['CVE-2024-1'], severity: 'critical' })
+                ]))
+            ],
+            [project()]
+        )
+        expect(listFindingsForProject(db, PROJECT_ID)[0]?.severity).toBe('critical')
+    })
+
+    it('leaves an uncorroborated finding with no corroborations and its own grade', async function () {
+        await batch([fakeScanner('npm-audit', okResult([rawFinding({ severity: 'moderate' })]))], [project()])
+        const stored = listFindingsForProject(db, PROJECT_ID)
+        expect(stored[0]?.corroborations).toEqual([])
+        expect(stored[0]?.severity).toBe('moderate')
     })
 
     it('keeps a later scanner finding for a different package', async function () {
