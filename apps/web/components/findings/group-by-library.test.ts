@@ -20,6 +20,7 @@ function row(overrides: Partial<CurrentFindingRow> = {}): CurrentFindingRow {
         fixAvailable: false,
         fixVersion: null,
         depPathJson: '[]',
+        corroborations: [],
         isMuted: false,
         isProd: true,
         isDev: false,

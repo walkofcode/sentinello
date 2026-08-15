@@ -472,7 +472,11 @@
         "rangeLabel": "範囲:",
         "malicious": "悪意あり",
         "filterByEcosystem": "言語で絞り込み",
-        "ecosystemAll": "すべての言語"
+        "ecosystemAll": "すべての言語",
+        "grades": {
+            "label": "ソースごとの深刻度評価",
+            "explain": "Sentinello はいずれかのソースが付けた最も重い評価を採用し、脆弱性を過小評価しません。"
+        }
     },
     "Triage": {
         "alias": {

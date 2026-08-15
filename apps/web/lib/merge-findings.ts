@@ -31,6 +31,10 @@ export type MergedFinding = {
     // One entry per underlying source advisory. `source`/`ecosystem` are the persisted mute identity
     // (issue-016); `scanner` is kept for provenance/display. Keyed by (source, ecosystem, advisory).
     identities: { source: string; ecosystem: string; scanner: string; advisoryId: string }[]
+    // Every source's own grade for this vulnerability, worst first — the surviving row's included. This
+    // is what makes the escalation legible: a row shown as critical because ONE source graded it so,
+    // while the others called it high, is a different fact from three sources agreeing on critical.
+    grades: { source: string; advisoryId: string; severity: Severity }[]
 }
 
 // npm audit before OSV before gemnasium before anything else, so the source tags read consistently across rows.
@@ -107,6 +111,8 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
     const scannerSet = new Set<string>()
     const identityKeys = new Set<string>()
     const identities: { source: string; ecosystem: string; scanner: string; advisoryId: string }[] = []
+    const gradeKeys = new Set<string>()
+    const grades: { source: string; advisoryId: string; severity: Severity }[] = []
     const depPathKeys = new Set<string>()
     const depPaths: string[][] = []
     for (const r of bucket) {
@@ -121,6 +127,19 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
             lastSeenAt = lastSeenAt === null ? r.lastSeenAt : Math.max(lastSeenAt, r.lastSeenAt)
         }
         scannerSet.add(r.scanner)
+        // A source that reported this same advisory at scan time but was reconciled away still counts
+        // as having reported it: its badge belongs here exactly as much as a row-level one.
+        for (const c of r.corroborations) {
+            scannerSet.add(c.source)
+            if (!gradeKeys.has(c.source)) {
+                gradeKeys.add(c.source)
+                grades.push({ source: c.source, advisoryId: c.advisoryId, severity: c.severity as Severity })
+            }
+        }
+        if (!gradeKeys.has(r.source)) {
+            gradeKeys.add(r.source)
+            grades.push({ source: r.source, advisoryId: r.advisoryId, severity: r.severity as Severity })
+        }
         const identityKey = r.source + '\x00' + r.ecosystem + '\x00' + r.advisoryId
         if (!identityKeys.has(identityKey)) {
             identityKeys.add(identityKey)
@@ -135,6 +154,9 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
             if (!fixRow || compareSemver(r.fixVersion, fixRow.fixVersion as string) > 0) fixRow = r
         }
     }
+    grades.sort(function worstFirst(a, b) {
+        return compareSeverity(a.severity, b.severity) || a.source.localeCompare(b.source)
+    })
     const scanners = [...scannerSet].sort(function order(a, b) {
         return (SCANNER_ORDER[a] ?? 9) - (SCANNER_ORDER[b] ?? 9) || a.localeCompare(b)
     })
@@ -148,6 +170,7 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
         severity: severity as Severity,
         malicious,
         scanners,
+        grades,
         advisoryId: advisoryRow.advisoryId,
         advisoryTitle: advisoryRow.advisoryTitle,
         advisoryUrl: advisoryRow.advisoryUrl,

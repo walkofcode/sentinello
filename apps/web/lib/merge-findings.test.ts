@@ -25,6 +25,7 @@ function row(overrides: Partial<CurrentFindingRow> = {}): CurrentFindingRow {
         fixAvailable: false,
         fixVersion: null,
         depPathJson: '[]',
+        corroborations: [],
         isMuted: false,
         isProd: true,
         isDev: false,
@@ -425,5 +426,75 @@ describe('mergeFindings — the source tag order', function () {
             row({ id: 'b', scanner: 'trivy', source: 'trivy' })
         ])
         expect(merged[0]?.scanners).toEqual(['trivy', 'zgrep'])
+    })
+})
+
+// The escalation is deliberately lossy at a glance — a row reads `critical` whether one source said so
+// or all three did — so the per-source grades have to survive the merge for the detail panel to explain
+// it. Corroborating sources also belong in the source badges: a source that reported the same advisory
+// at scan time and was reconciled away still reported it.
+describe('mergeFindings — per-source grades', function () {
+    it('lists the surviving source own grade', function () {
+        const merged = mergeFindings([row({ source: 'npm-audit', scanner: 'npm-audit', advisoryId: 'CVE-1', severity: 'high' })])
+        expect(merged[0]?.grades).toEqual([{ source: 'npm-audit', advisoryId: 'CVE-1', severity: 'high' }])
+    })
+
+    it('includes a corroborating source grade and its own advisory id', function () {
+        const merged = mergeFindings([row({
+            source: 'npm-audit',
+            scanner: 'npm-audit',
+            advisoryId: 'CVE-1',
+            severity: 'critical',
+            corroborations: [{ source: 'gemnasium', advisoryId: 'GMS-1', severity: 'critical' }]
+        })])
+        // Equal severities tie-break by source name, so the order is deterministic rather than
+        // dependent on which scanner happened to run first.
+        expect(merged[0]?.grades).toEqual([
+            { source: 'gemnasium', advisoryId: 'GMS-1', severity: 'critical' },
+            { source: 'npm-audit', advisoryId: 'CVE-1', severity: 'critical' }
+        ])
+    })
+
+    it('orders grades worst first so a disagreement reads top-down', function () {
+        const merged = mergeFindings([row({
+            source: 'npm-audit',
+            scanner: 'npm-audit',
+            advisoryId: 'CVE-1',
+            severity: 'low',
+            corroborations: [
+                { source: 'osv', advisoryId: 'GHSA-1', severity: 'moderate' },
+                { source: 'gemnasium', advisoryId: 'GMS-1', severity: 'critical' }
+            ]
+        })])
+        expect(merged[0]?.grades.map(function sev(g) { return g.severity })).toEqual(['critical', 'moderate', 'low'])
+    })
+
+    // A corroborating source reported the advisory too; its badge belongs with the others.
+    it('shows a corroborating source as a source tag', function () {
+        const merged = mergeFindings([row({
+            source: 'npm-audit',
+            scanner: 'npm-audit',
+            corroborations: [{ source: 'gemnasium', advisoryId: 'GMS-1', severity: 'high' }]
+        })])
+        expect(merged[0]?.scanners).toEqual(['npm-audit', 'gemnasium'])
+    })
+
+    // Two rows for one vulnerability (merged by title) where the second names the first as a
+    // corroborator: npm-audit must appear once, not once per mention.
+    it('does not list a source twice when it both has a row and corroborates', function () {
+        const merged = mergeFindings([
+            row({ source: 'npm-audit', scanner: 'npm-audit', advisoryId: 'CVE-1', severity: 'high', advisoryTitle: 'Prototype pollution' }),
+            row({
+                source: 'osv',
+                scanner: 'osv',
+                advisoryId: 'GHSA-1',
+                severity: 'high',
+                advisoryTitle: 'Prototype pollution',
+                corroborations: [{ source: 'npm-audit', advisoryId: 'CVE-1', severity: 'high' }]
+            })
+        ])
+        expect(merged).toHaveLength(1)
+        expect(merged[0]?.grades.filter(function n(g) { return g.source === 'npm-audit' })).toHaveLength(1)
+        expect(merged[0]?.grades).toHaveLength(2)
     })
 })

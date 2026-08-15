@@ -1,4 +1,4 @@
-import type { Severity, ScanStatus, ReasonCode, PackageManager } from '@sentinello/core'
+import type { FindingCorroboration, Severity, ScanStatus, ReasonCode, PackageManager } from '@sentinello/core'
 import type { ResolvedGraph } from './resolver/types'
 
 export type RawFinding = {
@@ -22,6 +22,11 @@ export type RawFinding = {
     // OSV scanner so the worker can suppress an OSV finding that npm-audit already reported under the
     // same GHSA/CVE for the same package. Undefined for scanners that don't track aliases (npm-audit).
     aliases?: string[]
+    // Other sources that independently reported this same advisory for this same package. Attached by
+    // reconcileAgainstReported as later sources agree, so a caller holding the finding — the CLI report,
+    // which has no database — sees the agreement without a second lookup. `severity` above is already the
+    // worst grade any of them gave.
+    corroborations?: FindingCorroboration[]
 }
 
 export type ScanResult = {

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { SCAN_HEARTBEAT_STALE_MS, type DepTypeFilter } from '@sentinello/core'
+import { parseFindingCorroborations, SCAN_HEARTBEAT_STALE_MS, type DepTypeFilter, type FindingCorroboration } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { depTypeClause } from './dep-type'
 import { activeSourceCellClause } from './sources'
@@ -313,6 +313,9 @@ export type CurrentFindingRow = {
     fixAvailable: boolean
     fixVersion: string | null
     depPathJson: string
+    // Other sources that independently reported this same advisory for this same package, each with the
+    // id IT uses and the grade IT assigned. `severity` above is already the worst of them.
+    corroborations: FindingCorroboration[]
     isMuted: boolean
     isProd: boolean
     isDev: boolean
@@ -345,6 +348,7 @@ export function listCurrentFindingsForProject(
         fix_available: number
         fix_version: string | null
         dep_path_json: string
+        corroborations_json: string
         muted: number | null
         is_prod: number
         is_dev: number
@@ -354,7 +358,7 @@ export function listCurrentFindingsForProject(
         SELECT
             f.id, f.scan_id, f.project_id, f.scanner, f.source, f.ecosystem, f.advisory_id, f.advisory_title, f.advisory_url,
             f.package_name, f.installed_version, f.vulnerable_range, f.severity, f.fix_available,
-            f.fix_version, f.dep_path_json, f.is_prod, f.is_dev,
+            f.fix_version, f.dep_path_json, f.corroborations_json, f.is_prod, f.is_dev,
             f.first_detected_at, f.last_seen_at,
             (SELECT 1 FROM mutes m
                 WHERE (m.expires_at IS NULL OR m.expires_at > ${at})
@@ -404,6 +408,7 @@ export function listCurrentFindingsForProject(
             fixAvailable: row.fix_available === 1,
             fixVersion: row.fix_version,
             depPathJson: row.dep_path_json,
+            corroborations: parseFindingCorroborations(row.corroborations_json),
             isMuted: row.muted === 1,
             isProd: row.is_prod === 1,
             isDev: row.is_dev === 1,

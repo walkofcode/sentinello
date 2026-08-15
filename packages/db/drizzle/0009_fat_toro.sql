@@ -1,0 +1,1 @@
+ALTER TABLE `findings` ADD `corroborations_json` text DEFAULT '[]' NOT NULL;

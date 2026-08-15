@@ -1,7 +1,8 @@
 import { resolve } from 'node:path'
 import { ulid } from 'ulid'
-import { DEFAULT_ECOSYSTEM, type Finding, type Project, type Scan } from '@sentinello/core'
+import { DEFAULT_ECOSYSTEM, type Finding, type FindingCorroboration, type Project, type Scan } from '@sentinello/core'
 import {
+    applyFindingCorroborations,
     insertScan,
     mergeFindingsForScan,
     getRootById,
@@ -17,6 +18,8 @@ import {
     graphForEcosystem,
     mergeResolvedGraphs,
     reconcileAgainstReported,
+    type CorroborationEvent,
+    type ReportedAdvisory,
     resolveProjectGraphs,
     type EcosystemCoverage,
     type RawFinding,
@@ -24,6 +27,7 @@ import {
     type ResolverResult,
     type ScannerPlugin
 } from '@sentinello/scanners'
+import { errText } from '@sentinello/feeds'
 import { CONFIG_KEYS } from './config-loader'
 import { readGitBranch } from './discovery'
 import { notifyForCompletedScan } from './notifier'
@@ -116,20 +120,67 @@ async function runProjectScanners(input: RunBatchInput, project: Project): Promi
     const npmGraph = graphForEcosystem(resolverResults, 'npm')
     const coverage = resolverResults.map(toCoverage)
     const outcomes: ProjectScanOutcome[] = []
-    // (ecosystem|package) → set of advisory keys (lower-cased ids + aliases) already reported this run.
-    // The key is the ECOSYSTEM-SCOPED package identity (findingPackageIdentity), never the bare name: a
-    // polyglot feed scan carries npm + PyPI + Go + crates packages together, so dedup must not collapse a
-    // PyPI `requests` into an npm `requests` that shares a CVE/GHSA alias. Keep it ecosystem-scoped.
-    const reportedByPackage = new Map<string, Set<string>>()
+    // (ecosystem|package) → advisory key (lower-cased id or alias) → the finding that survived under it.
+    // The outer key is the ECOSYSTEM-SCOPED package identity (findingPackageIdentity), never the bare
+    // name: a polyglot feed scan carries npm + PyPI + Go + crates packages together, so dedup must not
+    // collapse a PyPI `requests` into an npm `requests` that shares a CVE/GHSA alias. Keep it
+    // ecosystem-scoped.
+    const reportedByPackage = new Map<string, Map<string, ReportedAdvisory>>()
+    // Every "source X also reported this" event across the whole project scan. Collected here rather
+    // than applied per scanner because each scanner has already persisted its findings by the time a
+    // later source agrees with one of them.
+    const corroborations: CorroborationEvent[] = []
     for (const scanner of input.scanners) {
         if (input.abortSignal && input.abortSignal.aborted) break
         const isNpmAudit = scanner.name === NPM_AUDIT_SCANNER_NAME
         const graphForScanner = isNpmAudit ? npmGraph : mergedGraph
         const coverageForScanner = isNpmAudit ? undefined : coverage
-        const outcome = await runOneScanner(input, project, projectPath, scanner, reportedByPackage, graphForScanner, coverageForScanner)
+        const outcome = await runOneScanner(input, project, projectPath, scanner, reportedByPackage, corroborations, graphForScanner, coverageForScanner)
         outcomes.push(outcome)
     }
+    recordCorroborations(input.db, outcomes, corroborations)
     return outcomes
+}
+
+// Writes the corroboration set onto the findings that survived, and re-grades each corroborated one to
+// the worst severity any source gave it. Runs once, after every scanner, for the reason described where
+// `corroborations` is declared.
+//
+// Every finding this scan left active is rewritten, not only the corroborated ones: the set has to be
+// rebuilt in full so that a source which stops reporting an advisory also stops corroborating it.
+function recordCorroborations(db: DrizzleDb, outcomes: ProjectScanOutcome[], events: CorroborationEvent[]): void {
+    const byTarget = new Map<string, FindingCorroboration[]>()
+    for (const event of events) {
+        const key = targetIdentity(event.target)
+        const list = byTarget.get(key) || []
+        // One source can reach the same survivor through two of its own advisories, both aliasing to it.
+        // That is still one corroborating source.
+        if (!list.some(function already(c) { return c.source === event.by.source })) list.push(event.by)
+        byTarget.set(key, list)
+    }
+    const touched: string[] = []
+    const byFindingId = new Map<string, { own: Finding['severity']; corroborations: FindingCorroboration[] }>()
+    for (const outcome of outcomes) {
+        for (const finding of outcome.findings) {
+            touched.push(finding.id)
+            const corroborations = byTarget.get(findingIdentity(finding))
+            // The row's own severity is always the surviving source's grade, never a previous
+            // escalation: a continuing episode has just had `severity` rewritten from this scan's
+            // incoming finding. Reading it here is what keeps escalation from ratcheting — a source
+            // that softens its assessment brings the finding back down on the next scan.
+            if (corroborations) byFindingId.set(finding.id, { own: finding.severity, corroborations })
+        }
+    }
+    if (touched.length === 0) return
+    applyFindingCorroborations(db, touched, byFindingId)
+}
+
+function findingIdentity(finding: Finding): string {
+    return finding.source + '|' + finding.ecosystem + '|' + finding.advisoryId + '|' + finding.packageName
+}
+
+function targetIdentity(target: ReportedAdvisory): string {
+    return target.source + '|' + target.ecosystem + '|' + target.advisoryId + '|' + target.packageName
 }
 
 // Flatten a classified ResolverResult into the compact per-ecosystem coverage the feed scanners record.
@@ -143,7 +194,8 @@ async function runOneScanner(
     project: Project,
     projectPath: string,
     scanner: ScannerPlugin,
-    reportedByPackage: Map<string, Set<string>>,
+    reportedByPackage: Map<string, Map<string, ReportedAdvisory>>,
+    corroborations: CorroborationEvent[],
     resolvedGraph: ResolvedGraph | null,
     coverage: EcosystemCoverage[] | undefined
 ): Promise<ProjectScanOutcome> {
@@ -183,8 +235,9 @@ async function runOneScanner(
         errorText: scanResult.errorText,
         rawJson: scanResult.rawJson
     }
-    const deduped = reconcileAgainstReported(scanResult.findings, reportedByPackage)
-    const incoming: IncomingFinding[] = deduped.map(function toIncoming(raw: RawFinding): IncomingFinding {
+    const reconciled = reconcileAgainstReported(scanResult.findings, reportedByPackage, scanner.name)
+    for (const event of reconciled.corroborations) corroborations.push(event)
+    const incoming: IncomingFinding[] = reconciled.kept.map(function toIncoming(raw: RawFinding): IncomingFinding {
         return {
             projectId: project.id,
             scanner: scanner.name,
@@ -229,8 +282,7 @@ async function runOneScanner(
     try {
         await notifyForCompletedScan({ db: input.db, outcome, dryRun })
     } catch (err) {
-        const message = err instanceof Error && err.message || String(err)
-        console.error('[runner] notifier failed for project ' + project.id + ': ' + message)
+        console.error('[runner] notifier failed for project ' + project.id + ': ' + errText(err))
     }
     return outcome
 }

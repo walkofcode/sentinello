@@ -14,6 +14,7 @@ import { cn } from '@/lib/cn'
 import { VersionChain } from './version-chain'
 import { DepPathPopover } from './dep-path-popover'
 import { SourceTags } from './source-tags'
+import { SourceGradesPopover } from './source-grades-popover'
 import { EcosystemBadge } from './ecosystem-badge'
 
 // The merged finding's ecosystem. A merged row is keyed by (ecosystem, package, advisory) (issue-019),
@@ -44,6 +45,7 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                         <Card key={f.key} className={cn('p-4', fullyMuted && 'opacity-60')}>
                             <div className="flex flex-wrap items-center gap-1.5">
                                 <SeverityPill variant={f.severity as Severity} size="sm" />
+                                <SourceGradesPopover grades={f.grades} reported={f.severity as Severity} />
                                 {f.malicious ? <Badge variant="malicious" className="px-2 py-0.5 text-[0.625rem] font-semibold tracking-wider ring-0">{t('malicious')}</Badge> : null}
                                 <span className="flex min-w-0 flex-1 items-center gap-1">
                                     <span className="truncate font-medium text-sm">{f.packageName}</span>
@@ -106,6 +108,7 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                                     <TableCell>
                                         <div className="flex flex-wrap items-center gap-1">
                                             <SeverityPill variant={f.severity as Severity} size="sm" />
+                                            <SourceGradesPopover grades={f.grades} reported={f.severity as Severity} />
                                             {f.malicious ? <Badge variant="malicious" className="px-2 py-0.5 text-[0.625rem] font-semibold tracking-wider ring-0">{t('malicious')}</Badge> : null}
                                         </div>
                                     </TableCell>

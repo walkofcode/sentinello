@@ -1,6 +1,6 @@
 import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import { ulid } from 'ulid'
-import type { Finding } from '@sentinello/core'
+import { maxSeverity, parseFindingCorroborations, type Finding, type FindingCorroboration } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { findings } from '../schema'
 
@@ -150,6 +150,9 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             installedVersion: inc.installedVersion,
             vulnerableRange: inc.vulnerableRange,
             severity: inc.severity,
+            // Left empty here and rewritten by applyFindingCorroborations at the end of the project
+            // scan: a later source cannot have agreed yet at the moment this row is written.
+            corroborationsJson: '[]',
             fixAvailable: inc.fixAvailable,
             fixVersion: inc.fixVersion,
             depPathJson: JSON.stringify(inc.depPath),
@@ -175,6 +178,7 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             installedVersion: inc.installedVersion,
             vulnerableRange: inc.vulnerableRange,
             severity: inc.severity,
+            corroborations: [],
             fixAvailable: inc.fixAvailable,
             fixVersion: inc.fixVersion,
             depPath: inc.depPath,
@@ -312,6 +316,7 @@ export function listResolvedFindingsForLibrary(
         installed_version: string
         vulnerable_range: string
         severity: string
+        corroborations_json: string
         fix_available: number
         fix_version: string | null
         dep_path_json: string
@@ -346,6 +351,7 @@ export function listResolvedFindingsForLibrary(
             installedVersion: row.installed_version,
             vulnerableRange: row.vulnerable_range,
             severity: row.severity as Finding['severity'],
+            corroborations: parseFindingCorroborations(row.corroborations_json),
             fixAvailable: row.fix_available === 1,
             fixVersion: row.fix_version,
             depPath: parseDepPath(row.dep_path_json),
@@ -407,6 +413,7 @@ function rowToFinding(row: FindingRow): Finding {
         installedVersion: row.installedVersion,
         vulnerableRange: row.vulnerableRange,
         severity: row.severity,
+        corroborations: parseFindingCorroborations(row.corroborationsJson),
         fixAvailable: row.fixAvailable,
         fixVersion: row.fixVersion,
         depPath: parseDepPath(row.depPathJson),
@@ -436,3 +443,43 @@ function parseDepPath(json: string): string[] {
         return typeof value === 'string'
     })
 }
+
+// Rewrites the corroboration set for every finding a project scan touched, and reports each one at the
+// worst grade any source gave it.
+//
+// This runs ONCE at the end of a project scan rather than inside each scanner's merge, because every
+// scanner persists its own findings in its own transaction — deliberately, so a later scanner never
+// resolves an earlier one's findings — which means by the time a later source agrees, the row it agrees
+// with is already written. `touchedIds` is every finding active in this scan, so the corroboration set is
+// rebuilt in full: a source that stops reporting stops corroborating, instead of leaving a stale badge.
+export function applyFindingCorroborations(
+    db: DrizzleDb,
+    touchedIds: string[],
+    byFindingId: Map<string, { own: Finding['severity']; corroborations: FindingCorroboration[] }>
+): number {
+    if (touchedIds.length === 0) return 0
+    let written = 0
+    const CHUNK = 500
+    db.transaction(function txn(tx) {
+        for (let i = 0; i < touchedIds.length; i += CHUNK) {
+            for (const id of touchedIds.slice(i, i + CHUNK)) {
+                const entry = byFindingId.get(id)
+                const corroborations = entry ? entry.corroborations : []
+                const values: { corroborationsJson: string; severity?: Finding['severity'] } = {
+                    corroborationsJson: JSON.stringify(corroborations)
+                }
+                // Only the corroborated rows need their severity reconsidered; an uncorroborated one is
+                // already reported at its own source's grade.
+                if (entry && corroborations.length > 0) {
+                    values.severity = maxSeverity([entry.own, ...corroborations.map(function grade(c) {
+                        return c.severity
+                    })])
+                }
+                tx.update(findings).set(values).where(eq(findings.id, id)).run()
+                written += 1
+            }
+        }
+    })
+    return written
+}
+

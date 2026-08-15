@@ -154,9 +154,19 @@ export const findings = sqliteTable(
         packageName: text('package_name').notNull(),
         installedVersion: text('installed_version').notNull(),
         vulnerableRange: text('vulnerable_range').notNull(),
+        // The severity this finding is REPORTED at, which is the worst grade any source gave it — not
+        // necessarily the grade the surviving source assigned. Sources disagree (gemnasium computes from
+        // the CVSS vector, npm-audit takes GHSA's bucket), and for a scanner the cautious reading is the
+        // right one. `corroborationsJson` keeps every source's own grade so the disagreement stays
+        // visible rather than being silently overwritten.
         severity: text('severity', {
             enum: ['critical', 'high', 'moderate', 'low', 'info']
         }).notNull(),
+        // JSON FindingCorroboration[]: the other sources that independently reported this same advisory
+        // for this same package, each with the advisory id IT uses and the severity IT assigned. Empty
+        // for a finding only one source reported. Rewritten in full at the end of every project scan, so
+        // a source that stops reporting stops corroborating.
+        corroborationsJson: text('corroborations_json').notNull().default('[]'),
         fixAvailable: integer('fix_available', { mode: 'boolean' }).notNull().default(false),
         fixVersion: text('fix_version'),
         depPathJson: text('dep_path_json').notNull().default('[]'),

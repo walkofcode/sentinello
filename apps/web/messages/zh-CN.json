@@ -472,7 +472,11 @@
         "rangeLabel": "范围：",
         "malicious": "恶意",
         "filterByEcosystem": "按语言筛选",
-        "ecosystemAll": "所有语言"
+        "ecosystemAll": "所有语言",
+        "grades": {
+            "label": "各来源的评级",
+            "explain": "Sentinello 采用所有来源中最严重的评级，以免低估漏洞。"
+        }
     },
     "Triage": {
         "alias": {

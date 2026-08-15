@@ -472,7 +472,11 @@
         "rangeLabel": "Rango:",
         "malicious": "malicioso",
         "filterByEcosystem": "Filtrar por lenguaje",
-        "ecosystemAll": "Todos los lenguajes"
+        "ecosystemAll": "Todos los lenguajes",
+        "grades": {
+            "label": "Cómo lo clasifica cada fuente",
+            "explain": "Sentinello reporta la peor clasificación dada por cualquier fuente, para no subestimar nunca una vulnerabilidad."
+        }
     },
     "Triage": {
         "alias": {

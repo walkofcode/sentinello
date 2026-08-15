@@ -18,7 +18,8 @@ import {
     listFindingsResolvedInScan,
     listResolvedFindingsForLibrary,
     listResolvedFindingsForProject,
-    mergeFindingsForScan
+    mergeFindingsForScan,
+    applyFindingCorroborations
 } from './findings'
 import type { IncomingFinding } from './findings'
 
@@ -621,5 +622,108 @@ describe('depPath decoding', function () {
             packageName: 'lodash'
         })
         expect(found?.depPath).toEqual([])
+    })
+})
+
+// Two thirds of findings on a real instance are reported by more than one source, and that agreement
+// used to be discarded — a triple-confirmed critical rendered exactly like a lone unverified report.
+// These rows now carry who else saw the advisory and how each of them graded it, and are reported at
+// the worst grade any source gave, which is what makes the cautious posture reach the dashboard, the
+// CLI's --fail-on gate and notification thresholds rather than only the finding card.
+describe('applyFindingCorroborations', function () {
+    function seed(severity: IncomingFinding['severity'] = 'high'): string {
+        const merged = merge('scan-1', T0, [incoming('GHSA-1', { severity })])
+        return merged.active[0]!.id
+    }
+
+    it('records the corroborating sources on the finding', function () {
+        const id = seed()
+        applyFindingCorroborations(db, [id], new Map([[id, {
+            own: 'high' as const,
+            corroborations: [{ source: 'gemnasium', advisoryId: 'GMS-1', severity: 'high' as const }]
+        }]]))
+        const found = listFindingsForProject(db, PROJECT_ID)[0]
+        expect(found?.corroborations).toEqual([{ source: 'gemnasium', advisoryId: 'GMS-1', severity: 'high' }])
+    })
+
+    // The cautious rule: if any source calls it critical, it is reported critical.
+    it('reports the finding at the worst grade any source gave', function () {
+        const id = seed('high')
+        applyFindingCorroborations(db, [id], new Map([[id, {
+            own: 'high' as const,
+            corroborations: [{ source: 'gemnasium', advisoryId: 'GMS-1', severity: 'critical' as const }]
+        }]]))
+        expect(listFindingsForProject(db, PROJECT_ID)[0]?.severity).toBe('critical')
+    })
+
+    it('leaves the grade alone when a corroborating source is less severe', function () {
+        const id = seed('critical')
+        applyFindingCorroborations(db, [id], new Map([[id, {
+            own: 'critical' as const,
+            corroborations: [{ source: 'osv', advisoryId: 'GHSA-9', severity: 'low' as const }]
+        }]]))
+        expect(listFindingsForProject(db, PROJECT_ID)[0]?.severity).toBe('critical')
+    })
+
+    // Escalation is computed from the surviving source's OWN grade every time, never from the value
+    // already in the row — otherwise one scan's escalation becomes the next scan's baseline and the
+    // severity can only ever ratchet upward.
+    it('does not ratchet when a source softens its grade', function () {
+        const id = seed('low')
+        applyFindingCorroborations(db, [id], new Map([[id, {
+            own: 'low' as const,
+            corroborations: [{ source: 'gemnasium', advisoryId: 'GMS-1', severity: 'critical' as const }]
+        }]]))
+        expect(listFindingsForProject(db, PROJECT_ID)[0]?.severity).toBe('critical')
+        applyFindingCorroborations(db, [id], new Map([[id, {
+            own: 'low' as const,
+            corroborations: [{ source: 'gemnasium', advisoryId: 'GMS-1', severity: 'moderate' as const }]
+        }]]))
+        expect(listFindingsForProject(db, PROJECT_ID)[0]?.severity).toBe('moderate')
+    })
+
+    // The set is rewritten in full for every finding the scan touched, so a source that stops reporting
+    // an advisory stops corroborating it instead of leaving a stale badge behind.
+    it('clears corroborations for a touched finding that no longer has any', function () {
+        const id = seed()
+        applyFindingCorroborations(db, [id], new Map([[id, {
+            own: 'high' as const,
+            corroborations: [{ source: 'gemnasium', advisoryId: 'GMS-1', severity: 'high' as const }]
+        }]]))
+        applyFindingCorroborations(db, [id], new Map())
+        expect(listFindingsForProject(db, PROJECT_ID)[0]?.corroborations).toEqual([])
+    })
+
+    it('does nothing when the scan touched no findings', function () {
+        expect(applyFindingCorroborations(db, [], new Map())).toBe(0)
+    })
+
+    // Same posture as dep paths: provenance is worth losing rather than taking down every query that
+    // reads the row, so a corrupted or half-written entry is skipped instead of throwing.
+    it('reads a corrupted corroboration column as empty rather than throwing', function () {
+        const id = seed()
+        sqlite.prepare('UPDATE findings SET corroborations_json = ? WHERE id = ?').run('{not json', id)
+        expect(listFindingsForProject(db, PROJECT_ID)[0]?.corroborations).toEqual([])
+    })
+
+    it('skips entries that are missing a source, an id or a severity', function () {
+        const id = seed()
+        const partial = JSON.stringify([
+            { advisoryId: 'GMS-1', severity: 'high' },
+            { source: 'osv', severity: 'high' },
+            { source: 'osv', advisoryId: 'GHSA-1' },
+            'nonsense',
+            { source: 'gemnasium', advisoryId: 'GMS-2', severity: 'critical' }
+        ])
+        sqlite.prepare('UPDATE findings SET corroborations_json = ? WHERE id = ?').run(partial, id)
+        expect(listFindingsForProject(db, PROJECT_ID)[0]?.corroborations).toEqual([
+            { source: 'gemnasium', advisoryId: 'GMS-2', severity: 'critical' }
+        ])
+    })
+
+    it('reads a non-array corroboration column as empty', function () {
+        const id = seed()
+        sqlite.prepare('UPDATE findings SET corroborations_json = ? WHERE id = ?').run('{"source":"osv"}', id)
+        expect(listFindingsForProject(db, PROJECT_ID)[0]?.corroborations).toEqual([])
     })
 })

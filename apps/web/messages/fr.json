@@ -472,7 +472,11 @@
         "rangeLabel": "Plage :",
         "malicious": "malveillant",
         "filterByEcosystem": "Filtrer par langage",
-        "ecosystemAll": "Tous les langages"
+        "ecosystemAll": "Tous les langages",
+        "grades": {
+            "label": "Évaluation par chaque source",
+            "explain": "Sentinello retient l’évaluation la plus sévère parmi les sources, afin de ne jamais sous-estimer une vulnérabilité."
+        }
     },
     "Triage": {
         "alias": {

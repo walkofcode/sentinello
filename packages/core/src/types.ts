@@ -3,6 +3,45 @@ import type { NotificationSourceScope } from './sources'
 
 export type Severity = 'critical' | 'high' | 'moderate' | 'low' | 'info'
 
+// One source independently reporting an advisory that another source already reported for the same
+// package. The scan keeps ONE finding per vulnerability — reporting the same flaw three times because
+// three databases know about it is noise, not information — but which sources agreed, and how each one
+// graded it, is worth keeping: three databases concurring is a materially different fact from one.
+//
+// `advisoryId` is per-source on purpose. gemnasium frequently identifies a vulnerability that has no CVE
+// under its own GMS-… id while npm-audit has a CVE for it, so the corroborating id is the one that makes
+// that source's writeup findable, not a copy of the surviving finding's.
+export type FindingCorroboration = {
+    source: string
+    advisoryId: string
+    severity: Severity
+}
+
+// Reads a persisted corroboration column. Degrades rather than throws, and validates entry by entry:
+// this is provenance, so a row whose column was corrupted — by a partial write, a hand-edited database,
+// or a future writer with a different shape — is worth showing WITHOUT its badges. Letting JSON.parse
+// escape would instead take down every query that touched the row, and with it the project page. A
+// half-written object would otherwise reach the UI as an `undefined` source name.
+export function parseFindingCorroborations(json: string): FindingCorroboration[] {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(json)
+    } catch {
+        return []
+    }
+    if (!Array.isArray(parsed)) return []
+    const out: FindingCorroboration[] = []
+    for (const entry of parsed) {
+        if (!entry || typeof entry !== 'object') continue
+        const e = entry as Partial<FindingCorroboration>
+        if (typeof e.source !== 'string' || e.source.length === 0) continue
+        if (typeof e.advisoryId !== 'string' || e.advisoryId.length === 0) continue
+        if (typeof e.severity !== 'string') continue
+        out.push({ source: e.source, advisoryId: e.advisoryId, severity: e.severity })
+    }
+    return out
+}
+
 // The one severity ordering, worst first. Everything that sorts, compares or filters by severity goes
 // through the helpers below rather than indexing a rank table, so no call site can get the direction
 // wrong. There used to be two rank scales pointing in OPPOSITE directions — an ascending one here
@@ -248,7 +287,14 @@ export type Finding = {
     packageName: string
     installedVersion: string
     vulnerableRange: string
+    // The worst grade any source gave this finding, which is not always the surviving source's own —
+    // see `corroborations` for what each source actually said.
     severity: Severity
+    // Other sources that independently reported this same advisory for this same package. Empty when
+    // only one source knows about it, which is the case worth distinguishing: on a real instance two
+    // thirds of findings are corroborated, and without this they looked identical to the third that
+    // are not.
+    corroborations: FindingCorroboration[]
     fixAvailable: boolean
     fixVersion: string | null
     depPath: string[]

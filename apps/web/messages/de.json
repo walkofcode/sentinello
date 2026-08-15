@@ -472,7 +472,11 @@
         "rangeLabel": "Bereich:",
         "malicious": "bösartig",
         "filterByEcosystem": "Nach Sprache filtern",
-        "ecosystemAll": "Alle Sprachen"
+        "ecosystemAll": "Alle Sprachen",
+        "grades": {
+            "label": "Bewertung je Quelle",
+            "explain": "Sentinello meldet die schwerste Bewertung aller Quellen, damit eine Schwachstelle nie zu niedrig eingestuft wird."
+        }
     },
     "Triage": {
         "alias": {
