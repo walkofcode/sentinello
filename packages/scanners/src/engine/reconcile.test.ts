@@ -68,6 +68,23 @@ describe('reconcileAgainstReported — which findings survive', function () {
         expect(second.kept).toEqual([])
     })
 
+    // The pairing this whole mechanism was written for, and the one it never actually served. npm audit
+    // keys an advisory by npm's numeric id while OSV keys it by GHSA, so until npm-audit findings
+    // started carrying the GHSA from their own advisory URL these two identity sets could not
+    // intersect — every advisory both sources knew was stored twice, counted twice, and notified twice,
+    // and the corroboration badge could not appear on the pairing it exists to show.
+    it('collapses npm audit’s numeric id against OSV’s GHSA for the same advisory', function () {
+        const seen = reported()
+        const npmAudit = finding({ advisoryId: '1093507', aliases: ['GHSA-7px7-7xjx-hxm8'] })
+        const osv = finding({ advisoryId: 'GHSA-7px7-7xjx-hxm8', aliases: ['CVE-2024-9999'] })
+
+        expect(reconcileAgainstReported([npmAudit], seen, 'npm-audit').kept).toHaveLength(1)
+        const second = reconcileAgainstReported([osv], seen, 'osv')
+
+        expect(second.kept).toEqual([])
+        expect(second.corroborations).toHaveLength(1)
+    })
+
     it('ignores casing when matching ids and aliases', function () {
         const seen = reported()
         reconcileAgainstReported([finding({ advisoryId: 'ghsa-1' })], seen, 'npm-audit')

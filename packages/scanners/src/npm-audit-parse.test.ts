@@ -8,6 +8,7 @@ import {
     normalizeAuditOutput,
     normalizePnpmAuditOutput,
     parseYarnMajor,
+    pickAdvisoryAliases,
     pickAdvisoryId,
     pickAuditCommand,
     pickDepPath,
@@ -168,6 +169,35 @@ describe('pickGhsaIdFromUrl and pickAdvisoryId', function () {
     })
 })
 
+// The numeric id stays primary because mutes and finding identity are persisted under it, so the GHSA
+// has to travel alongside as an alias — otherwise npm-audit's identity keys can never intersect the
+// GHSA/CVE keys OSV and gemnasium use, and cross-source dedup cannot fire for it at all.
+describe('pickAdvisoryAliases', function () {
+    it('keeps the GHSA from the url when the numeric id won', function () {
+        expect(pickAdvisoryAliases('1234', 'https://github.com/advisories/GHSA-a-b-c')).toEqual(['GHSA-a-b-c'])
+    })
+
+    it('prefers pnpm’s explicit github_advisory_id over parsing the url', function () {
+        expect(
+            pickAdvisoryAliases('1234', 'https://github.com/advisories/GHSA-from-url-x', 'GHSA-explicit-y-z')
+        ).toEqual(['GHSA-explicit-y-z'])
+    })
+
+    // An id is not an alias of itself: when npm omitted its numeric id the GHSA already IS advisoryId,
+    // and repeating it would put the same key in the set twice.
+    it('does not repeat the id as its own alias', function () {
+        expect(pickAdvisoryAliases('GHSA-a-b-c', 'https://github.com/advisories/GHSA-a-b-c')).toEqual([])
+        expect(pickAdvisoryAliases('ghsa-a-b-c', 'https://github.com/advisories/GHSA-A-B-C')).toEqual([])
+    })
+
+    it('is empty when no GHSA is available anywhere', function () {
+        expect(pickAdvisoryAliases('1234', 'https://example.test/nope')).toEqual([])
+        expect(pickAdvisoryAliases('1234', undefined)).toEqual([])
+        expect(pickAdvisoryAliases('1234', undefined, '')).toEqual([])
+        expect(pickAdvisoryAliases('1234', undefined, null)).toEqual([])
+    })
+})
+
 describe('pickSeverity, pickFixAvailability, pickVulnerableRange', function () {
     // The default is 'moderate', not 'info': npm has told us there IS a vulnerability and only withheld
     // its grade, so calling it informational is a downgrade of our own invention that drops it out of
@@ -281,6 +311,10 @@ describe('normalizeAuditOutput — the npm 7+ shape', function () {
             isProd: true
         })
         expect(result.hadVulnerabilityWithoutConcreteAdvisory).toBe(false)
+        // The GHSA rides along as an alias. Without it the finding's only identity key is npm's
+        // numeric id, which no other source uses, so reconcile can never match it to the same
+        // advisory reported by OSV or gemnasium.
+        expect(result.findings[0]?.aliases).toEqual(['GHSA-p6mc'])
     })
 
     // A `via` entry that is a bare string is a transitive pointer to another vulnerable package,

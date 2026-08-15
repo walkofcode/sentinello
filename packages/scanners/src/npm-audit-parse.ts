@@ -288,6 +288,30 @@ export function pickAdvisoryId(via: ViaObject): string | null {
     return fallbackAdvisoryHash(via)
 }
 
+// The GHSA id npm hands us alongside its own numeric one, kept as a cross-reference alias.
+//
+// pickAdvisoryId deliberately still prefers the numeric id: it is what findings, mutes and
+// notification events have been keyed by since long before a GHSA was read out of the URL, and
+// changing it would orphan every mute an operator has ever written. But that id is npm's alone. OSV
+// and gemnasium key the same advisory by GHSA or CVE, so an identity built only from the numeric id
+// could never intersect theirs — findingIdentityKeys compared ["1093507"] against
+// ["ghsa-7px7-7xjx-hxm8", "cve-…"] and found nothing in common. Cross-source dedup therefore never
+// fired for an npm-audit finding even once: the same advisory was stored twice, counted twice on
+// every raw-row surface, notified twice, and the corroboration badge that exists to show two sources
+// agreeing could not appear on the one pairing it was written for.
+//
+// The GHSA was in hand the whole time, in the advisory URL npm already gives us.
+export function pickAdvisoryAliases(advisoryId: string, url: string | undefined, githubAdvisoryId?: string | null): string[] {
+    // pnpm names the GHSA outright; npm and yarn only carry it inside the advisory URL. An empty
+    // string is not a GHSA, so falling through to the URL is the right reading of one.
+    const explicit = typeof githubAdvisoryId === 'string' && githubAdvisoryId.length > 0 && githubAdvisoryId
+    const ghsa = explicit || pickGhsaIdFromUrl(url)
+    if (!ghsa) return []
+    // Already the primary id (npm omitted its numeric one), so it is not an alias of itself.
+    if (ghsa.toLowerCase() === advisoryId.toLowerCase()) return []
+    return [ghsa]
+}
+
 // The fallback is 'moderate', not 'info'. npm reported a vulnerability here; the only thing missing is
 // how bad it is. Grading that 'info' is a downgrade Sentinello invented, and it hides the finding from
 // every operator whose minimum-severity filter sits above the floor — the quietest way to lose a real
@@ -367,6 +391,7 @@ export function normalizeOneVulnerability(vuln: Vulnerability, packageName: stri
         const cls = classifier.classify(packageName, installedVersion)
         const finding: RawFinding = {
             advisoryId,
+            aliases: pickAdvisoryAliases(advisoryId, via.url),
             advisoryTitle: via.title || null,
             advisoryUrl: via.url || null,
             packageName,
@@ -434,6 +459,8 @@ export function normalizePnpmAuditOutput(parsed: PnpmAudit, classifier: DepClass
         const vulnRange = adv.vulnerable_versions || ''
         const advisoryTitle = adv.title || null
         const advisoryUrl = adv.url || null
+        // pnpm names the GHSA outright rather than only in the URL, so prefer the explicit field.
+        const aliases = pickAdvisoryAliases(advisoryId, adv.url ?? undefined, adv.github_advisory_id)
         const packageName = adv.module_name
         const findings = adv.findings || []
         if (findings.length === 0) {
@@ -441,6 +468,7 @@ export function normalizePnpmAuditOutput(parsed: PnpmAudit, classifier: DepClass
             const cls = classifier.classify(packageName, null)
             out.push({
                 advisoryId,
+                aliases,
                 advisoryTitle,
                 advisoryUrl,
                 packageName,
@@ -464,6 +492,7 @@ export function normalizePnpmAuditOutput(parsed: PnpmAudit, classifier: DepClass
                 const cls = classifier.classify(packageName, f.version || null)
                 out.push({
                     advisoryId,
+                    aliases,
                     advisoryTitle,
                     advisoryUrl,
                     packageName,
@@ -483,6 +512,7 @@ export function normalizePnpmAuditOutput(parsed: PnpmAudit, classifier: DepClass
                 const cls = classifier.classify(packageName, f.version || null)
                 out.push({
                     advisoryId,
+                    aliases,
                     advisoryTitle,
                     advisoryUrl,
                     packageName,

@@ -18,9 +18,13 @@ export type RawFinding = {
     depPath: string[]
     isProd: boolean
     isDev: boolean
-    // Cross-reference ids (e.g. ["CVE-2024-48913"]) for advisories that carry them. Populated by the
-    // OSV scanner so the worker can suppress an OSV finding that npm-audit already reported under the
-    // same GHSA/CVE for the same package. Undefined for scanners that don't track aliases (npm-audit).
+    // Cross-reference ids (e.g. ["CVE-2024-48913"]) for advisories that carry them, so reconcile can
+    // tell that two sources keying one advisory differently are describing the same thing.
+    //
+    // EVERY scanner populates this, including npm-audit — it carries the GHSA from its own advisory
+    // URL alongside npm's numeric id. This comment used to say npm-audit was the exception, which was
+    // true and was the bug: its identity keys could never intersect OSV's or gemnasium's, so the
+    // dedup this field exists for never fired on the one pairing that matters.
     aliases?: string[]
     // Other sources that independently reported this same advisory for this same package. Attached by
     // reconcileAgainstReported as later sources agree, so a caller holding the finding — the CLI report,
