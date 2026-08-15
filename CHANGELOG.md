@@ -1,5 +1,45 @@
 # Changelog
 
+## [3.3.0](https://github.com/walkofcode/sentinello/compare/v3.2.0...v3.3.0) (2026-08-15)
+
+
+### Features
+
+* **sources:** explain each source once, apart from its switch ([4719be1](https://github.com/walkofcode/sentinello/commit/4719be189a84d7aa6ebae2ff4270d598ead409f1))
+* **sources:** offer only the ecosystems that are finished, and call npm Node.js ([a556062](https://github.com/walkofcode/sentinello/commit/a5560620b4a8c76214a980f65278790365b26fbf))
+* **sources:** one line per source, and the built-in one cannot be switched off ([5f492de](https://github.com/walkofcode/sentinello/commit/5f492de9cc300b5423dd9a6baa45f6cede29226d))
+
+
+### Bug Fixes
+
+* **cli:** match the portal's dev filter and honour withdrawn advisories ([5edb223](https://github.com/walkofcode/sentinello/commit/5edb2232d29c7cb4755631aa60297a8ef87fa40e))
+* **feeds:** keep every advisory version bound exactly as stated ([4292629](https://github.com/walkofcode/sentinello/commit/42926293142dbd0670e9623df30fb152c4c6f5a6))
+* **feeds:** replace an advisory only once its replacement has arrived ([533d6f6](https://github.com/walkofcode/sentinello/commit/533d6f65f7dfcae2ed35458520fee8f20b07a5fe))
+* **notifications:** describe every event a dispatch consumes ([603b49e](https://github.com/walkofcode/sentinello/commit/603b49e9f8bfd9d47d166b734def00b91cc49958))
+* **notifications:** let cross-source escalation reach the severity filter ([89be7e9](https://github.com/walkofcode/sentinello/commit/89be7e9db31e707d0fd79a331d2515c1f9528d3c))
+* **notifications:** stop maskSecret printing the secrets it is asked to hide ([52d845d](https://github.com/walkofcode/sentinello/commit/52d845defac0229593acd7f9afc717c36f94c890))
+* **scanners:** give npm-audit findings the GHSA id so cross-source dedup can fire ([f6ac4c9](https://github.com/walkofcode/sentinello/commit/f6ac4c9d581a047bedfd332b735bd78619d99d14))
+* **scanners:** stop the manifest overriding npm's proof of prod reachability ([bbcb29e](https://github.com/walkofcode/sentinello/commit/bbcb29e1b2baad3e0e3d9f54520fe1c8fc9d1723))
+* **severity:** make the three grading vocabularies agree with core's ([784dffa](https://github.com/walkofcode/sentinello/commit/784dffacaece960d9eae2520ede262f695a7ad22))
+* **sources:** count only cells that can run when guarding the last source ([1a69e6c](https://github.com/walkofcode/sentinello/commit/1a69e6c80a20709775b12f4d9e5540e090cd1a0e))
+* **versions:** treat a zero lower bound as the bottom of the version space ([42d9af9](https://github.com/walkofcode/sentinello/commit/42d9af96fe9d4504fcbcfe71afc55909723ba7f1))
+* **worker:** keep the scan cadence across midnight ([4008479](https://github.com/walkofcode/sentinello/commit/40084794d26dcb69f421ae244e918f3acbc72a45))
+
+
+### Refactor
+
+* **severity:** delete the last two rank tables that disagreed with core ([50e58bb](https://github.com/walkofcode/sentinello/commit/50e58bbb6da7ec6950fd595ea226695e0dfc3079))
+
+
+### Documentation
+
+* **about:** stop claiming gemnasium ranges are recovered from other sources ([9e23cbc](https://github.com/walkofcode/sentinello/commit/9e23cbc55b2397cfec42789bdd0922f8f17d35ae))
+* **homepage:** stop advertising languages Sentinello does not scan ([7a77dd5](https://github.com/walkofcode/sentinello/commit/7a77dd5b59d565760e198045073129499aad4b48))
+* **releases:** add the range-precision items to the 3.2.0 notes ([56b9bca](https://github.com/walkofcode/sentinello/commit/56b9bca27af01c5ad46ca671bb477e8d1f766615))
+* **releases:** fold the 3.2.1 notes into 3.3.0 ([63322ff](https://github.com/walkofcode/sentinello/commit/63322ffbb08a38d05d040ced54bdc91bfd7d4c50))
+* **releases:** move the range-precision notes to 3.2.1 ([5c8a1fe](https://github.com/walkofcode/sentinello/commit/5c8a1feebb25d0fd9c0896bf0133fef91750c4a3))
+* **sources:** describe the ecosystem Sentinello actually scans ([e880aba](https://github.com/walkofcode/sentinello/commit/e880aba35295bcbaa2d1233158d33edda78561e1))
+
 ## [3.2.0](https://github.com/walkofcode/sentinello/compare/v3.1.1...v3.2.0) (2026-08-15)
 
 
