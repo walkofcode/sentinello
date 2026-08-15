@@ -29,18 +29,47 @@ const SLACK_SECRET_TAIL = 'not-a-real-webhook-only-a-test-fixture'
 const SLACK_URL = 'https://hooks.slack.com/services/' + SLACK_SECRET_TAIL
 const BOT_TOKEN = '123456789:not-a-real-bot-token-only-a-test-fixture'
 
+// Mirrors MIN_HIDDEN in redact.ts. Restated rather than exported: the constant is an implementation
+// choice, but "at least this many characters never appear in the output" is the contract, and a test
+// that imported the value would agree with the implementation even after someone lowered it to zero.
+const MIN_HIDDEN_CHARS = 8
+
 describe('maskSecret', function () {
     it('keeps a short head and tail of a long secret', function () {
-        expect(maskSecret('abcdefghijklmnop')).toBe('abcdefgh**REDACTED**mnop')
+        expect(maskSecret('abcdefghijklmnopqrstuvwx')).toBe('abcdefgh**REDACTED**uvwx')
     })
 
-    // Anything short enough that a head+tail would expose most of it is dropped entirely.
-    it.each(['', 'a', 'abcdef'])('redacts %j completely because it is too short to mask', function (value) {
-        expect(maskSecret(value)).toBe('**REDACTED**')
+    // Anything short enough that an 8-character head and a 4-character tail would meet is dropped
+    // entirely. 'abcdefg' is the case that used to come back as 'abcdefg**REDACTED**defg' — the whole
+    // secret, printed, with four of its characters repeated for good measure.
+    it.each(['', 'a', 'abcdef', 'abcdefg', 'abcdefghijkl', 'abcdefghijklm'])(
+        'redacts %j completely because it is too short to mask',
+        function (value) {
+            expect(maskSecret(value)).toBe('**REDACTED**')
+        }
+    )
+
+    // The boundary itself, pinned from both sides: one character short of the threshold must not leak.
+    it('drops a secret one character below the masking threshold', function () {
+        expect(maskSecret('a'.repeat(19))).toBe('**REDACTED**')
     })
 
-    it('masks a seven-character secret rather than dropping it', function () {
-        expect(maskSecret('abcdefg')).toBe('abcdefg**REDACTED**defg')
+    it('masks at the threshold, hiding at least eight characters', function () {
+        const masked = maskSecret('abcdefghijklmnopqrst')
+        expect(masked).toBe('abcdefgh**REDACTED**qrst')
+        expect(masked).not.toContain('ijklmnop')
+    })
+
+    // The property the whole function exists for, stated directly rather than by example: whatever it
+    // returns must never let the original be reassembled from the head and tail it kept.
+    it.each([7, 12, 13, 19, 20, 40, 96])('never reveals every character of a %i-character secret', function (length) {
+        const secret = Array.from({ length }, function char(_unused, i) {
+            return String.fromCharCode(97 + (i % 26))
+        }).join('')
+        const masked = maskSecret(secret)
+        expect(masked).not.toContain(secret)
+        const revealed = masked.replace(/\*\*REDACTED\*\*/g, '').length
+        expect(revealed).toBeLessThanOrEqual(Math.max(0, secret.length - MIN_HIDDEN_CHARS))
     })
 
     it('trims before measuring', function () {
