@@ -59,8 +59,19 @@ jobs:
               run: pnpm build
 
     cli-e2e:
-        name: cli end-to-end
+        name: cli end-to-end (node ${{ matrix.node }})
         runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                # apps/cli/package.json publishes `engines: node >=22.0.0`, and this is the only job
+                # that makes that claim true. Everything else here — the Dockerfile, .nvmrc, every
+                # other job — pins 24, so without a 22 entry the floor we advertise to `npx sentinello`
+                # users is never once executed. The CLI is the one artifact strangers run on a Node
+                # version we do not control; raising the floor instead would drop users it works for
+                # today (22 is maintenance LTS until April 2027). If this job ever fails, the honest
+                # fix is to raise `engines`, not to delete the entry.
+                node: [22, 24]
         steps:
             - uses: actions/checkout@v5
 
@@ -68,7 +79,7 @@ jobs:
 
             - uses: actions/setup-node@v6
               with:
-                  node-version: 24
+                  node-version: ${{ matrix.node }}
                   cache: pnpm
 
             - name: Install dependencies
