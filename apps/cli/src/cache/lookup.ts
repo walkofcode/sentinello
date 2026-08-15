@@ -64,7 +64,8 @@ function toOsvAdvisory(row: OsvAdvisoryRow): OsvAdvisory {
         severity: row.severity,
         summary: row.summary,
         url: row.url,
-        malicious: row.malicious
+        malicious: row.malicious,
+        withdrawn: row.withdrawn
     }
 }
 

@@ -120,8 +120,18 @@ describe('loadCacheForPackages', function () {
             severity: 'high',
             summary: 'Prototype pollution',
             url: 'https://example.test/GHSA-aaaa',
-            malicious: true
+            malicious: true,
+            withdrawn: null
         })
+    })
+
+    // The CLI has no WHERE clause to drop retracted advisories in, so `withdrawn` has to reach the matcher
+    // on the shape itself. It used to be dropped here, which left the portal (which filters in SQL) and the
+    // CLI disagreeing about 585 rows of a real npm cache — the CLI reporting each of them as a live finding.
+    it('carries the withdrawn timestamp through to the scanner shape', async function () {
+        await seed('osv', [osvRow({ withdrawn: 1_700_000_000_000 })])
+        const cache = await loadCacheForPackages(dir, 'npm', ['lodash'], ['osv'])
+        expect(cache.osv.get('lodash')?.[0]?.withdrawn).toBe(1_700_000_000_000)
     })
 
     // gemnasium carries no malware threat class, so the flag is dropped rather than invented as false.

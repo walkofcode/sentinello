@@ -41,10 +41,14 @@ function emptyCounts(): SeverityCounts {
     return { critical: 0, high: 0, moderate: 0, low: 0, info: 0 }
 }
 
+// 'dev' means reachable ONLY from a dev dependency — the same rule the portal applies in SQL
+// (depTypeClause: `is_dev = 1 AND is_prod = 0`) and in the library grouping. It read as "dev-reachable at
+// all" here, so a package reachable from BOTH appeared under `--dep-type dev` in the CLI and was absent
+// from the portal's dev view. One filter, one name, two answers; on a real instance 177 findings differed.
 function matchesDepType(finding: RawFinding, depType: DepTypeFilter): boolean {
     if (depType === 'all') return true
     if (depType === 'prod') return finding.isProd
-    return finding.isDev
+    return finding.isDev && !finding.isProd
 }
 
 // Builds the run summary, applying the dep-type and severity filters. Filtering happens here rather than

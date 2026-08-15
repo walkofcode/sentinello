@@ -29,6 +29,7 @@ function advisory(overrides: Partial<OsvAdvisory> = {}): OsvAdvisory {
         summary: 'Prototype pollution',
         url: 'https://ghsa.example/1',
         malicious: false,
+        withdrawn: null,
         ...overrides
     }
 }

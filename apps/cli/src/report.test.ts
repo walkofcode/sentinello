@@ -121,6 +121,16 @@ describe('summarize — filtering', function () {
         expect(summary.findings[0]?.advisoryId).toBe('D')
     })
 
+    // "dev" is dev-ONLY, matching the portal's SQL (`is_dev = 1 AND is_prod = 0`). A package reachable from
+    // both is a production dependency that also happens to be used in dev, so it belongs under prod and
+    // nowhere else. This read as "dev-reachable at all", which put it in both views in the CLI and only the
+    // prod view in the portal — one filter name, two answers.
+    it('excludes a finding reachable from prod as well as dev', function () {
+        const both = [finding({ advisoryId: 'B', isProd: true, isDev: true })]
+        expect(summarize([result(project('a', 'a'), both)], optionsWith(['--dep-type=dev'])).totalFindings).toBe(0)
+        expect(summarize([result(project('a', 'a'), both)], optionsWith(['--dep-type=prod'])).totalFindings).toBe(1)
+    })
+
     it('drops findings below the --severity floor', function () {
         const mixed = [
             finding({ advisoryId: 'C', severity: 'critical' }),
