@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.1.2](https://github.com/walkofcode/sentinello/compare/v3.1.1...v3.1.2) (2026-08-15)
+
+
+### Bug Fixes
+
+* **feeds:** drop gemnasium advisories that GitLab has retracted ([ef69193](https://github.com/walkofcode/sentinello/commit/ef691937452698665e83437c201202b5d81a3c3c))
+
+
+### Refactor
+
+* **feeds:** honour gemnasium's affected_range and delete the recovery tiers ([e84c536](https://github.com/walkofcode/sentinello/commit/e84c53652a9edd9f12829cd226798157ee87699f))
+
 ## [3.1.1](https://github.com/walkofcode/sentinello/compare/v3.1.0...v3.1.1) (2026-08-14)
 
 
