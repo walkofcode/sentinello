@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.2.0](https://github.com/walkofcode/sentinello/compare/v3.1.1...v3.2.0) (2026-08-15)
+
+
+### Features
+
+* **findings:** keep which sources agree, and report the worst grade any gave ([895bf95](https://github.com/walkofcode/sentinello/commit/895bf95e7b76f44ba2b494e5110375534b0171d5))
+
+
+### Bug Fixes
+
+* **feeds:** drop gemnasium advisories that GitLab has retracted ([ef69193](https://github.com/walkofcode/sentinello/commit/ef691937452698665e83437c201202b5d81a3c3c))
+* **notifications:** add the corroboration field to the render test fixture ([7abeaec](https://github.com/walkofcode/sentinello/commit/7abeaec69c80d65ec20ba0886984cff25f9b908e))
+
+
+### Refactor
+
+* **feeds:** honour gemnasium's affected_range and delete the recovery tiers ([e84c536](https://github.com/walkofcode/sentinello/commit/e84c53652a9edd9f12829cd226798157ee87699f))
+
 ## [3.1.1](https://github.com/walkofcode/sentinello/compare/v3.1.0...v3.1.1) (2026-08-14)
 
 
