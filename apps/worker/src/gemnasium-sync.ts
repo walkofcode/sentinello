@@ -26,7 +26,6 @@ import {
     upsertGemnasiumAdvisories,
     type GemnasiumDrizzleDb
 } from '@sentinello/db'
-import { resolveGemnasiumRanges, type GemnasiumResolveDeps } from './gemnasium-resolve'
 
 // The worker's gemnasium persistence layer. Feed I/O lives in @sentinello/feeds; this module owns
 // gemnasium.db state and the choice between a full archive rebuild and an incremental catch-up.
@@ -38,21 +37,6 @@ export type GemnasiumSyncResult = {
     upserted: number
     recordCount: number
     message: string | null
-}
-
-// Runs after every successful sync, on both the rebuild and the incremental path, and always BEFORE the
-// record count is read — dropping an unrecoverable row changes that count. It needs the whole cache
-// populated to see an advisory's siblings, which is why it is a post-pass and not part of normalization.
-function resolveRanges(db: GemnasiumDrizzleDb, deps: GemnasiumResolveDeps): void {
-    const resolved = resolveGemnasiumRanges(db, deps)
-    if (resolved.considered === 0) return
-    console.log(
-        '[gemnasium-sync] range recovery: ' + resolved.considered + ' record(s) without a machine-readable range — ' +
-        resolved.fromSibling + ' from a sibling advisory, ' +
-        resolved.fromProse + ' from the advisory prose, ' +
-        resolved.fromOsv + ' from the OSV cache, ' +
-        resolved.dropped + ' dropped as unresolvable'
-    )
 }
 
 // Free-space pre-flight against the directory that will hold gemnasium.db. Mirrors checkOsvFreeSpace.
@@ -74,11 +58,7 @@ export async function checkGemnasiumFreeSpace(): Promise<{ freeBytes: number; su
 //   3. No usable provenance (first seed, normalizer bump, or an unusable compare) → full archive rebuild.
 // This is what stopped the old behavior of re-downloading 80 MB on every sync cycle regardless of whether
 // the upstream repo had moved at all.
-export async function syncGemnasium(
-    db: GemnasiumDrizzleDb,
-    abortSignal?: AbortSignal,
-    resolveDeps: GemnasiumResolveDeps = {}
-): Promise<GemnasiumSyncResult> {
+export async function syncGemnasium(db: GemnasiumDrizzleDb, abortSignal?: AbortSignal): Promise<GemnasiumSyncResult> {
     if (gemnasiumFeedDisabled()) {
         return { status: 'skipped', upserted: 0, recordCount: countGemnasiumAdvisories(db), message: 'feed disabled' }
     }
@@ -94,12 +74,12 @@ export async function syncGemnasium(
     }
 
     if (seeded && normalizerCurrent && headSha && storedSha) {
-        const incremental = await incrementalSyncGemnasium(db, storedSha, headSha, resolveDeps, abortSignal)
+        const incremental = await incrementalSyncGemnasium(db, storedSha, headSha, abortSignal)
         if (incremental) return incremental
         // Fall through to the full rebuild when the incremental path was unusable.
     }
 
-    return await rebuildGemnasium(db, headSha, resolveDeps, abortSignal)
+    return await rebuildGemnasium(db, headSha, abortSignal)
 }
 
 // Applies only the advisory files that changed between two commits. Returns null when the compare is
@@ -109,7 +89,6 @@ async function incrementalSyncGemnasium(
     db: GemnasiumDrizzleDb,
     fromSha: string,
     toSha: string,
-    resolveDeps: GemnasiumResolveDeps,
     abortSignal?: AbortSignal
 ): Promise<GemnasiumSyncResult | null> {
     const changed = await fetchGemnasiumChangedPaths(fromSha, toSha, { abortSignal })
@@ -154,9 +133,6 @@ async function incrementalSyncGemnasium(
         setGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastError, message)
         return { status: 'error', upserted, recordCount: countGemnasiumAdvisories(db), message }
     }
-    // A changed advisory file can arrive without its sibling (only one of the pair was touched upstream),
-    // so re-run recovery over whatever is still unresolved rather than only over this batch.
-    resolveRanges(db, resolveDeps)
     const recordCount = countGemnasiumAdvisories(db)
     setGemnasiumMeta(db, GEMNASIUM_META_KEYS.headSha, toSha)
     setGemnasiumMeta(db, GEMNASIUM_META_KEYS.recordCount, recordCount)
@@ -176,7 +152,6 @@ async function incrementalSyncGemnasium(
 async function rebuildGemnasium(
     db: GemnasiumDrizzleDb,
     headSha: string | null,
-    resolveDeps: GemnasiumResolveDeps,
     abortSignal?: AbortSignal
 ): Promise<GemnasiumSyncResult> {
     const space = await checkGemnasiumFreeSpace()
@@ -209,9 +184,6 @@ async function rebuildGemnasium(
     }
     // Full pass succeeded — safe to purge advisories that disappeared upstream.
     const purged = deleteGemnasiumAdvisoriesExcept(db, seenRowKeys)
-    // Then recover ranges for the records that ship none. Runs after the purge so it never resolves a row
-    // against a sibling that upstream has just deleted.
-    resolveRanges(db, resolveDeps)
     const recordCount = countGemnasiumAdvisories(db)
     setGemnasiumMeta(db, GEMNASIUM_META_KEYS.seedComplete, true)
     setGemnasiumMeta(db, GEMNASIUM_META_KEYS.normalizerVersion, GEMNASIUM_NORMALIZER_VERSION)

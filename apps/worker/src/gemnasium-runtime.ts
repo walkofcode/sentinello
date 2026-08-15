@@ -6,15 +6,11 @@ import {
     getGemnasiumMeta,
     getSourceEnabled,
     lookupGemnasiumByPackages,
-    lookupOsvByPackages,
     openGemnasiumDb,
-    openOsvDb,
     runGemnasiumMigrations,
     setConfigValue,
     type DrizzleDb,
-    type GemnasiumDrizzleDb,
-    type GemnasiumRange,
-    type OsvDrizzleDb
+    type GemnasiumDrizzleDb
 } from '@sentinello/db'
 import { errText } from '@sentinello/feeds'
 import {
@@ -24,7 +20,6 @@ import {
 } from '@sentinello/scanners'
 
 export type { ScannerPlugin }
-import type { OsvRangeLookup } from './gemnasium-resolve'
 import { checkGemnasiumFreeSpace, gemnasiumFeedDisabled, syncGemnasium } from './gemnasium-sync'
 import type { WorkerRuntime } from './runtime'
 
@@ -185,87 +180,11 @@ export function startGemnasiumRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime)
 // initial run.
 export async function runSync(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb, runtime: WorkerRuntime): Promise<void> {
     const signal = runtime.abortController.signal
-    // The OSV cache is the LAST tier of gemnasium's range recovery, and it is strictly optional: the
-    // connection is opened only when the operator has an OSV cell enabled, held for the sync, and closed
-    // straight after. With OSV off, `osvRanges` is undefined, the tier never runs, and a record no sibling
-    // or prose could resolve is dropped instead — gemnasium simply contributes nothing for it and npm-audit
-    // covers the package as before.
-    const osv = openOsvForResolution(mainDb)
     try {
-        await syncGemnasium(gemnasiumDb, signal, { osvRanges: osv && osv.lookup || undefined })
+        await syncGemnasium(gemnasiumDb, signal)
     } finally {
-        if (osv) osv.close()
         await mirrorStatusWithSpace(mainDb, gemnasiumDb)
     }
-}
-
-type OsvResolutionHandle = {
-    lookup: OsvRangeLookup
-    close: () => void
-}
-
-// Binds the range-recovery tier to the live OSV cache, or returns null when no (osv, ecosystem) cell is
-// enabled. Opening the cache read-only here is safe alongside the OSV runtime's own connection — SQLite in
-// WAL mode allows concurrent readers, and this one only ever selects.
-function openOsvForResolution(mainDb: DrizzleDb): OsvResolutionHandle | null {
-    const anyEnabled = ECOSYSTEMS.some(function cellEnabled(eco) {
-        return getSourceEnabled(mainDb, 'osv', eco.id)
-    })
-    if (!anyEnabled) return null
-    let opened: { db: OsvDrizzleDb; sqlite: { close: () => void } }
-    try {
-        opened = openOsvDb()
-    } catch (err) {
-        console.error('[gemnasium] OSV cache unavailable for range recovery: ' + errText(err))
-        return null
-    }
-    return {
-        lookup: function lookup(ecosystem: string, packageName: string, ids: string[]): GemnasiumRange[] | null {
-            // Per-cell gate: an operator with OSV on for npm but off for PyPI must not have a PyPI gemnasium
-            // record silently resolved out of the PyPI OSV cache.
-            if (!getSourceEnabled(mainDb, 'osv', ecosystem as EcosystemId)) return null
-            const wanted = new Set(ids)
-            const byPackage = lookupOsvByPackages(opened.db, ecosystem, [packageName])
-            const rows = byPackage.get(packageName)
-            if (!rows) return null
-            for (const row of rows) {
-                // Same vulnerability, matched on id or on either side's alias list.
-                const matches = wanted.has(row.advisoryId) || row.aliases.some(function known(alias) {
-                    return wanted.has(alias)
-                })
-                if (!matches) continue
-                const ranges = toGemnasiumRanges(row.ranges)
-                if (ranges) return ranges
-            }
-            return null
-        },
-        close: function close() {
-            try {
-                opened.sqlite.close()
-            } catch {
-                // A close failure on a read-only handle is not worth failing the sync over.
-            }
-        }
-    }
-}
-
-// OSV ranges carry a `type` and an optional `lastAffected`; gemnasium's shape has neither. The conversion
-// is deliberately all-or-nothing — if ANY range cannot be expressed exactly, the whole advisory is refused
-// (null) and the record falls through to being dropped.
-//
-// A GIT range has commit hashes rather than versions, and a `lastAffected` bound is INCLUSIVE where
-// gemnasium's `fixed` is exclusive, so keeping it would understate the affected set by one version and
-// dropping it would leave the range open-ended and overstate it by every version above. Refusing is the
-// only honest option: this whole change exists because the old code preferred a fabricated range to none.
-function toGemnasiumRanges(ranges: { type: string; introduced: string; fixed: string | null; lastAffected: string | null }[]): GemnasiumRange[] | null {
-    if (ranges.length === 0) return null
-    const out: GemnasiumRange[] = []
-    for (const range of ranges) {
-        if (range.type !== 'SEMVER' && range.type !== 'ECOSYSTEM') return null
-        if (range.fixed === null && range.lastAffected !== null) return null
-        out.push({ introduced: range.introduced, fixed: range.fixed })
-    }
-    return out
 }
 
 // Reads the gemnasium cache's meta + free space and writes the compact SourceStatus snapshot into the

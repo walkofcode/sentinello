@@ -15,6 +15,13 @@
       "when": 1786741221232,
       "tag": "0001_glossy_warbound",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786747341041,
+      "tag": "0002_black_bill_hollister",
+      "breakpoints": true
     }
   ]
 }

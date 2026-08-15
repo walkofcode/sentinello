@@ -54,24 +54,8 @@ export type GemnasiumRange = {
     fixed: string | null
 }
 
-// Where a gemnasium row's version ranges actually came from. gemnasium files whose `affected_range` is the
-// empty-set sentinel `<0` carry NO machine-readable range, so the range has to be recovered from a weaker
-// source — and which one it was is worth recording, both to order the recovery passes and to keep the
-// provenance auditable rather than silently synthesised.
-//   'range'      — parsed from the advisory's own `affected_range` (authoritative).
-//   'prose'      — parsed from the generated `affected_versions` sentence, in-record but weaker.
-//   'sibling'    — copied from another gemnasium advisory for the SAME package that lists this row's id as
-//                  an alias (the CVE-keyed twin of a GHSA-keyed stub). Beats 'prose': where both exist they
-//                  agree 438/442 times, and in all four disagreements the sibling is the narrower, correct
-//                  one (uuid GHSA-w5hq-g745-h8pq: sibling excludes the patched 11.1.1/12.0.1/13.0.1, prose
-//                  sweeps everything below 14.0.0 into the finding).
-//   'osv'        — recovered from the local OSV cache, only when the operator has the OSV source enabled.
-//   'unresolved' — no range recovered yet. Carries NO ranges, so it can never match; the worker's
-//                  resolution pass either fills it in or deletes the row. Never fabricate one.
-export type GemnasiumRangeSource = 'range' | 'prose' | 'sibling' | 'osv' | 'unresolved'
-
 // One denormalized advisory→package row from gemnasium-db. Mirrors OsvAdvisoryRow field for field apart
-// from the range shape and `rangeSource`, so both stores and both scanners read alike.
+// from the range shape, so both stores and both scanners read alike.
 export type GemnasiumAdvisoryRow = {
     advisoryId: string
     ecosystem: string
@@ -84,7 +68,6 @@ export type GemnasiumAdvisoryRow = {
     url: string | null
     malicious: boolean
     withdrawn: number | null
-    rangeSource: GemnasiumRangeSource
 }
 
 // Bump whenever the gemnasium normalizer's output shape changes in a way that requires rebuilding the
@@ -96,4 +79,14 @@ export type GemnasiumAdvisoryRow = {
 //     "affects nothing" into "affects everything below an arbitrarily-picked branch fix" (protobufjs 7.6.5
 //     and every vite below 8.0.5 were reported critical by that path). Adds `rangeSource` + the recovery
 //     tiers, so an existing cache must rebuild.
-export const GEMNASIUM_NORMALIZER_VERSION = 3
+// v4: drop advisories gemnasium has retracted upstream. Its schema carries no `withdrawn` field — unlike
+//     OSV, whose formal one we already filter on, and unlike GitHub, which removes withdrawn entries from
+//     the database npm-audit reads — so a retracted gemnasium record stays in the export with only its
+//     title rewritten ("False Positive", "Withdrawn Advisory: …", "Duplicate Advisory: …") while still
+//     naming the versions it claimed beforehand. 383 such records across npm/PyPI/Go/crates.io were being
+//     reported as live findings, npm's express among them. Also removes the v3 range-recovery tiers: a
+//     record whose `affected_range` selects no version now states that it affects nothing and is dropped,
+//     rather than having a range rebuilt for it from `affected_versions` — which gemnasium's own field
+//     reference calls display text, and which on a retracted record still describes the withdrawn claim.
+//     Forces a re-seed so the cached rows go.
+export const GEMNASIUM_NORMALIZER_VERSION = 4

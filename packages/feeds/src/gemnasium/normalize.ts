@@ -1,4 +1,4 @@
-import type { GemnasiumAdvisoryRow, GemnasiumRange, GemnasiumRangeSource } from '@sentinello/core'
+import type { GemnasiumAdvisoryRow, GemnasiumRange } from '@sentinello/core'
 import { severityFromCvss } from './cvss'
 
 // Parses a single gemnasium-db advisory (one *.yml file, already YAML-parsed to an object) into the
@@ -32,6 +32,8 @@ export function normalizeGemnasiumRecord(record: unknown, ecosystem: string, slu
     // "npm/@babel/cli" → "@babel/cli", "pypi/Django" → "Django".
     const rawName = slug.slice(slugPrefix.length)
     if (rawName.length === 0) return []
+    // An advisory upstream has retracted contributes nothing, whatever versions it still names.
+    if (isRetractedUpstream(r)) return []
     // PyPI advisories must key on the PEP 503 canonical name (lower-case, runs of -_. collapsed) so they
     // match the resolver's normalized names; other ecosystems use the slug name as-is.
     const packageName = ecosystem === 'PyPI' ? normalizePyName(rawName) : rawName
@@ -45,17 +47,12 @@ export function normalizeGemnasiumRecord(record: unknown, ecosystem: string, slu
     if (!advisoryId) return []
 
     const fixedVersions = stringArray(r.fixed_versions)
-    const parsed = parseAffectedRange(
-        typeof r.affected_range === 'string' ? r.affected_range : '',
-        fixedVersions,
-        typeof r.affected_versions === 'string' ? r.affected_versions : ''
-    )
-    // Every record is now cached, including the ones that state no affected set. An 'unresolved' row
-    // carries no ranges and no versions, so it can never match anything — but the worker's resolution pass
-    // needs to SEE it to recover a range from a sibling advisory or the OSV cache, and to delete it when
-    // neither can. Dropping it here instead, as this used to, is what left the fabricated-range path as
-    // the only way such a record ever matched. There is deliberately no emptiness check left: a 'range' or
-    // 'prose' source is only returned with at least one range or version, so it could never fire.
+    const parsed = parseAffectedRange(typeof r.affected_range === 'string' ? r.affected_range : '', fixedVersions)
+    // `affected_range` is the authoritative statement of what this advisory affects, and a record whose
+    // range matches nothing affects nothing. That is not a gap to be filled from somewhere else: for npm it
+    // is node-semver, where `<0` is a perfectly ordinary range that happens to select no version. Caching
+    // such a record could only ever produce a finding it does not claim.
+    if (parsed.ranges.length === 0 && parsed.versions.length === 0) return []
 
     const severity = severityFromCvss(
         typeof r.cvss_v3 === 'string' ? r.cvss_v3 : null,
@@ -81,47 +78,92 @@ export function normalizeGemnasiumRecord(record: unknown, ecosystem: string, slu
         summary,
         url,
         malicious: false,
-        withdrawn: null,
-        rangeSource: parsed.source
+        withdrawn: null
     }]
+}
+
+// Whether gemnasium has retracted this advisory upstream.
+//
+// This exists because of a gap in gemnasium's schema, not a quirk of one record. OSV has a formal
+// `withdrawn` field (an RFC3339 timestamp; absent means not withdrawn) and we filter on it. GitHub drops
+// withdrawn advisories from the database npm-audit reads, so they never arrive. gemnasium-db's documented
+// schema — see its own README's field reference — has NO withdrawn, status or retracted field at all. Its
+// only way to retract is to rewrite the record in place: the title becomes the marker, the description
+// explains, and `affected_range` is usually set to an empty range.
+//
+// What it does NOT do is clear `affected_versions` or `fixed_versions`, so a retracted record still names
+// the versions it claimed before retraction — npm/express CVE-2024-51999 is titled "False Positive" and
+// still carries "All versions before 4.22.0, all versions starting from 5.0.0 before 5.2.0". Anything that
+// reads those fields reinstates precisely the finding gemnasium withdrew.
+//
+// Three markers, all inherited from the GitHub advisories gemnasium imports, covering 372 records across
+// npm/PyPI/Go/crates.io: 278 "Duplicate Advisory:", 43 "Withdrawn Advisory:", 35 false positives, plus 16
+// whose title reads normally and whose description alone carries the withdrawal.
+//
+// The false-positive test is deliberately an EXACT title match rather than a substring, because a real
+// advisory can be *about* a false positive: go/github.com/sigstore/cosign CVE-2026-39395 is titled
+// "Cosign's verify-blob-attestation reports false positive when payload parsing fails" and must keep
+// reporting. Same reason the other two anchor to the start of the title.
+// The description phrasings, taken from the export rather than guessed at. Retracting by description
+// alone — leaving the original title in place — is what 36 records do, and their titles read like ordinary
+// advisories ("Incorrect Comparison", "Uncontrolled Resource Consumption"), so the title tests cannot find
+// them. Each phrase is a statement ABOUT the advisory, never a description of a vulnerability, which is
+// what keeps this from matching real records: an advisory that discusses false positives in its own
+// subject matter says so in other words entirely.
+const RETRACTION_PHRASES = [
+    'marked as false positive',
+    'marked as a false positive',
+    'this is a false positive',
+    'this advisory has been withdrawn',
+    'has been invalidated',
+    'cve being rejected',
+    'cve has been rejected'
+] as const
+
+function isRetractedUpstream(record: GemnasiumYaml): boolean {
+    const title = typeof record.title === 'string' ? record.title.trim().toLowerCase() : ''
+    if (title === 'false positive') return true
+    if (title.startsWith('withdrawn advisory:')) return true
+    if (title.startsWith('duplicate advisory:')) return true
+    const description = typeof record.description === 'string' ? record.description.replace(/\s+/g, ' ').toLowerCase() : ''
+    return RETRACTION_PHRASES.some(function stated(phrase) {
+        return description.includes(phrase)
+    })
 }
 
 type ParsedRange = {
     ranges: GemnasiumRange[]
     versions: string[]
-    source: GemnasiumRangeSource
 }
 
 // Maps gemnasium's machine-readable `affected_range` (+ the authoritative `fixed_versions`) into the
 // half-open [introduced, fixed) intervals the matcher consumes. Handles:
 //   - semver comparator form:  "<4.17.12", ">=4.0.0 <4.0.1", ">=1 <2 || >=3 <4"
 //   - maven-style interval notation: "(,4.1.2)", "[1.0.0,2.0.0)", "[1.0.0,)"
-//   - bare/"=" exact versions → enumerated `versions`
+//   - bare/"=" exact versions -> enumerated `versions`
 // `||` separates disjoint ranges.
 //
-// TWO rules here exist specifically to stop the parser inventing an affected set it was never given:
+// `affected_range` is the ONLY input. gemnasium's own field reference calls it "the range of affected
+// versions, machine-readable syntax used by the package manager", and calls `affected_versions` "the range
+// of affected versions, human-readable version for display" — so the second one is display text and is not
+// read here. A range that selects no version (`<0`, and it is a valid node-semver range rather than a
+// sentinel) means the record affects nothing, and the caller drops it.
 //
-// 1. `affected_range: "<0"` is gemnasium's sentinel for "this record has NO machine-readable range" — it
-//    is the empty set by construction (nothing is below version 0), not a range that happens to be small.
-//    It appears on 698 of 10,777 npm advisories, almost always a GHSA-keyed stub whose CVE-keyed twin in
-//    the same package directory carries the real range. Such a record resolves to 'unresolved' and the
-//    recovery tiers take over; it must NEVER be widened into a real interval.
+// The authoritative-fixed override applies ONLY when `fixed_versions` holds exactly one entry.
+// `fixed_versions` is an UNORDERED set with one fix per release branch, so `fixed_versions[0]` on a
+// multi-branch advisory is an arbitrary pick — and pairing it with a single `[0, …)` interval claims every
+// version below some other branch's fix is vulnerable. That is precisely how protobufjs
+// GHSA-xq3m-2v4x-88gg (`fixed_versions: ["8.0.1", "7.5.5"]`) became `[0, 8.0.1)` and reported the
+// fully-patched 7.6.5 as a critical RCE. With one entry the override is still right and still needed: it is
+// the only way to express `<=X`, whose fix is X's successor.
 //
-// 2. The authoritative-fixed override applies ONLY when `fixed_versions` holds exactly one entry.
-//    `fixed_versions` is an UNORDERED set with one fix per release branch, so `fixed_versions[0]` on a
-//    multi-branch advisory is an arbitrary pick — and pairing it with a single `[0, …)` interval claims
-//    every version below some other branch's fix is vulnerable. That is precisely how protobufjs
-//    GHSA-xq3m-2v4x-88gg (`fixed_versions: ["8.0.1", "7.5.5"]`) became `[0, 8.0.1)` and reported the
-//    fully-patched 7.6.5 as a critical RCE. With one entry the override is still right and still needed:
-//    it is the only way to express `<=X`, whose fix is X's successor.
-//
-//    The count check costs one record across the whole multi-ecosystem database: npm/sauce-connect-launcher
-//    GMS-2014-4 is `<=0.3.3` with `fixed_versions: ["0.3.5", "0.4.0"]`, so it now stores [0, 0.3.3) and
-//    under-includes 0.3.3 and 0.3.4. Repairing that properly needs a version comparator here — picking the
-//    lowest fix above the parsed bound — which the feeds layer deliberately does not carry. Under-including
-//    two patch versions of one dormant package is the acceptable side of this trade; the alternative is the
-//    arbitrary pick that produced the false criticals above.
-export function parseAffectedRange(affectedRange: string, fixedVersions: string[], affectedVersions: string = ''): ParsedRange {
+// The count check costs one record across the whole multi-ecosystem database: npm/sauce-connect-launcher
+// GMS-2014-4 is `<=0.3.3` with `fixed_versions: ["0.3.5", "0.4.0"]`, so it now stores [0, 0.3.3) and
+// under-includes 0.3.3 and 0.3.4. Repairing that properly needs a version comparator here — picking the
+// lowest fix above the parsed bound — which the feeds layer deliberately does not carry. Under-including
+// two patch versions of one dormant package is the acceptable side of this trade; the alternative is the
+// arbitrary pick that produced the false criticals above.
+export function parseAffectedRange(affectedRange: string, fixedVersions: string[]): ParsedRange {
     const ranges: GemnasiumRange[] = []
     const versions: string[] = []
     const trimmed = affectedRange.trim()
@@ -137,14 +179,10 @@ export function parseAffectedRange(affectedRange: string, fixedVersions: string[
         }
     }
 
-    // Every parsed interval is empty (the `<0` sentinel, or anything else that matches no version), or
-    // there was no range to parse at all. Either way this record states no affected set — fall through to
-    // the prose, and failing that hand it to the resolution pass as 'unresolved'.
-    if (versions.length === 0 && ranges.every(isEmptyInterval)) {
-        const prose = parseAffectedVersionsProse(affectedVersions)
-        if (prose) return { ranges: prose, versions, source: 'prose' }
-        return { ranges: [], versions: [], source: 'unresolved' }
-    }
+    // Every parsed interval selects no version (`<0`, or any other degenerate bound), or there was no
+    // range at all. Either way the record states no affected set, so return nothing and let the caller
+    // drop it rather than reporting an interval the advisory never claimed.
+    if (versions.length === 0 && ranges.every(isEmptyInterval)) return { ranges: [], versions: [] }
 
     // Single range + exactly one known fixed version: trust the authoritative fixed boundary over the
     // parsed upper bound. See rule 2 above for why the count check is load-bearing.
@@ -154,7 +192,7 @@ export function parseAffectedRange(affectedRange: string, fixedVersions: string[
         ranges[0] = { introduced: only.introduced, fixed: authoritativeFixed }
     }
 
-    return { ranges, versions, source: 'range' }
+    return { ranges, versions }
 }
 
 // An interval that can never match: an explicit upper bound at or below the lower bound. `<0` parses to
@@ -169,53 +207,6 @@ function isEmptyInterval(range: GemnasiumRange): boolean {
 // "0", "0.0", "0.0.0" — the bottom of the version space however upstream spelled it.
 function isZeroVersion(version: string): boolean {
     return /^0(\.0)*$/.test(version)
-}
-
-// gemnasium generates `affected_versions` from the same source data as `affected_range`, as one sentence
-// of comma-separated clauses: "All versions before 7.5.5, all versions starting from 8.0.0 before 8.0.1".
-// Where a record has BOTH, the two agree on 6,383 of 6,705 npm advisories and the remaining differences
-// are the `>=0.0.0-alpha` family, where "All versions" and ">= the lowest possible version" describe the
-// same set — so the prose is a sound fallback for the records that have no machine range at all.
-//
-// Parsing is deliberately all-or-nothing: ONE unrecognised clause discards the whole sentence rather than
-// yielding a partial affected set, because a dropped clause is a silently missed vulnerable range. Notably
-// "All versions up to X" is NOT handled — "up to" is an INCLUSIVE bound that the half-open [introduced,
-// fixed) shape cannot express without inventing X's successor, so those records stay unresolved and let a
-// sibling or OSV answer instead of guessing.
-export function parseAffectedVersionsProse(text: string): GemnasiumRange[] | null {
-    const sentence = text.replace(/\s+/g, ' ').trim()
-    if (sentence.length === 0) return null
-    const lower = sentence.toLowerCase()
-    // Explicit "nothing here" phrasings upstream uses in place of an affected set.
-    if (lower === 'none' || lower.startsWith('no version') || lower.startsWith('this advisory has been withdrawn')) return null
-
-    const out: GemnasiumRange[] = []
-    for (const clause of sentence.split(',')) {
-        const c = clause.trim()
-        const fromBefore = /^all versions starting from (\S+) before (\S+)$/i.exec(c)
-        if (fromBefore && fromBefore[1] && fromBefore[2]) {
-            out.push({ introduced: stripV(fromBefore[1]), fixed: stripV(fromBefore[2]) })
-            continue
-        }
-        const before = /^all versions before (\S+)$/i.exec(c)
-        if (before && before[1]) {
-            out.push({ introduced: '0', fixed: stripV(before[1]) })
-            continue
-        }
-        const from = /^all versions starting from (\S+)$/i.exec(c)
-        if (from && from[1]) {
-            out.push({ introduced: stripV(from[1]), fixed: null })
-            continue
-        }
-        if (/^all versions$/i.test(c)) {
-            out.push({ introduced: '0', fixed: null })
-            continue
-        }
-        return null
-    }
-    // At least one clause always exists (split never yields an empty list) and an unparseable one returns
-    // above, so reaching here means every clause produced an interval.
-    return out
 }
 
 type Disjunct = {
