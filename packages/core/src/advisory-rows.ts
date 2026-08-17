@@ -46,9 +46,18 @@ export type OsvAdvisoryRow = {
 //     routinely carry one affected entry PER RELEASE BRANCH for a single package (minimatch ships eight),
 //     and the old first-wins skip silently discarded all but one — 1,927 ranges across the npm export
 //     alone, every one a missed vulnerable interval. Forces a re-seed to recover them.
+// v5: read the upper bound GitHub parks in an affected entry's `database_specific.
+//     last_known_affected_version_range` when it cannot state the fix as a `fixed` event — which is what it
+//     does whenever the fixed version is not published under that package name on the registry. xlsx
+//     GHSA-4r6h-8v6p-xvw6 (`< 0.19.3`) and GHSA-5pgg-2g8v-p4x9 (`< 0.20.2`) were stored as `>=0` and
+//     reported the fully patched 0.20.3 as high severity with no fix, 22 findings across 11 projects;
+//     `babel-traverse` GHSA-67hx-6x53-jw92 and `sandbox` are the same shape. Applied ONLY to an entry that
+//     produced a single range with no upper bound — GHSA-25hc-qcg6-38wj states `< 2.5.0` while its real
+//     branch fixes are 2.5.1 and 4.6.2, so as a supplement it would narrow a correct range into a false
+//     negative. Every cached range is re-derived, so an existing cache must rebuild.
 // Lives beside the row type it describes so every store — the portal's SQLite cache and the CLI's ndjson
 // cache alike — invalidates on exactly the same signal.
-export const OSV_NORMALIZER_VERSION = 4
+export const OSV_NORMALIZER_VERSION = 5
 
 // gemnasium carries no range `type` discriminator, so its rows leave that field unset — but it very much
 // does state inclusive upper bounds (`<=X`, maven `[a,b]`) and exclusive lower ones (`>X`), so it uses the
@@ -98,4 +107,16 @@ export type GemnasiumAdvisoryRow = {
 //     to an empty interval that discarded the whole record. Range syntax this parser cannot read (`^1.0.0`,
 //     `~1.0.0`, `!=1.0.0`) is now refused rather than cached as an exact-version pin that matches nothing
 //     forever. Every cached range carries the new fields, so an existing cache must rebuild.
-export const GEMNASIUM_NORMALIZER_VERSION = 5
+// v6: two range-fidelity fixes, both re-deriving every cached range.
+//     (a) An interval left with NO upper bound is now closed at the HIGHEST entry in `fixed_versions` when
+//         the record lists any — an unbounded interval claims every version forever and is a finding no
+//         upgrade can clear. This runs AFTER the single-fix override above and only ever fires on an
+//         interval that is already unbounded, so it cannot repeat the protobufjs GHSA-xq3m-2v4x-88gg
+//         regression, which came from overwriting an interval that already had a correct bound. A fix at or
+//         below the interval's lower bound is refused rather than used to build an empty range.
+//     (b) The comparator-form parser splits on a comma as well as whitespace. PEP 440 spells an
+//         intersection as `>=5.0,<5.8`, so splitting on whitespace alone kept the whole thing as one token:
+//         the lower bound became the unparseable literal `5.0,<5.8` and the upper bound was lost, leaving
+//         2,830 of 7,159 PyPI records matching nothing at all. Retires one of the three blockers README
+//         names for Python/Go/Rust remaining `preview`; the other two are unchanged, so they stay there.
+export const GEMNASIUM_NORMALIZER_VERSION = 6
