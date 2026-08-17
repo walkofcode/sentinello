@@ -297,6 +297,11 @@ function parseIntervalNotation(disjunct: string): Disjunct | null {
     const lo = inner.slice(0, comma).trim()
     const hi = inner.slice(comma + 1).trim()
     const hasUpper = hi.length > 0
+    // Neither bound given — "[,]", "(,)", "(,]", "[,)". The notation names no boundary at all, and building
+    // the interval anyway produced `[0, …)` with no upper bound: every version of the package affected,
+    // forever, with no fix, out of a record that stated no version. Refuse it, exactly as an unterminated
+    // interval is refused above.
+    if (lo.length === 0 && !hasUpper) return null
     return {
         introduced: lo.length > 0 ? lo : '0',
         // An open "(" excludes the lower bound — but only when one was actually given; "(,2.0.0)" has no
@@ -322,9 +327,11 @@ function parseIntervalNotation(disjunct: string): Disjunct | null {
 //
 // This retires one of the three blockers README names for Python/Go/Rust staying in `preview`; the
 // semver-only fix derivation and OSV's non-canonicalized PyPI names are still open, so they stay there.
+//
+// An operator is bound to the version that follows it before any of that: see `bindOperators`.
 function parseComparatorForm(disjunct: string): Disjunct | null {
-    const tokens = disjunct.split(/[\s,]+/).filter(nonEmpty)
-    if (tokens.length === 0) return null
+    const tokens = bindOperators(disjunct.split(/[\s,]+/).filter(nonEmpty))
+    if (!tokens || tokens.length === 0) return null
     let introduced = '0'
     let introducedExclusive = false
     let fixed: string | null = null
@@ -334,6 +341,17 @@ function parseComparatorForm(disjunct: string): Disjunct | null {
         if (!op) return null
         if (op.operator === '=') {
             // A single pinned version: surface as an exact version rather than a range.
+            //
+            // Only when the pin is the WHOLE disjunct. Meeting one beside other comparators means a shape
+            // this parser does not model, and returning here would discard every comparator that follows.
+            // node-semver's hyphen range tokenizes precisely that way — "1.0.0 - 2.0.0" is `>=1.0.0
+            // <=2.0.0` to npm, but its first token is a bare version, so the pin returned on sight and
+            // cached "only 1.0.0 is affected" for a range spanning two majors. It is the same short-circuit
+            // that turned npm/fresh's "< 0.5.2" into a pin on the fixed version, reached by a different
+            // route: bindOperators stops an operator from being orphaned into one, and this stops a bare
+            // token from swallowing the rest of the disjunct. Refusing is the honest outcome, and the one
+            // "^1.0.0" already gets.
+            if (tokens.length > 1) return null
             return { introduced: '0', introducedExclusive: false, fixed: null, lastAffected: null, exact: op.version }
         }
         if (op.operator === '>=' || op.operator === '>') {
@@ -350,6 +368,47 @@ function parseComparatorForm(disjunct: string): Disjunct | null {
         }
     }
     return { introduced, introducedExclusive, fixed, lastAffected, exact: null }
+}
+
+// A token that is an operator and nothing else. The version it constrains is the next token along.
+const NAKED_OPERATOR = /^(>=|<=|>|<|=)$/
+
+// Rejoins an operator with the version it was written apart from, so `["<", "0.5.2"]` becomes `["<0.5.2"]`
+// before anything tries to read it as two comparators.
+//
+// gemnasium spells a small number of ranges this way — "< 0.5.2", ">= 1.7.0 < 1.7.8", and the
+// eleven-branch npm/pg GMS-2017-178. node-semver reads each pair as ONE comparator: `validRange('< 0.5.2')`
+// is `'<0.5.2'`, because whitespace between an operator and its version is insignificant to it. gemnasium's
+// field reference calls `affected_range` "machine-readable syntax used by the package manager", so for npm
+// that reading is not a second opinion — it is the specification.
+//
+// What splitting the pair cost was not a lost bound but an INVERTED finding. The naked "<" took an empty
+// version, and the version token — bare, now that its operator had become a token of its own — was read as
+// an exact pin, which returns from parseComparatorForm at once and discards every later comparator in the
+// disjunct. So "< 0.5.2" cached as "exactly 0.5.2 is affected": npm/fresh GMS-2017-232, where 0.5.2 is the
+// release that FIXED the ReDoS and the only version the advisory clears. An exact pin carries no fix
+// boundary either, so the finding named no remediation — unfixable by construction, which is the tell this
+// whole class of defect leaves behind.
+//
+// 19 records across npm/PyPI/Go/crates.io spell a range this way and every one parsed wrong: 15 lost their
+// range outright, and 7 pinned a version their own `fixed_versions` names — npm/pg pinning eleven of them.
+function bindOperators(tokens: string[]): string[] | null {
+    const bound: string[] = []
+    let pending: string | null = null
+    for (const token of tokens) {
+        if (pending !== null) {
+            bound.push(pending + token)
+            pending = null
+        } else if (NAKED_OPERATOR.test(token)) {
+            pending = token
+        } else {
+            bound.push(token)
+        }
+    }
+    // A trailing operator has no version to bind to. Dropping it would silently discard a bound the
+    // advisory stated — the ">=1.0.0 <" case would cache as an unbounded ">=1.0.0" — so refuse the whole
+    // disjunct instead, which is what node-semver does with a range ending in a bare operator.
+    return pending === null ? bound : null
 }
 
 type Operator = { operator: '>=' | '>' | '<=' | '<' | '='; version: string }

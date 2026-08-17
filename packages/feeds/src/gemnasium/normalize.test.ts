@@ -522,6 +522,72 @@ describe('parseAffectedRange — comparator form', function () {
     })
 })
 
+// REGRESSION (npm/fresh GMS-2017-232). gemnasium writes the operator apart from its version in 19 records,
+// and node-semver reads each pair as one comparator — `validRange('< 0.5.2')` is `'<0.5.2'`. Splitting on
+// whitespace alone made two tokens of the pair, so the naked "<" took an empty version and the version
+// token, now bare, was read as an exact pin that returned from the parser at once and discarded every
+// later comparator in the disjunct.
+//
+// The damage was an INVERTED finding rather than a lost one: "< 0.5.2" cached as "exactly 0.5.2 is
+// affected", and 0.5.2 is the release that FIXED the ReDoS. A pin carries no fix boundary, so the finding
+// named no remediation — a moderate on the one version that clears the advisory, unfixable by upgrading.
+describe('parseAffectedRange — an operator written apart from its version', function () {
+    // Each spaced spelling against its unspaced twin, which is the assertion that matters: the space is
+    // insignificant to npm, so it must be insignificant here. Testing them against hand-written expected
+    // objects would let both sides drift together.
+    it.each([
+        ['< 0.5.2', '<0.5.2'],
+        ['<= 0.3.3', '<=0.3.3'],
+        ['> 1.2.8', '>1.2.8'],
+        ['>= 2.0.0', '>=2.0.0'],
+        ['= 1.2.3', '=1.2.3'],
+        ['>= 1.0.0 < 2.0.0', '>=1.0.0 <2.0.0'],
+        ['>= 1.7.0 <1.7.8', '>=1.7.0 <1.7.8'],
+        ['< 1.6.14 || >= 1.7.0 < 1.7.8', '<1.6.14 || >=1.7.0 <1.7.8'],
+        // PEP 440 spells an intersection with a comma, and gemnasium's PyPI records add a space after it.
+        ['>= 5.0, < 5.8', '>=5.0,<5.8']
+    ])('reads %j exactly as %j', function (spaced, tight) {
+        expect(parseAffectedRange(spaced, [])).toEqual(parseAffectedRange(tight, []))
+    })
+
+    // The record itself, end to end. `fixed_versions: ["0.5.2"]` is passed as upstream states it, so the
+    // authoritative-fix override runs too and the assertion covers the row a scan would actually match on.
+    it('does NOT report fresh 0.5.2 — the version that fixed it — as affected', function () {
+        const parsed = parseAffectedRange('< 0.5.2', ['0.5.2'])
+        expect(parsed).toEqual({
+            ranges: [{ introduced: '0', fixed: '0.5.2', lastAffected: null }],
+            versions: []
+        })
+        expect(parsed.versions).not.toContain('0.5.2')
+    })
+
+    // npm/pg GMS-2017-178: eleven branches, every one of them spaced, and one disjunct carrying a double
+    // space after the "||". Before the fix this pinned eleven versions — each branch's FIRST affected
+    // version plus the 2.11.2 that fixed the oldest branch — and produced not one usable range.
+    it('reads all eleven branches of the npm/pg advisory', function () {
+        const parsed = parseAffectedRange(
+            '< 2.11.2 || >= 3.0.0 < 3.6.4 ||  >= 4.0.0 < 4.5.7 || >= 5.0.0 < 5.2.1 || >= 6.0.0 < 6.0.5',
+            []
+        )
+        expect(parsed.versions).toEqual([])
+        expect(parsed.ranges).toEqual([
+            { introduced: '0', fixed: '2.11.2', lastAffected: null },
+            { introduced: '3.0.0', fixed: '3.6.4', lastAffected: null },
+            { introduced: '4.0.0', fixed: '4.5.7', lastAffected: null },
+            { introduced: '5.0.0', fixed: '5.2.1', lastAffected: null },
+            { introduced: '6.0.0', fixed: '6.0.5', lastAffected: null }
+        ])
+    })
+
+    // A trailing operator has no version to bind to. Dropping it silently would leave ">=1.0.0" unbounded
+    // — a finding on every release of the package, forever — so the disjunct goes instead, which is also
+    // what node-semver does: `validRange('<')` is null.
+    it('refuses a disjunct whose operator has no version', function () {
+        expect(parseAffectedRange('<', [])).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('>=1.0.0 <', [])).toEqual({ ranges: [], versions: [] })
+    })
+})
+
 describe('parseAffectedRange — maven-style interval notation', function () {
     // "(," names no lower bound at all, so there is nothing for the paren to exclude — the range starts
     // at the bottom of the version space inclusively.

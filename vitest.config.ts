@@ -163,9 +163,13 @@ export default defineConfig({
             //        `for (let i = offset; i < sorted.length; i++)`) and core/releases.ts:1352
             //        (`RELEASES[0] || null` — RELEASES is a literal array in the same file, and an
             //        empty one would mean the product has shipped no releases).
-            //     c. A guard a caller upstream already made impossible. gemnasium/normalize.ts:327
+            //     c. A guard a caller upstream already made impossible. gemnasium/normalize.ts:329
             //        (parseComparatorForm's empty-token check — the disjunct split filters empty
-            //        entries before it); gemnasium/feed.ts:166
+            //        entries before it). Only the `tokens.length === 0` HALF of that line is the
+            //        unreachable one: it now reads `!tokens || tokens.length === 0`, and the first
+            //        arm — bindOperators refusing a disjunct whose operator has no version to bind
+            //        to — is reachable and covered. Same line, opposite verdicts, which is shape (e)'s
+            //        lesson arriving in a second file; gemnasium/feed.ts:166
             //        (advisoryIdFromPath's empty-id ternary — the `dot > 0` split cannot produce
             //        one); cli/ui.ts:60 (formatDuration's ms branch, whose only call site is guarded
             //        by `remaining > 1` second, so the argument is always over 1000);
