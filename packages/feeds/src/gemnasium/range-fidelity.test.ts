@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { coerce, inc, parse, satisfies } from 'semver'
+import { coerce, inc, parse, satisfies, validRange } from 'semver'
 import { semverComparator, versionInRange } from '@sentinello/versions'
 import { normalizeGemnasiumRecord, parseAffectedRange } from './normalize'
 
@@ -21,7 +22,10 @@ import { normalizeGemnasiumRecord, parseAffectedRange } from './normalize'
 // construction rather than by whoever remembered to write them down — and boundaries are precisely where
 // `>` differs from `>=` and `<` from `<=`.
 
-// Real `affected_range` strings from gemnasium-db npm advisories, chosen for bound diversity.
+// A hand-picked list, kept for the regressions each entry records — the annotations are the value here,
+// not the coverage. Four of these are verbatim gemnasium-db strings and the rest were composed for bound
+// diversity, which is worth stating plainly: a curated list is written from what its author already
+// understands, and that is exactly the limit the corpus sweep at the bottom of this file exists to escape.
 const NPM_RANGES = [
     // npm/rc GMS-2021-3, the 2021 hijack. The bug this whole file exists for: 1.2.8 is the CLEAN release
     // and the advisory excludes it, but a `>`-read-as-`>=` reported it as critical malware.
@@ -142,5 +146,115 @@ describe('npm/rc GMS-2021-3 — the hijack advisory end to end', function () {
         for (const hijacked of ['1.2.9', '1.3.9', '2.3.9']) {
             expect(versionInRange(hijacked, range, semverComparator)).toBe(true)
         }
+    })
+})
+
+// THE CORPUS SWEEP — the oracle above, pointed at every range gemnasium actually states instead of at the
+// ten someone remembered.
+//
+// The differential test at the top of this file was already correct, already used node-semver as the
+// specification, and still missed npm/fresh GMS-2017-232 for as long as the record has existed. It missed
+// it because an oracle only ever answers about the inputs you hand it, and every input above was typed by
+// someone who writes `<0.5.2` without a space. gemnasium writes `< 0.5.2` in 19 of its records, the parser
+// read the pair as two comparators, and the version token — bare, now that its operator had become a token
+// of its own — was cached as an exact pin ON THE VERSION THAT FIXED THE BUG. No curated list catches that,
+// because the whole defect is a spelling nobody thought to curate.
+//
+// So the input list stops being curated. `npm-ranges.fixture.json` holds every distinct `affected_range`
+// gemnasium-db states for an npm package — 4,696 of them, frozen at the sha it records. Run against the
+// parser as it stood before this file's fix, 28 of those ranges disagreed with npm across 87 probes; the
+// 19 spaced ones were all in that set. Anything upstream invents from here on that we read differently
+// from npm fails the build on the sync that first imports it, rather than after a user reports it.
+//
+// Frozen rather than fetched because tests are hermetic — no network — and because a moving corpus turns a
+// failure into "did upstream change or did we break it?". Regenerate by re-running the extraction over a
+// fresh archive and committing the new sha in the same change as whatever made it necessary.
+//
+// npm only. node-semver is the specification for npm ranges and nothing else, and gemnasium's PyPI records
+// are PEP 440, which would need its own oracle to sweep the same way. That is worth doing and is not done
+// here.
+type RangeCorpus = { sha: string; count: number; ranges: string[] }
+
+const CORPUS = JSON.parse(
+    readFileSync(new URL('./npm-ranges.fixture.json', import.meta.url), 'utf8')
+) as RangeCorpus
+
+// Ranges we knowingly read differently from npm, with the reason each one is still here.
+//
+// All nine are one defect, and it is NOT the one this file's fix addressed: a comparator whose version is
+// PARTIAL. node-semver treats those as X-ranges — `<=3.3` means `<3.4.0`, `=103` means `103.x.x`, `>0`
+// means `>=1.0.0` — while the parser reads the version literally, so `103.0.1` falls outside `=103` and
+// `0.0.1` falls inside `>0`. It affects 16 records, listed with the entries below.
+//
+// Left open deliberately rather than folded into this change. Expanding a partial version is only correct
+// per-ecosystem — PEP 440's `==1.0` is an exact pin and `==1.0.*` is the wildcard, so npm's rule applied to
+// a PyPI record would be a new false-positive source — and `parseAffectedRange` is shared across all four
+// ecosystems and is not told which one it is parsing. That is a signature change and its own piece of work.
+//
+// This is an inventory, not a mute: the test below asserts each of these STILL diverges. Fix the partial
+// version handling and these start failing, which is the signal to delete them from this list.
+const KNOWN_DIVERGENCES: Record<string, string> = {
+    // npm/binaryen, 8 records. `=103` is 103.x.x to npm, so we miss 103.0.1 and every later patch.
+    '=103': 'partial version: npm reads =103 as 103.x.x',
+    '=104': 'partial version: npm reads =104 as 104.x.x',
+    // npm/ckeditor4 CVE-2020-9440, npm/total4 CVE-2019-15952 and CVE-2019-15953.
+    '=4.0': 'partial version: npm reads =4.0 as 4.0.x',
+    '=12.0': 'partial version: npm reads =12.0 as 12.0.x',
+    // npm/converse.js CVE-2018-6591. Its single `fixed_versions: ["3.3.1"]` overrides the parsed bound in
+    // production, so this divergence does not reach a finding — it is visible here only because the sweep
+    // passes no fixed versions, deliberately, to test the range parse rather than the override.
+    '<=3.3': 'partial version: npm reads <=3.3 as <3.4.0',
+    // npm/dojo CVE-2008-6681 and npm/qooxdoo CVE-2011-1714.
+    '<=1.0': 'partial version: npm reads <=1.0 as <1.1.0',
+    '<=1.3': 'partial version: npm reads <=1.3 as <1.4.0',
+    // npm/phpmyadmin CVE-2017-1000018.
+    '>=4.0 <=4.6': 'partial version: npm reads <=4.6 as <4.7.0',
+    // npm/pandora-doomsday CVE-2017-16127, a malware advisory with no fix. The ONLY entry here where we
+    // over-report rather than under-report, and the only one where npm's reading is arguably not what
+    // gemnasium meant: `>0` is `>=1.0.0` to npm, so npm would call 0.x of a package published solely to
+    // exfiltrate data clean. Worth settling deliberately when partial versions are fixed, not by default.
+    '>0': 'partial version: npm reads >0 as >=1.0.0'
+}
+
+describe('every npm range gemnasium states agrees with node-semver', function () {
+    // node-semver can only arbitrate the ranges it can itself read; the three it rejects are upstream
+    // syntax errors, and what the parser makes of those is a question this oracle cannot answer.
+    const readable = CORPUS.ranges.filter(function byNpm(range) {
+        return validRange(range) !== null
+    })
+
+    const diverging = new Map<string, string>()
+    for (const range of readable) {
+        for (const version of probesFor(range)) {
+            if (sentinelloSaysAffected(range, version) === satisfies(version, range, { includePrerelease: true })) continue
+            if (!diverging.has(range)) diverging.set(range, version)
+        }
+    }
+
+    it('sweeps the whole frozen corpus', function () {
+        expect(CORPUS.ranges).toHaveLength(CORPUS.count)
+        // A corpus that stopped loading, or an oracle that started rejecting everything, would make every
+        // assertion below pass while checking nothing.
+        expect(readable.length).toBeGreaterThan(4000)
+    })
+
+    it('agrees with npm on every range not inventoried above', function () {
+        const unexpected = Array.from(diverging.entries())
+            .filter(function notInventoried(entry) {
+                return KNOWN_DIVERGENCES[entry[0]] === undefined
+            })
+            .map(function describe(entry) {
+                return entry[0] + ' @ ' + entry[1]
+            })
+        expect(unexpected).toEqual([])
+    })
+
+    // The ratchet. Without this the inventory above would be a skip list that silently outlives its
+    // reason, which is how a suite ends up green about behaviour nobody has checked in two years.
+    it('still diverges on exactly the inventoried ranges, and no others', function () {
+        const stale = Object.keys(KNOWN_DIVERGENCES).filter(function fixed(range) {
+            return !diverging.has(range)
+        })
+        expect(stale).toEqual([])
     })
 })
