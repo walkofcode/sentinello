@@ -17,6 +17,7 @@ function stripVPrefix(value: string): string {
 // Newest first. The locale-independent version index. Adding a release = one entry here plus a
 // RELEASE_COPY entry in every locale below. See CLAUDE.md for the release-please version-sync flow.
 export const RELEASES: ReleaseEntry[] = [
+    { version: '3.3.3', date: '2026-08-17' },
     { version: '3.3.2', date: '2026-08-17' },
     { version: '3.3.1', date: '2026-08-15' },
     { version: '3.3.0', date: '2026-08-15' },
@@ -50,6 +51,14 @@ export const RELEASES: ReleaseEntry[] = [
 // this is plain TS data, not a next-intl message key (next-intl forbids '.' in keys).
 export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     en: {
+        '3.3.3': {
+            title: 'An advisory that flagged the version which fixed it',
+            items: [
+                'gemnasium writes a small number of advisories with a space between the comparator and its version — <code>&lt; 0.5.2</code> rather than <code>&lt;0.5.2</code> — and the parser read the pair as two separate tokens. The orphaned <code>&lt;</code> took an empty bound, and the version left standing alone was cached as an exact pin. So the <code>fresh</code> advisory reported version 0.5.2 as vulnerable when 0.5.2 is the release that fixed it, and reported it with no fix available, because a pinned version carries no upgrade target at all. 19 advisories are written that way and every one of them parsed wrong: 15 lost their range entirely, and 7 pinned a version the record itself lists as the fix — <code>pg</code> pinned eleven. npm treats that space as insignificant, and so does Sentinello now',
+                'Two more shapes in the same parser are refused rather than guessed at: a range naming neither bound (<code>[,]</code>) was becoming “every version, forever, with no fix”, and an npm hyphen range (<code>1.0.0 - 2.0.0</code>) was cached as a pin on its lower bound alone. On the OSV side, an interval that can never match — one whose fix boundary sits at or below its start — is now dropped instead of cached as a live advisory that silently reports nothing. No record in either database currently uses any of the three; all were found by the tests below rather than by a report',
+                'The tests that kept missing this now generate their inputs instead of listing them. Every distinct version range gemnasium publishes for npm — 4,696 of them — is checked against npm’s own range implementation on every build, alongside the whole cross-product of the range grammar and every ordering of OSV’s range events. Run against the previous release that sweep fails on 28 ranges, while the ten hand-written examples it replaces all passed. A spelling upstream invents from here on fails the build when it is first imported, rather than when someone notices the finding it produced'
+            ]
+        },
         '3.3.2': {
             title: 'Advisories that claimed every version was vulnerable',
             items: [
@@ -265,6 +274,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Initial open-source release', items: ['The first public release of Sentinello'] }
     },
     es: {
+        '3.3.3': {
+            title: 'Un aviso que señalaba la versión que lo corregía',
+            items: [
+                'gemnasium escribe unos pocos avisos con un espacio entre el comparador y su versión —<code>&lt; 0.5.2</code> en lugar de <code>&lt;0.5.2</code>— y el analizador leía ese par como dos tokens distintos. El <code>&lt;</code> huérfano se quedaba con un límite vacío y la versión que quedaba suelta se guardaba como una versión exacta. Así, el aviso de <code>fresh</code> señalaba la 0.5.2 como vulnerable cuando 0.5.2 es precisamente la versión que lo corrigió, y además sin solución disponible, porque una versión fijada no lleva ningún destino de actualización. Hay 19 avisos escritos así y todos se analizaban mal: 15 perdían su rango por completo y 7 fijaban una versión que el propio registro nombra como corrección; <code>pg</code> fijaba once. Para npm ese espacio es irrelevante, y ahora también lo es para Sentinello',
+                'Otras dos formas del mismo analizador se rechazan en lugar de adivinarse: un rango que no nombra ningún límite (<code>[,]</code>) acababa siendo «todas las versiones, para siempre, sin corrección», y un rango con guion de npm (<code>1.0.0 - 2.0.0</code>) se guardaba como una versión fija con solo su límite inferior. En el lado de OSV, un intervalo que nunca puede coincidir —aquel cuyo límite de corrección queda en su inicio o por debajo— ahora se descarta en vez de quedar en caché como un aviso vivo que en silencio no informa de nada. Ningún registro de ninguna de las dos bases usa hoy ninguna de las tres formas: las tres las encontraron las pruebas siguientes, no un informe',
+                'Las pruebas que seguían sin detectar esto ahora generan sus entradas en lugar de enumerarlas. Cada rango de versiones distinto que gemnasium publica para npm —4696 en total— se comprueba contra la propia implementación de rangos de npm en cada compilación, junto con todo el producto cartesiano de la gramática de rangos y todas las ordenaciones de los eventos de rango de OSV. Ejecutado contra la versión anterior, ese barrido falla en 28 rangos, mientras que los diez ejemplos escritos a mano a los que sustituye pasaban todos. Cualquier grafía que se invente aguas arriba a partir de ahora romperá la compilación al importarse por primera vez, y no cuando alguien se fije en el hallazgo que produjo'
+            ]
+        },
         '3.3.2': {
             title: 'Avisos que declaraban vulnerable cualquier versión',
             items: [
@@ -483,6 +500,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primera versión de código abierto', items: ['El primer lanzamiento público de Sentinello'] }
     },
     fr: {
+        '3.3.3': {
+            title: 'Un avis qui signalait la version qui le corrigeait',
+            items: [
+                'gemnasium écrit un petit nombre d’avis avec une espace entre le comparateur et sa version — <code>&lt; 0.5.2</code> au lieu de <code>&lt;0.5.2</code> — et l’analyseur lisait cette paire comme deux jetons distincts. Le <code>&lt;</code> orphelin recevait une borne vide, et la version restée seule était mise en cache comme version exacte. L’avis <code>fresh</code> signalait donc la 0.5.2 comme vulnérable alors que 0.5.2 est justement la version qui l’a corrigé, et le signalait sans correctif disponible, puisqu’une version épinglée ne porte aucune cible de mise à jour. 19 avis sont écrits ainsi et tous étaient mal analysés : 15 perdaient entièrement leur plage, et 7 épinglaient une version que l’enregistrement lui-même donne comme correctif — <code>pg</code> en épinglait onze. Pour npm cette espace est insignifiante, et elle l’est désormais pour Sentinello aussi',
+                'Deux autres formes du même analyseur sont refusées plutôt que devinées : une plage ne nommant aucune borne (<code>[,]</code>) devenait « toutes les versions, indéfiniment, sans correctif », et une plage à trait d’union npm (<code>1.0.0 - 2.0.0</code>) était mise en cache comme un épinglage sur sa seule borne inférieure. Côté OSV, un intervalle qui ne peut jamais correspondre — celui dont la borne de correction se situe au niveau de son début ou en dessous — est désormais écarté au lieu d’être mis en cache comme un avis vivant qui, silencieusement, ne rapporte rien. Aucun enregistrement de l’une ou l’autre base n’utilise aujourd’hui l’une de ces trois formes : toutes ont été trouvées par les tests ci-dessous, non par un signalement',
+                'Les tests qui passaient à côté génèrent désormais leurs entrées au lieu de les énumérer. Chaque plage de versions distincte que gemnasium publie pour npm — 4 696 au total — est vérifiée contre l’implémentation de plages de npm à chaque compilation, aux côtés du produit cartésien complet de la grammaire des plages et de tous les ordonnancements des événements de plage d’OSV. Exécuté sur la version précédente, ce balayage échoue sur 28 plages, alors que les dix exemples écrits à la main qu’il remplace passaient tous. Toute graphie inventée en amont à partir de maintenant fera échouer la compilation dès son premier import, et non le jour où quelqu’un remarquera le résultat qu’elle a produit'
+            ]
+        },
         '3.3.2': {
             title: 'Des avis qui déclaraient toutes les versions vulnérables',
             items: [
@@ -703,6 +728,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Première version open source', items: ['La première version publique de Sentinello'] }
     },
     de: {
+        '3.3.3': {
+            title: 'Ein Hinweis, der die Version meldete, die ihn behob',
+            items: [
+                'gemnasium schreibt einige wenige Hinweise mit einem Leerzeichen zwischen dem Vergleichsoperator und seiner Version — <code>&lt; 0.5.2</code> statt <code>&lt;0.5.2</code> — und der Parser las dieses Paar als zwei getrennte Token. Das verwaiste <code>&lt;</code> erhielt eine leere Grenze, und die allein stehende Version wurde als exakte Version zwischengespeichert. Der <code>fresh</code>-Hinweis meldete deshalb Version 0.5.2 als verwundbar, obwohl 0.5.2 genau die Version ist, die ihn behoben hat — und meldete sie ohne verfügbare Lösung, denn eine festgepinnte Version trägt überhaupt kein Aktualisierungsziel. 19 Hinweise sind so geschrieben, und jeder einzelne wurde falsch gelesen: 15 verloren ihren Bereich vollständig, und 7 pinnten eine Version fest, die der Datensatz selbst als Behebung nennt — <code>pg</code> pinnte elf. Für npm ist dieses Leerzeichen bedeutungslos, und für Sentinello ist es das nun ebenfalls',
+                'Zwei weitere Formen desselben Parsers werden abgelehnt statt erraten: Ein Bereich, der keine Grenze nennt (<code>[,]</code>), wurde zu „alle Versionen, für immer, ohne Behebung“, und ein npm-Bindestrichbereich (<code>1.0.0 - 2.0.0</code>) wurde als Festlegung auf allein seine untere Grenze gespeichert. Auf der OSV-Seite wird ein Intervall, das niemals zutreffen kann — eines, dessen Behebungsgrenze auf oder unter seinem Anfang liegt —, nun verworfen, statt als lebender Hinweis zwischengespeichert zu werden, der stillschweigend nichts meldet. Kein Datensatz in einer der beiden Datenbanken nutzt derzeit eine der drei Formen; alle drei fanden die Tests unten, nicht eine Meldung',
+                'Die Tests, die das immer wieder übersahen, erzeugen ihre Eingaben jetzt, statt sie aufzuzählen. Jeder eigenständige Versionsbereich, den gemnasium für npm veröffentlicht — 4.696 insgesamt —, wird bei jedem Build gegen die Bereichsimplementierung von npm selbst geprüft, zusammen mit dem vollständigen Kreuzprodukt der Bereichsgrammatik und jeder Reihenfolge der Bereichsereignisse von OSV. Gegen die vorige Version ausgeführt, scheitert dieser Durchlauf an 28 Bereichen, während die zehn handgeschriebenen Beispiele, die er ersetzt, sämtlich bestanden. Eine Schreibweise, die stromaufwärts von nun an erfunden wird, lässt den Build beim ersten Import scheitern statt erst dann, wenn jemand den daraus entstandenen Befund bemerkt'
+            ]
+        },
         '3.3.2': {
             title: 'Hinweise, die jede Version für verwundbar erklärten',
             items: [
@@ -924,6 +957,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         }
     },
     'pt-BR': {
+        '3.3.3': {
+            title: 'Um aviso que apontava a versão que o corrigia',
+            items: [
+                'O gemnasium escreve alguns poucos avisos com um espaço entre o comparador e sua versão — <code>&lt; 0.5.2</code> em vez de <code>&lt;0.5.2</code> — e o analisador lia esse par como dois tokens separados. O <code>&lt;</code> órfão ficava com um limite vazio, e a versão que sobrava sozinha era guardada em cache como versão exata. Assim, o aviso do <code>fresh</code> apontava a 0.5.2 como vulnerável quando 0.5.2 é justamente a versão que o corrigiu — e apontava sem correção disponível, porque uma versão fixada não carrega nenhum destino de atualização. São 19 avisos escritos desse jeito e todos eram lidos errado: 15 perdiam o intervalo por completo e 7 fixavam uma versão que o próprio registro indica como correção; o <code>pg</code> fixava onze. Para o npm esse espaço é irrelevante, e agora também é para o Sentinello',
+                'Mais duas formas do mesmo analisador passam a ser recusadas em vez de adivinhadas: um intervalo que não nomeia limite algum (<code>[,]</code>) virava “todas as versões, para sempre, sem correção”, e um intervalo com hífen do npm (<code>1.0.0 - 2.0.0</code>) era guardado como fixação apenas em seu limite inferior. Do lado do OSV, um intervalo que nunca pode corresponder — aquele cujo limite de correção fica no seu início ou abaixo dele — agora é descartado em vez de ficar em cache como um aviso vivo que silenciosamente não relata nada. Nenhum registro de qualquer das duas bases usa hoje nenhuma das três formas: as três foram encontradas pelos testes abaixo, não por um relato',
+                'Os testes que continuavam deixando isso passar agora geram suas entradas em vez de listá-las. Cada intervalo de versões distinto que o gemnasium publica para npm — 4.696 deles — é conferido contra a própria implementação de intervalos do npm a cada build, junto com todo o produto cartesiano da gramática de intervalos e todas as ordenações dos eventos de intervalo do OSV. Executada contra a versão anterior, essa varredura falha em 28 intervalos, enquanto os dez exemplos escritos à mão que ela substitui passavam todos. Qualquer grafia inventada rio acima daqui em diante quebra o build já na primeira importação, e não quando alguém repara no achado que ela produziu'
+            ]
+        },
         '3.3.2': {
             title: 'Avisos que declaravam vulnerável qualquer versão',
             items: [
@@ -1142,6 +1183,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primeira versão de código aberto', items: ['O primeiro lançamento público do Sentinello'] }
     },
     it: {
+        '3.3.3': {
+            title: 'Un avviso che segnalava la versione che lo correggeva',
+            items: [
+                'gemnasium scrive un piccolo numero di avvisi con uno spazio tra il comparatore e la sua versione — <code>&lt; 0.5.2</code> anziché <code>&lt;0.5.2</code> — e l’analizzatore leggeva quella coppia come due token distinti. Il <code>&lt;</code> rimasto orfano prendeva un limite vuoto, e la versione lasciata sola veniva memorizzata come versione esatta. Così l’avviso di <code>fresh</code> segnalava la 0.5.2 come vulnerabile quando 0.5.2 è proprio la versione che l’ha corretto, e la segnalava senza alcuna correzione disponibile, perché una versione fissata non porta con sé alcun obiettivo di aggiornamento. Sono 19 gli avvisi scritti così e tutti venivano analizzati male: 15 perdevano del tutto il proprio intervallo e 7 fissavano una versione che il record stesso indica come correzione; <code>pg</code> ne fissava undici. Per npm quello spazio è irrilevante, e ora lo è anche per Sentinello',
+                'Altre due forme dello stesso analizzatore vengono rifiutate anziché indovinate: un intervallo che non nomina alcun limite (<code>[,]</code>) diventava «tutte le versioni, per sempre, senza correzione», e un intervallo con trattino di npm (<code>1.0.0 - 2.0.0</code>) veniva memorizzato come fissazione del solo limite inferiore. Sul fronte OSV, un intervallo che non può mai corrispondere — quello il cui limite di correzione si trova al suo inizio o al di sotto — ora viene scartato invece di restare in cache come avviso vivo che in silenzio non segnala nulla. Nessun record di nessuno dei due database usa oggi una delle tre forme: tutte e tre le hanno trovate i test qui sotto, non una segnalazione',
+                'I test che continuavano a non accorgersene ora generano i propri input invece di elencarli. Ogni intervallo di versioni distinto che gemnasium pubblica per npm — 4.696 in tutto — viene verificato contro l’implementazione degli intervalli di npm stesso a ogni build, insieme all’intero prodotto cartesiano della grammatica degli intervalli e a ogni ordinamento degli eventi di intervallo di OSV. Eseguita sulla versione precedente, quella scansione fallisce su 28 intervalli, mentre i dieci esempi scritti a mano che sostituisce passavano tutti. Una grafia inventata a monte da qui in avanti fa fallire la build alla prima importazione, e non quando qualcuno nota il risultato che ha prodotto'
+            ]
+        },
         '3.3.2': {
             title: 'Avvisi che dichiaravano vulnerabile ogni versione',
             items: [
@@ -1360,6 +1409,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Prima versione open source', items: ['La prima versione pubblica di Sentinello'] }
     },
     ja: {
+        '3.3.3': {
+            title: '修正済みバージョンを指摘していたアドバイザリ',
+            items: [
+                'gemnasium の一部のアドバイザリは、比較演算子とバージョンの間に空白を入れて書かれています — <code>&lt;0.5.2</code> ではなく <code>&lt; 0.5.2</code> です。パーサーはこの組を 2 つの別々のトークンとして読んでいました。取り残された <code>&lt;</code> は空の境界を受け取り、単独で残ったバージョンは厳密な固定値としてキャッシュされます。その結果、<code>fresh</code> のアドバイザリはバージョン 0.5.2 を脆弱と報告していました。0.5.2 こそがこの問題を修正したリリースであるにもかかわらずです。しかも修正版なしとして報告されます。固定されたバージョンはアップグレード先をまったく持たないからです。この書き方のアドバイザリは 19 件あり、そのすべてが誤って解析されていました。15 件は範囲を完全に失い、7 件はレコード自身が修正版として挙げているバージョンを固定していました。<code>pg</code> では 11 件です。npm はこの空白を無意味なものとして扱いますが、Sentinello も同じようになりました',
+                '同じパーサーのもう 2 つの形も、推測せずに拒否するようになりました。どちらの境界も示さない範囲（<code>[,]</code>）は「すべてのバージョンが永久に、修正なし」になっていました。npm のハイフン範囲（<code>1.0.0 - 2.0.0</code>）は下限のみの固定値としてキャッシュされていました。OSV 側では、決して一致し得ない区間 — 修正境界が開始位置と同じかそれより下にあるもの — を、静かに何も報告しない生きたアドバイザリとしてキャッシュせず、破棄するようになりました。現時点でどちらのデータベースにも 3 つの形を使うレコードはありません。3 つとも、報告ではなく以下のテストが見つけたものです',
+                'これを見逃し続けてきたテストは、入力を列挙するのではなく生成するようになりました。gemnasium が npm 向けに公開している個別のバージョン範囲すべて — 4,696 件 — を、ビルドのたびに npm 自身の範囲実装と突き合わせます。あわせて範囲文法の全組み合わせと、OSV の範囲イベントのあらゆる順序も検証します。前リリースに対して実行すると、この一括検証は 28 件の範囲で失敗します。これが置き換えた手書きの 10 例はすべて通っていました。今後、上流が新しい書き方を生み出しても、誰かがその結果生じた検出に気づいた時点ではなく、最初に取り込まれた時点でビルドが失敗します'
+            ]
+        },
         '3.3.2': {
             title: 'すべてのバージョンを脆弱だと言い張るアドバイザリ',
             items: [
@@ -1574,6 +1631,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '初のオープンソースリリース', items: ['Sentinello の最初の一般公開リリース'] }
     },
     'zh-CN': {
+        '3.3.3': {
+            title: '把修复版本标记为有漏洞的公告',
+            items: [
+                'gemnasium 有少量公告在比较运算符与版本号之间写了一个空格 — 是 <code>&lt; 0.5.2</code> 而不是 <code>&lt;0.5.2</code> — 解析器把这一对读成了两个独立的词元。落单的 <code>&lt;</code> 得到一个空边界，而被独自留下的版本号则被当作精确锁定的版本缓存起来。于是 <code>fresh</code> 的公告把 0.5.2 报告为有漏洞，而 0.5.2 恰恰是修复该问题的那个版本；并且报告为无可用修复，因为锁定的版本根本不带任何升级目标。共有 19 条公告是这样书写的，每一条都解析错误：15 条完全丢失了版本范围，7 条锁定了记录自身列为修复版本的版本，<code>pg</code> 一次锁定了十一个。npm 认为这个空格无关紧要，现在 Sentinello 也是如此',
+                '同一解析器中另外两种写法现在会被拒绝而不是靠猜测处理：既不指定上界也不指定下界的范围（<code>[,]</code>）此前会变成“所有版本，永远有漏洞，且无修复”；npm 的连字符范围（<code>1.0.0 - 2.0.0</code>）此前被缓存为仅锁定其下界。在 OSV 一侧，永远不可能匹配的区间 — 修复边界落在起点或起点之下的区间 — 现在会被丢弃，而不是作为一条静默地什么都不报告的有效公告留在缓存中。目前两个数据库中都没有记录使用这三种写法；三者都是被下面的测试发现的，而不是来自报告',
+                '一直没能发现这个问题的测试，现在会生成自己的输入，而不再逐条罗列。gemnasium 为 npm 发布的每一个不同的版本范围 — 共 4,696 个 — 都会在每次构建时与 npm 自身的范围实现进行比对，同时还会检查范围语法的完整组合，以及 OSV 范围事件的所有排列顺序。针对上一个版本运行时，这次全量比对会在 28 个范围上失败，而被它取代的那十个手写示例则全部通过。从现在起，上游若发明出新的写法，构建会在其首次被导入时失败，而不是等到有人注意到它产生的检出结果'
+            ]
+        },
         '3.3.2': {
             title: '声称每个版本都存在漏洞的公告',
             items: [
@@ -1768,6 +1833,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '首个开源版本', items: ['Sentinello 的首个公开发布版本'] }
     },
     ko: {
+        '3.3.3': {
+            title: '문제를 고친 버전을 취약하다고 알린 권고',
+            items: [
+                'gemnasium은 일부 권고를 비교 연산자와 버전 사이에 공백을 두고 작성합니다 — <code>&lt;0.5.2</code>가 아니라 <code>&lt; 0.5.2</code>입니다. 파서는 이 쌍을 서로 다른 두 토큰으로 읽었습니다. 홀로 남은 <code>&lt;</code>는 빈 경계를 갖게 되고, 따로 떨어진 버전은 정확히 고정된 버전으로 캐시되었습니다. 그래서 <code>fresh</code> 권고는 0.5.2를 취약하다고 보고했습니다. 0.5.2가 바로 그 문제를 고친 릴리스인데도 말입니다. 게다가 사용할 수 있는 수정이 없다고 보고했습니다. 고정된 버전은 업그레이드 대상을 전혀 갖지 않기 때문입니다. 이렇게 작성된 권고가 19건이고 그 전부가 잘못 해석되었습니다. 15건은 범위를 통째로 잃었고, 7건은 기록 자체가 수정 버전으로 명시한 버전을 고정했습니다. <code>pg</code>는 열한 개를 고정했습니다. npm은 이 공백을 의미 없는 것으로 취급하며, 이제 Sentinello도 그렇습니다',
+                '같은 파서의 다른 두 형태도 추측하지 않고 거부합니다. 어느 쪽 경계도 지정하지 않는 범위(<code>[,]</code>)는 “모든 버전이 영원히, 수정 없이”가 되고 있었고, npm의 하이픈 범위(<code>1.0.0 - 2.0.0</code>)는 하한만 고정한 값으로 캐시되고 있었습니다. OSV 쪽에서는 결코 일치할 수 없는 구간 — 수정 경계가 시작점과 같거나 그 아래에 있는 구간 — 을 이제 버립니다. 조용히 아무것도 보고하지 않는 살아 있는 권고로 캐시해 두지 않습니다. 현재 두 데이터베이스 어디에도 이 세 형태를 쓰는 기록은 없습니다. 세 가지 모두 제보가 아니라 아래의 테스트가 찾아낸 것입니다',
+                '이 문제를 계속 놓쳐 온 테스트는 이제 입력을 나열하는 대신 생성합니다. gemnasium이 npm용으로 공개하는 서로 다른 버전 범위 전부 — 4,696개 — 를 빌드마다 npm 자체의 범위 구현과 대조하고, 범위 문법의 전체 조합과 OSV 범위 이벤트의 모든 순서도 함께 검증합니다. 이전 릴리스를 대상으로 실행하면 이 일괄 검사는 28개 범위에서 실패합니다. 이것이 대체한 손으로 쓴 예제 열 개는 모두 통과했습니다. 앞으로 업스트림이 새로운 표기를 만들어 내더라도, 누군가 그로 인해 생긴 탐지 결과를 알아차릴 때가 아니라 처음 가져오는 시점에 빌드가 실패합니다'
+            ]
+        },
         '3.3.2': {
             title: '모든 버전이 취약하다고 주장하던 권고',
             items: [
@@ -1976,6 +2049,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '첫 오픈 소스 릴리스', items: ['Sentinello의 첫 공개 릴리스'] }
     },
     ru: {
+        '3.3.3': {
+            title: 'Уведомление, помечавшее версию, которая его и исправила',
+            items: [
+                'gemnasium записывает небольшое число уведомлений с пробелом между оператором сравнения и версией — <code>&lt; 0.5.2</code> вместо <code>&lt;0.5.2</code>, — и анализатор читал эту пару как два отдельных токена. Осиротевший <code>&lt;</code> получал пустую границу, а оставшаяся сама по себе версия попадала в кэш как точно закреплённая. Поэтому уведомление для <code>fresh</code> сообщало о версии 0.5.2 как об уязвимой, хотя именно 0.5.2 и является выпуском, который всё исправил, — и сообщало без доступного исправления, поскольку закреплённая версия не несёт никакой цели обновления. Так записаны 19 уведомлений, и все они разбирались неверно: 15 полностью теряли свой диапазон, а 7 закрепляли версию, которую сама запись называет исправлением; <code>pg</code> закреплял одиннадцать. Для npm этот пробел незначим — теперь он незначим и для Sentinello',
+                'Ещё две формы в том же анализаторе теперь отклоняются, а не угадываются: диапазон, не называющий ни одной границы (<code>[,]</code>), превращался во «все версии, навсегда, без исправления», а дефисный диапазон npm (<code>1.0.0 - 2.0.0</code>) попадал в кэш как закрепление на одной лишь нижней границе. На стороне OSV интервал, который никогда не может совпасть — тот, чья граница исправления находится на его начале или ниже, — теперь отбрасывается, а не остаётся в кэше живым уведомлением, которое молча ни о чём не сообщает. Ни одна запись ни в одной из двух баз сейчас не использует ни одну из трёх форм: все три нашли приведённые ниже тесты, а не чьё-то сообщение',
+                'Тесты, которые всё это упускали, теперь порождают свои входные данные, а не перечисляют их. Каждый отдельный диапазон версий, который gemnasium публикует для npm, — 4696 штук — при каждой сборке сверяется с собственной реализацией диапазонов npm, вместе с полным перебором грамматики диапазонов и всеми порядками событий диапазона в OSV. На предыдущем выпуске этот прогон падает на 28 диапазонах, тогда как десять рукописных примеров, которые он заменил, проходили все. Любое написание, которое вышестоящий источник придумает впредь, обрушит сборку при первом же импорте, а не тогда, когда кто-нибудь заметит порождённую им находку'
+            ]
+        },
         '3.3.2': {
             title: 'Уведомления, объявлявшие уязвимой любую версию',
             items: [
