@@ -55,9 +55,18 @@ export type OsvAdvisoryRow = {
 //     produced a single range with no upper bound — GHSA-25hc-qcg6-38wj states `< 2.5.0` while its real
 //     branch fixes are 2.5.1 and 4.6.2, so as a supplement it would narrow a correct range into a false
 //     negative. Every cached range is re-derived, so an existing cache must rebuild.
+// v6: drop an interval that can never match — `fixed` at or below `introduced`. `fixed` is exclusive, so
+//     `[X, X)` admits nothing and an inverted pair admits less: a row that sits in the cache looking live
+//     and is silently unable to report. The gemnasium normalizer has refused those since v5 and OSV did
+//     not, which made the two sources disagree about a degenerate interval while feeding one matcher. Zero
+//     rows in the current 227k-row export trip it — OSV's schema requires ascending events and the exports
+//     honour it — so this rebuilds nothing today and exists for the input that does not, which OSV.dev
+//     aggregating many upstream databases makes a question of when. The equality test is ordering-free and
+//     applies to every range type; the ordering test is SEMVER-only, because using semver ordering on a
+//     PEP 440 range would drop real advisories rather than dead ones.
 // Lives beside the row type it describes so every store — the portal's SQLite cache and the CLI's ndjson
 // cache alike — invalidates on exactly the same signal.
-export const OSV_NORMALIZER_VERSION = 5
+export const OSV_NORMALIZER_VERSION = 6
 
 // gemnasium carries no range `type` discriminator, so its rows leave that field unset — but it very much
 // does state inclusive upper bounds (`<=X`, maven `[a,b]`) and exclusive lower ones (`>X`), so it uses the
@@ -119,4 +128,21 @@ export type GemnasiumAdvisoryRow = {
 //         the lower bound became the unparseable literal `5.0,<5.8` and the upper bound was lost, leaving
 //         2,830 of 7,159 PyPI records matching nothing at all. Retires one of the three blockers README
 //         names for Python/Go/Rust remaining `preview`; the other two are unchanged, so they stay there.
-export const GEMNASIUM_NORMALIZER_VERSION = 6
+// v7: three fixes in the comparator/interval parser, all re-deriving cached ranges.
+//     (a) An operator written APART from its version is rejoined with it. gemnasium spells 19 records that
+//         way — `< 0.5.2`, `>= 1.7.0 < 1.7.8`, the eleven-branch npm/pg GMS-2017-178 — and node-semver reads
+//         each pair as one comparator, so splitting on whitespace made two. The naked `<` took an empty
+//         version and the version token, now bare, was read as an exact pin, which returned immediately and
+//         discarded every later comparator. npm/fresh GMS-2017-232 therefore cached as "exactly 0.5.2 is
+//         affected" — 0.5.2 being the release that FIXED the ReDoS, and a pin carrying no fix boundary, so
+//         the finding named no remediation. 15 of the 19 lost their range entirely; 7 pinned a version their
+//         own `fixed_versions` names. A trailing operator with nothing to bind to now drops its disjunct
+//         rather than silently discarding a bound.
+//     (b) A bare/`=` token yields an exact pin only when it is the WHOLE disjunct. Beside other comparators
+//         it is a shape this parser does not model — node-semver's hyphen range `1.0.0 - 2.0.0` tokenizes
+//         exactly so — and returning the pin discarded the rest, caching "only 1.0.0 is affected" for a
+//         range spanning two majors. Same short-circuit as (a), reached from the other side.
+//     (c) A maven interval naming NEITHER bound (`[,]`, `(,)`) is refused. It was building `[0, …)` with no
+//         upper bound: every version affected, forever, with no fix, out of a record stating no version.
+//     No record in the current export uses (b) or (c), so those two rebuild nothing today; (a) corrects 19.
+export const GEMNASIUM_NORMALIZER_VERSION = 7
