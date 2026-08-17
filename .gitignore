@@ -5,6 +5,16 @@ dist/
 .next-production/
 .next-production-*/
 *.tsbuildinfo
+
+# Next regenerates next-env.d.ts on every build, and writes a DIFFERENT import depending on the mode:
+# `./.next/dev/types/routes.d.ts` under `next dev`, `./.next/types/routes.d.ts` under `next build`. So
+# whichever form is committed, the other mode rewrites it and leaves the worktree dirty — which on the
+# deployed instance aborted the next `git checkout --detach <tag>` and silently failed the upgrade.
+# Committing the build form (a5385cc) only moved the problem onto `pnpm dev`. The file is marked "should
+# not be edited" and is not needed to typecheck a fresh clone (verified with no .next present), so it is
+# generated, not tracked.
+apps/*/next-env.d.ts
+
 .env
 .env.*
 !.env.example
