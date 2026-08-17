@@ -163,7 +163,7 @@ export default defineConfig({
             //        `for (let i = offset; i < sorted.length; i++)`) and core/releases.ts:1352
             //        (`RELEASES[0] || null` — RELEASES is a literal array in the same file, and an
             //        empty one would mean the product has shipped no releases).
-            //     c. A guard a caller upstream already made impossible. gemnasium/normalize.ts:291
+            //     c. A guard a caller upstream already made impossible. gemnasium/normalize.ts:327
             //        (parseComparatorForm's empty-token check — the disjunct split filters empty
             //        entries before it); gemnasium/feed.ts:166
             //        (advisoryIdFromPath's empty-id ternary — the `dot > 0` split cannot produce

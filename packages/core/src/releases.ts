@@ -17,6 +17,7 @@ function stripVPrefix(value: string): string {
 // Newest first. The locale-independent version index. Adding a release = one entry here plus a
 // RELEASE_COPY entry in every locale below. See CLAUDE.md for the release-please version-sync flow.
 export const RELEASES: ReleaseEntry[] = [
+    { version: '3.3.2', date: '2026-08-17' },
     { version: '3.3.1', date: '2026-08-15' },
     { version: '3.3.0', date: '2026-08-15' },
     { version: '3.2.0', date: '2026-08-15' },
@@ -49,6 +50,14 @@ export const RELEASES: ReleaseEntry[] = [
 // this is plain TS data, not a next-intl message key (next-intl forbids '.' in keys).
 export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     en: {
+        '3.3.2': {
+            title: 'Advisories that claimed every version was vulnerable',
+            items: [
+                'An advisory whose affected range has no end matches every version forever — a finding no upgrade can clear, and indistinguishable on the page from a genuine unpatched vulnerability. Two <code>xlsx</code> advisories arrived that way and reported a fully patched 0.20.3 as high severity with no fix available, across 11 projects at once, while <code>npm audit</code> reported the same two correctly as fixed in 0.19.3 and 0.20.2. The cause is upstream and deliberate: GitHub will not name a fixed version the registry does not serve under that package name — SheetJS publishes 0.19.3 and later only from its own CDN — so it states the range as “everything from 0” and records the real boundary in a separate field Sentinello never read. It reads it now. 15 npm advisories were affected, <code>babel-traverse</code> and <code>sandbox</code> among them. The 480 that are genuinely unfixed still say so, and a record that already states its own boundary is never overridden',
+                'A gemnasium advisory that left its range open while listing the versions that fix it is now bounded by the highest of them. A range with no end claims every future release is vulnerable too, which no record naming a fix can mean',
+                'gemnasium writes Python version ranges as PEP 440 intersections — <code>&gt;=5.0,&lt;5.8</code> — and the parser split tokens on spaces alone, so the whole thing became one: an unreadable lower bound and no upper bound at all. Ranges in that state match nothing, and matching nothing means reporting nothing. 2,830 of 7,159 cached PyPI records were affected. This was one of the three reasons Python, Go and Rust were withdrawn in 3.3.0 — the other two are still open, so they stay withdrawn'
+            ]
+        },
         '3.3.1': {
             title: 'Same release as 3.3.0, with a Docker image that builds',
             items: [
@@ -256,6 +265,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Initial open-source release', items: ['The first public release of Sentinello'] }
     },
     es: {
+        '3.3.2': {
+            title: 'Avisos que declaraban vulnerable cualquier versión',
+            items: [
+                'Un aviso cuyo rango afectado no tiene fin coincide con todas las versiones para siempre: un hallazgo que ninguna actualización puede cerrar y que en la página no se distingue de una vulnerabilidad realmente sin parchear. Dos avisos de <code>xlsx</code> llegaron así y señalaron una versión 0.20.3 completamente parcheada como de severidad alta y sin solución, en 11 proyectos a la vez, mientras <code>npm audit</code> informaba correctamente de esos mismos dos avisos como corregidos en 0.19.3 y 0.20.2. La causa está aguas arriba y es deliberada: GitHub no nombra una versión corregida que el registro no sirva bajo ese nombre de paquete —SheetJS publica 0.19.3 y posteriores solo desde su propio CDN—, así que declara el rango como «todo desde 0» y guarda el límite real en otro campo que Sentinello nunca leía. Ahora sí lo lee. Había 15 avisos de npm afectados, entre ellos <code>babel-traverse</code> y <code>sandbox</code>. Los 480 que de verdad no tienen arreglo lo siguen diciendo, y un registro que ya declara su propio límite nunca se sobrescribe',
+                'Un aviso de gemnasium que dejaba su rango abierto mientras enumeraba las versiones que lo corrigen queda ahora acotado por la más alta de ellas. Un rango sin fin afirma que también las versiones futuras son vulnerables, y eso no puede significarlo ningún registro que nombre una corrección',
+                'gemnasium escribe los rangos de versiones de Python como intersecciones PEP 440 —<code>&gt;=5.0,&lt;5.8</code>— y el analizador separaba los tokens solo por espacios, de modo que todo quedaba en uno: un límite inferior ilegible y ningún límite superior. Un rango así no coincide con nada, y no coincidir con nada significa no informar de nada. Afectaba a 2.830 de los 7.159 registros de PyPI en caché. Esta era una de las tres razones por las que Python, Go y Rust se retiraron en la 3.3.0; las otras dos siguen abiertas, así que continúan retirados'
+            ]
+        },
         '3.3.1': {
             title: 'La misma versión que 3.3.0, con una imagen de Docker que sí compila',
             items: [
@@ -466,6 +483,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primera versión de código abierto', items: ['El primer lanzamiento público de Sentinello'] }
     },
     fr: {
+        '3.3.2': {
+            title: 'Des avis qui déclaraient toutes les versions vulnérables',
+            items: [
+                'Un avis dont la plage affectée n’a pas de fin correspond à toutes les versions, indéfiniment : un résultat qu’aucune mise à jour ne peut lever et que rien ne distingue, à l’écran, d’une vulnérabilité réellement non corrigée. Deux avis <code>xlsx</code> se présentaient ainsi et signalaient une version 0.20.3 pourtant entièrement corrigée comme sévérité haute et sans correctif, sur 11 projets à la fois, alors que <code>npm audit</code> rapportait correctement ces deux mêmes avis comme corrigés en 0.19.3 et 0.20.2. La cause est en amont et délibérée : GitHub ne nomme pas une version corrigée que le registre ne distribue pas sous ce nom de paquet — SheetJS ne publie 0.19.3 et les suivantes que depuis son propre CDN — et écrit donc la plage comme « tout à partir de 0 », en consignant la vraie borne dans un autre champ que Sentinello ne lisait pas. Il le lit désormais. 15 avis npm étaient concernés, dont <code>babel-traverse</code> et <code>sandbox</code>. Les 480 qui sont réellement sans correctif le disent toujours, et un enregistrement qui énonce déjà sa propre borne n’est jamais écrasé',
+                'Un avis gemnasium qui laissait sa plage ouverte tout en énumérant les versions qui le corrigent est désormais borné par la plus élevée d’entre elles. Une plage sans fin affirme que les versions à venir sont vulnérables elles aussi, ce qu’aucun enregistrement nommant un correctif ne peut vouloir dire',
+                'gemnasium écrit les plages de versions Python sous forme d’intersections PEP 440 — <code>&gt;=5.0,&lt;5.8</code> — et l’analyseur ne découpait les jetons que sur les espaces : l’ensemble n’en formait plus qu’un, avec une borne inférieure illisible et aucune borne supérieure. Une telle plage ne correspond à rien, et ne correspondre à rien revient à ne rien signaler. 2 830 des 7 159 enregistrements PyPI en cache étaient dans cet état. C’était l’une des trois raisons du retrait de Python, Go et Rust en 3.3.0 ; les deux autres restent ouvertes, ils demeurent donc retirés'
+            ]
+        },
         '3.3.1': {
             title: 'La même version que 3.3.0, avec une image Docker qui se construit',
             items: [
@@ -678,6 +703,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Première version open source', items: ['La première version publique de Sentinello'] }
     },
     de: {
+        '3.3.2': {
+            title: 'Hinweise, die jede Version für verwundbar erklärten',
+            items: [
+                'Ein Hinweis, dessen betroffener Bereich kein Ende hat, trifft auf jede Version zu — für immer: ein Befund, den kein Upgrade auflösen kann und der auf der Seite nicht von einer tatsächlich ungepatchten Schwachstelle zu unterscheiden ist. Zwei <code>xlsx</code>-Hinweise kamen so herein und meldeten ein vollständig gepatchtes 0.20.3 als hoch eingestuft und ohne verfügbare Behebung, auf 11 Projekten gleichzeitig, während <code>npm audit</code> dieselben beiden korrekt als behoben in 0.19.3 und 0.20.2 auswies. Die Ursache liegt vorgelagert und ist gewollt: GitHub nennt keine behobene Version, die die Registry unter diesem Paketnamen nicht ausliefert — SheetJS veröffentlicht 0.19.3 und neuer nur über das eigene CDN —, schreibt den Bereich deshalb als „alles ab 0“ und hinterlegt die echte Grenze in einem separaten Feld, das Sentinello nie gelesen hat. Jetzt liest es dieses Feld. Betroffen waren 15 npm-Hinweise, darunter <code>babel-traverse</code> und <code>sandbox</code>. Die 480, die wirklich ohne Behebung sind, sagen das weiterhin, und ein Datensatz, der seine eigene Grenze bereits angibt, wird nie überschrieben',
+                'Ein gemnasium-Hinweis, der seinen Bereich offen ließ und zugleich die behebenden Versionen auflistete, wird nun durch die höchste davon begrenzt. Ein Bereich ohne Ende behauptet, auch jede künftige Version sei verwundbar — das kann kein Datensatz meinen, der eine Behebung nennt',
+                'gemnasium schreibt Python-Versionsbereiche als PEP-440-Schnittmengen — <code>&gt;=5.0,&lt;5.8</code> — und der Parser trennte Token nur an Leerzeichen, sodass alles zu einem einzigen wurde: eine unlesbare untere Grenze und überhaupt keine obere. Solche Bereiche treffen auf nichts zu, und auf nichts zuzutreffen heißt, nichts zu melden. Betroffen waren 2.830 von 7.159 zwischengespeicherten PyPI-Datensätzen. Das war einer der drei Gründe, aus denen Python, Go und Rust in 3.3.0 zurückgezogen wurden; die beiden anderen bestehen fort, sie bleiben daher zurückgezogen'
+            ]
+        },
         '3.3.1': {
             title: 'Dieselbe Version wie 3.3.0, mit einem Docker-Image, das baut',
             items: [
@@ -891,6 +924,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         }
     },
     'pt-BR': {
+        '3.3.2': {
+            title: 'Avisos que declaravam vulnerável qualquer versão',
+            items: [
+                'Um aviso cujo intervalo afetado não tem fim corresponde a todas as versões, para sempre — um achado que nenhuma atualização consegue encerrar e que, na página, não se distingue de uma vulnerabilidade realmente sem correção. Dois avisos de <code>xlsx</code> chegaram assim e apontaram uma versão 0.20.3 totalmente corrigida como de severidade alta e sem correção disponível, em 11 projetos ao mesmo tempo, enquanto o <code>npm audit</code> relatava corretamente esses mesmos dois avisos como corrigidos em 0.19.3 e 0.20.2. A causa está a montante e é deliberada: o GitHub não nomeia uma versão corrigida que o registro não sirva sob aquele nome de pacote — a SheetJS publica a 0.19.3 e as seguintes apenas a partir do seu próprio CDN —, então declara o intervalo como “tudo a partir de 0” e registra o limite real em outro campo que o Sentinello nunca lia. Agora lê. Havia 15 avisos npm afetados, entre eles <code>babel-traverse</code> e <code>sandbox</code>. Os 480 que de fato não têm correção continuam dizendo isso, e um registro que já declara o próprio limite nunca é sobrescrito',
+                'Um aviso do gemnasium que deixava o intervalo em aberto enquanto listava as versões que o corrigem passa a ser limitado pela mais alta delas. Um intervalo sem fim afirma que também as versões futuras são vulneráveis, e nenhum registro que nomeie uma correção pode querer dizer isso',
+                'O gemnasium escreve os intervalos de versão do Python como interseções PEP 440 — <code>&gt;=5.0,&lt;5.8</code> — e o analisador separava os tokens apenas por espaços, de modo que tudo virava um só: um limite inferior ilegível e nenhum limite superior. Intervalos assim não correspondem a nada, e não corresponder a nada significa não relatar nada. Estavam nesse estado 2.830 dos 7.159 registros PyPI em cache. Esse era um dos três motivos pelos quais Python, Go e Rust foram retirados na 3.3.0; os outros dois continuam em aberto, portanto seguem retirados'
+            ]
+        },
         '3.3.1': {
             title: 'A mesma versão da 3.3.0, com uma imagem Docker que compila',
             items: [
@@ -1101,6 +1142,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primeira versão de código aberto', items: ['O primeiro lançamento público do Sentinello'] }
     },
     it: {
+        '3.3.2': {
+            title: 'Avvisi che dichiaravano vulnerabile ogni versione',
+            items: [
+                'Un avviso il cui intervallo interessato non ha fine corrisponde a ogni versione, per sempre: un rilievo che nessun aggiornamento può chiudere e che sulla pagina non si distingue da una vulnerabilità davvero priva di patch. Due avvisi di <code>xlsx</code> sono arrivati così e segnalavano una 0.20.3 completamente corretta come severità alta e senza soluzione disponibile, su 11 progetti contemporaneamente, mentre <code>npm audit</code> riportava correttamente quegli stessi due avvisi come risolti in 0.19.3 e 0.20.2. La causa è a monte ed è deliberata: GitHub non indica una versione corretta che il registro non distribuisce con quel nome di pacchetto — SheetJS pubblica la 0.19.3 e le successive solo dal proprio CDN — e quindi dichiara l’intervallo come «tutto a partire da 0», annotando il limite reale in un altro campo che Sentinello non leggeva. Ora lo legge. Erano interessati 15 avvisi npm, tra cui <code>babel-traverse</code> e <code>sandbox</code>. I 480 realmente privi di correzione continuano a dirlo, e un record che dichiara già il proprio limite non viene mai sovrascritto',
+                'Un avviso gemnasium che lasciava aperto il proprio intervallo pur elencando le versioni che lo correggono è ora delimitato dalla più alta di esse. Un intervallo senza fine afferma che anche le versioni future sono vulnerabili, e nessun record che nomini una correzione può volerlo dire',
+                'gemnasium scrive gli intervalli di versione di Python come intersezioni PEP 440 — <code>&gt;=5.0,&lt;5.8</code> — e il parser separava i token solo sugli spazi, per cui il tutto diventava uno solo: un limite inferiore illeggibile e nessun limite superiore. Intervalli così non corrispondono a nulla, e non corrispondere a nulla significa non segnalare nulla. Erano in questo stato 2.830 dei 7.159 record PyPI in cache. Era uno dei tre motivi per cui Python, Go e Rust sono stati ritirati nella 3.3.0; gli altri due restano aperti, quindi restano ritirati'
+            ]
+        },
         '3.3.1': {
             title: 'La stessa release della 3.3.0, con un’immagine Docker che si costruisce',
             items: [
@@ -1311,6 +1360,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Prima versione open source', items: ['La prima versione pubblica di Sentinello'] }
     },
     ja: {
+        '3.3.2': {
+            title: 'すべてのバージョンを脆弱だと言い張るアドバイザリ',
+            items: [
+                '影響範囲に終端のないアドバイザリは、あらゆるバージョンに永久に一致します。どれだけアップグレードしても消えない検出結果であり、画面上では本当に未修正の脆弱性と見分けがつきません。<code>xlsx</code> の 2 件がまさにその状態で届き、完全に修正済みの 0.20.3 を「高」深刻度・修正なしとして 11 プロジェクトで同時に報告していました。一方 <code>npm audit</code> は同じ 2 件を 0.19.3 および 0.20.2 で修正済みと正しく報告していました。原因は上流にあり、しかも意図的なものです。GitHub は、そのパッケージ名でレジストリが配信していない修正バージョンを記載しません。SheetJS は 0.19.3 以降を自社 CDN からのみ公開しているため、GitHub は範囲を「0 以降すべて」と記し、本当の境界は別のフィールドに記録します。Sentinello はそのフィールドを読んでいませんでした。今は読みます。影響を受けていた npm アドバイザリは 15 件で、<code>babel-traverse</code> や <code>sandbox</code> も含まれます。本当に未修正の 480 件はこれまでどおりそう表示され、すでに自身の境界を示しているレコードが上書きされることはありません',
+                '修正バージョンを列挙しながら範囲を開いたままにしていた gemnasium のアドバイザリは、そのうち最も高いバージョンで区切られるようになりました。終端のない範囲は将来のリリースまで脆弱だと主張することになり、修正を挙げているレコードがそれを意味することはあり得ません',
+                'gemnasium は Python のバージョン範囲を PEP 440 の積集合 — <code>&gt;=5.0,&lt;5.8</code> — として記述しますが、パーサはトークンを空白でしか分割していなかったため全体が 1 つのトークンになり、読み取れない下限と、上限なしという結果になっていました。この状態の範囲は何にも一致せず、何にも一致しないということは何も報告しないということです。キャッシュ済み PyPI レコード 7,159 件のうち 2,830 件が該当していました。これは 3.3.0 で Python・Go・Rust を取り下げた 3 つの理由のひとつでした。残る 2 つは未解決のため、これらは取り下げられたままです'
+            ]
+        },
         '3.3.1': {
             title: '3.3.0 と同じリリース、ただしビルドできる Docker イメージ付き',
             items: [
@@ -1517,6 +1574,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '初のオープンソースリリース', items: ['Sentinello の最初の一般公開リリース'] }
     },
     'zh-CN': {
+        '3.3.2': {
+            title: '声称每个版本都存在漏洞的公告',
+            items: [
+                '受影响范围没有上界的公告会永远匹配所有版本——这种结果无论怎样升级都无法消除，在页面上也无法与真正尚未修复的漏洞区分开。有两条 <code>xlsx</code> 公告正是如此，把已完全修复的 0.20.3 报告为高危且无可用修复，同时波及 11 个项目；而 <code>npm audit</code> 对这两条的报告是正确的，分别在 0.19.3 和 0.20.2 中修复。根因在上游，而且是有意为之：如果某个修复版本没有以该包名发布到registry，GitHub 就不会写出这个版本——SheetJS 的 0.19.3 及之后版本只通过自家 CDN 发布——于是它把范围写成“从 0 开始的全部”，并把真正的边界记录在另一个字段里，而 Sentinello 从未读取该字段。现在它会读取了。受影响的 npm 公告共 15 条，其中包括 <code>babel-traverse</code> 和 <code>sandbox</code>。那 480 条确实没有修复的公告仍然照实显示，并且已经写明自身边界的记录绝不会被覆盖',
+                'gemnasium 公告若一边列出修复版本、一边让范围保持开放，现在会以其中最高的版本作为上界。没有上界的范围等于宣称将来的每个版本也有漏洞，而任何写明了修复版本的记录都不可能是这个意思',
+                'gemnasium 用 PEP 440 交集来书写 Python 的版本范围——<code>&gt;=5.0,&lt;5.8</code>——而解析器只按空格切分标记，于是整段变成一个标记：下界无法解析，上界则完全丢失。这样的范围匹配不到任何东西，而匹配不到任何东西就意味着什么都不会报告。缓存的 7,159 条 PyPI 记录中有 2,830 条处于这种状态。这正是 3.3.0 中撤下 Python、Go 和 Rust 的三个原因之一；另外两个仍未解决，因此它们继续保持撤下状态'
+            ]
+        },
         '3.3.1': {
             title: '与 3.3.0 相同的版本，但 Docker 镜像可以构建',
             items: [
@@ -1703,6 +1768,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '首个开源版本', items: ['Sentinello 的首个公开发布版本'] }
     },
     ko: {
+        '3.3.2': {
+            title: '모든 버전이 취약하다고 주장하던 권고',
+            items: [
+                '영향 범위에 끝이 없는 권고는 모든 버전에 영원히 일치합니다. 어떤 업그레이드로도 해소할 수 없는 결과이며, 화면에서는 실제로 패치되지 않은 취약점과 구별되지 않습니다. <code>xlsx</code> 권고 두 건이 바로 그런 상태로 들어와, 이미 완전히 패치된 0.20.3을 높음 심각도에 수정 불가로 11개 프로젝트에서 동시에 보고했습니다. 반면 <code>npm audit</code>은 같은 두 건을 0.19.3과 0.20.2에서 수정됨으로 정확히 보고했습니다. 원인은 상류에 있고 의도적입니다. GitHub은 해당 패키지 이름으로 레지스트리가 제공하지 않는 수정 버전을 명시하지 않습니다. SheetJS는 0.19.3 이후를 자사 CDN에서만 배포하므로, GitHub은 범위를 “0부터 전부”로 적고 실제 경계는 별도 필드에 기록합니다. Sentinello는 그 필드를 읽지 않았고, 이제는 읽습니다. 영향을 받은 npm 권고는 15건이며 <code>babel-traverse</code>와 <code>sandbox</code>도 포함됩니다. 실제로 수정이 없는 480건은 그대로 그렇게 표시되고, 이미 자체 경계를 명시한 레코드는 절대 덮어쓰지 않습니다',
+                '수정 버전을 나열하면서도 범위를 열어 두었던 gemnasium 권고는 이제 그중 가장 높은 버전으로 상한이 지정됩니다. 끝이 없는 범위는 앞으로 나올 릴리스까지 취약하다고 주장하는 셈인데, 수정 버전을 명시한 레코드가 그런 뜻일 수는 없습니다',
+                'gemnasium은 Python 버전 범위를 PEP 440 교집합 — <code>&gt;=5.0,&lt;5.8</code> — 으로 적는데, 파서가 토큰을 공백으로만 나누는 바람에 전체가 하나의 토큰이 되어 하한은 읽을 수 없고 상한은 아예 사라졌습니다. 이런 범위는 아무것도 일치시키지 못하며, 아무것도 일치시키지 못한다는 것은 아무것도 보고하지 않는다는 뜻입니다. 캐시된 PyPI 레코드 7,159건 중 2,830건이 그 상태였습니다. 이는 3.3.0에서 Python, Go, Rust를 내린 세 가지 이유 중 하나였습니다. 나머지 두 가지는 아직 해결되지 않았으므로 이들은 계속 내려간 상태로 남습니다'
+            ]
+        },
         '3.3.1': {
             title: '3.3.0과 같은 릴리스, 다만 빌드되는 Docker 이미지 포함',
             items: [
@@ -1903,6 +1976,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '첫 오픈 소스 릴리스', items: ['Sentinello의 첫 공개 릴리스'] }
     },
     ru: {
+        '3.3.2': {
+            title: 'Уведомления, объявлявшие уязвимой любую версию',
+            items: [
+                'Уведомление, у диапазона которого нет верхней границы, совпадает со всеми версиями и делает это всегда: такую находку не снимет никакое обновление, а на странице её не отличить от действительно неисправленной уязвимости. Два уведомления по <code>xlsx</code> пришли именно в таком виде и сообщали о полностью исправленной 0.20.3 как о высокой серьёзности без доступного исправления — сразу в 11 проектах, тогда как <code>npm audit</code> корректно указывал те же два как исправленные в 0.19.3 и 0.20.2. Причина находится выше по цепочке и она намеренная: GitHub не называет исправленную версию, которую реестр не отдаёт под этим именем пакета, — SheetJS публикует 0.19.3 и новее только со своего CDN, — поэтому записывает диапазон как «всё начиная с 0», а настоящую границу помещает в отдельное поле, которое Sentinello не читал. Теперь читает. Затронуто было 15 npm-уведомлений, среди них <code>babel-traverse</code> и <code>sandbox</code>. Те 480, что действительно без исправления, по-прежнему так и сообщают, а запись, уже указавшая собственную границу, никогда не перезаписывается',
+                'Уведомление gemnasium, оставлявшее диапазон открытым и при этом перечислявшее исправляющие версии, теперь ограничивается самой старшей из них. Диапазон без конца утверждает, что уязвимы и все будущие выпуски, — а запись, называющая исправление, не может иметь это в виду',
+                'gemnasium записывает диапазоны версий Python как пересечения PEP 440 — <code>&gt;=5.0,&lt;5.8</code>, — а разборщик делил строку на токены только по пробелам, поэтому всё превращалось в один токен: нечитаемая нижняя граница и полное отсутствие верхней. Такие диапазоны не совпадают ни с чем, а не совпасть ни с чем — значит ни о чём не сообщить. В этом состоянии находились 2830 из 7159 закэшированных записей PyPI. Это была одна из трёх причин, по которым в 3.3.0 сняли Python, Go и Rust; две другие остаются открытыми, поэтому они остаются снятыми'
+            ]
+        },
         '3.3.1': {
             title: 'Тот же выпуск, что и 3.3.0, но с собирающимся Docker-образом',
             items: [

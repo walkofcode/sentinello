@@ -403,3 +403,138 @@ describe('normalizeOsvRecord — metadata', function () {
         )
     })
 })
+
+// One affected entry whose ranges are whatever `ranges` says, carrying the entry-level database_specific
+// this block is about. Named for the package under test so the real advisories below read as themselves.
+function entry(name: string, ranges: unknown[], lastKnownAffected?: string) {
+    const affectedEntry: Record<string, unknown> = { package: { name, ecosystem: 'npm' }, ranges }
+    if (lastKnownAffected !== undefined) {
+        affectedEntry.database_specific = { last_known_affected_version_range: lastKnownAffected }
+    }
+    return affectedEntry
+}
+
+function open(introduced: string) {
+    return { type: 'SEMVER', events: [{ introduced }] }
+}
+
+describe('normalizeOsvRecord — last_known_affected_version_range', function () {
+    // GitHub will not emit a `fixed` event naming a version the registry does not serve under that package
+    // name, so it states the range as "everything from 0" and puts the real bound here. SheetJS moved xlsx
+    // 0.19.x+ to cdn.sheetjs.com, so the npm package stops at 0.18.5 and both advisories arrive open-ended.
+    // Before this was read, a fully patched 0.20.3 was reported high-severity-no-fix on 11 projects.
+    it('recovers the bound xlsx GHSA-4r6h-8v6p-xvw6 states outside its range', function () {
+        const rows = normalizeOsvRecord(
+            record({ id: 'GHSA-4r6h-8v6p-xvw6', affected: [entry('xlsx', [open('0')], '< 0.19.3')] }),
+            'npm'
+        )
+        // `type` has to survive the rewrite: the matcher drops an untyped range when it filters by type.
+        expect(rows[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '0', fixed: '0.19.3', lastAffected: null }])
+    })
+
+    it('recovers the bound xlsx GHSA-5pgg-2g8v-p4x9 states outside its range', function () {
+        const rows = normalizeOsvRecord(
+            record({ id: 'GHSA-5pgg-2g8v-p4x9', affected: [entry('xlsx', [open('0')], '< 0.20.2')] }),
+            'npm'
+        )
+        expect(rows[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '0', fixed: '0.20.2', lastAffected: null }])
+    })
+
+    // Same record, two package names: GHSA-67hx-6x53-jw92 bounds `@babel/traverse` normally and leaves
+    // `babel-traverse` open, because 7.23.2 was only ever published under the renamed scope.
+    it('recovers the bound for babel-traverse, whose fix exists only as @babel/traverse', function () {
+        const rows = normalizeOsvRecord(
+            record({ id: 'GHSA-67hx-6x53-jw92', affected: [entry('babel-traverse', [open('0')], '< 7.23.2')] }),
+            'npm'
+        )
+        expect(rows[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '0', fixed: '7.23.2', lastAffected: null }])
+    })
+
+    it('reads a <= bound as inclusive with no fix', function () {
+        const rows = normalizeOsvRecord(record({ affected: [entry('lodash', [open('0')], '<= 1.2.3')] }), 'npm')
+        expect(rows[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '0', fixed: null, lastAffected: '1.2.3' }])
+    })
+
+    // REGRESSION: the field is a fallback, never a supplement. GHSA-25hc-qcg6-38wj claims `< 2.5.0` while
+    // the record's real branch fixes are 2.5.1 AND 4.6.2 — applying it over a stated bound would turn a
+    // correct range into a false negative and hide everything from 2.5.0 to 4.6.1.
+    it('never overrides the branch fixes GHSA-25hc-qcg6-38wj already states', function () {
+        const rows = normalizeOsvRecord(
+            record({
+                id: 'GHSA-25hc-qcg6-38wj',
+                affected: [
+                    entry(
+                        'socket.io',
+                        [
+                            { type: 'SEMVER', events: [{ introduced: '0' }, { fixed: '2.5.1' }] },
+                            { type: 'SEMVER', events: [{ introduced: '3.0.0' }, { fixed: '4.6.2' }] }
+                        ],
+                        '< 2.5.0'
+                    )
+                ]
+            }),
+            'npm'
+        )
+        expect(rows[0]?.ranges).toEqual([
+            { type: 'SEMVER', introduced: '0', fixed: '2.5.1', lastAffected: null },
+            { type: 'SEMVER', introduced: '3.0.0', fixed: '4.6.2', lastAffected: null }
+        ])
+    })
+
+    it('does not supplement an interval already bounded by last_affected', function () {
+        const ranges = [{ type: 'SEMVER', events: [{ introduced: '1.0.0' }, { last_affected: '1.5.0' }] }]
+        const rows = normalizeOsvRecord(record({ affected: [entry('lodash', ranges, '< 9.9.9')] }), 'npm')
+        expect(rows[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '1.0.0', fixed: null, lastAffected: '1.5.0' }])
+    })
+
+    // A single upper bound cannot close two intervals, and choosing which one to close would be exactly the
+    // arbitrary pick that made protobufjs report a patched release as critical on the gemnasium side.
+    it('leaves an entry alone when it produced more than one interval', function () {
+        const ranges = [{ type: 'SEMVER', events: [{ introduced: '1.0.0' }, { introduced: '2.0.0' }] }]
+        const rows = normalizeOsvRecord(record({ affected: [entry('lodash', ranges, '< 3.0.0')] }), 'npm')
+        expect(rows[0]?.ranges).toEqual([
+            { type: 'SEMVER', introduced: '1.0.0', fixed: null, lastAffected: null },
+            { type: 'SEMVER', introduced: '2.0.0', fixed: null, lastAffected: null }
+        ])
+    })
+
+    // The field belongs to the affected ENTRY, so it has to be applied before entries are merged per
+    // package — otherwise one branch's bound would leak onto another branch's range.
+    it('applies per affected entry rather than per record', function () {
+        const rows = normalizeOsvRecord(
+            record({
+                affected: [
+                    entry('lodash', [open('0')], '< 1.9.9'),
+                    entry('lodash', [{ type: 'SEMVER', events: [{ introduced: '2.0.0' }, { fixed: '2.5.0' }] }])
+                ]
+            }),
+            'npm'
+        )
+        expect(rows[0]?.ranges).toEqual([
+            { type: 'SEMVER', introduced: '0', fixed: '1.9.9', lastAffected: null },
+            { type: 'SEMVER', introduced: '2.0.0', fixed: '2.5.0', lastAffected: null }
+        ])
+    })
+
+    // The two-form grammar was measured on a sample, not the whole export, so an unrecognised shape must
+    // leave the range untouched. A too-wide range is the behaviour we already have; a bound invented from a
+    // misread string would hide a real vulnerability.
+    it.each(['>= 1.0.0', '', '<', '<=', '  ', '< 1.0.0 || < 2.0.0', '>=1.0.0 <2.0.0', '<1.0.0,<2.0.0'])(
+        'refuses a bound it cannot read: %j',
+        function (raw) {
+            const rows = normalizeOsvRecord(record({ affected: [entry('lodash', [open('0')], raw)] }), 'npm')
+            expect(rows[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '0', fixed: null, lastAffected: null }])
+        }
+    )
+
+    // 480 of the 495 open-ended npm advisories are genuinely unfixed. They must keep saying so.
+    it('leaves a genuinely unfixed advisory open-ended', function () {
+        const withoutField = normalizeOsvRecord(record({ affected: [entry('lodash', [open('0')])] }), 'npm')
+        expect(withoutField[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '0', fixed: null, lastAffected: null }])
+        const emptyField = normalizeOsvRecord(
+            record({ affected: [{ package: { name: 'lodash', ecosystem: 'npm' }, ranges: [open('0')], database_specific: {} }] }),
+            'npm'
+        )
+        expect(emptyField[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '0', fixed: null, lastAffected: null }])
+    })
+})
