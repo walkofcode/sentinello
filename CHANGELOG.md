@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.3.2](https://github.com/walkofcode/sentinello/compare/v3.3.1...v3.3.2) (2026-08-17)
+
+
+### Bug Fixes
+
+* **feeds:** read the fix bound OSV states outside its range ([cdf75a8](https://github.com/walkofcode/sentinello/commit/cdf75a883dc7a2910953a36fc9a366250580dcde))
+* **feeds:** rebuild both advisory caches for the corrected range parsing ([f2d4bdb](https://github.com/walkofcode/sentinello/commit/f2d4bdb7d69f42ee0916d070e3bb248518f2f60a))
+* **feeds:** stop gemnasium ranges claiming every version is vulnerable ([0bd36a7](https://github.com/walkofcode/sentinello/commit/0bd36a7a0e64d4792190a91aa6714afad9c492b4))
+
+
+### Documentation
+
+* **releases:** add the 3.3.2 what's-new entry ([fbb13fa](https://github.com/walkofcode/sentinello/commit/fbb13fae6d55c149684ea0ab39d758ae04e59d9c))
+
 ## [3.3.1](https://github.com/walkofcode/sentinello/compare/v3.3.0...v3.3.1) (2026-08-15)
 
 
