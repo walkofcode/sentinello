@@ -16,7 +16,15 @@ import type { OsvAdvisoryRow, OsvRange } from '@sentinello/core'
 type OsvEvent = { introduced?: string; fixed?: string; last_affected?: string }
 type OsvRangeRaw = { type?: string; events?: OsvEvent[] }
 type OsvPackage = { name?: string; ecosystem?: string; purl?: string }
-type OsvAffected = { package?: OsvPackage; ranges?: OsvRangeRaw[]; versions?: string[] }
+// `database_specific` here is the AFFECTED ENTRY's, not the record's (which carries severity/source and is
+// read by pickSeverity/pickUrl). GitHub parks a real upper bound in this one whenever it cannot express the
+// fix as a `fixed` event — see boundOpenEndedRange.
+type OsvAffected = {
+    package?: OsvPackage
+    ranges?: OsvRangeRaw[]
+    versions?: string[]
+    database_specific?: { last_known_affected_version_range?: string }
+}
 type OsvSeverity = { type?: string; score?: string }
 type OsvRecord = {
     id?: string
@@ -64,7 +72,7 @@ export function normalizeOsvRecord(record: unknown, ecosystem: string): OsvAdvis
         // compromised builds in `versions` (e.g. ["4.4.2"]) and frequently carry a usable range too
         // (e.g. fsevents >=1.0.0 <1.2.11) — discarding either (the old `maliciousRange()` shortcut) is
         // what made the matcher flag clean, remediated versions as compromised.
-        const ranges = extractRanges(affected.ranges)
+        const ranges = extractRanges(affected.ranges, affected.database_specific?.last_known_affected_version_range)
         const versions = extractVersions(affected.versions)
         const existing = byPackage.get(packageName)
         if (existing) {
@@ -105,7 +113,7 @@ function extractVersions(versions: string[] | undefined): string[] {
     return out
 }
 
-function extractRanges(ranges: OsvRangeRaw[] | undefined): OsvRange[] {
+function extractRanges(ranges: OsvRangeRaw[] | undefined, lastKnownAffected?: string): OsvRange[] {
     if (!Array.isArray(ranges)) return []
     const out: OsvRange[] = []
     for (const range of ranges) {
@@ -143,6 +151,49 @@ function extractRanges(ranges: OsvRangeRaw[] | undefined): OsvRange[] {
         if (introduced !== null) {
             out.push({ type, introduced, fixed: null, lastAffected })
         }
+    }
+    return boundOpenEndedRange(out, lastKnownAffected)
+}
+
+// Close a range that has no upper bound at all, using the boundary GitHub parks in the affected entry's
+// `database_specific.last_known_affected_version_range`.
+//
+// GitHub will not emit a `fixed` event naming a version that is not published under that package name on
+// the registry, so for those advisories it states the range as `events: [{introduced: '0'}]` — affecting
+// every version ever released — and writes the real boundary here instead. It is not an edge case, it is
+// what happens whenever the fix lives somewhere the registry cannot serve: SheetJS moved xlsx 0.19.x+ to
+// cdn.sheetjs.com (GHSA-4r6h-8v6p-xvw6 `< 0.19.3`, GHSA-5pgg-2g8v-p4x9 `< 0.20.2`), `babel-traverse`
+// 7.23.2 exists only under the renamed `@babel/traverse` (GHSA-67hx-6x53-jw92), `sandbox` 1.0.0 was never
+// published. Dropping it reported 22 findings across 11 projects against a fully patched xlsx 0.20.3, with
+// no fix version to act on — while npm-audit, reading the same GitHub data through the registry's audit
+// endpoint, reported the same two advisories correctly as `<0.19.3` and `<0.20.2`.
+//
+// FALLBACK ONLY, never a supplement. On a multi-branch record the field is not the whole truth:
+// GHSA-25hc-qcg6-38wj says `< 2.5.0` while its real branch fixes are 2.5.1 AND 4.6.2, so letting it touch
+// an entry that already states a bound would narrow a correct range into a false negative. Hence both
+// gates — one range only (a single bound cannot close two intervals, and picking which one to close is the
+// arbitrary choice that produced the protobufjs regression on the gemnasium side), and that range open.
+//
+// The grammar is one upper bound, `< X` or `<= X`. Anything else is refused rather than best-guessed: the
+// two forms were measured across a sample, not the whole 227k-row export, so an unseen shape must leave the
+// range exactly as it is — reporting a too-wide range is the behaviour we already have, while inventing a
+// bound from a string we misread would hide a real vulnerability. The `<= X` arm is exercised by tests
+// only; in the export it always co-occurs with a real `fixed` event, which the open-range gate then skips.
+// It is written because it is the field's stated grammar, not because a record has been seen to need it.
+function boundOpenEndedRange(ranges: OsvRange[], lastKnownAffected: string | undefined): OsvRange[] {
+    if (ranges.length !== 1 || typeof lastKnownAffected !== 'string') return ranges
+    const text = lastKnownAffected.trim()
+    const inclusive = text.startsWith('<=')
+    if (!inclusive && !text.startsWith('<')) return ranges
+    const version = text.slice(inclusive ? 2 : 1).trim()
+    // A leftover separator means the string is a compound range, not the single bound this reads.
+    if (version.length === 0 || /[\s,|]/.test(version)) return ranges
+    const out: OsvRange[] = []
+    for (const range of ranges) {
+        const open = range.fixed === null && range.lastAffected === null
+        // Spread rather than rebuild: `range.type` has to survive, because the matcher drops an untyped
+        // range whenever the OSV scanner filters by accepted range type.
+        out.push(open ? { ...range, fixed: inclusive ? null : version, lastAffected: inclusive ? version : null } : range)
     }
     return out
 }
