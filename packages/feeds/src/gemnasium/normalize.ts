@@ -1,5 +1,5 @@
 import type { GemnasiumAdvisoryRow, GemnasiumRange } from '@sentinello/core'
-import { isZeroVersion } from '@sentinello/versions'
+import { compareVersions, highestVersion, isZeroVersion } from '@sentinello/versions'
 import { severityFromCvss } from './cvss'
 
 // Parses a single gemnasium-db advisory (one *.yml file, already YAML-parsed to an object) into the
@@ -201,7 +201,32 @@ export function parseAffectedRange(affectedRange: string, fixedVersions: string[
         ranges[0] = toRange(only.introduced, only.introducedExclusive === true, authoritativeFixed, null)
     }
 
-    return { ranges, versions }
+    // Anything still carrying NO upper bound claims every version from `introduced` onward is vulnerable,
+    // forever, with no fix — a finding no upgrade can ever clear. When the record lists fix versions, that
+    // claim is simply false, and the HIGHEST of them is the bound: the latest branch's fix is the last
+    // boundary the advisory knows about.
+    //
+    // This cannot reintroduce the protobufjs regression the single-fix guard above exists to prevent. That
+    // bug OVERWROTE an already-correct bounded interval with an arbitrarily-picked branch fix, turning
+    // [0, 7.5.5) into [0, 8.0.1) and reporting the patched 7.6.5 as critical. This runs after that guard and
+    // only ever fires on an interval that is currently unbounded, so it can only narrow "everything" to
+    // something — never move a bound the advisory actually stated.
+    //
+    // `not_impacted` ("All versions up to 1.2.8") and `solution` ("Downgrade to version 1.2.8") also carry a
+    // real boundary, and are still not read: gemnasium's field reference calls the parallel
+    // `affected_versions` display text, and prose has no grammar to parse against.
+    const highestFixed = highestVersion(fixedVersions)
+    const bounded: BuiltRange[] = []
+    for (const range of ranges) {
+        const openEnded = range.fixed === null && range.lastAffected === null
+        // A fix at or below the lower bound describes a different branch than this interval, and pairing
+        // them would build an empty range that matches nothing. Leave it open rather than silently mute it.
+        bounded.push(highestFixed !== null && openEnded && compareVersions(highestFixed, range.introduced) > 0
+            ? toRange(range.introduced, range.introducedExclusive === true, highestFixed, null)
+            : range)
+    }
+
+    return { ranges: bounded, versions }
 }
 
 // Both upper bounds are optional on the shared range type (OSV-shaped sources may omit them), but every
@@ -283,11 +308,22 @@ function parseIntervalNotation(disjunct: string): Disjunct | null {
     }
 }
 
-// Comparator form: space-separated tokens like ">=1.0.0", "<2.0.0", "<=2", ">1", "=1.2.3", or a bare
-// "1.2.3". Builds a single bounded interval (or an exact version for "="/bare). Every operator keeps its
-// own inclusivity — none is rounded into another.
+// Comparator form: tokens like ">=1.0.0", "<2.0.0", "<=2", ">1", "=1.2.3", or a bare "1.2.3". Builds a
+// single bounded interval (or an exact version for "="/bare). Every operator keeps its own inclusivity —
+// none is rounded into another.
+//
+// Tokens are separated by whitespace OR a comma. PEP 440 spells an intersection with a comma and no space
+// (">=5.0,<5.8"), which gemnasium uses throughout its PyPI records. Splitting on whitespace alone made that
+// one token: `readOperator` read the ">=" and kept "5.0,<5.8" as the version, so the interval got a lower
+// bound no PEP 440 parser can read and NO upper bound at all. The matcher rejects an unreadable bound
+// rather than guessing, so every one of those ranges matched nothing — 2,830 of 7,159 PyPI records silently
+// unable to report. Commas never reach here from maven interval notation ("[1.0.0,2.0.0)"), which
+// parseDisjunct routes to parseIntervalNotation on the leading bracket, and no npm range contains one.
+//
+// This retires one of the three blockers README names for Python/Go/Rust staying in `preview`; the
+// semver-only fix derivation and OSV's non-canonicalized PyPI names are still open, so they stay there.
 function parseComparatorForm(disjunct: string): Disjunct | null {
-    const tokens = disjunct.split(/\s+/).filter(nonEmpty)
+    const tokens = disjunct.split(/[\s,]+/).filter(nonEmpty)
     if (tokens.length === 0) return null
     let introduced = '0'
     let introducedExclusive = false

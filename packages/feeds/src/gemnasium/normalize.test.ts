@@ -664,3 +664,110 @@ describe('parseAffectedRange — authoritative fixed_versions override', functio
         expect(parseAffectedRange('[1.2.3]', ['2.0.0'])).toEqual({ ranges: [], versions: ['1.2.3'] })
     })
 })
+
+// An interval with no upper bound claims every version from `introduced` onward is vulnerable forever with
+// no fix — a finding no upgrade can clear. When the record lists fix versions that claim is false, and the
+// highest of them is the boundary. This runs after the single-fix override above, so it only ever sees
+// intervals that override declined to close.
+describe('parseAffectedRange — an open-ended range bounded by the highest known fix', function () {
+    it.each([
+        [['7.5.5', '8.0.1']],
+        [['8.0.1', '7.5.5']]
+    ])('bounds at the highest fix whatever order the set arrives in: %j', function (fixedVersions) {
+        expect(parseAffectedRange('>=2.0.0', fixedVersions)).toEqual({
+            ranges: [{ introduced: '2.0.0', fixed: '8.0.1', lastAffected: null }],
+            versions: []
+        })
+    })
+
+    it('bounds only the disjunct that has no upper bound', function () {
+        expect(parseAffectedRange('>=1 <2 || >=3', ['2.0.0', '4.0.0'])).toEqual({
+            ranges: [
+                { introduced: '1', fixed: '2', lastAffected: null },
+                { introduced: '3', fixed: '4.0.0', lastAffected: null }
+            ],
+            versions: []
+        })
+    })
+
+    // The rc GMS-2021-3 shape: ">1.2.8" excludes 1.2.8, which is the clean release. Bounding above must not
+    // quietly pull the lower bound back to inclusive.
+    it('keeps an exclusive lower bound exclusive while bounding above', function () {
+        expect(parseAffectedRange('>1.2.8', ['1.3.0', '2.0.0'])).toEqual({
+            ranges: [{ introduced: '1.2.8', introducedExclusive: true, fixed: '2.0.0', lastAffected: null }],
+            versions: []
+        })
+    })
+
+    // A fix at or below the lower bound belongs to a different branch. Pairing them builds a range that
+    // matches nothing, which mutes the advisory outright — worse than leaving it too wide.
+    it('refuses a fix that is not above the lower bound', function () {
+        expect(parseAffectedRange('>=9.0.0', ['1.0.0', '2.0.0'])).toEqual({
+            ranges: [{ introduced: '9.0.0', fixed: null, lastAffected: null }],
+            versions: []
+        })
+    })
+
+    it('refuses fix versions it cannot order', function () {
+        expect(parseAffectedRange('>=2.0.0', ['not-a-version', 'also-bad'])).toEqual({
+            ranges: [{ introduced: '2.0.0', fixed: null, lastAffected: null }],
+            versions: []
+        })
+    })
+
+    // With exactly one fix the override above has already closed the range; this pass sees a bounded
+    // interval and leaves it alone. Same answer, different rule — worth pinning so a future edit to either
+    // one shows up here.
+    it('leaves the single-fix override result untouched', function () {
+        expect(parseAffectedRange('>=2.0.0', ['4.0.0'])).toEqual({
+            ranges: [{ introduced: '2.0.0', fixed: '4.0.0', lastAffected: null }],
+            versions: []
+        })
+    })
+})
+
+// PEP 440 spells an intersection with a comma. Splitting the disjunct on whitespace alone kept ">=5.0,<5.8"
+// as ONE token, so the lower bound became the literal "5.0,<5.8" — which no PEP 440 parser reads, so the
+// matcher refused the bound and the range matched nothing — and the upper bound vanished entirely. 2,830 of
+// 7,159 cached PyPI records were in that state, unable to report anything at all.
+describe('parseAffectedRange — PEP 440 comma intersections', function () {
+    it('splits a comma intersection into one bounded interval', function () {
+        expect(parseAffectedRange('>=5.0,<5.8', [])).toEqual({
+            ranges: [{ introduced: '5.0', fixed: '5.8', lastAffected: null }],
+            versions: []
+        })
+    })
+
+    it('keeps an inclusive upper bound across a comma', function () {
+        expect(parseAffectedRange('>=1.0,<=1.0.1', [])).toEqual({
+            ranges: [{ introduced: '1.0', fixed: null, lastAffected: '1.0.1' }],
+            versions: []
+        })
+    })
+
+    it('reads a disjunction of comma intersections', function () {
+        expect(parseAffectedRange('>=2.2.0,<7.1.0 || >=4.0.0,<4.3.0', [])).toEqual({
+            ranges: [
+                { introduced: '2.2.0', fixed: '7.1.0', lastAffected: null },
+                { introduced: '4.0.0', fixed: '4.3.0', lastAffected: null }
+            ],
+            versions: []
+        })
+    })
+
+    it('tolerates a space after the comma', function () {
+        expect(parseAffectedRange('>=5.0, <5.8', [])).toEqual({
+            ranges: [{ introduced: '5.0', fixed: '5.8', lastAffected: null }],
+            versions: []
+        })
+    })
+
+    // A maven interval's comma is structural, and parseDisjunct routes it away on the leading bracket
+    // before the comparator parser ever sees it.
+    it('leaves maven interval notation to its own parser', function () {
+        expect(parseAffectedRange('[1.0.0,2.0.0)', [])).toEqual({
+            ranges: [{ introduced: '1.0.0', fixed: '2.0.0', lastAffected: null }],
+            versions: []
+        })
+    })
+})
