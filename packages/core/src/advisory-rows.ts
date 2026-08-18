@@ -63,7 +63,12 @@ export type OsvAdvisoryRow = {
 //     honour it — so this rebuilds nothing today and exists for the input that does not, which OSV.dev
 //     aggregating many upstream databases makes a question of when. The equality test is ordering-free and
 //     applies to every range type; the ordering test is SEMVER-only, because using semver ordering on a
-//     PEP 440 range would drop real advisories rather than dead ones.
+//     PEP 440 range would drop real advisories rather than dead ones. The rule now lives in
+//     @sentinello/versions as `canMatchSomething` and is shared with the gemnasium normalizer, which had
+//     its own differently-shaped copy (`isEmptyInterval`) — one question answered twice was how the two
+//     sources came to disagree about a degenerate interval while feeding one matcher. Sharing it also gives
+//     OSV the inclusive-upper-bound half it never had: an interval whose `last_affected` sits below its
+//     `introduced` is dropped too. Still zero rows in the live export, by the same measurement.
 // Lives beside the row type it describes so every store — the portal's SQLite cache and the CLI's ndjson
 // cache alike — invalidates on exactly the same signal.
 export const OSV_NORMALIZER_VERSION = 6
@@ -145,4 +150,23 @@ export type GemnasiumAdvisoryRow = {
 //     (c) A maven interval naming NEITHER bound (`[,]`, `(,)`) is refused. It was building `[0, …)` with no
 //         upper bound: every version affected, forever, with no fix, out of a record stating no version.
 //     No record in the current export uses (b) or (c), so those two rebuild nothing today; (a) corrects 19.
+//     (d) THE PARSER STOPPED INTERPRETING npm SYNTAX ITSELF. Each disjunct is now canonicalised through
+//         node-semver (canonicaliseRange in @sentinello/versions) before it is read, which is a delegation
+//         to the specification rather than another rule: gemnasium's field reference calls `affected_range`
+//         "machine-readable syntax used by the package manager", and for npm that parser IS the meaning.
+//         It retires the whole partial-version class in one step — `<=3.3` is `<3.4.0` to npm, "through the
+//         end of the 3.3 line", where a literal reading stopped at 3.3.0 and missed npm/converse.js
+//         CVE-2018-6591 at 3.3.1; `=103` is the whole 103 line, which npm/binaryen states eight times. It
+//         also reads the caret, tilde, x-range and hyphen forms, which were refused outright before, so a
+//         record written in any of them is matched rather than silently dropped. Measured over all 4,696
+//         distinct npm ranges in the export: reading the raw string disagrees with npm on 9, reading the
+//         canonical form on none. 16 records re-derive, 11 of them currently pinned to a partial version.
+//         Three exceptions, each a case where npm's reading is right for a dependency spec and wrong for an
+//         advisory: a range naming NO version (`*`, `x`, `''`, `||`) is refused rather than read as "every
+//         version", since in an advisory it is indistinguishable from a field nobody filled in; each
+//         disjunct is canonicalised separately, so a stray `|| ` cannot widen its siblings to everything;
+//         and a zero exclusive lower bound keeps its own meaning, because npm reads `>0` as `>=1.0.0` and
+//         npm/pandora-doomsday CVE-2017-16127 states `>0` for a credential stealer whose own record says
+//         "All Versions". Non-npm ecosystems are untouched — PEP 440's `==1.0` is an exact pin, not a
+//         wildcard, so npm's rule applied there would invent findings.
 export const GEMNASIUM_NORMALIZER_VERSION = 7

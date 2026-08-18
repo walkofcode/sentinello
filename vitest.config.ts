@@ -366,9 +366,56 @@ export default defineConfig({
                 'packages/versions/src/range.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
                 'packages/versions/src/match.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
                 'packages/versions/src/parse.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+                // The dialect layer: what a range STRING means (canonicaliseRange) and what a parsed
+                // interval may never be (canMatchSomething). Total floors for the same reason as its three
+                // siblings above, and one of its own — this is the file every advisory source now routes
+                // through, so a gap here is a gap in all of them at once. Its dangerous direction is
+                // WIDENING: node-semver answers "any version" for several strings that mean "this field is
+                // empty" in an advisory, and the guards refusing those are the difference between a dropped
+                // record and a critical finding against every release a package ever published.
+                'packages/versions/src/dialect.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
                 // The gemnasium path, end to end: normalizer, cache, and scanner. A regression in the
                 // range parsing or the purge logic is silent, so each gets its own floor.
-                'packages/feeds/src/gemnasium/normalize.ts': { statements: 99, branches: 98, functions: 99, lines: 99 },
+                //
+                // BOTH NORMALIZERS SIT AT A TOTAL 100, and they are the right files to hold there rather
+                // than near it. Every range defect this project has shipped lived in one of these two, and
+                // each was invisible in exactly the way an uncovered branch is: the suite stayed green, the
+                // cache filled with rows that reported the wrong thing, and nobody found out until a user
+                // did. 99 leaves room for precisely the arm nobody exercised.
+                //
+                // It is also a live ratchet rather than a formality. Canonicalising npm ranges upstream of
+                // this parser SILENTLY MOVED a guard's coverage — `1.0.0 - 2.0.0` used to reach the
+                // bare-token check as an npm range and now resolves before it, leaving PyPI, Go and
+                // crates.io as its only remaining callers. Nothing was broken and no test failed; the
+                // coverage number is the only thing that noticed, and it bought a whole block of tests for
+                // the three dialects that get no canonicalisation and had almost none.
+                // OSV's is a TOTAL 100 and stays there. gemnasium's is 100 on functions and lines and 99 on
+                // the other two, for exactly ONE arm — normalize.ts:362, `if (tokens.length > 1) return
+                // null`, which refuses a disjunct where a bare version stands beside other comparators.
+                //
+                // That arm is unreachable from upstream data, and this was measured rather than assumed:
+                // across all ELEVEN package types in gemnasium-db (not just the four Sentinello scans) no
+                // record produces it. The 18 npm ranges whose raw text has a bare token beside another are
+                // the spaced operators — `< 0.5.2` — and bindOperators rejoins those before this line sees
+                // them. Canonicalising npm ranges through node-semver removed the last route to it: the
+                // hyphen range `1.0.0 - 2.0.0` used to arrive here and now resolves to `>=1.0.0 <=2.0.0`
+                // upstream.
+                //
+                // It is NOT deleted, and the reason is worth stating because it inverts the usual argument
+                // for deleting an unreachable guard. Without it, a bare token returns its pin immediately
+                // and discards every comparator after it — `1.0.0 - 2.0.0` would cache as "only 1.0.0 is
+                // affected", a plausible-looking row that under-reports two majors' worth of versions and
+                // that nothing downstream can detect. With it, the same input is REFUSED, and refusal is
+                // what range-fidelity.test.ts's readability sweep watches for: it asserts that zero ranges
+                // in the frozen 12,472-range corpus are refused, so an unreadable shape appearing upstream
+                // fails the build by name. The guard is the tripwire that sweep reads. Its true arm is
+                // uncovered precisely because the tripwire has never been stood on.
+                //
+                // The alternative was a test feeding it a hyphen range no ecosystem has ever written, which
+                // would have bought the last 0.7% by asserting that dropping an imagined record is correct
+                // behaviour. The corpus sweep is the stronger guarantee and it is the one being kept.
+                'packages/feeds/src/gemnasium/normalize.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+                'packages/feeds/src/osv/normalize.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
                 // 96 → 94 is NOT a relaxation of what is tested. parseRanges' field-by-field rebuild moved
                 // out of this file into packages/versions/src/parse.ts (where it is pinned at 100 above,
                 // and where a shared implementation can no longer silently drop a field one store adds).
