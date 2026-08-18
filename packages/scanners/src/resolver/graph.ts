@@ -12,9 +12,10 @@ export function reachableFrom(roots: Iterable<string>, adjacency: Map<string, st
             stack.push(root)
         }
     }
-    while (stack.length > 0) {
-        const node = stack.pop()
-        if (node === undefined) break
+    // pop() drives the loop directly rather than a separate length check plus an undefined guard: the
+    // guard could never fire (the stack only ever holds strings), while this form's exit test is the
+    // same expression and is exercised on every walk.
+    for (let node = stack.pop(); node !== undefined; node = stack.pop()) {
         const children = adjacency.get(node)
         if (!children) continue
         for (const child of children) {

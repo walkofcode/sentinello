@@ -3,6 +3,7 @@ import { readFile, rename, rm } from 'node:fs/promises'
 import { createGzip, gunzipSync } from 'node:zlib'
 import { pipeline } from 'node:stream/promises'
 import { PassThrough } from 'node:stream'
+import { asError } from '@sentinello/core'
 
 // The CLI's advisory cache: one gzipped ndjson file per (source, ecosystem).
 //
@@ -60,7 +61,7 @@ export function createRowWriter(path: string): RowWriter {
     // The pipeline rejects on any downstream failure. Capture it so write()/commit() can surface it
     // instead of the process dying on an unhandled rejection.
     done.catch(function capture(err: unknown): void {
-        failed = err instanceof Error ? err : new Error(String(err))
+        failed = asError(err)
     })
 
     async function push(chunk: string, added: number): Promise<void> {

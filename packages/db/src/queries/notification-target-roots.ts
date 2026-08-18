@@ -32,11 +32,9 @@ export function listRootIdsForTargets(db: DrizzleDb, targetIds: string[]): Map<s
         .from(notificationTargetRoots)
         .where(inArray(notificationTargetRoots.targetId, targetIds))
         .all()
-    for (const row of rows) {
-        const list = out.get(row.targetId) || []
-        list.push(row.rootId)
-        out.set(row.targetId, list)
-    }
+    // Every row's targetId was seeded above and the query filters on that same id list, so the entry is
+    // always present. Pushing into it in place also drops the redundant re-set.
+    for (const row of rows) out.get(row.targetId)!.push(row.rootId)
     return out
 }
 

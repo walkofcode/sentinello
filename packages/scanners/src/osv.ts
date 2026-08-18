@@ -113,7 +113,6 @@ export function matchPackages(
         // comparator that ever ships without a declared accepted-types entry — never fall back to all-types.
         const acceptedRangeTypes = acceptedRangeTypesForEcosystem(ecosystem) ?? []
         const names = uniqueNames(pkgs)
-        if (names.length === 0) continue
         const byPackageRaw = lookup(ecosystem, names)
         const byPackage = new Map<string, CanonicalAdvisory[]>()
         for (const [name, advisories] of byPackageRaw.entries()) {

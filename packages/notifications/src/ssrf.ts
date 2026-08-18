@@ -42,8 +42,10 @@ export async function validateWebhookUrl(rawUrl: string): Promise<WebhookUrlVali
     return { ok: true, url: rawUrl }
 }
 
+// No empty-host guard: the only caller passes parsed.hostname after the scheme check has restricted the
+// URL to http/https, and WHATWG URL rejects an empty host outright for those schemes — `new URL('https://')`
+// throws, and that throw is already caught upstream.
 async function resolveHostAddresses(host: string): Promise<string[]> {
-    if (!host) return []
     if (isIP(host) !== 0) return [host]
     try {
         const results = await lookup(host, { all: true })
@@ -60,18 +62,23 @@ function isBlockedAddress(addr: string, strict: boolean): boolean {
     return true
 }
 
+// Folded rather than indexed: every caller supplies a dotted quad (isBlockedIpv4 runs only after
+// isIP(addr) === 4, and inCidr's bases are literals below), so the four `parts[i] ?? 0` defaults this
+// used to carry existed only to satisfy noUncheckedIndexedAccess and could never fire.
 function ipv4ToInt(ip: string): number {
-    const parts = ip.split('.').map(function toOctet(p) { return parseInt(p, 10) })
-    const a = parts[0] ?? 0
-    const b = parts[1] ?? 0
-    const c = parts[2] ?? 0
-    const d = parts[3] ?? 0
-    return (((a << 24) >>> 0) + (b << 16) + (c << 8) + d) >>> 0
+    return ip.split('.').reduce(function shiftIn(acc, octet) {
+        return (acc * 256 + parseInt(octet, 10)) >>> 0
+    }, 0)
 }
 
 function inCidr(ipInt: number, baseIp: string, maskBits: number): boolean {
     const base = ipv4ToInt(baseIp)
-    const mask = maskBits === 0 ? 0 : (0xffffffff << (32 - maskBits)) >>> 0
+    // Correct across the whole 0..32 domain without a special case for /0. The obvious
+    // `0xffffffff << (32 - maskBits)` is NOT: JS takes the shift count mod 32, so a /0 would shift by
+    // 32, evaluate to -1, and silently behave as a /32 — inverting the block decision for that entry.
+    // Computing the mask from the host-bit count has no such cliff, so the property is structural
+    // rather than guarded.
+    const mask = ~(2 ** (32 - maskBits) - 1) >>> 0
     return ((ipInt & mask) >>> 0) === ((base & mask) >>> 0)
 }
 

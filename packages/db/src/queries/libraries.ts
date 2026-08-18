@@ -48,7 +48,8 @@ export function listLibraries(db: DrizzleDb, at: number, depType: DepTypeFilter 
     const sourceFilter = activeSourceCellClause(db)
     const rows = db
         .all<{
-            ecosystem: string | null
+            // The SELECT below already COALESCEs this, so the mapper needs no second fallback.
+            ecosystem: string
             package_name: string
             distinct_advisories: number
             distinct_projects: number
@@ -87,11 +88,13 @@ export function listLibraries(db: DrizzleDb, at: number, depType: DepTypeFilter 
         )
     return rows.map(function toSummary(row) {
         return {
-            ecosystem: row.ecosystem ?? 'npm',
+            ecosystem: row.ecosystem,
             packageName: row.package_name,
             distinctAdvisories: row.distinct_advisories,
             distinctProjects: row.distinct_projects,
-            severities: (row.severities || '').split(',').filter(Boolean)
+            // GROUP_CONCAT under a GROUP BY cannot return NULL here: findings.severity is NOT NULL
+            // (schema.ts:162) and a group always holds at least one row.
+            severities: row.severities.split(',').filter(Boolean)
         }
     })
 }
@@ -113,8 +116,11 @@ export function listLibraryUsage(
         project_id: string
         project_name: string
         scanner: string
-        source: string | null
-        ecosystem: string | null
+        // Both COALESCEd in the SELECT below (COALESCE(f.source, f.scanner), COALESCE(f.ecosystem,
+        // 'npm')), so SQLite has already substituted by the time the mapper runs. This is the one place
+        // where source is non-null despite the column being nullable — the query, not the schema, is why.
+        source: string
+        ecosystem: string
         installed_version: string
         vulnerable_range: string
         advisory_id: string
@@ -171,8 +177,8 @@ export function listLibraryUsage(
             projectId: row.project_id,
             projectName: row.project_name,
             scanner: row.scanner,
-            source: row.source ?? row.scanner,
-            ecosystem: row.ecosystem ?? 'npm',
+            source: row.source,
+            ecosystem: row.ecosystem,
             installedVersion: row.installed_version,
             vulnerableRange: row.vulnerable_range,
             advisoryId: row.advisory_id,

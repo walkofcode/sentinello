@@ -175,7 +175,9 @@ function rangesToDisplay(
     const parts: string[] = []
     for (const v of exactVersions) parts.push('=' + v)
     for (const range of ranges) parts.push(formatRange(range, DISPLAY_FORMAT))
-    return parts.length > 0 ? parts.join(' || ') : '*'
+    // parts is never empty: the only caller sits behind the hasVersionData guard, and the no-version
+    // path builds its '*' itself rather than routing through here.
+    return parts.join(' || ')
 }
 
 // pickSafeFixVersion derives a fix from the vulnerable range's upper bound, so feed it the ranges as a

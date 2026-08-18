@@ -106,7 +106,8 @@ function parsePnpmV9(root: PnpmLockDoc): ResolvedGraph {
             if (isProd) existing.scope.isProd = true
             if (isDev) existing.scope.isDev = true
             if (!isOptional) existing.scope.isOptional = false
-            if (!existing.depPaths.includes(key)) existing.depPaths.push(key)
+            // No dedup check: sourceKeys comes from Object.keys, so a key is visited exactly once.
+            existing.depPaths.push(key)
         } else {
             byId.set(id, {
                 ecosystem: NPM_ECOSYSTEM,
@@ -129,8 +130,9 @@ function parsePnpmLegacy(root: PnpmLockDoc): ResolvedGraph {
         if (!entry) continue
         const parsed = parseDepKey(key)
         if (!parsed) continue
+        // No empty-version guard: parseDepKey already returned null for one (graph.ts:100), so
+        // parsed.version is a non-empty string and the `||` result is always truthy.
         const version = entry.version || parsed.version
-        if (!version) continue
         const isDev = entry.dev === true
         out.push({
             ecosystem: NPM_ECOSYSTEM,

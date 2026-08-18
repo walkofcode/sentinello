@@ -182,8 +182,9 @@ export function advisoryIdFromPath(path: string): string | null {
     const file = segments[segments.length - 1]
     if (!file) return null
     const dot = file.lastIndexOf('.')
-    const id = dot > 0 ? file.slice(0, dot) : file
-    return id.length > 0 ? id : null
+    // Always non-empty: `file` passed the guard above, and `dot > 0` means the slice keeps at least one
+    // character, so the length check it used to carry was a tautology.
+    return dot > 0 ? file.slice(0, dot) : file
 }
 
 export type GemnasiumArchiveBatch = {

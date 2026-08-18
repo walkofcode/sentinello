@@ -77,11 +77,6 @@ function signalFor(options: FetchOptions | undefined, fallbackTimeoutMs: number)
     return timeout
 }
 
-export function errText(err: unknown): string {
-    if (err instanceof Error) return err.message
-    return String(err)
-}
-
 // Conventionally transient: the server is momentarily busy and clears in seconds.
 function isFastTransientStatus(status: number): boolean {
     if (status === 408 || status === 425 || status === 429) return true

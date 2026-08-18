@@ -1,4 +1,5 @@
 import cron, { type ScheduledTask } from 'node-cron'
+import { errText } from '@sentinello/core'
 import {
     deleteMute,
     listExpiredMutes,
@@ -29,8 +30,7 @@ export function startMuteExpirySweep(input: StartMuteExpiryInput): MuteExpiryHan
         input.cronExpression || DEFAULT_CRON,
         function onTick() {
             const work = sweepExpiredMutes({ db: input.db, at: Date.now() }).catch(function onErr(err: unknown) {
-                const message = err instanceof Error && err.message || String(err)
-                console.error('[mute-expiry] sweep failed: ' + message)
+                console.error('[mute-expiry] sweep failed: ' + errText(err))
             })
             input.runtime.track(work)
         },

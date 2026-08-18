@@ -3,6 +3,7 @@ import { OSV_NORMALIZER_VERSION, type OsvAdvisoryRow, type OsvRange } from '@sen
 import { parseVersionRanges } from '@sentinello/versions'
 import type { OsvDrizzleDb } from '../osv-client'
 import { osvAdvisories, osvMeta } from '../osv-schema'
+import { sumCount } from './count'
 
 // The row/range shapes moved to @sentinello/core so the feed normalizers can produce them without
 // linking the SQLite layer (see packages/core/src/advisory-rows.ts). Re-exported here under their
@@ -144,10 +145,7 @@ export function lookupOsvByPackages(
 // portal shows per (osv, ecosystem) source row).
 export function countOsvAdvisories(db: OsvDrizzleDb, ecosystem?: string): number {
     const base = db.select({ count: sql<number>`count(*)` }).from(osvAdvisories)
-    const row = ecosystem
-        ? base.where(eq(osvAdvisories.ecosystem, ecosystem)).get()
-        : base.get()
-    return row?.count ?? 0
+    return sumCount(ecosystem ? base.where(eq(osvAdvisories.ecosystem, ecosystem)).all() : base.all())
 }
 
 // --- osv_meta key/value helpers (sync cursor, seed flag, counts) ---

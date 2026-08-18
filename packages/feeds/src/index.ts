@@ -34,9 +34,13 @@ export type { GemnasiumArchiveBatch, GemnasiumChangedPaths } from './gemnasium/f
 export { normalizeGemnasiumRecord, parseAffectedRange } from './gemnasium/normalize'
 export { severityFromCvss } from './gemnasium/cvss'
 
+// errText moved to @sentinello/core (a string helper had no business living behind the feed HTTP
+// client, and apps/web needed it without taking a dependency on this package). Re-exported here so the
+// worker and CLI call sites that already import it from @sentinello/feeds keep resolving.
+export { errText } from '@sentinello/core'
+
 export {
     DOWNLOAD_TIMEOUT_MS,
-    errText,
     getJson,
     getJsonOrNull,
     getTextConditional,

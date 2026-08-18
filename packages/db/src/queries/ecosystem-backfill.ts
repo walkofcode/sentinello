@@ -41,24 +41,34 @@ function recomputeFindingEventKeys(db: DrizzleDb): number {
         id: string
         project_id: string
         scanner: string
-        ecosystem: string | null
-        advisory_id: string | null
-        package_name: string | null
+        // All three are non-null by the WHERE clause below, not by the schema — every one of these
+        // columns is nullable and the query is what excludes the NULLs.
+        //
+        // `ecosystem IS NOT NULL` states an invariant that used to live in the CALLER: step 2 of
+        // backfillEcosystemIdentity normalises finding events to 'npm' before this runs, so the
+        // `?? DEFAULT_ECOSYSTEM` this row once needed could never fire. Putting the condition in the
+        // query makes the guarantee local — a row this function cannot key correctly is now skipped
+        // rather than guessed at, whatever order a future caller picks.
+        ecosystem: string
+        advisory_id: string
+        package_name: string
         identity_key: string
     }>(sql`
         SELECT id, project_id, scanner, ecosystem, advisory_id, package_name, identity_key
         FROM notification_events
-        WHERE event_type = 'finding' AND advisory_id IS NOT NULL AND package_name IS NOT NULL
+        WHERE event_type = 'finding'
+          AND advisory_id IS NOT NULL
+          AND package_name IS NOT NULL
+          AND ecosystem IS NOT NULL
     `)
     let updated = 0
     for (const row of rows) {
-        if (row.advisory_id === null || row.package_name === null) continue
         const newKey = findingIdentityKey({
             projectId: row.project_id,
             // The notification_events.scanner column carries the persisted source identity for finding
             // events; for legacy npm rows it equals the scanner name, so this recompute is source-correct.
             source: row.scanner,
-            ecosystem: row.ecosystem ?? DEFAULT_ECOSYSTEM,
+            ecosystem: row.ecosystem,
             advisoryId: row.advisory_id,
             packageName: row.package_name
         })

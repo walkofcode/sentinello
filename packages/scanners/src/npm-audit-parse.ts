@@ -213,19 +213,21 @@ export function classifyPackageManagerNotFound(stderr: string, packageManager: s
     return re1.test(stderr) || re2.test(stderr)
 }
 
-export function pickAuditCommand(lockfile: DetectedLockfile): string {
-    if (lockfile.packageManager === 'pnpm') return 'pnpm audit --json'
-    if (lockfile.packageManager === 'npm') return 'npm audit --json'
-    return 'yarn npm audit --json'
+// Returns the argv already split, as a non-empty tuple. The caller used to receive one string, split it
+// on spaces, and then guard `parts[0]` against undefined — a branch String.split can never produce but
+// which noUncheckedIndexedAccess demanded. Handing back the tuple removes the guard rather than hiding it.
+export function pickAuditCommand(lockfile: DetectedLockfile): [string, ...string[]] {
+    if (lockfile.packageManager === 'pnpm') return ['pnpm', 'audit', '--json']
+    if (lockfile.packageManager === 'npm') return ['npm', 'audit', '--json']
+    return ['yarn', 'npm', 'audit', '--json']
 }
 
 export function parseYarnMajor(value: unknown): number | null {
     if (typeof value !== 'string') return null
     const match = value.trim().match(/^yarn@(\d+)(?:\.|$)/)
     if (!match || !match[1]) return null
-    const parsed = parseInt(match[1], 10)
-    if (Number.isNaN(parsed)) return null
-    return parsed
+    // `(\d+)` guarantees at least one digit, so parseInt cannot return NaN here.
+    return parseInt(match[1], 10)
 }
 
 export function unauditableResult(reasonCode: ReasonCode, reason: string, startedAt: number, rawJson: string): ScanResult {
@@ -413,9 +415,9 @@ export function normalizeAuditOutput(parsed: ModernAudit, installedVersions: Ins
     const findings: RawFinding[] = []
     let hadVulnerabilityWithoutConcreteAdvisory = false
     const vulns = parsed.vulnerabilities ?? {}
-    for (const packageName of Object.keys(vulns)) {
-        const vuln = vulns[packageName]
-        if (!vuln) continue
+    // entries() yields the value directly, so there is no possibly-undefined index read to guard —
+    // the zod record this comes from cannot hold one.
+    for (const [packageName, vuln] of Object.entries(vulns)) {
         if (!vuln.via || vuln.via.length === 0) {
             hadVulnerabilityWithoutConcreteAdvisory = true
             continue

@@ -1,4 +1,4 @@
-import { getEcosystem, type GemnasiumAdvisoryRow, type OsvAdvisoryRow } from '@sentinello/core'
+import type { GemnasiumAdvisoryRow, OsvAdvisoryRow } from '@sentinello/core'
 import type { GemnasiumAdvisory, OsvAdvisory } from '@sentinello/scanners'
 import { advisoryFilePath, type SourceId } from './meta'
 import { readRowsForPackages } from './store'
@@ -47,13 +47,9 @@ export async function loadCacheForPackages(
     return { osv, gemnasium }
 }
 
-// Resolve the cache's ecosystem key through the registry, mirroring what the worker does: the cache is
-// keyed by the canonical OSV id, so a future divergence between internal id and feed id cannot silently
-// miss every advisory.
-export function cacheEcosystemKey(ecosystem: string): string {
-    const def = getEcosystem(ecosystem)
-    return def ? def.osvEcosystem : ecosystem
-}
+// Moved to @sentinello/core so the worker's OSV lookup shares this one implementation instead of
+// carrying an inlined copy. Re-exported here because this module is where the CLI reaches for it.
+export { cacheEcosystemKey } from '@sentinello/core'
 
 function toOsvAdvisory(row: OsvAdvisoryRow): OsvAdvisory {
     return {

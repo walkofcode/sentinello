@@ -129,7 +129,14 @@ export function buildScanners(setup: ScanSetup, cache: LoadedCache): ScannerPlug
 
 // Narrows the preloaded cache to the names one scanner asked for. The cache was loaded for the union of
 // every project's packages, so this is a map filter rather than any I/O.
-function pick<T>(
+//
+// Exported for its own tests. Not reachable with a mismatched ecosystem through buildScanners above —
+// each scanner's isEnabled is the very same equality this re-checks, so the scanner never calls lookup
+// for a foreign ecosystem — but the guard is not redundant elsewhere: the worker's equivalent isEnabled
+// is a per-cell database read, not an equality, and this cache holds exactly ONE ecosystem's rows. If a
+// caller ever asks it about another, npm advisories matched against, say, Python versions is the kind of
+// wrong answer that looks entirely plausible in a report.
+export function pick<T>(
     loaded: Map<string, T[]>,
     ecosystem: string,
     packageNames: string[],

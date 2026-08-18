@@ -7,14 +7,19 @@ import type { VersionComparator } from '../comparator'
 // registry routes PyPI here instead of reusing the semver comparator. This is a focused, self-contained
 // reimplementation of the ordering in PyPA's `packaging.version._cmpkey` (no runtime dependency added).
 
+// The normalized pre-release letter. A finite union rather than `string`, which is what lets PRE_RANK
+// below be indexed without a fallback: noUncheckedIndexedAccess does not apply to a Record keyed by a
+// literal union, because every property is known to exist.
+type PreLetter = 'a' | 'b' | 'rc'
+
 // Sort rank of the normalized pre-release letter: alpha < beta < release-candidate.
-const PRE_RANK: Record<string, number> = { a: 0, b: 1, rc: 2 }
+const PRE_RANK: Record<PreLetter, number> = { a: 0, b: 1, rc: 2 }
 
 type Pep440 = {
     epoch: number
     release: number[]
-    // Normalized pre-release: letter is one of 'a' | 'b' | 'rc' (alpha/beta/c/pre/preview folded in).
-    pre: { letter: string; n: number } | null
+    // Normalized pre-release: alpha/beta/c/pre/preview are folded into a|b|rc by foldPreLetter.
+    pre: { letter: PreLetter; n: number } | null
     post: number | null
     dev: number | null
     // Local version segments: numeric parts as numbers, alphanumeric parts as lower-cased strings.
@@ -35,23 +40,28 @@ const PEP440_RE = new RegExp(
     'i'
 )
 
-function foldPreLetter(raw: string): string {
+function foldPreLetter(raw: string): PreLetter {
     const l = raw.toLowerCase()
     if (l === 'alpha') return 'a'
     if (l === 'beta') return 'b'
     if (l === 'c' || l === 'pre' || l === 'preview' || l === 'rc') return 'rc'
-    return l
+    // PEP440_RE's preL group admits only a|b|c|rc|alpha|beta|pre|preview, so whatever the folds above
+    // did not consume is already 'a' or 'b'.
+    return l as PreLetter
 }
 
 export function parsePep440(raw: string): Pep440 | null {
     const m = PEP440_RE.exec(raw.trim())
     if (!m || !m.groups) return null
     const g = m.groups
-    if (!g.release) return null
-    const release = g.release.split('.').map(function toInt(s) {
+    // `release` is a MANDATORY group, so a successful exec always filled it — the `string | undefined`
+    // is noUncheckedIndexedAccess describing the groups index signature, not the pattern.
+    //
+    // No NaN sweep either: the group is `[0-9]+(?:\.[0-9]+)*`, so every segment parseInt sees is at
+    // least one ASCII digit. A pathologically long run yields Infinity, never NaN.
+    const release = (g.release as string).split('.').map(function toInt(s) {
         return parseInt(s, 10)
     })
-    if (release.some(function bad(n) { return Number.isNaN(n) })) return null
 
     let pre: Pep440['pre'] = null
     if (g.preL) {
@@ -130,8 +140,8 @@ function cmpPre(a: Pep440, b: Pep440): number {
     const kb = preKind(b)
     if (ka !== kb) return ka < kb ? -1 : 1
     if (ka !== 0 || !a.pre || !b.pre) return 0
-    const la = PRE_RANK[a.pre.letter] ?? 0
-    const lb = PRE_RANK[b.pre.letter] ?? 0
+    const la = PRE_RANK[a.pre.letter]
+    const lb = PRE_RANK[b.pre.letter]
     if (la !== lb) return la < lb ? -1 : 1
     if (a.pre.n !== b.pre.n) return a.pre.n < b.pre.n ? -1 : 1
     return 0

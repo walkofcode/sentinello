@@ -331,10 +331,10 @@ export function buildPaginatedAdvisoryMarkdown(args: {
     // size is borrowed here. Leave headroom for that rebuild plus the continuation notice.
     let used = preamble.join('\n').length + 512
     const page: ExportFinding[] = []
-    for (let i = offset; i < sorted.length; i++) {
-        const finding = sorted[i]
-        if (!finding) break
-        const size = formatFinding(i + 1, finding).length + 1
+    // entries() over the slice rather than an index walk: it yields the element itself, so there is no
+    // possibly-undefined index access and no guard against one.
+    for (const [step, finding] of sorted.slice(offset).entries()) {
+        const size = formatFinding(offset + step + 1, finding).length + 1
         if (page.length > 0 && used + size > byteBudget) break
         used = used + size
         page.push(finding)

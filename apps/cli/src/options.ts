@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import type { Severity } from '@sentinello/core'
+import { errText, type Severity } from '@sentinello/core'
 import type { SourceId } from './cache/meta'
 
 // Argument parsing and configuration resolution.
@@ -303,7 +303,7 @@ export async function applyConfigFile(options: CliOptions, explicitFlags: Readon
     try {
         parsed = JSON.parse(text)
     } catch (err) {
-        return 'sentinello.config.json is not valid JSON: ' + (err instanceof Error && err.message || String(err))
+        return 'sentinello.config.json is not valid JSON: ' + errText(err)
     }
     // Array.isArray is not redundant with the typeof check — `typeof [] === 'object'`, so without it a
     // JSON array is accepted as a config. It carries none of the recognised keys, so every setting

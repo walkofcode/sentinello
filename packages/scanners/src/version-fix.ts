@@ -33,9 +33,11 @@ function extractLiteralCandidates(input: string | null): string[] {
     return out
 }
 
-function bumpPatch(v: string): string | null {
-    const sv = coerce(v)
-    if (!sv) return null
+// Returns string, not string | null: coerce() only fails on input it cannot read as a version at all,
+// and both call sites pass a Comparator's own .semver.version — a string node-semver's own Range parser
+// produced. The old `if (!sv) return null` propagated a null every caller then had to re-check.
+function bumpPatch(v: string): string {
+    const sv = coerce(v)!
     return sv.major + '.' + sv.minor + '.' + (sv.patch + 1)
 }
 
@@ -47,15 +49,17 @@ function extractRangeLowerBounds(range: Range): string[] {
     for (const conjuncts of range.set) {
         let candidate: string | null = null
         for (const c of conjuncts) {
+            // The `!c.semver.version` guard above is the only one needed: it catches the ANY comparator
+            // (version ''), and every other comparator in a parsed Range carries a version the parser
+            // already validated.
             if (!c.semver || !c.semver.version) continue
             const v = c.semver.version
-            if (!valid(v)) continue
             const op = c.operator
             if (op === '>=' || op === '=' || op === '') {
                 if (!candidate || gt(v, candidate)) candidate = v
             } else if (op === '>') {
                 const inc = bumpPatch(v)
-                if (inc && (!candidate || gt(inc, candidate))) candidate = inc
+                if (!candidate || gt(inc, candidate)) candidate = inc
             }
         }
         if (candidate) out.push(candidate)
@@ -73,13 +77,11 @@ function extractRangeUpperBoundsBeyond(range: Range): string[] {
         for (const c of conjuncts) {
             if (!c.semver || !c.semver.version) continue
             const v = c.semver.version
-            if (!valid(v)) continue
             const op = c.operator
             if (op === '<') {
                 out.push(v)
             } else if (op === '<=') {
-                const inc = bumpPatch(v)
-                if (inc) out.push(inc)
+                out.push(bumpPatch(v))
             }
         }
     }

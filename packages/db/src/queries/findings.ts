@@ -3,6 +3,7 @@ import { ulid } from 'ulid'
 import { escalatedSeverity, parseFindingCorroborations, type Finding, type FindingCorroboration } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { findings } from '../schema'
+import { sumCount } from './count'
 
 type FindingRow = typeof findings.$inferSelect
 type FindingInsert = typeof findings.$inferInsert
@@ -225,8 +226,8 @@ function pickOldestRow(rows: FindingRow[]): FindingRow {
         const bestAt = best.firstDetectedAt ?? Number.POSITIVE_INFINITY
         if (rowAt < bestAt || (rowAt === bestAt && row.id < best.id)) best = row
     }
-    if (!best) throw new Error('pickOldestRow called with no rows')
-    return best
+    // The one caller guards on `bucket.length > 0`, so the loop above always assigns on its first pass.
+    return best as FindingRow
 }
 
 // One-shot, idempotent backfill of firstDetectedAt / lastSeenAt for rows written under the old
@@ -281,12 +282,13 @@ export function listResolvedFindingsForProject(
 }
 
 export function countResolvedFindingsForProject(db: DrizzleDb, projectId: string): number {
-    const row = db
-        .select({ count: sql<number>`count(*)` })
-        .from(findings)
-        .where(and(eq(findings.projectId, projectId), isNotNull(findings.resolvedAt)))
-        .get()
-    return row?.count ?? 0
+    return sumCount(
+        db
+            .select({ count: sql<number>`count(*)` })
+            .from(findings)
+            .where(and(eq(findings.projectId, projectId), isNotNull(findings.resolvedAt)))
+            .all()
+    )
 }
 
 export type ResolvedLibraryFinding = Finding & {
@@ -308,7 +310,8 @@ export function listResolvedFindingsForLibrary(
         project_id: string
         scanner: string
         source: string | null
-        ecosystem: string | null
+        // Not nullable — see schema.ts:150. Only source is.
+        ecosystem: string
         advisory_id: string
         advisory_title: string | null
         advisory_url: string | null
@@ -343,7 +346,7 @@ export function listResolvedFindingsForLibrary(
             projectId: row.project_id,
             scanner: row.scanner,
             source: row.source ?? row.scanner,
-            ecosystem: row.ecosystem ?? 'npm',
+            ecosystem: row.ecosystem,
             advisoryId: row.advisory_id,
             advisoryTitle: row.advisory_title,
             advisoryUrl: row.advisory_url,
@@ -402,10 +405,11 @@ function rowToFinding(row: FindingRow): Finding {
         scanId: row.scanId,
         projectId: row.projectId,
         scanner: row.scanner,
-        // source/ecosystem fall back for the brief pre-backfill window on legacy rows: source === scanner,
-        // ecosystem === 'npm' (everything was npm before the polyglot migration).
+        // source falls back for the brief pre-backfill window on legacy rows, where source === scanner.
+        // ecosystem needs no such fallback: the column is NOT NULL DEFAULT 'npm' (schema.ts:150), so the
+        // migration already backfilled every pre-polyglot row.
         source: row.source ?? row.scanner,
-        ecosystem: row.ecosystem ?? 'npm',
+        ecosystem: row.ecosystem,
         advisoryId: row.advisoryId,
         advisoryTitle: row.advisoryTitle,
         advisoryUrl: row.advisoryUrl,

@@ -116,7 +116,10 @@ type GroupedPairs = {
 type DispatchGroupInput = {
     db: DrizzleDb
     group: GroupedPairs
-    project: ReturnType<typeof getProjectById>
+    // NonNullable: the one caller null-checks the project and returns before ever reaching dispatch, so
+    // declaring it nullable here bought a guard nothing could trigger. webhookProject below already
+    // spells its parameter this way.
+    project: NonNullable<ReturnType<typeof getProjectById>>
     root: Root | null
     exportPrompt: string
     findingsByEventId: Map<string, Finding>
@@ -129,7 +132,6 @@ type DispatchGroupInput = {
 
 async function dispatchGroup(input: DispatchGroupInput): Promise<void> {
     const project = input.project
-    if (!project) return
     const findingEvents: NotificationEvent[] = input.group.events.filter(function isFinding(e): boolean {
         return e.eventType === 'finding'
     })

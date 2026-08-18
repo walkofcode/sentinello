@@ -30,11 +30,9 @@ export function listProjectIdsForTargets(db: DrizzleDb, targetIds: string[]): Ma
         .from(notificationTargetProjects)
         .where(inArray(notificationTargetProjects.targetId, targetIds))
         .all()
-    for (const row of rows) {
-        const list = out.get(row.targetId) || []
-        list.push(row.projectId)
-        out.set(row.targetId, list)
-    }
+    // Seeded above for every requested id, and the query filters on that same list — so the entry is
+    // always present.
+    for (const row of rows) out.get(row.targetId)!.push(row.projectId)
     return out
 }
 

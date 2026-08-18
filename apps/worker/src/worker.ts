@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import lockfile from 'proper-lockfile'
+import { errText } from '@sentinello/core'
 import { backfillEcosystemIdentity, backfillFindingsLifecycle, getConfigValue, getLastScanFinishedAt, listRoots, openDb, resetOrphanedRunningRequests, resolveDbPath, resolveLockPath, runMigrations } from '@sentinello/db'
 import { CONFIG_KEYS, DEFAULT_SCHEDULE, discoverDockerRoots, loadConfigFile, pruneDockerRoots, seedFromConfig, type IntervalHours } from './config-loader'
 import { startScheduler, sweepActiveProjects } from './scheduler'
@@ -211,8 +212,7 @@ export function assertDataDirWritable(dbPath: string): void {
         writeFileSync(probe, '')
         unlinkSync(probe)
     } catch (err) {
-        const detail = err instanceof Error && err.message || String(err)
-        throw new Error(dataDirNotWritableMessage(dir, detail), { cause: err })
+        throw new Error(dataDirNotWritableMessage(dir, errText(err)), { cause: err })
     }
 }
 

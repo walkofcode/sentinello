@@ -162,8 +162,12 @@ export function registerActionTools(server: McpServer): void {
                 scanner: scope === 'project' ? null : sourceIdentity,
                 // Target the requested (source, ecosystem) cell; default to npm when the caller omits it.
                 ecosystem: scope === 'project' ? null : (ecosystem || DEFAULT_ECOSYSTEM),
-                advisoryId: scope === 'project' ? null : advisoryId || null,
-                packageName: scope === 'project' ? null : packageName || null,
+                // No `|| null` on these two: the zod enum admits only project|finding, so reaching the
+                // alternate arm means scope === 'finding', and the guard above already rejected a
+                // finding-scoped mute missing either one. TypeScript cannot carry a narrowing out of
+                // that compound condition, which is the only reason an assertion is needed here.
+                advisoryId: scope === 'project' ? null : advisoryId!,
+                packageName: scope === 'project' ? null : packageName!,
                 reason: reason.trim(),
                 author: process.env.ME_NAME || 'mcp',
                 createdAt: Date.now(),
