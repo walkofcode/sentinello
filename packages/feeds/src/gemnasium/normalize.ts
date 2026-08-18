@@ -1,5 +1,5 @@
 import type { GemnasiumAdvisoryRow, GemnasiumRange } from '@sentinello/core'
-import { compareVersions, highestVersion, isZeroVersion } from '@sentinello/versions'
+import { canMatchSomething, canonicaliseRange, compareVersions, highestVersion } from '@sentinello/versions'
 import { severityFromCvss } from './cvss'
 
 // Parses a single gemnasium-db advisory (one *.yml file, already YAML-parsed to an object) into the
@@ -48,7 +48,7 @@ export function normalizeGemnasiumRecord(record: unknown, ecosystem: string, slu
     if (!advisoryId) return []
 
     const fixedVersions = stringArray(r.fixed_versions)
-    const parsed = parseAffectedRange(typeof r.affected_range === 'string' ? r.affected_range : '', fixedVersions)
+    const parsed = parseAffectedRange(typeof r.affected_range === 'string' ? r.affected_range : '', fixedVersions, ecosystem)
     // `affected_range` is the authoritative statement of what this advisory affects, and a record whose
     // range matches nothing affects nothing. That is not a gap to be filled from somewhere else: for npm it
     // is node-semver, where `<0` is a perfectly ordinary range that happens to select no version. Caching
@@ -170,11 +170,26 @@ type ParsedRange = {
 // It is no longer needed to express `<=X` — that has its own representation now — which also settles the
 // npm/sauce-connect-launcher GMS-2014-4 case this comment used to concede: `<=0.3.3` with two branch fixes
 // skips the override and is stored as `[0, 0.3.3]`, including 0.3.3 exactly as the advisory states.
-export function parseAffectedRange(affectedRange: string, fixedVersions: string[]): ParsedRange {
+// `ecosystem` is REQUIRED, and that is the fix for a defect this comment used to describe as a limitation:
+// the parser was not told which registry's syntax it was reading, so it read every one of them as though it
+// were the same. Everything below now sees the range already canonicalised into its own dialect's normal
+// form — see canonicaliseRange in @sentinello/versions, which for npm delegates to node-semver and thereby
+// retires whitespace, partial versions, `v` prefixes, and the caret/tilde/x-range/hyphen forms in one call.
+// An optional parameter would have preserved exactly the ambiguity that caused the bug.
+export function parseAffectedRange(affectedRange: string, fixedVersions: string[], ecosystem: string): ParsedRange {
     const ranges: BuiltRange[] = []
     const versions: string[] = []
     const trimmed = affectedRange.trim()
-    const disjuncts = trimmed.length > 0 ? trimmed.split('||').map(trimToken).filter(nonEmpty) : []
+    // Split FIRST, canonicalise each disjunct SECOND. Handing node-semver the whole string lets one
+    // unconstrained disjunct swallow the rest: `>=1 <2 || ` is `A || (any)` to npm, which is `*`, so a
+    // stray trailing separator would widen a two-major range into every version ever published. The
+    // disjunction is this parser's own structure to manage; node-semver's job is one comparator set.
+    const disjuncts = (trimmed.length > 0 ? trimmed.split('||').map(trimToken).filter(nonEmpty) : [])
+        .map(function canonical(disjunct) {
+            return canonicaliseRange(disjunct, ecosystem)
+        })
+        .map(trimToken)
+        .filter(nonEmpty)
 
     for (const disjunct of disjuncts) {
         const interval = parseDisjunct(disjunct)
@@ -189,13 +204,23 @@ export function parseAffectedRange(affectedRange: string, fixedVersions: string[
     // Every parsed interval selects no version (`<0`, or any other degenerate bound), or there was no
     // range at all. Either way the record states no affected set, so return nothing and let the caller
     // drop it rather than reporting an interval the advisory never claimed.
-    if (versions.length === 0 && ranges.every(isEmptyInterval)) return { ranges: [], versions: [] }
+    if (versions.length === 0 && !ranges.some(canMatchSomething)) return { ranges: [], versions: [] }
 
     // Single range + exactly one known fixed version: trust the authoritative fixed boundary over the
     // parsed upper bound. See rule 2 above for why the count check is load-bearing.
     const only = ranges[0]
     const authoritativeFixed = fixedVersions[0]
-    if (ranges.length === 1 && versions.length === 0 && only && fixedVersions.length === 1 && authoritativeFixed !== undefined) {
+    if (ranges.length === 1 && versions.length === 0 && only && fixedVersions.length === 1 && authoritativeFixed !== undefined
+        // …but only when it is actually ABOVE the interval's lower bound. A fix at or below it describes a
+        // different branch, and substituting it builds an interval that selects nothing — the identical
+        // reasoning to the highest-fix bounding below, which has always carried this check while the
+        // override did not. It went unnoticed because a pin never reached here (the `versions.length === 0`
+        // gate) and no bounded range in the corpus paired with a lower fix. Canonicalisation changed that:
+        // `=103` is now the range `[103.0.0, 104.0.0)` rather than a pin, and npm/binaryen CVE-2021-46050
+        // lists `fixed_versions: ["103.0.0-nightly.20211203"]` — a PRERELEASE of its own lower bound. The
+        // override turned that into `[103.0.0, 103.0.0-nightly.20211203)`, an inverted interval matching
+        // nothing, so a record that used to report 103.0.0 would have reported no version at all.
+        && compareVersions(authoritativeFixed, only.introduced) > 0) {
         // A known fix version supersedes the parsed upper bound, inclusive or not — `fixed` IS the
         // remediation target. The lower bound and its inclusivity are the advisory's own and are kept.
         ranges[0] = toRange(only.introduced, only.introducedExclusive === true, authoritativeFixed, null)
@@ -240,23 +265,6 @@ function toRange(introduced: string, introducedExclusive: boolean, fixed: string
     const range: BuiltRange = { introduced, fixed, lastAffected }
     if (introducedExclusive) range.introducedExclusive = true
     return range
-}
-
-// An interval that can never match. `<0` parses to {introduced: '0', fixed: '0'} and lands here, as does
-// the `<0.0.0` spelling of the same sentinel and any other degenerate bound upstream may emit.
-//
-// Inclusivity is load-bearing here, which it was not when every upper bound was exclusive: `[X, X]` matches
-// exactly X and is NOT empty, while `[X, X)` and `(X, X]` both are. Before `<=` had its own representation
-// it collapsed into `fixed`, so an advisory spelled `>=X <=X` — "exactly this one version is affected" —
-// became {introduced: X, fixed: X}, was judged empty here, and the ENTIRE record was dropped by the caller.
-function isEmptyInterval(range: BuiltRange): boolean {
-    if (range.lastAffected !== null) {
-        // An inclusive upper bound admits its own version unless the lower bound excludes it.
-        return range.introducedExclusive === true && range.lastAffected === range.introduced
-    }
-    if (range.fixed === null) return false
-    if (range.fixed === range.introduced) return true
-    return isZeroVersion(range.introduced) && isZeroVersion(range.fixed)
 }
 
 type Disjunct = {

@@ -1,5 +1,5 @@
 import type { OsvAdvisoryRow, OsvRange } from '@sentinello/core'
-import { compareVersions } from '@sentinello/versions'
+import { canMatchSomething } from '@sentinello/versions'
 
 // Parses a single OSV record (one *.json file from a per-ecosystem export, or one /v1/vulns response) into
 // the denormalized advisory→package rows we cache. One record can affect multiple packages, each with its
@@ -156,28 +156,11 @@ function extractRanges(ranges: OsvRangeRaw[] | undefined, lastKnownAffected?: st
     return boundOpenEndedRange(out.filter(canMatchSomething), lastKnownAffected)
 }
 
-// Whether an interval can ever match a version. `fixed` is EXCLUSIVE, so `[X, X)` admits nothing and
-// `[2.0.0, 1.0.0)` admits less than nothing — both are advisory rows that sit in the cache looking live and
-// can never report, which is the same silent failure the PEP 440 comma bug had on the gemnasium side.
-//
-// The gemnasium normalizer has had this check since it grew inclusive upper bounds (isEmptyInterval), and
-// OSV not having one was an asymmetry rather than a decision: the two sources feed the same matcher and
-// disagreed about what a degenerate interval means. Both now drop it.
-//
-// Zero rows in a 227k-row npm/PyPI/Go/crates.io export trip either test, because OSV's schema requires
-// events in ascending order and the exports honour it. It is written for the input that does not, which
-// OSV.dev's aggregation of many upstream databases makes a question of when rather than whether.
-//
-// The equality test is ordering-FREE and so applies to every range type: two identical strings are the same
-// version under any ecosystem's rules. The ordering test is not, and is therefore SEMVER-only —
-// compareVersions is semver, and using it on a PEP 440 range would mis-order the very spellings PEP 440
-// exists to express (1.0.post1, 1!2.0), dropping real advisories. Reporting a dead range is a bug; deleting
-// a live one is a worse bug, so the uncertain case keeps the range.
-function canMatchSomething(range: OsvRange): boolean {
-    if (typeof range.fixed !== 'string') return true
-    if (range.fixed === range.introduced) return false
-    return range.type !== 'SEMVER' || compareVersions(range.fixed, range.introduced) > 0
-}
+// `canMatchSomething` is the SHARED rule, from @sentinello/versions. It used to be a private copy here and
+// a differently-shaped `isEmptyInterval` in the gemnasium normalizer — the same question answered twice,
+// which is precisely how the two sources came to disagree about a degenerate interval while feeding one
+// matcher. Zero rows in the live 227k-row export trip it (OSV's schema requires ascending events and the
+// exports honour it); it is carried for the input that does not.
 
 // Close a range that has no upper bound at all, using the boundary GitHub parks in the affected entry's
 // `database_specific.last_known_affected_version_range`.
