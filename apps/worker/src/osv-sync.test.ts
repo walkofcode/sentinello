@@ -40,6 +40,15 @@ import type { OsvAdvisoryRow } from '@sentinello/core'
 const feeds = vi.hoisted(function makeFeedsDouble() {
     return {
         feedDisabled: false,
+        // The incremental-vs-reseed threshold, as a field rather than a literal so a test can lower it.
+        // The number itself is not what the boundary tests are about — `=== MAX` stays incremental and
+        // `> MAX` re-seeds is the same branch at 2 as at 20,000 — but the COST is entirely about the
+        // number: incrementalSyncOsv calls deleteOsvAdvisories once per id, and each of those opens its
+        // own transaction against a real on-disk SQLite file. At 20,000 that is 20,000 BEGIN/DELETE/COMMIT
+        // cycles, which took ~2s alone and 6-7s under the full suite's parallel load, so the test failed
+        // the 5s default timeout intermittently for reasons that had nothing to do with what it asserts.
+        // The production value stays pinned where it belongs, by packages/feeds/src/osv/feed.test.ts.
+        incrementalMaxIds: 20_000,
         streamOsvSeed: vi.fn(),
         fetchOsvChangedIds: vi.fn(),
         fetchOsvAdvisoryRows: vi.fn()
@@ -48,7 +57,9 @@ const feeds = vi.hoisted(function makeFeedsDouble() {
 
 vi.mock('@sentinello/feeds', function mockFeeds() {
     return {
-        OSV_INCREMENTAL_MAX_IDS: 20_000,
+        // A getter, not a value: the factory runs once, so a literal here would freeze the threshold before
+        // any test could change it.
+        get OSV_INCREMENTAL_MAX_IDS() { return feeds.incrementalMaxIds },
         errText: function errText(err: unknown) {
             return err instanceof Error && err.message || String(err)
         },
@@ -122,6 +133,7 @@ function meta<T>(key: string): T | null {
 
 beforeEach(async function setup() {
     feeds.feedDisabled = false
+    feeds.incrementalMaxIds = 20_000
     statfsResult.override = null
     feeds.streamOsvSeed.mockReset()
     feeds.fetchOsvChangedIds.mockReset()
@@ -449,8 +461,13 @@ describe('incrementalSyncOsv', function () {
 
     // Past a certain volume, fetching one advisory at a time costs far more than re-downloading the whole
     // export — OSV can land tens of thousands of malware records in a single day.
+    //
+    // Both boundary tests drive the threshold down to 2. What they pin is the comparison at the boundary,
+    // and one id either side of it proves that as completely as 20,000 did — while the id count is what
+    // decided how long the test took, because the incremental path opens one SQLite transaction per id.
     it('re-seeds instead of fetching when the change set is enormous', async function () {
-        const ids = Array.from({ length: 20_001 }, function id(_v, i) { return 'GHSA-' + i })
+        feeds.incrementalMaxIds = 2
+        const ids = ['GHSA-1', 'GHSA-2', 'GHSA-3']
         feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids, newestIso: null, etag: null })
         feeds.streamOsvSeed.mockImplementation(stream([{ rows: [row()], lastModified: null }]))
 
@@ -462,11 +479,14 @@ describe('incrementalSyncOsv', function () {
     })
 
     it('stays incremental exactly at the threshold', async function () {
-        const ids = Array.from({ length: 20_000 }, function id(_v, i) { return 'GHSA-' + i })
+        feeds.incrementalMaxIds = 2
+        const ids = ['GHSA-1', 'GHSA-2']
         feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids, newestIso: null, etag: null })
         feeds.fetchOsvAdvisoryRows.mockResolvedValue([])
         await incrementalSyncOsv(db, ECO)
         expect(feeds.streamOsvSeed).not.toHaveBeenCalled()
+        // The assertion the id count used to obscure: at the boundary every changed id is still fetched.
+        expect(feeds.fetchOsvAdvisoryRows).toHaveBeenCalledTimes(2)
     })
 
     it('stops fetching once the abort signal fires', async function () {
