@@ -569,7 +569,7 @@
         "whoTitle": "제작자",
         "whoBody": "<company>Walk of Code LLC</company>와 Sebastian Arena가 제작했습니다 (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "권고 데이터의 출처",
-        "advisoryBody": "취약점 데이터는 GitHub Advisory Database에서 비롯되며, <code>npm audit</code>를 통해 npm 레지스트리의 권고 엔드포인트로 접근합니다. 또한 OSV와 GitLab gemnasium을 활성화하여(설정 → 소스) Node.js 패키지를 이러한 공개 권고 데이터베이스와 대조할 수 있습니다 — npm audit가 놓치는 권고를 찾아내고 알려진 악성 패키지를 표시합니다. 두 소스 모두 lockfile에서 의존성을 오프라인으로 해석하고 로컬에 캐시된 권고 사본과 대조하므로, 스캔 중에 프로젝트별 요청이 사용자의 머신을 떠나지 않습니다. 모호한 매니페스트는 정상으로 처리되지 않고 부분적 또는 감사 불가로 보고됩니다. Sentinello는 권고가 무엇에 영향을 주는지 판단할 때 gemnasium 자체의 기계 판독 가능한 버전 범위와 해당 레코드가 명시한 수정 버전만 읽습니다. 범위가 어떤 버전도 선택하지 않거나 Sentinello가 구현하지 않은 문법으로 작성된 레코드는 추측하지 않고 폐기되며, 빈틈을 메우기 위해 다른 소스를 참조하지 않습니다. Python, Go, Rust는 구현되어 있지만 제공하지 않습니다. 버전 처리가 아직 정확하지 않으며, 잘못된 이유로 “취약점 없음”이라고 답하는 소스는 아예 제공하지 않는 편보다 나쁘기 때문입니다.",
+        "advisoryBody": "취약점 데이터는 GitHub Advisory Database에서 비롯되며, <code>npm audit</code>를 통해 npm 레지스트리의 권고 엔드포인트로 접근합니다. 또한 OSV와 GitLab gemnasium을 활성화하여(설정 → 소스) Node.js 패키지를 이러한 공개 권고 데이터베이스와 대조할 수 있습니다 — npm audit가 놓치는 권고를 찾아내고 알려진 악성 패키지를 표시합니다. 두 소스 모두 lockfile에서 의존성을 오프라인으로 해석하고 로컬에 캐시된 권고 사본과 대조하므로, 스캔 중에 프로젝트별 요청이 사용자의 머신을 떠나지 않습니다. 모호한 매니페스트는 정상으로 처리되지 않고 부분적 또는 감사 불가로 보고됩니다. Sentinello는 권고가 무엇에 영향을 주는지 판단할 때 gemnasium 자체의 기계 판독 가능한 버전 범위와 해당 레코드가 명시한 수정 버전만 읽습니다. npm 범위는 npm 자체의 semver 구현으로 해석되며, 읽을 수 없는 상한이 유효한 구간을 침묵시키지 않도록 무시됩니다. 범위가 어떤 버전도 선택하지 않거나 Sentinello가 구현하지 않은 문법으로 작성된 레코드는 추측하지 않고 폐기되며, 빈틈을 메우기 위해 다른 소스를 참조하지 않습니다. Python, Go, Rust는 구현되어 있지만 제공하지 않습니다. 수정 버전 도출과 OSV의 PyPI 이름 일치가 아직 정확하지 않으며, 잘못된 이유로 “취약점 없음”이라고 답하는 소스는 아예 제공하지 않는 편보다 나쁘기 때문입니다.",
         "sendsTitle": "Sentinello가 외부로 보내는 것",
         "tableDestination": "대상",
         "tablePurpose": "목적",

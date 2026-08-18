@@ -658,8 +658,11 @@ describe('parseAffectedRange — maven-style interval notation', function () {
         expect(parseAffectedRange('[1.0.0', [], 'npm')).toEqual({ ranges: [], versions: [] })
     })
 
+    // Same two-layer refusal as the bracket cross-product: npm's digit gate stops it before the parser,
+    // so the parser's own empty-interval arm is only reachable through a dialect that has no digit gate.
     it('drops an empty interval', function () {
         expect(parseAffectedRange('[]', [], 'npm')).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('[]', [], 'PyPI')).toEqual({ ranges: [], versions: [] })
     })
 })
 

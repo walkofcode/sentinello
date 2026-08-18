@@ -1,4 +1,4 @@
-import type { GemnasiumAdvisoryRow, GemnasiumRange } from '@sentinello/core'
+import { getEcosystem, type GemnasiumAdvisoryRow, type GemnasiumRange } from '@sentinello/core'
 import { canMatchSomething, canonicaliseRange, compareVersions, highestVersion } from '@sentinello/versions'
 import { severityFromCvss } from './cvss'
 
@@ -188,11 +188,12 @@ export function parseAffectedRange(affectedRange: string, fixedVersions: string[
         .map(function canonical(disjunct) {
             return canonicaliseRange(disjunct, ecosystem)
         })
+        .filter(isNotNull)
         .map(trimToken)
         .filter(nonEmpty)
 
     for (const disjunct of disjuncts) {
-        const interval = parseDisjunct(disjunct)
+        const interval = parseDisjunct(disjunct, ecosystem)
         if (!interval) continue
         if (interval.exact !== null) {
             versions.push(interval.exact)
@@ -279,10 +280,10 @@ type Disjunct = {
     exact: string | null
 }
 
-function parseDisjunct(disjunct: string): Disjunct | null {
+function parseDisjunct(disjunct: string, ecosystem: string): Disjunct | null {
     const first = disjunct[0]
     if (first === '(' || first === '[') return parseIntervalNotation(disjunct)
-    return parseComparatorForm(disjunct)
+    return parseComparatorForm(disjunct, ecosystem)
 }
 
 // Maven-style interval notation: "(" / "[" open, "," separates lower,upper, ")" / "]" close. Bracket
@@ -337,7 +338,7 @@ function parseIntervalNotation(disjunct: string): Disjunct | null {
 // semver-only fix derivation and OSV's non-canonicalized PyPI names are still open, so they stay there.
 //
 // An operator is bound to the version that follows it before any of that: see `bindOperators`.
-function parseComparatorForm(disjunct: string): Disjunct | null {
+function parseComparatorForm(disjunct: string, ecosystem: string): Disjunct | null {
     const tokens = bindOperators(disjunct.split(/[\s,]+/).filter(nonEmpty))
     if (!tokens || tokens.length === 0) return null
     let introduced = '0'
@@ -345,7 +346,7 @@ function parseComparatorForm(disjunct: string): Disjunct | null {
     let fixed: string | null = null
     let lastAffected: string | null = null
     for (const token of tokens) {
-        const op = readOperator(token)
+        const op = readOperator(token, ecosystem)
         if (!op) return null
         if (op.operator === '=') {
             // A single pinned version: surface as an exact version rather than a range.
@@ -426,18 +427,27 @@ type Operator = { operator: '>=' | '>' | '<=' | '<' | '='; version: string }
 // implement.
 const BARE_VERSION = /^[0-9]+(\.[0-9]+)*([-+][0-9A-Za-z.-]*)?$/
 
-function readOperator(token: string): Operator | null {
-    if (token.startsWith('>=')) return { operator: '>=', version: stripV(token.slice(2)) }
-    if (token.startsWith('<=')) return { operator: '<=', version: stripV(token.slice(2)) }
-    if (token.startsWith('>')) return { operator: '>', version: stripV(token.slice(1)) }
-    if (token.startsWith('<')) return { operator: '<', version: stripV(token.slice(1)) }
-    if (token.startsWith('=')) return { operator: '=', version: stripV(token.slice(1)) }
+function readOperator(token: string, ecosystem: string): Operator | null {
+    if (token.startsWith('>=')) return buildOperator('>=', token.slice(2), ecosystem)
+    if (token.startsWith('<=')) return buildOperator('<=', token.slice(2), ecosystem)
+    if (token.startsWith('>')) return buildOperator('>', token.slice(1), ecosystem)
+    if (token.startsWith('<')) return buildOperator('<', token.slice(1), ecosystem)
+    if (token.startsWith('=')) return buildOperator('=', token.slice(1), ecosystem)
     // Bare version → exact pin, but ONLY if it really is a version. The old fallthrough pinned any
     // unrecognised token verbatim, so "^1.0.0", "~1.0.0" and "!=1.0.0" each became an "exact version" that
     // no installed version can ever equal — a row cached as a live advisory that matches nothing, ever.
     // Refusing the token drops the record instead, which is the honest outcome for syntax we cannot read.
     const bare = stripV(token)
     return BARE_VERSION.test(bare) ? { operator: '=', version: bare } : null
+}
+
+function buildOperator(operator: Operator['operator'], rawVersion: string, ecosystem: string): Operator | null {
+    const version = stripV(rawVersion)
+    // npm's source-specific numeric spellings include dates and leading-zero segments that node-semver
+    // refuses, but every real one still starts with a numeric version. Rejecting a non-version token here
+    // stops `>=1.0.0 <banana` from installing an unreadable upper bound that silences the valid lower half.
+    if (getEcosystem(ecosystem)?.comparator === 'semver' && !BARE_VERSION.test(version)) return null
+    return { operator, version }
 }
 
 function stripV(raw: string): string {
@@ -467,4 +477,8 @@ function trimToken(s: string): string {
 
 function nonEmpty(s: string): boolean {
     return s.length > 0
+}
+
+function isNotNull(value: string | null): value is string {
+    return value !== null
 }

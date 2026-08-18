@@ -40,11 +40,11 @@ describe('canonicaliseRange — npm', function () {
     // this field in" to an advisory. Taking npm's reading turns each into a finding against every release
     // of the package that no upgrade can ever clear.
     it.each(['', '   ', '*', 'x', 'X', '||', 'latest'])('refuses to widen %j into every version', function (raw) {
-        expect(canonicaliseRange(raw, 'npm')).toBe(raw)
+        expect(canonicaliseRange(raw, 'npm')).toBeNull()
     })
 
-    // Syntax node-semver cannot read either. Handing back the original is what lets the caller run its own
-    // refuse-rather-than-guess path instead of receiving a string it would read as "no range at all".
+    // Syntax node-semver cannot read either. Numeric source-specific forms are handed back unchanged so
+    // the gemnasium parser can apply its Maven/PEP 440 grammar or refuse the token itself.
     it.each(['!=1.0.0', '[1.0.0,2.0.0)', '(,4.1.2)', '>=5.0,<5.8'])('hands %j back untouched', function (raw) {
         expect(canonicaliseRange(raw, 'npm')).toBe(raw)
     })
@@ -70,6 +70,10 @@ describe('canonicaliseRange — npm', function () {
     // would collapse each into a duplicate of its release version.
     it('keeps a real -0 prerelease that is not an upper bound', function () {
         expect(canonicaliseRange('=1.0.8-0||=1.0.10', 'npm')).toBe('1.0.8-0||1.0.10')
+    })
+
+    it('keeps a real -0 prerelease used as an explicit upper bound', function () {
+        expect(canonicaliseRange('<1.2.3-0', 'npm')).toBe('<1.2.3-0')
     })
 })
 
@@ -101,8 +105,10 @@ describe('canonicaliseRange — agrees with npm across the generated grammar', f
 
     it.each(RANGES)('%j selects the same versions before and after', function (raw) {
         const canonical = canonicaliseRange(raw, 'npm')
-        // The zero carve-out is a deliberate departure and is asserted on its own above.
-        if (canonical === raw && validRange(raw) !== validRange(canonical)) return
+        expect(validRange(raw)).not.toBeNull()
+        expect(canonical).not.toBeNull()
+        if (canonical === null) throw new Error('valid npm range was refused: ' + raw)
+        expect(validRange(canonical)).not.toBeNull()
         for (const version of PROBES) {
             expect(satisfies(version, canonical), raw + ' -> ' + canonical + ' @ ' + version).toBe(
                 satisfies(version, raw)
@@ -151,6 +157,11 @@ describe('canMatchSomething', function () {
     it('keeps an inverted interval whose ordering it cannot judge', function () {
         expect(canMatchSomething({ type: 'ECOSYSTEM', introduced: '2.0.0', fixed: '1.0.0' })).toBe(true)
         expect(canMatchSomething({ introduced: '2.0.0', fixed: '1.0.0' })).toBe(true)
+    })
+
+    it('keeps a SEMVER interval when either bound is unreadable', function () {
+        expect(canMatchSomething({ type: 'SEMVER', introduced: '1.0.0', fixed: 'not-a-version' })).toBe(true)
+        expect(canMatchSomething({ type: 'SEMVER', introduced: 'not-a-version', fixed: '2.0.0' })).toBe(true)
     })
 
     // Two spellings of one version under semver ordering: `1.0` and `1.0.0` are the same point, so the

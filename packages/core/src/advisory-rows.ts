@@ -68,7 +68,10 @@ export type OsvAdvisoryRow = {
 //     its own differently-shaped copy (`isEmptyInterval`) — one question answered twice was how the two
 //     sources came to disagree about a degenerate interval while feeding one matcher. Sharing it also gives
 //     OSV the inclusive-upper-bound half it never had: an interval whose `last_affected` sits below its
-//     `introduced` is dropped too. Still zero rows in the live export, by the same measurement.
+//     `introduced` is dropped too. Unreadable SEMVER upper events now leave their valid interval open, and
+//     the separate GitHub fallback bound is validated AFTER it is attached, so malformed or inverted
+//     fallback data cannot rebuild the impossible interval this version exists to remove. Still zero rows
+//     in the live export, by the same measurement.
 // Lives beside the row type it describes so every store — the portal's SQLite cache and the CLI's ndjson
 // cache alike — invalidates on exactly the same signal.
 export const OSV_NORMALIZER_VERSION = 6
@@ -168,5 +171,7 @@ export type GemnasiumAdvisoryRow = {
 //         and a zero exclusive lower bound keeps its own meaning, because npm reads `>0` as `>=1.0.0` and
 //         npm/pandora-doomsday CVE-2017-16127 states `>0` for a credential stealer whose own record says
 //         "All Versions". Non-npm ecosystems are untouched — PEP 440's `==1.0` is an exact pin, not a
-//         wildcard, so npm's rule applied there would invent findings.
+//         wildcard, so npm's rule applied there would invent findings. A real prerelease-zero upper bound
+//         (`<1.2.3-0`) is preserved; only the `-0` marker npm synthesizes for a partial upper bound is
+//         removed from the cached remediation target.
 export const GEMNASIUM_NORMALIZER_VERSION = 7

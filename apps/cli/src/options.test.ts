@@ -1,9 +1,24 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ALL_SOURCES, applyConfigFile, explicitFlagNames, parseArgs } from './options'
 import type { CliOptions } from './options'
+
+const STDOUT_TTY_DESCRIPTOR = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY')
+
+function setStdoutTty(value: boolean): void {
+    Object.defineProperty(process.stdout, 'isTTY', { value, configurable: true, writable: true })
+}
+
+afterEach(function restoreTerminalEnvironment() {
+    vi.unstubAllEnvs()
+    if (STDOUT_TTY_DESCRIPTOR) {
+        Object.defineProperty(process.stdout, 'isTTY', STDOUT_TTY_DESCRIPTOR)
+    } else {
+        Reflect.deleteProperty(process.stdout, 'isTTY')
+    }
+})
 
 function optionsOf(argv: string[]): CliOptions {
     const result = parseArgs(argv)
@@ -74,6 +89,21 @@ describe('parseArgs — defaults', function () {
         const first = optionsOf([])
         first.sources.push('osv')
         expect(optionsOf([]).sources).toEqual(ALL_SOURCES)
+    })
+
+    it('enables color only for a TTY when NO_COLOR is unset', function () {
+        vi.stubEnv('NO_COLOR', undefined)
+        setStdoutTty(true)
+        expect(optionsOf([]).color).toBe(true)
+
+        setStdoutTty(false)
+        expect(optionsOf([]).color).toBe(false)
+    })
+
+    it('honours NO_COLOR even on a TTY', function () {
+        vi.stubEnv('NO_COLOR', '1')
+        setStdoutTty(true)
+        expect(optionsOf([]).color).toBe(false)
     })
 })
 

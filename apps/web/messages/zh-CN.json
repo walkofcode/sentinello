@@ -569,7 +569,7 @@
         "whoTitle": "由谁构建",
         "whoBody": "由 <company>Walk of Code LLC</company> 和 Sebastian Arena（<linkedin>LinkedIn</linkedin>）构建。",
         "advisoryTitle": "通告数据来自哪里",
-        "advisoryBody": "漏洞数据源自 GitHub Advisory Database，通过 <code>npm audit</code> 经由 npm registry 的通告端点获取。你还可以额外启用 OSV 和 GitLab 的 gemnasium（设置 → 来源），以将你的 Node.js 软件包与这些公开的公告数据库进行匹配——捕获 npm audit 遗漏的公告并标记已知的恶意软件包。两者都会从锁文件离线解析依赖，并与本地缓存的公告副本进行匹配，因此扫描期间不会有任何逐项目的请求离开你的机器；含糊不清的清单文件会被报告为部分或无法审计，而不会被视为干净。在判断一条公告影响哪些版本时，Sentinello 只读取 gemnasium 自身的机器可读版本范围，以及该记录所列的修复版本。若某条记录的范围不选中任何版本，或使用了 Sentinello 未实现的语法，则该记录会被丢弃而不做猜测，也不会去查询其他来源来填补空缺。Python、Go 和 Rust 已经实现但尚未开放：它们的版本处理还不正确，而一个出于错误原因回答“没有漏洞”的来源，比根本不提供更糟糕。",
+        "advisoryBody": "漏洞数据源自 GitHub Advisory Database，通过 <code>npm audit</code> 经由 npm registry 的通告端点获取。你还可以额外启用 OSV 和 GitLab 的 gemnasium（设置 → 来源），以将你的 Node.js 软件包与这些公开的公告数据库进行匹配——捕获 npm audit 遗漏的公告并标记已知的恶意软件包。两者都会从锁文件离线解析依赖，并与本地缓存的公告副本进行匹配，因此扫描期间不会有任何逐项目的请求离开你的机器；含糊不清的清单文件会被报告为部分或无法审计，而不会被视为干净。在判断一条公告影响哪些版本时，Sentinello 只读取 gemnasium 自身的机器可读版本范围，以及该记录所列的修复版本。npm 范围由 npm 自身的 semver 实现解释；无法读取的上限会被忽略，而不会让原本有效的区间静默失效。若某条记录的范围不选中任何版本，或使用了 Sentinello 未实现的语法，则该记录会被丢弃而不做猜测，也不会去查询其他来源来填补空缺。Python、Go 和 Rust 已经实现但尚未开放：修复版本推导和 OSV 的 PyPI 名称匹配仍不正确，而一个出于错误原因回答“没有漏洞”的来源，比根本不提供更糟糕。",
         "sendsTitle": "Sentinello 会发送出去什么",
         "tableDestination": "目标",
         "tablePurpose": "用途",

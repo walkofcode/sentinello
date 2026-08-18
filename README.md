@@ -252,11 +252,11 @@ actually run, so the system is never left source-blind.
 - **OSV** and **GitLab gemnasium** are optional and off by default — each downloads an advisory
   cache, so enabling one costs disk.
 
-Python, Go and Rust are implemented but **not offered**. Their fix derivation and version ordering are
-semver-only (an OSV Django advisory recommended "upgrade to 3.2.23" against an installed 4.2), OSV's
-PyPI names are not PEP 503-canonicalized so they never join the resolver's, and gemnasium's range
-parser cannot read PEP 440 comma intersections. Promoting one is a single field in the ecosystem
-registry once that is fixed; until then they are absent from the product surface entirely — no
+Python, Go and Rust are implemented but **not offered**. Gemnasium's PEP 440 comma intersections are
+now parsed correctly, but fix derivation remains semver-only (an OSV Django advisory recommended
+"upgrade to 3.2.23" against an installed 4.2), and OSV's PyPI names are not PEP 503-canonicalized so
+they never join the resolver's. Promoting one is a single field in the ecosystem registry once those
+two remaining blockers are fixed; until then they are absent from the product surface entirely — no
 switch, no discovery, no download.
 
 **npm audit** runs the package manager's own audit (npm / pnpm / yarn audit against each project's

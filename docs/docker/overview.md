@@ -113,9 +113,9 @@ switch, plus a reference table explaining what each one adds, what it downloads 
 by default. An "always a source on" invariant blocks disabling the last source that can actually run,
 so the system is never source-blind.
 
-Python, Go and Rust are implemented but **not offered** — no switch, no discovery, no download —
-because their fix derivation and version ordering are semver-only, OSV's PyPI names are not PEP 503
-canonicalized, and gemnasium's range parser cannot read PEP 440 comma intersections.
+Python, Go and Rust are implemented but **not offered** — no switch, no discovery, no download.
+Gemnasium's PEP 440 comma intersections are now parsed correctly; the remaining blockers are
+semver-only fix derivation/version ordering and OSV PyPI names that are not PEP 503-canonicalized.
 
 **npm audit** runs the package manager's own audit against each project's lockfile and needs no
 provisioning. **OSV** and **GitLab gemnasium** are **cache-backed**: the worker downloads each feed

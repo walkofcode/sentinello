@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { satisfies, validRange } from 'semver'
+import { semverComparator, versionInRange } from '@sentinello/versions'
 import { parseAffectedRange } from './normalize'
 
 // EXHAUSTIVE GRAMMAR SWEEP — generated spellings, not remembered ones.
@@ -204,9 +205,13 @@ describe('maven interval notation — the full bracket cross-product', function 
         expect(parseAffectedRange(notation, [], 'npm')).toEqual(expected)
     })
 
-    // Neither bound given: the notation states no boundary at all, so there is nothing to cache.
+    // Neither bound given: the notation states no boundary at all, so there is nothing to cache. Both
+    // dialects are asserted because they refuse it in different places, and only one of them can be
+    // reached at a time: under npm the digit gate rejects a bracket form naming no version before any
+    // parser runs, and every other dialect has no such gate, so the interval parser itself has to refuse.
     it.each(['(,)', '[,]', '(,]', '[,)'])('yields nothing for %j', function (notation) {
         expect(parseAffectedRange(notation, [], 'npm')).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange(notation, [], 'PyPI')).toEqual({ ranges: [], versions: [] })
     })
 
     // An unterminated interval is not a range we can read, and guessing the missing bracket would pick an
@@ -307,6 +312,15 @@ describe('npm range syntax is understood rather than dropped', function () {
             versions: []
         })
     })
+
+    it('preserves an explicit prerelease-zero upper bound', function () {
+        const parsed = parseAffectedRange('<1.2.3-0', [], 'npm')
+        expect(parsed).toEqual({ ranges: [{ introduced: '0', fixed: '1.2.3-0', lastAffected: null }], versions: [] })
+        const range = parsed.ranges[0]!
+        expect(versionInRange('1.2.2', range, semverComparator)).toBe(true)
+        expect(versionInRange('1.2.3-0', range, semverComparator)).toBe(false)
+        expect(versionInRange('1.2.3-alpha', range, semverComparator)).toBe(false)
+    })
 })
 
 describe('syntax this parser does not implement is refused, never guessed', function () {
@@ -332,7 +346,12 @@ describe('syntax this parser does not implement is refused, never guessed', func
         '>=',
         '=',
         '||',
-        '>= || <'
+        '>= || <',
+        '<banana',
+        '>=1.0.0 <banana',
+        // Maven notation reaches the npm dialect too, and a bracket form naming no version is exactly the
+        // "nobody filled this in" case the digit gate exists for — [a,b) used to become a live row.
+        '[a,b)'
     ])('refuses %j', function (raw) {
         const parsed = parseAffectedRange(raw, [], 'npm')
         expect(parsed.versions, raw).toEqual([])

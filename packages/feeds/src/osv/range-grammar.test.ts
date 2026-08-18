@@ -52,11 +52,18 @@ function allSequences(maxLength: number): Event[][] {
 
 const SEQUENCES = allSequences(4)
 
-function rangesFor(events: Event[]): { introduced: string; fixed?: string | null; lastAffected?: string | null }[] {
+function rangesFor(events: Event[], lastKnownAffected?: string): { introduced: string; fixed?: string | null; lastAffected?: string | null }[] {
+    const affected: Record<string, unknown> = {
+        package: { name: 'pkg', ecosystem: 'npm' },
+        ranges: [{ type: 'SEMVER', events }]
+    }
+    if (lastKnownAffected !== undefined) {
+        affected.database_specific = { last_known_affected_version_range: lastKnownAffected }
+    }
     const rows = normalizeOsvRecord(
         {
             id: 'GHSA-sweep',
-            affected: [{ package: { name: 'pkg', ecosystem: 'npm' }, ranges: [{ type: 'SEMVER', events }] }]
+            affected: [affected]
         },
         'npm'
     )
@@ -206,6 +213,25 @@ describe('OSV event sequences — the well-formed ones agree with npm', function
             })
             expect(ours, npm + ' @ ' + version).toBe(satisfies(version, npm, { includePrerelease: true }))
         }
+    })
+})
+
+describe('OSV fallback bounds preserve the interval invariants', function () {
+    it('never installs an unreadable, empty, or inverted fallback', function () {
+        const bad: string[] = []
+        for (const introduced of ['1.0.0', '2.0.0']) {
+            for (const fallback of ['< 1.0.0', '<= 1.0.0', '< 2.0.0', '<= 2.0.0', '<banana']) {
+                for (const range of rangesFor([{ introduced }], fallback)) {
+                    if (typeof range.fixed === 'string' && compare(range.fixed, range.introduced) <= 0) {
+                        bad.push(introduced + ' + ' + fallback + ' -> ' + JSON.stringify(range))
+                    }
+                    if (typeof range.lastAffected === 'string' && compare(range.lastAffected, range.introduced) < 0) {
+                        bad.push(introduced + ' + ' + fallback + ' -> ' + JSON.stringify(range))
+                    }
+                }
+            }
+        }
+        expect(bad).toEqual([])
     })
 })
 
