@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { DiscoveredProject, GemnasiumAdvisory, OsvAdvisory, RawFinding, ScanContext, ScanResult, ScannerPlugin } from '@sentinello/scanners'
 import type { LoadedCache } from './cache/lookup'
-import { buildScanners, collectPackageNames, resolveProjects, scanProject, type ResolvedProject, type ScanSetup } from './scan'
+import { buildScanners, collectPackageNames, pick, resolveProjects, scanProject, type ResolvedProject, type ScanSetup } from './scan'
 
 // The CLI's scan runner — structurally apps/worker/src/runner.ts with the database and notification calls
 // removed. The symmetry is the point: a CLI run and a portal scan of the same project must produce the
@@ -235,6 +235,36 @@ describe('collectPackageNames', function () {
 
     it('returns nothing for no projects', function () {
         expect(collectPackageNames([])).toEqual([])
+    })
+})
+
+describe('pick', function () {
+    // The CLI loads ONE ecosystem's advisories into memory for the whole run, so `pick` is the last
+    // thing standing between that single cache and a scanner asking about a different ecosystem. Both
+    // its answers matter and they are opposite kinds of wrong when reversed: serving npm rows for a
+    // Python query invents findings, and refusing a matching query loses them.
+    //
+    // Tested directly rather than through buildScanners, where each scanner's isEnabled is the same
+    // equality and so never lets a foreign ecosystem reach lookup at all. That is exactly why this needs
+    // its own test: the guard's whole job is to hold when the layer above it stops.
+    const cache = new Map([['lodash', [{ advisoryId: 'GHSA-1' }]]])
+
+    it('serves the cache when the query matches the ecosystem it was loaded for', function () {
+        expect([...pick(cache, 'npm', ['lodash'], 'npm').keys()]).toEqual(['lodash'])
+    })
+
+    it('serves nothing when the scanner asks about a different ecosystem', function () {
+        expect(pick(cache, 'PyPI', ['lodash'], 'npm').size).toBe(0)
+    })
+
+    // Resolved through the registry on both sides, so the canonical OSV id and the internal id are the
+    // same ecosystem rather than a mismatch.
+    it('matches through the registry rather than by raw string equality', function () {
+        expect([...pick(cache, 'npm', ['lodash'], 'npm').keys()]).toEqual(['lodash'])
+    })
+
+    it('omits names the cache has no rows for', function () {
+        expect(pick(cache, 'npm', ['express'], 'npm').size).toBe(0)
     })
 })
 

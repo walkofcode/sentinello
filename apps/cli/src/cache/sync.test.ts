@@ -599,6 +599,31 @@ describe('runSync — the cursor and record-count fallbacks', function () {
 
         expect(feeds.fetchOsvChangedIds.mock.calls[0]?.[2]).toBeNull()
     })
+
+    // planSync reads the meta, and runSync reads it AGAIN — so a refresh can arrive at a state row that
+    // has since vanished. That is not hypothetical: planSync runs before ui.confirmSeed's interactive
+    // prompt and runSync after it, so anything that clears the cache while the user is deciding lands
+    // here. The refresh must then report zero rather than crash on a missing state, and touch() must be
+    // a no-op instead of writing a refreshedAt onto nothing.
+    //
+    // Driven through runSync with a hand-built refresh plan because that is exactly the shape planSync
+    // would have produced a moment earlier, against a cache that no longer exists.
+    it.each([
+        ['upstream reports not-modified', { status: 'unchanged' }],
+        ['upstream reports zero changed ids', { status: 'ok', ids: [], etag: 'etag-9', newestIso: null }]
+    ])('reports zero rows when the state disappeared between plan and run — %s', async function (_label, changed) {
+        feeds.fetchOsvChangedIds.mockResolvedValue(changed)
+
+        const outcomes = await runSync(options({ sources: ['osv'] }), {
+            items: [{ source: 'osv', ecosystem: 'npm', kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false }],
+            seedBytes: 0,
+            needsConsent: false
+        })
+
+        expect(outcomes[0]).toMatchObject({ status: 'unchanged', rowCount: 0 })
+        // touch() found nothing to touch, so no state row was invented for a cache that is not there.
+        expect(await stateOf('osv')).toBeNull()
+    })
 })
 
 describe('runSync — gemnasium paths that are not advisories', function () {
@@ -620,5 +645,47 @@ describe('runSync — gemnasium paths that are not advisories', function () {
         // The directory entry dropped nothing, so the untouched advisory survives alongside the
         // rewritten one.
         expect(outcomes[0]).toMatchObject({ status: 'refreshed', rowCount: 2 })
+    })
+
+    // The changed-path filter is npm-specific by design: gemnasium's archive is laid out as
+    // "<packageType>/<package>/<id>.yml" and npm's package-type directory happens to share its name with
+    // the registry ecosystem id, which is the only reason a prefix compare works. For every other
+    // ecosystem the filter has to pass everything through rather than silently discarding the whole
+    // compare — a wrong answer there reports "nothing changed" forever.
+    //
+    // Reachable today only by driving the plan directly: the CLI has no --ecosystem flag yet and every
+    // production caller passes DEFAULT_ECOSYSTEM. The moment one is added, this is the arm it takes.
+    it('keeps every changed path for a non-npm ecosystem', async function () {
+        await ensureCacheDir(dir)
+        const writer = createRowWriter(advisoryFilePath(dir, 'gemnasium', 'PyPI'))
+        await writer.write([gemRow({ ecosystem: 'PyPI', packageName: 'flask', advisoryId: 'GMS-py-1' })] as never)
+        await writer.commit()
+        const meta = await readCacheMeta(dir)
+        setSourceState(meta, 'gemnasium', 'PyPI', {
+            normalizerVersion: GEMNASIUM_NORMALIZER_VERSION,
+            recordCount: 1,
+            refreshedAt: T0,
+            headSha: 'b'.repeat(40)
+        })
+        await writeCacheMeta(dir, meta)
+        feeds.fetchGemnasiumChangedPaths.mockResolvedValue({
+            status: 'ok',
+            changed: ['pypi/flask/GMS-py-2.yml'],
+            deleted: []
+        })
+        feeds.fetchGemnasiumFileRows.mockResolvedValue([
+            gemRow({ ecosystem: 'PyPI', packageName: 'flask', advisoryId: 'GMS-py-2' })
+        ])
+
+        const outcomes = await runSync(options({ sources: ['gemnasium'], ecosystem: 'PyPI' }), {
+            items: [{ source: 'gemnasium', ecosystem: 'PyPI', kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false }],
+            seedBytes: 0,
+            needsConsent: false
+        })
+
+        // The pypi/ path was NOT filtered out, so the refresh applied it rather than reporting the
+        // commit as irrelevant and advancing the sha over it.
+        expect(outcomes[0]).toMatchObject({ status: 'refreshed' })
+        expect(feeds.fetchGemnasiumFileRows).toHaveBeenCalled()
     })
 })

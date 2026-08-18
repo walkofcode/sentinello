@@ -46,9 +46,9 @@ function via(overrides: Partial<ViaObject> = {}): ViaObject {
 
 describe('pickAuditCommand', function () {
     it('picks the command matching the detected package manager', function () {
-        expect(pickAuditCommand(lockfile('npm', 'package-lock.json'))).toBe('npm audit --json')
-        expect(pickAuditCommand(lockfile('pnpm', 'pnpm-lock.yaml'))).toBe('pnpm audit --json')
-        expect(pickAuditCommand(lockfile('yarn', 'yarn.lock'))).toBe('yarn npm audit --json')
+        expect(pickAuditCommand(lockfile('npm', 'package-lock.json'))).toEqual(['npm', 'audit', '--json'])
+        expect(pickAuditCommand(lockfile('pnpm', 'pnpm-lock.yaml'))).toEqual(['pnpm', 'audit', '--json'])
+        expect(pickAuditCommand(lockfile('yarn', 'yarn.lock'))).toEqual(['yarn', 'npm', 'audit', '--json'])
     })
 })
 

@@ -207,6 +207,18 @@ describe('sendTelegram — failures', function () {
         expect(result.ok === false && result.errorText).toContain('no-status')
     })
 
+    // axios does not guarantee a message on every error it raises; the status and body still carry the
+    // diagnosis, so a blank message must not concatenate `undefined` into the persisted error text.
+    it('still reports the status when the error carries no message', async function () {
+        isAxiosError.mockReturnValue(true)
+        post.mockRejectedValue({ isAxiosError: true, message: '', response: { status: 500, data: 'server_error' } })
+        const result = await sendTelegram(target(), message())
+        expect(result.ok).toBe(false)
+        expect(result.ok === false && result.errorText).toContain('500')
+        expect(result.ok === false && result.errorText).toContain('server_error')
+        expect(result.ok === false && result.errorText).not.toContain('undefined')
+    })
+
     it('handles a plain Error', async function () {
         post.mockRejectedValue(new Error('boom'))
         const result = await sendTelegram(target(), message())

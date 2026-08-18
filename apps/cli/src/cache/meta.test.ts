@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -263,6 +263,25 @@ describe('tryAcquireLock', function () {
         const lock = await tryAcquireLock(dir)
         expect(lock).not.toBeNull()
         await lock?.release()
+    })
+
+    // The other half of the lock's failure handling, and the half that is not about contention at all:
+    // writeFile can fail for a reason that is NOT "someone else holds it", and the staleness check then
+    // has no file to stat either. A read-only cache directory is the realistic case — a read-only mount,
+    // or a directory owned by another user — and the answer must be "decline to sync", not a crash. The
+    // scan still reads whatever cache is already on disk, which is the whole reason this returns null
+    // rather than throwing.
+    //
+    // Skipped as root, where the permission bits simply do not apply and the write would succeed.
+    it.skipIf(process.getuid?.() === 0)('returns null when the lock cannot be written at all', async function () {
+        await ensureCacheDir(dir)
+        await chmod(dir, 0o500)
+        try {
+            expect(await tryAcquireLock(dir)).toBeNull()
+        } finally {
+            // Restored before teardown, which could not otherwise remove the directory.
+            await chmod(dir, 0o700)
+        }
     })
 
     it('creates the cache directory while locking', async function () {

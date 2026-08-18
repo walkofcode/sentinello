@@ -223,7 +223,10 @@ describe('summary — a lost source is not a clean scan', function () {
 })
 
 describe('formatDuration', function () {
-    // Reached through confirmSeed's retry line, the only surface that renders a multi-minute duration.
+    // Reached through the retry line, which renders TWO durations: the wait before the next attempt and
+    // the budget remaining after it. Both are formatted by the same function and both can be sub-second
+    // — the wait because the feeds layer clamps it against the remaining budget, and the remaining
+    // budget because it is whatever is left of it.
     function durationFor(waitMs: number, budgetMs: number, elapsedMs: number): string {
         const u = ui()
         u.syncRetry(planItem({ source: 'gemnasium' }), { status: 406, attempt: 1, waitMs, elapsedMs, budgetMs })
@@ -240,6 +243,15 @@ describe('formatDuration', function () {
         expect(durationFor(45_000, 180_000, 45_000)).toContain('45.0s')
         expect(durationFor(60_000, 180_000, 45_000)).toContain('1m 0s')
         expect(durationFor(1000, 180_000, 45_000)).toContain('2m 15s')
+    })
+
+    // Sub-second gets milliseconds rather than "0.5s", and certainly rather than "0s". This is what an
+    // exhausted budget renders as — the last line a user sees before the source is given up on — so
+    // rounding it to zero would read as "no time left" when there is still half a second of it.
+    it('renders a sub-second duration in milliseconds', function () {
+        const line = durationFor(500, 1000, 900)
+        expect(line).toContain('500ms')
+        expect(line).toContain('100ms')
     })
 })
 
