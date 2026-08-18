@@ -2,7 +2,8 @@ import cron, { type ScheduledTask } from 'node-cron'
 import {
     ECOSYSTEMS,
     OSV_SCANNER_NAME,
-    getEcosystem,
+    errText,
+    cacheEcosystemKey,
     sourceStatusKey,
     type EcosystemId,
     type OsvAdvisoryRow,
@@ -65,7 +66,7 @@ export function createOsvController(mainDb: DrizzleDb, runtime: WorkerRuntime): 
             try {
                 current = startOsvRuntime(mainDb, runtime)
             } catch (err) {
-                console.error('[osv] runtime failed to start: ' + ((err instanceof Error && err.message) || String(err)))
+                console.error('[osv] runtime failed to start: ' + errText(err))
                 current = null
             }
             return
@@ -188,11 +189,8 @@ export function startOsvRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime): OsvR
                 && getOsvMeta<number>(osvDb, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, ecosystem)) === OSV_NORMALIZER_VERSION
         },
         lookup: function lookup(ecosystem: string, packageNames: string[]): Map<string, OsvAdvisory[]> {
-            // The cache `ecosystem` column holds the canonical OSV id (== the registry osvEcosystem). Resolve
-            // through the registry so a future divergence between internal id and feed id can't silently miss.
-            const def = getEcosystem(ecosystem)
-            const cacheEcosystem = def ? def.osvEcosystem : ecosystem
-            const rows = lookupOsvByPackages(osvDb, cacheEcosystem, packageNames)
+            // The cache `ecosystem` column holds the canonical OSV id (== the registry osvEcosystem).
+            const rows = lookupOsvByPackages(osvDb, cacheEcosystemKey(ecosystem), packageNames)
             const out = new Map<string, OsvAdvisory[]>()
             for (const [name, list] of rows.entries()) {
                 out.set(name, list.map(toScannerAdvisory))

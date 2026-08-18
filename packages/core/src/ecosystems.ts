@@ -187,3 +187,14 @@ export function ecosystemForOsvId(osvEcosystem: string): EcosystemDefinition | n
     }
     return null
 }
+
+// The ecosystem key an OSV-derived advisory cache is stored under. Both the CLI's on-disk cache and the
+// worker's osv.db are keyed by the canonical OSV id, so resolving through the registry here is what stops
+// a future divergence between internal id and feed id silently matching nothing.
+//
+// Lives in core because it had been written out twice — once exported and tested in the CLI, once inlined
+// in the worker's lookup closure where nothing reached its unregistered-ecosystem arm.
+export function cacheEcosystemKey(ecosystem: string): string {
+    const def = getEcosystem(ecosystem)
+    return def ? def.osvEcosystem : ecosystem
+}

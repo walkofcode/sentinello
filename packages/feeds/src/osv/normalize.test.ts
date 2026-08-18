@@ -258,6 +258,28 @@ describe('normalizeOsvRecord — range extraction', function () {
         expect(rows[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '1.0.0', fixed: null, lastAffected: '1.5.0' }])
     })
 
+    it('refuses an unreadable SEMVER lower bound without inventing one', function () {
+        const ranges = [{ type: 'SEMVER', events: [{ introduced: 'not-a-version' }] }]
+        const rows = normalizeOsvRecord(record({ affected: affected({ ranges }) }), 'npm')
+        expect(rows[0]?.ranges).toEqual([])
+        expect(rows[0]?.versions).toEqual(['1.0.0'])
+    })
+
+    it.each([
+        [{ introduced: '1.0.0' }, { fixed: 'not-a-version' }],
+        [{ introduced: '1.0.0' }, { last_affected: 'not-a-version' }]
+    ])('keeps an interval open when its SEMVER upper event is unreadable', function (...events) {
+        const ranges = [{ type: 'SEMVER', events }]
+        const rows = normalizeOsvRecord(record({ affected: affected({ ranges }) }), 'npm')
+        expect(rows[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '1.0.0', fixed: null, lastAffected: null }])
+    })
+
+    it('uses semver validation for an ECOSYSTEM range in a semver ecosystem', function () {
+        const ranges = [{ type: 'ECOSYSTEM', events: [{ introduced: '1.0.0' }, { fixed: 'not-a-version' }] }]
+        const rows = normalizeOsvRecord(record({ affected: affected({ ranges }) }), 'npm')
+        expect(rows[0]?.ranges).toEqual([{ type: 'ECOSYSTEM', introduced: '1.0.0', fixed: null, lastAffected: null }])
+    })
+
     it('emits an open-ended range for a trailing introduced with no bound', function () {
         const rows = normalizeOsvRecord(
             record({
@@ -455,6 +477,58 @@ describe('normalizeOsvRecord — last_known_affected_version_range', function ()
         expect(rows[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '0', fixed: null, lastAffected: '1.2.3' }])
     })
 
+    it('leaves the interval open when the fallback is at or below its lower bound', function () {
+        for (const fallback of ['< 2.0.0', '< 1.0.0']) {
+            const rows = normalizeOsvRecord(record({ affected: [entry('lodash', [open('2.0.0')], fallback)] }), 'npm')
+            expect(rows[0]?.ranges, fallback).toEqual([
+                { type: 'SEMVER', introduced: '2.0.0', fixed: null, lastAffected: null }
+            ])
+        }
+    })
+
+    // REGRESSION: the fallback only fires on a lone range, so it has to be counted AFTER the degenerate
+    // ones are dropped. Counting first let an empty sibling leave the record's one live interval open
+    // forever — a finding no upgrade can clear — while every test stayed green.
+    it('still bounds the only live range when a degenerate sibling is present', function () {
+        const ranges = [
+            { type: 'SEMVER', events: [{ introduced: '2.0.0' }, { fixed: '1.0.0' }] },
+            { type: 'SEMVER', events: [{ introduced: '3.0.0' }] }
+        ]
+        const rows = normalizeOsvRecord(record({ affected: [entry('lodash', ranges, '< 4.0.0')] }), 'npm')
+        expect(rows[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '3.0.0', fixed: '4.0.0', lastAffected: null }])
+    })
+
+    it('keeps an inclusive fallback equal to the lower bound', function () {
+        const rows = normalizeOsvRecord(record({ affected: [entry('lodash', [open('2.0.0')], '<= 2.0.0')] }), 'npm')
+        expect(rows[0]?.ranges).toEqual([
+            { type: 'SEMVER', introduced: '2.0.0', fixed: null, lastAffected: '2.0.0' }
+        ])
+    })
+
+    it('validates an ECOSYSTEM fallback with the npm comparator', function () {
+        const ranges = [{ type: 'ECOSYSTEM', events: [{ introduced: '2.0.0' }] }]
+        const rows = normalizeOsvRecord(record({ affected: [entry('lodash', ranges, '< 1.0.0')] }), 'npm')
+        expect(rows[0]?.ranges).toEqual([
+            { type: 'ECOSYSTEM', introduced: '2.0.0', fixed: null, lastAffected: null }
+        ])
+    })
+
+    it('leaves an ECOSYSTEM fallback to the non-semver ecosystem comparator', function () {
+        const rows = normalizeOsvRecord(
+            record({
+                affected: [{
+                    package: { name: 'django', ecosystem: 'PyPI' },
+                    ranges: [{ type: 'ECOSYSTEM', events: [{ introduced: '1!1.0' }] }],
+                    database_specific: { last_known_affected_version_range: '<= 1!2.0' }
+                }]
+            }),
+            'PyPI'
+        )
+        expect(rows[0]?.ranges).toEqual([
+            { type: 'ECOSYSTEM', introduced: '1!1.0', fixed: null, lastAffected: '1!2.0' }
+        ])
+    })
+
     // REGRESSION: the field is a fallback, never a supplement. GHSA-25hc-qcg6-38wj claims `< 2.5.0` while
     // the record's real branch fixes are 2.5.1 AND 4.6.2 — applying it over a stated bound would turn a
     // correct range into a false negative and hide everything from 2.5.0 to 4.6.1.
@@ -519,7 +593,7 @@ describe('normalizeOsvRecord — last_known_affected_version_range', function ()
     // The two-form grammar was measured on a sample, not the whole export, so an unrecognised shape must
     // leave the range untouched. A too-wide range is the behaviour we already have; a bound invented from a
     // misread string would hide a real vulnerability.
-    it.each(['>= 1.0.0', '', '<', '<=', '  ', '< 1.0.0 || < 2.0.0', '>=1.0.0 <2.0.0', '<1.0.0,<2.0.0'])(
+    it.each(['>= 1.0.0', '', '<', '<=', '  ', '<banana', '< 1.0.0 || < 2.0.0', '>=1.0.0 <2.0.0', '<1.0.0,<2.0.0'])(
         'refuses a bound it cannot read: %j',
         function (raw) {
             const rows = normalizeOsvRecord(record({ affected: [entry('lodash', [open('0')], raw)] }), 'npm')

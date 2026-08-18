@@ -324,6 +324,26 @@ describe('syncGemnasium — the incremental path', function () {
         expect(countGemnasiumAdvisories(db)).toBe(0)
     })
 
+    // A git compare reports a renamed or deleted SUBTREE as a path ending in a slash, whose last segment
+    // is empty — so advisoryIdFromPath returns null for it. Both loops that build the drop set have to
+    // skip that rather than push a null and then delete by it, on either side of the compare.
+    it('ignores directory entries on both sides of the compare', async function () {
+        upsertGemnasiumAdvisories(db, [row({ advisoryId: 'CVE-2024-keep' })])
+        feeds.fetchGemnasiumChangedPaths.mockResolvedValue({
+            status: 'ok',
+            changed: ['npm/lodash/'],
+            deleted: ['npm/other/'],
+            toSha: 'sha-new'
+        })
+        feeds.fetchGemnasiumFileRows.mockResolvedValue([])
+
+        await syncGemnasium(db)
+
+        // Neither directory entry contributed an id, so nothing was dropped and the untouched advisory
+        // survives — a null in that set would have deleted by it and reported success either way.
+        expect(countGemnasiumAdvisories(db)).toBe(1)
+    })
+
     // Clearing before rewriting is what stops a package dropped from an advisory lingering as a phantom.
     it('clears a changed advisory prior rows before rewriting it', async function () {
         upsertGemnasiumAdvisories(db, [row({ packageName: 'left-pad' })])

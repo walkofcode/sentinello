@@ -401,10 +401,20 @@ describe('buildProjectAdvisoryExport — naming', function () {
         expect(exportAt()?.markdown).toContain('/repo/app')
     })
 
-    // The 'unknown root' fallback in buildProjectAdvisoryParts is unreachable from here and is left
-    // untested deliberately: projects.root_id is a foreign key, so a project pointing at a missing
-    // root cannot be inserted at all. It stays in the source as a type-level guard on the optional
-    // lookup, not as a case the database can produce.
+    // The 'unknown root' fallback is NOT reachable by deleting the root row — projects.root_id is a
+    // foreign key with foreign_keys ON, so a project pointing at a missing root cannot exist. It is
+    // reachable the other way: `.notNull()` constrains a column against NULL, not against the empty
+    // string, so a root row with a blank path satisfies the schema completely.
+    //
+    // Worth pinning rather than shrugging at, because the failure is quiet. Without the fallback the
+    // document would render this project's location as "/app" — which reads as a genuine absolute path
+    // rather than as missing information, and would send someone looking in the wrong place.
+    it('says the root is unknown rather than rendering a project path from a blank one', function () {
+        upsertRoot(db, { id: ROOT_ID, path: '', label: null, createdAt: T0 })
+        const markdown = exportAt()?.markdown ?? ''
+        expect(markdown).toContain('unknown root/app')
+        expect(markdown).not.toMatch(/(^|[^a-z])\/app\b/)
+    })
 })
 
 describe('buildProjectAdvisoryExport — document wiring', function () {

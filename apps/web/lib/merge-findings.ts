@@ -24,7 +24,10 @@ export type MergedFinding = {
     vulnerableRange: string
     fixAvailable: boolean
     fixVersion: string | null
-    depPaths: string[][]
+    // Non-empty by construction: a bucket always has at least one row, and every row carries a dep path.
+    // Typed as a tuple so consumers reading depPaths[0] need no fallback for an empty case that the
+    // merge cannot produce.
+    depPaths: [string[], ...string[][]]
     isProd: boolean
     isDev: boolean
     firstDetectedAt: number | null
@@ -100,8 +103,10 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
     const identities: { source: string; ecosystem: string; scanner: string; advisoryId: string }[] = []
     const gradeKeys = new Set<string>()
     const grades: { source: string; advisoryId: string; severity: Severity }[] = []
-    const depPathKeys = new Set<string>()
-    const depPaths: string[][] = []
+    // Seeded from `first` rather than filled entirely by the loop, so the tuple type holds. The loop
+    // still visits `first` and the key check skips it, leaving the resulting order unchanged.
+    const depPathKeys = new Set<string>([first.depPathJson])
+    const depPaths: [string[], ...string[][]] = [parseJsonArray(first.depPathJson)]
     for (const r of bucket) {
         if (severityWeight(r.severity) > severityWeight(severity)) severity = r.severity
         if (r.advisoryId.startsWith('MAL-')) malicious = true

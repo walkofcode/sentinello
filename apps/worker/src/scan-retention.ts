@@ -1,4 +1,5 @@
 import cron, { type ScheduledTask } from 'node-cron'
+import { errText } from '@sentinello/core'
 import { deleteScansByIds, getConfigValue, listPrunableScanIds, type DrizzleDb } from '@sentinello/db'
 import type { WorkerRuntime } from './runtime'
 
@@ -52,8 +53,7 @@ export function startScanRetentionSweep(input: StartScanRetentionInput): ScanRet
         expression,
         function onTick() {
             const work = sweepOldScans({ db: input.db, at: Date.now() }).catch(function onErr(err: unknown) {
-                const message = (err instanceof Error && err.message) || String(err)
-                console.error('[scan-retention] sweep failed: ' + message)
+                console.error('[scan-retention] sweep failed: ' + errText(err))
             })
             input.runtime.track(work)
         },

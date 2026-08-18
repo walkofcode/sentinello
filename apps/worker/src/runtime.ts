@@ -37,17 +37,17 @@ export function waitForInFlight(runtime: WorkerRuntime, graceMs: number): Promis
             resolve()
             return
         }
-        let settled = false
+        // No `settled` flag guarding either side of this race. A promise's resolve is idempotent, so
+        // whichever arm arrives second is already a no-op, and clearing the timer here is what stops
+        // the grace-exceeded line being logged after a clean settle. The flag those two guards read
+        // could never be true when they ran — it was set and the timer cleared in the same synchronous
+        // block — so both were unreachable rather than defensive.
         const graceTimer = setTimeout(function onGraceTimeout() {
-            if (settled) return
-            settled = true
             console.error('[worker] grace period exceeded; ' + runtime.inFlight.size + ' in-flight tasks did not settle')
             resolve()
         }, graceMs)
         graceTimer.unref()
         Promise.allSettled(tasks).then(function onAllSettled() {
-            if (settled) return
-            settled = true
             clearTimeout(graceTimer)
             resolve()
         })

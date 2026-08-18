@@ -116,6 +116,19 @@ describe('sendSlack — failures', function () {
         expect(result.ok === false && result.errorText).toContain('REDACTED')
     })
 
+    // axios does not promise a message on every error it raises — a socket teardown mid-request can
+    // surface as an AxiosError whose message is ''. The status and body still carry the diagnosis, so
+    // the error text has to survive the blank rather than concatenating `undefined` into it.
+    it('still reports the status when the error carries no message', async function () {
+        isAxiosError.mockReturnValue(true)
+        post.mockRejectedValue({ isAxiosError: true, message: '', response: { status: 500, data: 'server_error' } })
+        const result = await sendSlack(target(), message())
+        expect(result.ok).toBe(false)
+        expect(result.ok === false && result.errorText).toContain('500')
+        expect(result.ok === false && result.errorText).toContain('server_error')
+        expect(result.ok === false && result.errorText).not.toContain('undefined')
+    })
+
     it('reports the status and body Slack returned', async function () {
         isAxiosError.mockReturnValue(true)
         post.mockRejectedValue({

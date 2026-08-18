@@ -36,7 +36,7 @@ import type {
     NotificationTargetKind,
     Severity
 } from '@sentinello/core'
-import { getEcosystem, getSource, sourceEnabledKey, sourceSupportsEcosystem, type EcosystemId, type SourceId } from '@sentinello/core'
+import { errText, getEcosystem, getSource, sourceEnabledKey, sourceSupportsEcosystem, type EcosystemId, type SourceId } from '@sentinello/core'
 import { senderFor } from '@sentinello/notifications'
 import { getDb } from '@/lib/db'
 import { run, UserFacingError, type ActionResult } from '@/lib/actions/action-result'
@@ -129,8 +129,7 @@ export async function listDirectoryAction(rawPath: string, showHidden: boolean):
         entries.sort(function byName(a, b) { return a.name.localeCompare(b.name) })
         return { path: target, parent, entries }
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        return { path: target, parent, entries: [], error: message }
+        return { path: target, parent, entries: [], error: errText(err) }
     }
 }
 

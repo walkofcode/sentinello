@@ -250,6 +250,19 @@ describe('sendWebhook — failures', function () {
         expect(result.ok === false && result.errorText).toContain('ECONNREFUSED')
     })
 
+    // This formatter deliberately omits the body, so the status and the message are the ONLY diagnosis an
+    // operator gets. axios does not guarantee a message on every error it raises, and a blank one must
+    // still leave the status readable rather than trailing `undefined`.
+    it('still reports the status when the error carries no message', async function () {
+        isAxiosError.mockReturnValue(true)
+        post.mockRejectedValue({ isAxiosError: true, message: '', response: { status: 502, data: 'bad_gateway' } })
+        const result = await sendWebhook(target(), message())
+        expect(result.ok).toBe(false)
+        expect(result.ok === false && result.errorText).toContain('502')
+        expect(result.ok === false && result.errorText).not.toContain('undefined')
+        expect(result.ok === false && result.errorText).not.toContain('bad_gateway')
+    })
+
     it('handles a plain Error', async function () {
         post.mockRejectedValue(new Error('boom'))
         const result = await sendWebhook(target(), message())

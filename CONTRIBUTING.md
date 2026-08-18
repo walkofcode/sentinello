@@ -46,6 +46,42 @@ For end-to-end runs, install the browser once with
 `pnpm exec playwright install --with-deps chromium`. pnpm blocks Playwright's
 post-install script by default, which is why this step is explicit.
 
+### Coverage
+
+**The threshold is 100% — statements, branches, functions and lines.** `vitest.config.ts`
+sets it in one line and CI runs `pnpm test:coverage` on every pull request, so a new
+function, branch, or early return that no test exercises fails the build with every existing
+test still green. Note that `pnpm test` does **not** check this; finish with
+`pnpm test:coverage`.
+
+Two rules keep that number honest:
+
+- **Never add a coverage suppression.** There are no `/* v8 ignore */` comments in this
+  repository. The directive blinds a whole *line*, and the branches you would reach for it
+  with routinely share a line with live code — so it hides real behaviour rather than
+  excusing one arm. Do not lower the threshold or add a per-file exception either; both were
+  removed deliberately, and the header comment in `vitest.config.ts` explains why the
+  per-file table it replaced could rot silently.
+- **An unreachable branch gets removed, not excused.** If no input can reach an arm, that is
+  usually a sign the code is asking a question it already knows the answer to. Delete a
+  `?? default` on a column the schema declares `NOT NULL` (check the schema and the `SELECT`,
+  not the expression — adjacent fields often have opposite answers). Fix a hand-written row
+  type instead of guarding it. Iterate `Object.entries` rather than indexing by key. Type a
+  value as a non-empty tuple. Reach for the shared `errText` / `asError` in
+  `@sentinello/core` instead of inlining `err instanceof Error ? … : String(err)` — behind a
+  collaborator that only throws `Error`, that check is dead at the call site and live only in
+  the helper.
+
+Where a guard genuinely must stay — a tripwire, or a defence against a state the database
+should not reach — export it and test it directly, or manufacture the state (a module mock,
+`PRAGMA foreign_keys = OFF`, a column that is blank rather than null). Each of those tests
+ends up pinning a real property, which is the argument for doing it that way.
+
+A last note worth internalising: **a green suite is not evidence that a test reaches what its
+name claims.** Several tests here have passed for years while asserting nothing, and an
+uncovered branch is what exposed them. When you add a test to close a gap, confirm the gap
+actually closed.
+
 ## Reporting bugs and requesting features
 
 Use the issue templates under **Issues → New issue**. Please include the version

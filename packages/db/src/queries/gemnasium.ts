@@ -3,6 +3,7 @@ import { GEMNASIUM_NORMALIZER_VERSION, type GemnasiumAdvisoryRow, type Gemnasium
 import { parseVersionRanges } from '@sentinello/versions'
 import type { GemnasiumDrizzleDb } from '../gemnasium-client'
 import { gemnasiumAdvisories, gemnasiumMeta } from '../gemnasium-schema'
+import { sumCount } from './count'
 
 // The row/range shapes moved to @sentinello/core so the feed normalizers can produce them without
 // linking the SQLite layer (see packages/core/src/advisory-rows.ts). Re-exported here under their
@@ -158,8 +159,7 @@ export function lookupGemnasiumByPackages(
 }
 
 export function countGemnasiumAdvisories(db: GemnasiumDrizzleDb): number {
-    const row = db.select({ count: sql<number>`count(*)` }).from(gemnasiumAdvisories).get()
-    return row?.count ?? 0
+    return sumCount(db.select({ count: sql<number>`count(*)` }).from(gemnasiumAdvisories).all())
 }
 
 // --- gemnasium_meta key/value helpers (sync cursor, seed flag, counts) ---

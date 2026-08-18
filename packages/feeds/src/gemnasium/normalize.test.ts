@@ -392,48 +392,48 @@ describe('parseAffectedRange — no machine-readable range', function () {
     // The old contract was "assume everything before the fix is affected". That is the fabrication this
     // change removes: with no range and nothing but fixed_versions, the record states no affected set.
     it('does not invent a range from fixed_versions alone', function () {
-        expect(parseAffectedRange('', ['4.17.21'])).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('', ['4.17.21'], 'npm')).toEqual({ ranges: [], versions: [] })
     })
 
     it('yields nothing when there is no range and no fix', function () {
-        expect(parseAffectedRange('', [])).toEqual({ ranges: [], versions: [] })
-        expect(parseAffectedRange('   ', [])).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('', [], 'npm')).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('   ', [], 'npm')).toEqual({ ranges: [], versions: [] })
     })
 
     // `<0` matches no version that exists. Treating it as a range — of any width — is the bug.
     it('reads the "<0" sentinel as unresolved, not as an interval', function () {
-        expect(parseAffectedRange('<0', [])).toEqual({ ranges: [], versions: [] })
-        expect(parseAffectedRange('<0', ['8.0.1', '7.5.5'])).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('<0', [], 'npm')).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('<0', ['8.0.1', '7.5.5'], 'npm')).toEqual({ ranges: [], versions: [] })
     })
 
     it('reads the "<0.0.0" spelling of the sentinel the same way', function () {
-        expect(parseAffectedRange('<0.0.0', ['2.0.0'])).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('<0.0.0', ['2.0.0'], 'npm')).toEqual({ ranges: [], versions: [] })
     })
 
     // The display prose is not an input at all, so a record whose machine range selects nothing yields
     // nothing regardless of how much the human-readable field claims.
     it('yields nothing for the sentinel however rich the record looks', function () {
-        expect(parseAffectedRange('<0', ['8.0.1', '7.5.5'])).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('<0', ['8.0.1', '7.5.5'], 'npm')).toEqual({ ranges: [], versions: [] })
     })
 })
 
 describe('parseAffectedRange — comparator form', function () {
     it('reads an upper bound alone as an exclusive bound from zero', function () {
-        expect(parseAffectedRange('<4.17.12', [])).toEqual({
+        expect(parseAffectedRange('<4.17.12', [], 'npm')).toEqual({
             ranges: [{ introduced: '0', fixed: '4.17.12', lastAffected: null }],
             versions: []
         })
     })
 
     it('reads a bounded range', function () {
-        expect(parseAffectedRange('>=4.0.0 <4.0.1', [])).toEqual({
+        expect(parseAffectedRange('>=4.0.0 <4.0.1', [], 'npm')).toEqual({
             ranges: [{ introduced: '4.0.0', fixed: '4.0.1', lastAffected: null }],
             versions: []
         })
     })
 
     it('leaves fixed null for an open-ended lower bound', function () {
-        expect(parseAffectedRange('>=2.0.0', [])).toEqual({
+        expect(parseAffectedRange('>=2.0.0', [], 'npm')).toEqual({
             ranges: [{ introduced: '2.0.0', fixed: null, lastAffected: null }],
             versions: []
         })
@@ -444,24 +444,24 @@ describe('parseAffectedRange — comparator form', function () {
     // severity the advisory carries. gemnasium states the rc hijack as ">1.2.8" while 1.2.8 is the last
     // CLEAN release, so the rounding reported the one safe version as critical malware with no fix.
     it('keeps an exclusive lower bound exclusive', function () {
-        expect(parseAffectedRange('>1.0.0 <2.0.0', [])).toEqual({
+        expect(parseAffectedRange('>1.0.0 <2.0.0', [], 'npm')).toEqual({
             ranges: [{ introduced: '1.0.0', introducedExclusive: true, fixed: '2.0.0', lastAffected: null }],
             versions: []
         })
     })
 
     it('reads an exclusive lower bound with no upper bound', function () {
-        expect(parseAffectedRange('>1.2.8', [])).toEqual({
+        expect(parseAffectedRange('>1.2.8', [], 'npm')).toEqual({
             ranges: [{ introduced: '1.2.8', introducedExclusive: true, fixed: null, lastAffected: null }],
             versions: []
         })
     })
 
     it('splits a disjunction into separate ranges', function () {
-        expect(parseAffectedRange('>=1 <2 || >=3 <4', [])).toEqual({
+        expect(parseAffectedRange('>=1 <2 || >=3 <4', [], 'npm')).toEqual({
             ranges: [
-                { introduced: '1', fixed: '2', lastAffected: null },
-                { introduced: '3', fixed: '4', lastAffected: null }
+                { introduced: '1.0.0', fixed: '2.0.0', lastAffected: null },
+                { introduced: '3.0.0', fixed: '4.0.0', lastAffected: null }
             ],
             versions: []
         })
@@ -470,7 +470,7 @@ describe('parseAffectedRange — comparator form', function () {
     // "<=X" says X itself is affected, and the range type says so directly. It used to collapse into an
     // exclusive `fixed: X`, which dropped X — the one version the advisory was most explicit about.
     it('reads a bare <= bound as an inclusive upper bound', function () {
-        expect(parseAffectedRange('<=2.0.0', [])).toEqual({
+        expect(parseAffectedRange('<=2.0.0', [], 'npm')).toEqual({
             ranges: [{ introduced: '0', fixed: null, lastAffected: '2.0.0' }],
             versions: []
         })
@@ -480,34 +480,34 @@ describe('parseAffectedRange — comparator form', function () {
     // harmless on a stray "v", but the same skip applied to "^1.0.0" leaves the loop with no bounds at
     // all — an unbounded range matching EVERY version of the package.
     it('drops a disjunct containing a token it cannot read', function () {
-        expect(parseAffectedRange('>=1.0.0 v <2.0.0', [])).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('>=1.0.0 v <2.0.0', [], 'npm')).toEqual({ ranges: [], versions: [] })
     })
 
     it('drops an empty disjunct rather than emitting an unbounded range', function () {
-        expect(parseAffectedRange('>=1 <2 || ', [])).toEqual({
-            ranges: [{ introduced: '1', fixed: '2', lastAffected: null }],
+        expect(parseAffectedRange('>=1 <2 || ', [], 'npm')).toEqual({
+            ranges: [{ introduced: '1.0.0', fixed: '2.0.0', lastAffected: null }],
             versions: []
         })
-        expect(parseAffectedRange('||', [])).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('||', [], 'npm')).toEqual({ ranges: [], versions: [] })
     })
 
     it('strips a leading v from either bound', function () {
-        expect(parseAffectedRange('>=v1.0.0 <V2.0.0', [])).toEqual({
+        expect(parseAffectedRange('>=v1.0.0 <V2.0.0', [], 'npm')).toEqual({
             ranges: [{ introduced: '1.0.0', fixed: '2.0.0', lastAffected: null }],
             versions: []
         })
     })
 
     it('reads an explicit pin as an enumerated version, not a range', function () {
-        expect(parseAffectedRange('=1.2.3', [])).toEqual({ ranges: [], versions: ['1.2.3'] })
+        expect(parseAffectedRange('=1.2.3', [], 'npm')).toEqual({ ranges: [], versions: ['1.2.3'] })
     })
 
     it('reads a bare version as a pin', function () {
-        expect(parseAffectedRange('1.2.3', [])).toEqual({ ranges: [], versions: ['1.2.3'] })
+        expect(parseAffectedRange('1.2.3', [], 'npm')).toEqual({ ranges: [], versions: ['1.2.3'] })
     })
 
     it('tolerates irregular whitespace between tokens', function () {
-        expect(parseAffectedRange('  >=1.0.0    <2.0.0  ', [])).toEqual({
+        expect(parseAffectedRange('  >=1.0.0    <2.0.0  ', [], 'npm')).toEqual({
             ranges: [{ introduced: '1.0.0', fixed: '2.0.0', lastAffected: null }],
             versions: []
         })
@@ -517,8 +517,92 @@ describe('parseAffectedRange — comparator form', function () {
     // "exact version" branch and be cached verbatim — "^1.0.0" became a pin on the literal string
     // "^1.0.0", which no installed version can ever equal. The row looked like a live advisory and
     // matched nothing for as long as it stayed in the cache.
-    it.each(['^1.0.0', '~1.0.0', '!=1.0.0', '1.x', '*'])('refuses %j rather than pinning it', function (raw) {
-        expect(parseAffectedRange(raw, [])).toEqual({ ranges: [], versions: [] })
+    //
+    // The npm forms are no longer refused, they are UNDERSTOOD: canonicaliseRange hands node-semver's own
+    // reading to the parser, so `^1.0.0` arrives as `>=1.0.0 <2.0.0`. What must never come back is the pin.
+    it.each([
+        ['^1.0.0', { introduced: '1.0.0', fixed: '2.0.0', lastAffected: null }],
+        ['~1.0.0', { introduced: '1.0.0', fixed: '1.1.0', lastAffected: null }],
+        ['1.x', { introduced: '1.0.0', fixed: '2.0.0', lastAffected: null }],
+        ['1.0.0 - 2.0.0', { introduced: '1.0.0', fixed: null, lastAffected: '2.0.0' }]
+    ])('reads %j as the range npm reads it as', function (raw, expected) {
+        expect(parseAffectedRange(raw, [], 'npm')).toEqual({ ranges: [expected], versions: [] })
+    })
+
+    // Syntax npm ITSELF cannot read stays refused — `!=1.0.0` is not a node-semver operator — and so does a
+    // range that names no version at all. `*` and `x` mean "any version" to npm because that is what an
+    // unconstrained dependency spec means; in an advisory they are indistinguishable from a field that was
+    // never filled in, and reading them as "every version is vulnerable" is the more expensive way to be
+    // wrong. A record that means everything writes `>=0`, which is what the corpus uses.
+    it.each(['!=1.0.0', '*', 'x', '||'])('refuses %j rather than guessing', function (raw) {
+        expect(parseAffectedRange(raw, [], 'npm')).toEqual({ ranges: [], versions: [] })
+    })
+})
+
+// REGRESSION (npm/fresh GMS-2017-232). gemnasium writes the operator apart from its version in 19 records,
+// and node-semver reads each pair as one comparator — `validRange('< 0.5.2')` is `'<0.5.2'`. Splitting on
+// whitespace alone made two tokens of the pair, so the naked "<" took an empty version and the version
+// token, now bare, was read as an exact pin that returned from the parser at once and discarded every
+// later comparator in the disjunct.
+//
+// The damage was an INVERTED finding rather than a lost one: "< 0.5.2" cached as "exactly 0.5.2 is
+// affected", and 0.5.2 is the release that FIXED the ReDoS. A pin carries no fix boundary, so the finding
+// named no remediation — a moderate on the one version that clears the advisory, unfixable by upgrading.
+describe('parseAffectedRange — an operator written apart from its version', function () {
+    // Each spaced spelling against its unspaced twin, which is the assertion that matters: the space is
+    // insignificant to npm, so it must be insignificant here. Testing them against hand-written expected
+    // objects would let both sides drift together.
+    it.each([
+        ['< 0.5.2', '<0.5.2'],
+        ['<= 0.3.3', '<=0.3.3'],
+        ['> 1.2.8', '>1.2.8'],
+        ['>= 2.0.0', '>=2.0.0'],
+        ['= 1.2.3', '=1.2.3'],
+        ['>= 1.0.0 < 2.0.0', '>=1.0.0 <2.0.0'],
+        ['>= 1.7.0 <1.7.8', '>=1.7.0 <1.7.8'],
+        ['< 1.6.14 || >= 1.7.0 < 1.7.8', '<1.6.14 || >=1.7.0 <1.7.8'],
+        // PEP 440 spells an intersection with a comma, and gemnasium's PyPI records add a space after it.
+        ['>= 5.0, < 5.8', '>=5.0,<5.8']
+    ])('reads %j exactly as %j', function (spaced, tight) {
+        expect(parseAffectedRange(spaced, [], 'npm')).toEqual(parseAffectedRange(tight, [], 'npm'))
+    })
+
+    // The record itself, end to end. `fixed_versions: ["0.5.2"]` is passed as upstream states it, so the
+    // authoritative-fix override runs too and the assertion covers the row a scan would actually match on.
+    it('does NOT report fresh 0.5.2 — the version that fixed it — as affected', function () {
+        const parsed = parseAffectedRange('< 0.5.2', ['0.5.2'], 'npm')
+        expect(parsed).toEqual({
+            ranges: [{ introduced: '0', fixed: '0.5.2', lastAffected: null }],
+            versions: []
+        })
+        expect(parsed.versions).not.toContain('0.5.2')
+    })
+
+    // npm/pg GMS-2017-178: eleven branches, every one of them spaced, and one disjunct carrying a double
+    // space after the "||". Before the fix this pinned eleven versions — each branch's FIRST affected
+    // version plus the 2.11.2 that fixed the oldest branch — and produced not one usable range.
+    it('reads all eleven branches of the npm/pg advisory', function () {
+        const parsed = parseAffectedRange(
+            '< 2.11.2 || >= 3.0.0 < 3.6.4 ||  >= 4.0.0 < 4.5.7 || >= 5.0.0 < 5.2.1 || >= 6.0.0 < 6.0.5',
+            [],
+            'npm'
+        )
+        expect(parsed.versions).toEqual([])
+        expect(parsed.ranges).toEqual([
+            { introduced: '0', fixed: '2.11.2', lastAffected: null },
+            { introduced: '3.0.0', fixed: '3.6.4', lastAffected: null },
+            { introduced: '4.0.0', fixed: '4.5.7', lastAffected: null },
+            { introduced: '5.0.0', fixed: '5.2.1', lastAffected: null },
+            { introduced: '6.0.0', fixed: '6.0.5', lastAffected: null }
+        ])
+    })
+
+    // A trailing operator has no version to bind to. Dropping it silently would leave ">=1.0.0" unbounded
+    // — a finding on every release of the package, forever — so the disjunct goes instead, which is also
+    // what node-semver does: `validRange('<')` is null.
+    it('refuses a disjunct whose operator has no version', function () {
+        expect(parseAffectedRange('<', [], 'npm')).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('>=1.0.0 <', [], 'npm')).toEqual({ ranges: [], versions: [] })
     })
 })
 
@@ -526,14 +610,14 @@ describe('parseAffectedRange — maven-style interval notation', function () {
     // "(," names no lower bound at all, so there is nothing for the paren to exclude — the range starts
     // at the bottom of the version space inclusively.
     it('reads an open lower bound', function () {
-        expect(parseAffectedRange('(,4.1.2)', [])).toEqual({
+        expect(parseAffectedRange('(,4.1.2)', [], 'npm')).toEqual({
             ranges: [{ introduced: '0', fixed: '4.1.2', lastAffected: null }],
             versions: []
         })
     })
 
     it('reads a fully bounded interval', function () {
-        expect(parseAffectedRange('[1.0.0,2.0.0)', [])).toEqual({
+        expect(parseAffectedRange('[1.0.0,2.0.0)', [], 'npm')).toEqual({
             ranges: [{ introduced: '1.0.0', fixed: '2.0.0', lastAffected: null }],
             versions: []
         })
@@ -541,27 +625,27 @@ describe('parseAffectedRange — maven-style interval notation', function () {
 
     // "(" on a bound that exists IS exclusive — that is the entire difference from "[".
     it('reads an exclusive open bracket as an exclusive lower bound', function () {
-        expect(parseAffectedRange('(1.0.0,2.0.0)', [])).toEqual({
+        expect(parseAffectedRange('(1.0.0,2.0.0)', [], 'npm')).toEqual({
             ranges: [{ introduced: '1.0.0', introducedExclusive: true, fixed: '2.0.0', lastAffected: null }],
             versions: []
         })
     })
 
     it('reads an open upper bound as unfixed', function () {
-        expect(parseAffectedRange('[1.0.0,)', [])).toEqual({
+        expect(parseAffectedRange('[1.0.0,)', [], 'npm')).toEqual({
             ranges: [{ introduced: '1.0.0', fixed: null, lastAffected: null }],
             versions: []
         })
     })
 
     it('reads a comma-less interval as an exact version', function () {
-        expect(parseAffectedRange('[1.2.3]', [])).toEqual({ ranges: [], versions: ['1.2.3'] })
+        expect(parseAffectedRange('[1.2.3]', [], 'npm')).toEqual({ ranges: [], versions: ['1.2.3'] })
     })
 
     // "]" is an INCLUSIVE close, not a spelling variant of ")". Reading the two as equivalent silently
     // excluded the upper bound version from every maven-notation advisory that used it.
     it('reads a closing square bracket as an inclusive upper bound', function () {
-        expect(parseAffectedRange('[1.0.0,2.0.0]', [])).toEqual({
+        expect(parseAffectedRange('[1.0.0,2.0.0]', [], 'npm')).toEqual({
             ranges: [{ introduced: '1.0.0', fixed: null, lastAffected: '2.0.0' }],
             versions: []
         })
@@ -570,12 +654,15 @@ describe('parseAffectedRange — maven-style interval notation', function () {
     // An unterminated interval is unparseable rather than unbounded. Dropping it loses one advisory;
     // guessing at it could flag every version of the package.
     it('drops an unterminated interval instead of guessing', function () {
-        expect(parseAffectedRange('(1.0.0', [])).toEqual({ ranges: [], versions: [] })
-        expect(parseAffectedRange('[1.0.0', [])).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('(1.0.0', [], 'npm')).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('[1.0.0', [], 'npm')).toEqual({ ranges: [], versions: [] })
     })
 
+    // Same two-layer refusal as the bracket cross-product: npm's digit gate stops it before the parser,
+    // so the parser's own empty-interval arm is only reachable through a dialect that has no digit gate.
     it('drops an empty interval', function () {
-        expect(parseAffectedRange('[]', [])).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('[]', [], 'npm')).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('[]', [], 'PyPI')).toEqual({ ranges: [], versions: [] })
     })
 })
 
@@ -583,7 +670,7 @@ describe('parseAffectedRange — authoritative fixed_versions override', functio
     // A known fix version is a better upper bound than a parsed one, and it names the remediation
     // target. Note this is no longer how "<=X" is expressed — that has its own representation now.
     it('prefers the real fix version over an inclusive parsed bound', function () {
-        expect(parseAffectedRange('<=2.0.0', ['2.0.1'])).toEqual({
+        expect(parseAffectedRange('<=2.0.0', ['2.0.1'], 'npm')).toEqual({
             ranges: [{ introduced: '0', fixed: '2.0.1', lastAffected: null }],
             versions: []
         })
@@ -592,21 +679,21 @@ describe('parseAffectedRange — authoritative fixed_versions override', functio
     // With no fix recorded, "<=X" stands on its own and still includes X. It used to fall back to an
     // exclusive fixed=X here, silently dropping the boundary version.
     it('keeps <=X inclusive when no fix is known', function () {
-        expect(parseAffectedRange('<=2.0.0', [])).toEqual({
+        expect(parseAffectedRange('<=2.0.0', [], 'npm')).toEqual({
             ranges: [{ introduced: '0', fixed: null, lastAffected: '2.0.0' }],
             versions: []
         })
     })
 
     it('overrides a parsed upper bound that disagrees with the recorded fix', function () {
-        expect(parseAffectedRange('<4.17.12', ['4.17.21'])).toEqual({
+        expect(parseAffectedRange('<4.17.12', ['4.17.21'], 'npm')).toEqual({
             ranges: [{ introduced: '0', fixed: '4.17.21', lastAffected: null }],
             versions: []
         })
     })
 
     it('preserves the lower bound while overriding the upper', function () {
-        expect(parseAffectedRange('>=4.0.0 <4.0.1', ['4.0.9'])).toEqual({
+        expect(parseAffectedRange('>=4.0.0 <4.0.1', ['4.0.9'], 'npm')).toEqual({
             ranges: [{ introduced: '4.0.0', fixed: '4.0.9', lastAffected: null }],
             versions: []
         })
@@ -615,7 +702,7 @@ describe('parseAffectedRange — authoritative fixed_versions override', functio
     // The override replaces the UPPER bound only. An exclusive lower bound is the advisory's own
     // statement and survives it.
     it('preserves an exclusive lower bound while overriding the upper', function () {
-        expect(parseAffectedRange('>1.0.0 <2.0.0', ['2.5.0'])).toEqual({
+        expect(parseAffectedRange('>1.0.0 <2.0.0', ['2.5.0'], 'npm')).toEqual({
             ranges: [{ introduced: '1.0.0', introducedExclusive: true, fixed: '2.5.0', lastAffected: null }],
             versions: []
         })
@@ -625,8 +712,26 @@ describe('parseAffectedRange — authoritative fixed_versions override', functio
     // multi-branch advisory `fixed_versions[0]` is an arbitrary pick. Applying it to a single interval
     // claims every version below some OTHER branch's fix is vulnerable — which is how a correctly-parsed
     // `>=7.5.0 <7.6.5` would have become `>=7.5.0 <8.6.6`. One entry is the only safe case.
+    // REGRESSION (npm/binaryen CVE-2021-46050). The override had no check that its replacement bound sits
+    // ABOVE the interval's lower bound, while the highest-fix bounding below it has always had one. Nothing
+    // reached the gap until `=103` stopped being a pin and became the range `[103.0.0, 104.0.0)`, at which
+    // point the record's `fixed_versions: ["103.0.0-nightly.20211203"]` — a PRERELEASE of its own lower
+    // bound — was substituted in, producing `[103.0.0, 103.0.0-nightly.20211203)`. That interval selects
+    // nothing, so an advisory that had been reporting 103.0.0 would silently have reported no version at
+    // all: a live-looking cache row that can never match, which is this whole defect class in one line.
+    it('declines to override with a fix at or below the lower bound', function () {
+        expect(parseAffectedRange('=103', ['103.0.0-nightly.20211203'], 'npm')).toEqual({
+            ranges: [{ introduced: '103.0.0', fixed: '104.0.0', lastAffected: null }],
+            versions: []
+        })
+        expect(parseAffectedRange('>=2.0.0 <3.0.0', ['2.0.0'], 'npm')).toEqual({
+            ranges: [{ introduced: '2.0.0', fixed: '3.0.0', lastAffected: null }],
+            versions: []
+        })
+    })
+
     it('does not override when several branch fixes are listed', function () {
-        expect(parseAffectedRange('>=7.5.0 <7.6.5', ['7.6.5', '8.6.6'])).toEqual({
+        expect(parseAffectedRange('>=7.5.0 <7.6.5', ['7.6.5', '8.6.6'], 'npm')).toEqual({
             ranges: [{ introduced: '7.5.0', fixed: '7.6.5', lastAffected: null }],
             versions: []
         })
@@ -635,7 +740,7 @@ describe('parseAffectedRange — authoritative fixed_versions override', functio
     // npm/sauce-connect-launcher GMS-2014-4, the case the count check used to cost us: "<=0.3.3" with two
     // branch fixes skips the override, and now keeps 0.3.3 instead of under-including it.
     it('keeps an inclusive bound the multi-fix guard declines to override', function () {
-        expect(parseAffectedRange('<=0.3.3', ['0.3.5', '0.4.0'])).toEqual({
+        expect(parseAffectedRange('<=0.3.3', ['0.3.5', '0.4.0'], 'npm')).toEqual({
             ranges: [{ introduced: '0', fixed: null, lastAffected: '0.3.3' }],
             versions: []
         })
@@ -644,24 +749,24 @@ describe('parseAffectedRange — authoritative fixed_versions override', functio
     // With several disjoint ranges there is no way to know which one the single fixed version closes,
     // so applying it to the first would be a guess.
     it('does not override when the range is disjoint', function () {
-        expect(parseAffectedRange('>=1 <2 || >=3 <4', ['4.0.1'])).toEqual({
+        expect(parseAffectedRange('>=1 <2 || >=3 <4', ['4.0.1'], 'npm')).toEqual({
             ranges: [
-                { introduced: '1', fixed: '2', lastAffected: null },
-                { introduced: '3', fixed: '4', lastAffected: null }
+                { introduced: '1.0.0', fixed: '2.0.0', lastAffected: null },
+                { introduced: '3.0.0', fixed: '4.0.0', lastAffected: null }
             ],
             versions: []
         })
     })
 
     it('does not override when enumerated versions are also present', function () {
-        expect(parseAffectedRange('<2.0.0 || 3.0.0', ['9.9.9'])).toEqual({
+        expect(parseAffectedRange('<2.0.0 || 3.0.0', ['9.9.9'], 'npm')).toEqual({
             ranges: [{ introduced: '0', fixed: '2.0.0', lastAffected: null }],
             versions: ['3.0.0']
         })
     })
 
     it('does not override an exact pin', function () {
-        expect(parseAffectedRange('[1.2.3]', ['2.0.0'])).toEqual({ ranges: [], versions: ['1.2.3'] })
+        expect(parseAffectedRange('[1.2.3]', ['2.0.0'], 'npm')).toEqual({ ranges: [], versions: ['1.2.3'] })
     })
 })
 
@@ -674,17 +779,17 @@ describe('parseAffectedRange — an open-ended range bounded by the highest know
         [['7.5.5', '8.0.1']],
         [['8.0.1', '7.5.5']]
     ])('bounds at the highest fix whatever order the set arrives in: %j', function (fixedVersions) {
-        expect(parseAffectedRange('>=2.0.0', fixedVersions)).toEqual({
+        expect(parseAffectedRange('>=2.0.0', fixedVersions, 'npm')).toEqual({
             ranges: [{ introduced: '2.0.0', fixed: '8.0.1', lastAffected: null }],
             versions: []
         })
     })
 
     it('bounds only the disjunct that has no upper bound', function () {
-        expect(parseAffectedRange('>=1 <2 || >=3', ['2.0.0', '4.0.0'])).toEqual({
+        expect(parseAffectedRange('>=1 <2 || >=3', ['2.0.0', '4.0.0'], 'npm')).toEqual({
             ranges: [
-                { introduced: '1', fixed: '2', lastAffected: null },
-                { introduced: '3', fixed: '4.0.0', lastAffected: null }
+                { introduced: '1.0.0', fixed: '2.0.0', lastAffected: null },
+                { introduced: '3.0.0', fixed: '4.0.0', lastAffected: null }
             ],
             versions: []
         })
@@ -693,7 +798,7 @@ describe('parseAffectedRange — an open-ended range bounded by the highest know
     // The rc GMS-2021-3 shape: ">1.2.8" excludes 1.2.8, which is the clean release. Bounding above must not
     // quietly pull the lower bound back to inclusive.
     it('keeps an exclusive lower bound exclusive while bounding above', function () {
-        expect(parseAffectedRange('>1.2.8', ['1.3.0', '2.0.0'])).toEqual({
+        expect(parseAffectedRange('>1.2.8', ['1.3.0', '2.0.0'], 'npm')).toEqual({
             ranges: [{ introduced: '1.2.8', introducedExclusive: true, fixed: '2.0.0', lastAffected: null }],
             versions: []
         })
@@ -702,14 +807,14 @@ describe('parseAffectedRange — an open-ended range bounded by the highest know
     // A fix at or below the lower bound belongs to a different branch. Pairing them builds a range that
     // matches nothing, which mutes the advisory outright — worse than leaving it too wide.
     it('refuses a fix that is not above the lower bound', function () {
-        expect(parseAffectedRange('>=9.0.0', ['1.0.0', '2.0.0'])).toEqual({
+        expect(parseAffectedRange('>=9.0.0', ['1.0.0', '2.0.0'], 'npm')).toEqual({
             ranges: [{ introduced: '9.0.0', fixed: null, lastAffected: null }],
             versions: []
         })
     })
 
     it('refuses fix versions it cannot order', function () {
-        expect(parseAffectedRange('>=2.0.0', ['not-a-version', 'also-bad'])).toEqual({
+        expect(parseAffectedRange('>=2.0.0', ['not-a-version', 'also-bad'], 'npm')).toEqual({
             ranges: [{ introduced: '2.0.0', fixed: null, lastAffected: null }],
             versions: []
         })
@@ -719,7 +824,7 @@ describe('parseAffectedRange — an open-ended range bounded by the highest know
     // interval and leaves it alone. Same answer, different rule — worth pinning so a future edit to either
     // one shows up here.
     it('leaves the single-fix override result untouched', function () {
-        expect(parseAffectedRange('>=2.0.0', ['4.0.0'])).toEqual({
+        expect(parseAffectedRange('>=2.0.0', ['4.0.0'], 'npm')).toEqual({
             ranges: [{ introduced: '2.0.0', fixed: '4.0.0', lastAffected: null }],
             versions: []
         })
@@ -730,23 +835,85 @@ describe('parseAffectedRange — an open-ended range bounded by the highest know
 // as ONE token, so the lower bound became the literal "5.0,<5.8" — which no PEP 440 parser reads, so the
 // matcher refused the bound and the range matched nothing — and the upper bound vanished entirely. 2,830 of
 // 7,159 cached PyPI records were in that state, unable to report anything at all.
+// THE NON-npm DIALECTS, which take a different path through this parser and had almost no tests of their
+// own. npm ranges are canonicalised by node-semver before the tokenizer sees them; PyPI, Go and crates.io
+// are not, and must not be — PEP 440's `==1.0` is an exact pin where npm's `=1.0` is a whole release line.
+// So every guard in the hand-written parser is still load-bearing for these three, and only for them.
+//
+// This block exists because canonicalisation SILENTLY MOVED a guard's coverage. `1.0.0 - 2.0.0` used to
+// reach the bare-token guard below as an npm range; now npm resolves it to `>=1.0.0 <=2.0.0` upstream of
+// the guard, and the only callers that can still reach it are these three. The coverage report is what
+// surfaced that — the guard stayed correct and its test stopped exercising it.
+describe('parseAffectedRange — the dialects npm does not canonicalise', function () {
+    const OTHERS = ['PyPI', 'Go', 'crates.io'] as const
+
+    // SYNTHETIC INPUT, and labelled as such so nobody later reads it as evidence. No record in any of
+    // gemnasium-db's eleven package types writes a hyphen range or any other bare version standing beside
+    // a comparator — measured, not assumed — so this shape has never arrived and may never.
+    //
+    // What it pins is the guard's DIRECTION, which is the part that matters if the shape ever does arrive.
+    // A bare token returns its pin immediately, so without the guard `1.0.0 - 2.0.0` caches as "only 1.0.0
+    // is affected": a plausible-looking row that silently under-reports two majors, and that nothing
+    // downstream can tell from a correct one. Refusing instead makes the unknown shape LOUD — it is what
+    // range-fidelity.test.ts's readability sweep is watching for, and that sweep fails the build by name
+    // the moment a real range stops being readable.
+    //
+    // npm cannot reach this: its ranges are canonicalised through node-semver first, so a hyphen range
+    // arrives as `>=1.0.0 <=2.0.0` and is read properly. These three get no canonicalisation, by design.
+    it.each(OTHERS)('refuses rather than half-reads an unmodelled %s range', function (ecosystem) {
+        expect(parseAffectedRange('1.0.0 - 2.0.0', [], ecosystem)).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('>=1.0.0 1.5.0', [], ecosystem)).toEqual({ ranges: [], versions: [] })
+    })
+
+    // A pin ON ITS OWN is still a pin, in every dialect.
+    it.each(OTHERS)('keeps a lone %s pin', function (ecosystem) {
+        expect(parseAffectedRange('=1.2.3', [], ecosystem)).toEqual({ ranges: [], versions: ['1.2.3'] })
+        expect(parseAffectedRange('1.2.3', [], ecosystem)).toEqual({ ranges: [], versions: ['1.2.3'] })
+    })
+
+    // The npm rules must NOT leak. `==1.0` is an exact pin in PEP 440 and `==1.0.*` is its wildcard, so
+    // reading `=1.0` as the whole 1.0 line here would report versions the record never claimed. Likewise a
+    // partial upper bound stays literal rather than being widened to the end of the line.
+    it.each(OTHERS)('leaves a partial %s version literal instead of expanding it', function (ecosystem) {
+        expect(parseAffectedRange('=1.0', [], ecosystem)).toEqual({ ranges: [], versions: ['1.0'] })
+        expect(parseAffectedRange('<=3.3', [], ecosystem)).toEqual({
+            ranges: [{ introduced: '0', fixed: null, lastAffected: '3.3' }],
+            versions: []
+        })
+    })
+
+    // Spacing has to be tolerated identically in every dialect — the fresh defect was a space, and only the
+    // npm path gained an upstream normaliser for it. These three still rely on bindOperators alone.
+    it.each(OTHERS)('binds an operator to its version in %s too', function (ecosystem) {
+        expect(parseAffectedRange('< 0.5.2', [], ecosystem)).toEqual(parseAffectedRange('<0.5.2', [], ecosystem))
+        expect(parseAffectedRange('>= 1.0, < 2.0', [], ecosystem)).toEqual(parseAffectedRange('>=1.0,<2.0', [], ecosystem))
+    })
+
+    // And the wildcard refusal is dialect-independent: a range naming no version cannot become every one.
+    it.each(OTHERS)('refuses a %s range that names no version', function (ecosystem) {
+        for (const raw of ['*', 'x', '', '||']) {
+            expect(parseAffectedRange(raw, [], ecosystem), ecosystem + ' ' + raw).toEqual({ ranges: [], versions: [] })
+        }
+    })
+})
+
 describe('parseAffectedRange — PEP 440 comma intersections', function () {
     it('splits a comma intersection into one bounded interval', function () {
-        expect(parseAffectedRange('>=5.0,<5.8', [])).toEqual({
+        expect(parseAffectedRange('>=5.0,<5.8', [], 'PyPI')).toEqual({
             ranges: [{ introduced: '5.0', fixed: '5.8', lastAffected: null }],
             versions: []
         })
     })
 
     it('keeps an inclusive upper bound across a comma', function () {
-        expect(parseAffectedRange('>=1.0,<=1.0.1', [])).toEqual({
+        expect(parseAffectedRange('>=1.0,<=1.0.1', [], 'PyPI')).toEqual({
             ranges: [{ introduced: '1.0', fixed: null, lastAffected: '1.0.1' }],
             versions: []
         })
     })
 
     it('reads a disjunction of comma intersections', function () {
-        expect(parseAffectedRange('>=2.2.0,<7.1.0 || >=4.0.0,<4.3.0', [])).toEqual({
+        expect(parseAffectedRange('>=2.2.0,<7.1.0 || >=4.0.0,<4.3.0', [], 'PyPI')).toEqual({
             ranges: [
                 { introduced: '2.2.0', fixed: '7.1.0', lastAffected: null },
                 { introduced: '4.0.0', fixed: '4.3.0', lastAffected: null }
@@ -756,7 +923,7 @@ describe('parseAffectedRange — PEP 440 comma intersections', function () {
     })
 
     it('tolerates a space after the comma', function () {
-        expect(parseAffectedRange('>=5.0, <5.8', [])).toEqual({
+        expect(parseAffectedRange('>=5.0, <5.8', [], 'PyPI')).toEqual({
             ranges: [{ introduced: '5.0', fixed: '5.8', lastAffected: null }],
             versions: []
         })
@@ -765,7 +932,7 @@ describe('parseAffectedRange — PEP 440 comma intersections', function () {
     // A maven interval's comma is structural, and parseDisjunct routes it away on the leading bracket
     // before the comparator parser ever sees it.
     it('leaves maven interval notation to its own parser', function () {
-        expect(parseAffectedRange('[1.0.0,2.0.0)', [])).toEqual({
+        expect(parseAffectedRange('[1.0.0,2.0.0)', [], 'PyPI')).toEqual({
             ranges: [{ introduced: '1.0.0', fixed: '2.0.0', lastAffected: null }],
             versions: []
         })

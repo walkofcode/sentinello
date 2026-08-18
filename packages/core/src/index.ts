@@ -1,4 +1,5 @@
 export * from './types'
+export * from './errors'
 export * from './advisory-rows'
 export * from './reason-code-labels'
 export * from './scan-status-labels'

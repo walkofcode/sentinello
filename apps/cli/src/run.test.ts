@@ -618,6 +618,50 @@ describe('Ui contract', function () {
         expect(calls.indexOf('scanStart')).toBeLessThan(calls.indexOf('summary'))
         expect(calls[calls.length - 1]).toBe('summary')
     })
+
+    // Discovery reports what it declined to walk through an onSkip callback, and main() collects those
+    // into the list it hands the terminal. Without that collection the run reports "1 project" against a
+    // tree holding two, and the user has no way to tell a project that is clean from one that was never
+    // looked at — which is the difference between "no vulnerabilities" and "no answer".
+    //
+    // Real discovery runs here (only @sentinello/feeds and the npm-audit plugin are stubbed), so the
+    // .gitignore below is honoured by the same code path a user's repo takes.
+    it('collects the paths discovery skipped and hands them to the terminal', async function () {
+        await makeProject('web')
+        await makeProject('vendor/bundled')
+        await writeFile(join(dir, '.gitignore'), 'vendor/\n', 'utf8')
+
+        let reported: { projects: readonly unknown[]; skipped: readonly { path: string; source: string }[] } | null = null
+        const recorder = new Proxy({} as Ui, {
+            get: function get(_target, prop: string) {
+                return function record(...args: unknown[]): unknown {
+                    if (prop === 'discovered') {
+                        reported = {
+                            projects: args[0] as readonly unknown[],
+                            skipped: args[1] as readonly { path: string; source: string }[]
+                        }
+                    }
+                    if (prop === 'confirmSeed') return Promise.resolve(false)
+                    return undefined
+                }
+            }
+        })
+        const { runScan } = await import('./run')
+        const { parseArgs } = await import('./options')
+        const parsed = parseArgs(scanArgs())
+        if (parsed.kind !== 'options') throw new Error('expected options')
+
+        await runScan(parsed.options, join(dir, '.cache'), recorder)
+
+        expect(reported).not.toBeNull()
+        const seen = reported as unknown as { projects: readonly unknown[]; skipped: readonly { path: string; source: string }[] }
+        expect(seen.projects).toHaveLength(1)
+        // The skip is reported, not silently dropped — and it says WHY, so the user can tell a
+        // deliberate .gitignore from an unreadable directory.
+        expect(seen.skipped).toHaveLength(1)
+        expect(seen.skipped[0]?.path).toContain('vendor')
+        expect(seen.skipped[0]?.source).toBe('gitignore')
+    })
 })
 
 // The distinction that decides an exit code. `SENTINELLO_*_FEED_URL=off` switches off the FEED, not the

@@ -34,7 +34,8 @@ import {
     tryAcquireLock,
     writeCacheMeta,
     type CacheMeta,
-    type SourceId
+    type SourceId,
+    type SourceState
 } from './meta'
 import { countRows, createRowWriter, rewriteRows } from './store'
 
@@ -347,14 +348,21 @@ async function seedGemnasium(options: SyncOptions, meta: CacheMeta, item: SyncPl
 
 async function refreshGemnasium(options: SyncOptions, meta: CacheMeta, item: SyncPlanItem): Promise<SyncOutcome> {
     const state = getSourceState(meta, 'gemnasium', item.ecosystem)
-    const storedSha = state && state.headSha ? state.headSha : null
-    const headSha = await fetchGemnasiumHeadSha(fetchOptionsFor(options, item))
-    if (headSha && storedSha === headSha) {
-        touch(meta, 'gemnasium', item.ecosystem)
-        return { source: 'gemnasium', ecosystem: item.ecosystem, status: 'unchanged', rowCount: state?.recordCount ?? 0, message: null }
-    }
-    if (!headSha || !storedSha) {
+    // Hoisted above the fetch, which narrows `state` for the whole rest of the function: an incremental
+    // refresh is only possible from a stored sha, and a stored sha implies a stored state. Every
+    // `state?.recordCount ?? 0` below used to re-ask a question this answers once. It also skips a
+    // pointless HEAD request on the re-seed path, which the old order issued and then discarded.
+    if (!state || !state.headSha) {
         return await seedGemnasium(options, meta, { ...item, kind: 'seed' })
+    }
+    const storedSha = state.headSha
+    const headSha = await fetchGemnasiumHeadSha(fetchOptionsFor(options, item))
+    if (!headSha) {
+        return await seedGemnasium(options, meta, { ...item, kind: 'seed' })
+    }
+    if (storedSha === headSha) {
+        touch(meta, 'gemnasium', item.ecosystem)
+        return { source: 'gemnasium', ecosystem: item.ecosystem, status: 'unchanged', rowCount: state.recordCount, message: null }
     }
     const changed = await fetchGemnasiumChangedPaths(storedSha, headSha, fetchOptionsFor(options, item))
     if (changed.status === 'unavailable') {
@@ -369,8 +377,8 @@ async function refreshGemnasium(options: SyncOptions, meta: CacheMeta, item: Syn
     if (relevant.length === 0 && removed.length === 0) {
         // The commit touched only other ecosystems, but the sha must still advance or every later refresh
         // would re-compare from the same stale point.
-        touchGemnasiumSha(meta, item.ecosystem, headSha)
-        return { source: 'gemnasium', ecosystem: item.ecosystem, status: 'unchanged', rowCount: state?.recordCount ?? 0, message: null }
+        touchGemnasiumSha(state, headSha)
+        return { source: 'gemnasium', ecosystem: item.ecosystem, status: 'unchanged', rowCount: state.recordCount, message: null }
     }
     const dropAdvisoryIds = new Set<string>()
     for (const path of removed.concat(relevant)) {
@@ -416,9 +424,8 @@ function touch(meta: CacheMeta, source: SourceId, ecosystem: string, etag?: stri
     if (etag !== undefined) state.etag = etag
 }
 
-function touchGemnasiumSha(meta: CacheMeta, ecosystem: string, headSha: string): void {
-    const state = getSourceState(meta, 'gemnasium', ecosystem)
-    if (!state) return
+// Takes the state its one caller has already narrowed, rather than re-looking it up and re-guarding.
+function touchGemnasiumSha(state: SourceState, headSha: string): void {
     state.refreshedAt = Date.now()
     state.headSha = headSha
 }

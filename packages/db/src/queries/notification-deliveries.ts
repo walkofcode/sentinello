@@ -184,8 +184,9 @@ export function selectDispatchablePairs(db: DrizzleDb, projectId: string, at: nu
             event: eventRowToEvent(row.event),
             target: targetRowToTarget(
                 row.target,
-                targetRootIds.get(row.target.id) || [],
-                targetProjectIds.get(row.target.id) || []
+                // The loop above sets both maps for every row's target id before this runs.
+                targetRootIds.get(row.target.id)!,
+                targetProjectIds.get(row.target.id)!
             )
         }
     })
@@ -356,9 +357,10 @@ export function backfillForNewTarget(db: DrizzleDb, targetId: string, at: number
             )
         )
     `)
-    // better-sqlite3 returns RunResult with .changes; drizzle's wrapper exposes it on the result.
-    const changes = (result as { changes?: number }).changes
-    return typeof changes === 'number' ? changes : 0
+    // better-sqlite3 returns RunResult with .changes; drizzle's wrapper exposes it on the result. It is
+    // always a number — declaring it optional here and then re-checking was the cast second-guessing
+    // itself. scans.ts:187 reads result.changes with no ceremony at all.
+    return (result as { changes: number }).changes
 }
 
 function rowToDelivery(row: NotificationDeliveryRow): NotificationDelivery {

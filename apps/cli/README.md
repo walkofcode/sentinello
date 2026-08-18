@@ -3,7 +3,7 @@
 <!-- Absolute URLs throughout: npm does not resolve relative links, and this file ships in the package. -->
 <p>
   <a href="https://github.com/walkofcode/sentinello/actions/workflows/ci.yml"><img src="https://github.com/walkofcode/sentinello/actions/workflows/ci.yml/badge.svg" alt="CI status" /></a>
-  <a href="https://github.com/walkofcode/sentinello/blob/main/CONTRIBUTING.md#tests"><img src="https://img.shields.io/badge/coverage-99%25-brightgreen" alt="Statement coverage 99%, enforced by CI" /></a>
+  <a href="https://github.com/walkofcode/sentinello/blob/main/CONTRIBUTING.md#tests"><img src="https://img.shields.io/badge/coverage-100%25-brightgreen" alt="100% statement, branch, function and line coverage, enforced by CI" /></a>
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT licensed" />
 </p>
 

@@ -1,3 +1,4 @@
+import { errText } from '@sentinello/core'
 import {
     claimNextPendingRequest,
     claimPendingSignals,
@@ -48,9 +49,9 @@ export type StartPollerInput = {
 
 export function startScanRequestPoller(input: StartPollerInput): PollerHandles {
     const interval = input.intervalMs || POLL_INTERVAL_MS
-    let stopped = false
+    // clearInterval in stop() below is the whole mechanism — no `stopped` flag re-checked at the top of
+    // each tick. The two ran in the same synchronous block, so a tick could never observe the flag set.
     const handle = setInterval(function tick() {
-        if (stopped) return
         const work = pollOnce(input).catch(function onError(err: unknown) {
             const message = err instanceof Error && err.message || String(err)
             console.error('[scan-request-poller] tick failed: ' + message)
@@ -60,7 +61,6 @@ export function startScanRequestPoller(input: StartPollerInput): PollerHandles {
     handle.unref()
     return {
         stop() {
-            stopped = true
             clearInterval(handle)
         }
     }
@@ -80,8 +80,7 @@ export async function pollOnce(input: StartPollerInput): Promise<void> {
         try {
             pingScanRequestHeartbeat(input.db, claimed.id, Date.now())
         } catch (err) {
-            const message = err instanceof Error && err.message || String(err)
-            console.error('[scan-request-poller] heartbeat ping failed for ' + claimed.id + ': ' + message)
+            console.error('[scan-request-poller] heartbeat ping failed for ' + claimed.id + ': ' + errText(err))
         }
     }, HEARTBEAT_INTERVAL_MS)
     heartbeat.unref()

@@ -4,7 +4,8 @@ import {
     DEFAULT_ECOSYSTEM,
     DEFAULT_EXPORT_PROMPT,
     GEMNASIUM_NORMALIZER_VERSION,
-    OSV_NORMALIZER_VERSION
+    OSV_NORMALIZER_VERSION,
+    errText
 } from '@sentinello/core'
 import { discoverProjectsInTree, type DiscoverySkip } from '@sentinello/scanners'
 import { gemnasiumFeedDisabled, osvFeedDisabled } from '@sentinello/feeds'
@@ -187,7 +188,7 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
     try {
         prompt = await resolvePrompt(options)
     } catch (err) {
-        ui.error('could not read prompt file: ' + (err instanceof Error && err.message || String(err)))
+        ui.error('could not read prompt file: ' + errText(err))
         return EXIT_ERROR
     }
     const document = options.json

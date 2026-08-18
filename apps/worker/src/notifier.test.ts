@@ -251,6 +251,27 @@ describe('notifyForCompletedScan — dispatch', function () {
         expect(send.mock.calls[0]?.[1].webhook.root).toMatchObject({ id: ROOT_ID, label: 'Repos' })
     })
 
+    // Root context is enrichment, not the message. projects.root_id is a RESTRICT foreign key and the
+    // client sets foreign_keys = ON, so a project whose root row is missing cannot arise through any
+    // normal path — this drops the pragma to manufacture exactly that dangling reference, because the
+    // question it answers is what happens when the invariant has ALREADY been violated.
+    //
+    // The answer has to be "page the operator anyway with root: null". A vulnerability notification is
+    // the last thing that should be withheld because a decorative field could not be resolved.
+    it('still sends, with a null root, when the root row has gone missing', async function () {
+        insertNotificationTarget(db, target())
+        sqlite.pragma('foreign_keys = OFF')
+        sqlite.prepare('DELETE FROM roots WHERE id = ?').run(ROOT_ID)
+        sqlite.pragma('foreign_keys = ON')
+
+        await notify(outcome([finding()]))
+
+        expect(send).toHaveBeenCalledTimes(1)
+        expect(send.mock.calls[0]?.[1].webhook.root).toBeNull()
+        // And the part that actually matters still arrived.
+        expect(send.mock.calls[0]?.[1].webhook.findings).toHaveLength(1)
+    })
+
     // A scan that failed before it could produce findings still has to page someone — that is the case
     // the whole scan_failure event type exists for. The findings branch must be skipped entirely rather
     // than sending an empty "0 findings" message alongside it.

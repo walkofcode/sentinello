@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
     DOWNLOAD_TIMEOUT_MS,
-    errText,
     getJson,
     getJsonOrNull,
     getTextConditional,
@@ -535,17 +534,5 @@ describe('openDownloadStream', function () {
     it('allows far longer than a normal request but stays bounded', function () {
         expect(DOWNLOAD_TIMEOUT_MS).toBeGreaterThan(60_000)
         expect(Number.isFinite(DOWNLOAD_TIMEOUT_MS)).toBe(true)
-    })
-})
-
-describe('errText', function () {
-    it('uses an Error message', function () {
-        expect(errText(new Error('connect ECONNREFUSED'))).toBe('connect ECONNREFUSED')
-    })
-
-    it('stringifies a non-Error', function () {
-        expect(errText('just a string')).toBe('just a string')
-        expect(errText(404)).toBe('404')
-        expect(errText(null)).toBe('null')
     })
 })

@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import ignoreFactory from 'ignore'
 import { STABLE_ECOSYSTEMS, type EcosystemId, type PackageManager } from '@sentinello/core'
 
@@ -158,8 +158,10 @@ function classifySkip(
     }
     for (let i = layers.length - 1; i >= 0; i--) {
         const layer = layers[i]!
+        // No containment guard on `rel`. The only caller passes join(currentDir, entry.name) and every
+        // layer's baseDir is currentDir or one of its ancestors, so rel is always a non-empty descendant
+        // path — it can be neither '' nor '..'-prefixed, and both checks this used to carry were dead.
         const rel = relative(layer.baseDir, absolutePath)
-        if (!rel || rel.startsWith('..')) continue
         // `ignore` needs a trailing slash to apply directory-only rules (e.g. "dist/") correctly.
         if (!layer.matcher.ignores(rel) && !layer.matcher.ignores(rel + '/')) continue
         if (layer.hasSentinelloIgnore && !layer.hasGitignore) return 'sentinelloignore'
@@ -253,9 +255,7 @@ export function detectPackageManager(dir: string): PackageManager {
 }
 
 function basenameOf(dir: string): string {
-    const abs = resolve(dir)
-    const parts = abs.split('/')
-    return parts[parts.length - 1] || abs
+    return basename(resolve(dir))
 }
 
 function readNvmrcVersion(dir: string): string | null {
@@ -281,7 +281,10 @@ export function readGitBranch(dir: string, rootPath: string): string | null {
         // Attached HEAD: "ref: refs/heads/<name>". Branch names may themselves contain slashes
         // (feature/foo), so take everything after the refs/heads/ prefix rather than the last segment.
         const ref = head.match(/^ref:\s*refs\/heads\/(.+)$/)
-        if (ref && ref[1]) return ref[1].trim() || null
+        // The capture cannot be blank: the pattern has no `m` flag, so `$` is end-of-input and `.`
+        // cannot cross a newline — the group therefore ends on head's last character, and head was
+        // already trimmed.
+        if (ref && ref[1]) return ref[1].trim()
         // Detached HEAD stores a bare commit sha; the short form is what a developer recognises.
         if (/^[0-9a-f]{40}$/i.test(head)) return head.slice(0, 7)
         return null

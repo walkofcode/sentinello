@@ -3,6 +3,7 @@ import type { ChildProcess } from 'node:child_process'
 import { access, readFile } from 'node:fs/promises'
 import { constants as fsConstants } from 'node:fs'
 import { join } from 'node:path'
+import { errText } from '@sentinello/core'
 import type {
     DetectedLockfile,
     LockfileKind,
@@ -64,10 +65,11 @@ async function loadLockfileSnapshot(
     if (!validation.success) return empty
     const installedVersions: InstalledVersionMap = new Map()
     const packages = validation.data.packages || {}
-    for (const nodePath of Object.keys(packages)) {
+    // entries(), not keys() plus an index read: the zod record's values are always objects, so the
+    // `!entry` guard that shape forced was unreachable. The `!nodePath` guard below is NOT — npm writes
+    // the root node under the empty string.
+    for (const [nodePath, entry] of Object.entries(packages)) {
         if (!nodePath) continue
-        const entry = packages[nodePath]
-        if (!entry) continue
         if (entry.version) {
             installedVersions.set(nodePath, entry.version)
         }
@@ -261,7 +263,7 @@ type SpawnExecutorInput = {
     deps: NpmAuditDeps
     cmd: string
     args: string[]
-    opts: { cwd: string; timeoutMs: number; abortSignal?: AbortSignal; stdin?: string }
+    opts: { cwd: string; timeoutMs: number; abortSignal?: AbortSignal }
 }
 
 function executeSpawnAndCapture(input: SpawnExecutorInput, resolve: (result: SpawnResult) => void): void {
@@ -292,16 +294,13 @@ function executeSpawnAndCapture(input: SpawnExecutorInput, resolve: (result: Spa
     child.stderr.on('data', onSpawnStderrData.bind(null, state))
     child.on('error', onSpawnError.bind(null, ctx))
     child.on('close', onSpawnClose.bind(null, ctx))
-    if (input.opts.stdin && child.stdin) {
-        child.stdin.end(input.opts.stdin)
-    }
 }
 
 function spawnAndCapture(
     deps: NpmAuditDeps,
     cmd: string,
     args: string[],
-    opts: { cwd: string; timeoutMs: number; abortSignal?: AbortSignal; stdin?: string }
+    opts: { cwd: string; timeoutMs: number; abortSignal?: AbortSignal }
 ): Promise<SpawnResult> {
     return new Promise(executeSpawnAndCapture.bind(null, { deps, cmd, args, opts }))
 }
@@ -387,17 +386,13 @@ export async function runNpmAudit(projectPath: string, ctx: ScanContext, deps: N
     let execCmd: string
     let execArgs: string[]
     if (wrapWithNvm) {
-        const wrapped = buildBashWrappedCommand(rawCmd)
+        const wrapped = buildBashWrappedCommand(rawCmd.join(' '))
         execCmd = wrapped.cmd
         execArgs = wrapped.args
     } else {
-        const parts = rawCmd.split(' ')
-        const head = parts[0]
-        if (!head) {
-            return errorResult('audit_unknown_failure', 'failed to construct audit command', startedAt, '')
-        }
+        const [head, ...rest] = rawCmd
         execCmd = head
-        execArgs = parts.slice(1)
+        execArgs = rest
     }
 
     const spawnResult = await spawnAndCapture(deps, execCmd, execArgs, {
@@ -447,11 +442,7 @@ export async function runNpmAudit(projectPath: string, ctx: ScanContext, deps: N
     try {
         parsedJson = JSON.parse(rawText)
     } catch (err) {
-        let reason = 'audit JSON parse failed'
-        if (err instanceof Error) {
-            reason = `audit JSON parse failed: ${err.message}`
-        }
-        return errorResult('audit_parse_error', reason, startedAt, rawText)
+        return errorResult('audit_parse_error', `audit JSON parse failed: ${errText(err)}`, startedAt, rawText)
     }
 
     // pnpm emits {actions, advisories} — looks superficially like legacy npm 6, but is the *current*

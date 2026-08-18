@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/walkofcode/sentinello/actions/workflows/ci.yml"><img src="https://github.com/walkofcode/sentinello/actions/workflows/ci.yml/badge.svg" alt="CI status" /></a>
-  <a href="CONTRIBUTING.md#tests"><img src="https://img.shields.io/badge/coverage-99%25-brightgreen" alt="Statement coverage 99%, enforced by CI" /></a>
+  <a href="CONTRIBUTING.md#tests"><img src="https://img.shields.io/badge/coverage-100%25-brightgreen" alt="100% statement, branch, function and line coverage, enforced by CI" /></a>
   <a href="https://github.com/walkofcode/sentinello/releases/latest"><img src="https://img.shields.io/github/v/release/walkofcode/sentinello" alt="Latest release" /></a>
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT licensed" />
 </p>
@@ -252,11 +252,11 @@ actually run, so the system is never left source-blind.
 - **OSV** and **GitLab gemnasium** are optional and off by default — each downloads an advisory
   cache, so enabling one costs disk.
 
-Python, Go and Rust are implemented but **not offered**. Their fix derivation and version ordering are
-semver-only (an OSV Django advisory recommended "upgrade to 3.2.23" against an installed 4.2), OSV's
-PyPI names are not PEP 503-canonicalized so they never join the resolver's, and gemnasium's range
-parser cannot read PEP 440 comma intersections. Promoting one is a single field in the ecosystem
-registry once that is fixed; until then they are absent from the product surface entirely — no
+Python, Go and Rust are implemented but **not offered**. Gemnasium's PEP 440 comma intersections are
+now parsed correctly, but fix derivation remains semver-only (an OSV Django advisory recommended
+"upgrade to 3.2.23" against an installed 4.2), and OSV's PyPI names are not PEP 503-canonicalized so
+they never join the resolver's. Promoting one is a single field in the ecosystem registry once those
+two remaining blockers are fixed; until then they are absent from the product surface entirely — no
 switch, no discovery, no download.
 
 **npm audit** runs the package manager's own audit (npm / pnpm / yarn audit against each project's
@@ -663,41 +663,42 @@ pnpm test:e2e          # Playwright against a built portal
 ```
 
 The suite is **hermetic**: it never touches the network and never shells out to a package
-manager, so it produces the same result on a laptop and in CI. Across the 130 instrumented
-source files it currently covers:
+manager, so it produces the same result on a laptop and in CI. Across the 142 instrumented
+source files it covers:
 
 | Statements | Branches | Functions | Lines |
 |-----------:|---------:|----------:|------:|
-| 99.45%     | 97.57%   | 100%      | 99.85% |
+| 100%       | 100%     | 100%      | 100%  |
 
-Those are floors, not aspirations. `vitest.config.ts` holds a **ratchet** — a global
-threshold plus a per-path floor for every meaningful module, each sitting just under what
-the suite actually covers — and `pnpm test:coverage` fails when any of them slips. It runs
-on every pull request, which is what makes the badge above worth believing: coverage can go
-up, and CI will not let it come back down. Functions are pinned at 100%, so a new function
-with no test fails the build rather than quietly lowering an average.
+That is the enforced threshold, not a high-water mark. `vitest.config.ts` sets one number —
+`thresholds: { 100: true }` — and `pnpm test:coverage` fails, naming the file, when anything
+falls below it. It runs on every pull request, which is what makes the badge above worth
+believing: a new function, a new branch, or a new early return that no test exercises fails
+the build with every existing test still green.
+
+**There are no coverage suppressions.** No `/* v8 ignore */` comments exist in this
+repository, and adding one is not how a stubborn branch gets closed — it blinds a whole
+*line*, and these arms routinely share a line with live code, so a green number earned that
+way would be hiding real behaviour. A branch that no input can reach is instead *removed*:
+by deleting a fallback the schema already guarantees, by iterating `Object.entries` instead
+of indexing, by typing a value as a non-empty tuple, or — where the guard genuinely earns its
+place — by exporting it and testing it directly. The header comment in `vitest.config.ts`
+lists the patterns that closed the last 109 of them.
 
 **What that covers, and what it does not.** The instrumented surface is the scanning and
 persistence core — `packages/*`, the CLI, the worker, and `apps/web/lib`. It does **not**
 include `apps/homepage`, the portal's route handlers and pages under `apps/web/app`, or the
 React components under `apps/web/components` (the coverage glob matches `.ts`, not `.tsx`).
-Those are **partially** covered by the Playwright suite, which is not part of this ratchet. It
-starts the portal only — `apps/homepage` is never launched — and its seventeen tests cover
-`/api/health`, the dashboard and project detail with real assertions, then smoke-check a few
-more pages for a 200. That catches a schema change turning a server component into a 500,
-which is what it is for, but it is far weaker than the unit suite: about two thirds of the
-routes under `apps/web/app`, `/api/mcp` and `/api/version` among them, are never loaded at all.
-Run `npx playwright test --list` for the current set rather than trusting that count here.
+Those are **partially** covered by the Playwright suite, which is not part of this threshold.
+It starts the portal only — `apps/homepage` is never launched — and its 225 tests cover the
+dashboard, project detail, triage, settings and the auth gate with real assertions, then
+smoke-check the remaining pages for a 200. That catches a schema change turning a server
+component into a 500, which is what it is for, but it is weaker than the unit suite: several
+routes under `apps/web/app`, `/api/mcp` among them, are never loaded at all. Run
+`npx playwright test --list` for the current set rather than trusting that count here.
 
-So the 100% function floor above is a statement about the unit-tested core, and the surface
-outside it has real gaps rather than coverage under another name.
-
-The remaining branch residue is mostly defensive arms that no test can reach through the
-public API — `noUncheckedIndexedAccess` fallbacks and error paths behind collaborators that
-only ever throw `Error`. They are enumerated, with line references, in the comment above the
-thresholds, so nobody has to rediscover which ones are worth chasing. That comment also
-records where the enumeration has previously been *wrong*, which is the part worth reading
-before trusting it.
+So 100% is a statement about the unit-tested core, and the surface outside it has real gaps
+rather than coverage under another name.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md#tests) for where tests live and the two rules that
 keep the suite hermetic.

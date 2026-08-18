@@ -101,7 +101,7 @@ export function buildProjectAdvisoryParts(
             isDev: m.isDev,
             // depPaths supersedes depPath in the renderer; depPath keeps the object coherent for any
             // consumer reading the single-path field.
-            depPath: m.depPaths[0] || [],
+            depPath: m.depPaths[0],
             sources: m.scanners,
             advisoryIds,
             depPaths: m.depPaths

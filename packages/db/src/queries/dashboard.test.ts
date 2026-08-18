@@ -174,6 +174,15 @@ describe('getDashboardSummary', function () {
         expect(getDashboardSummary(db, T0 + DAY).totalActiveProjects).toBe(1)
     })
 
+    // The one case where the COUNT genuinely returns zero rather than "no row". Worth pinning because
+    // zero is falsy: an operator who silences their whole estate must see "0 of 0", not a crash and not
+    // a stale total carried over from the pre-mute count.
+    it('reports zero when every project is muted', function () {
+        mute({ id: 'mute-p1', scope: 'project', projectId: 'project-1', scanner: null, ecosystem: null, advisoryId: null, packageName: null })
+        mute({ id: 'mute-p2', scope: 'project', projectId: 'project-2', scanner: null, ecosystem: null, advisoryId: null, packageName: null })
+        expect(getDashboardSummary(db, T0 + DAY).totalActiveProjects).toBe(0)
+    })
+
     it('counts a project again once its project mute expires', function () {
         mute({
             id: 'proj-mute',

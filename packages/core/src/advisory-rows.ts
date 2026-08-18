@@ -55,9 +55,26 @@ export type OsvAdvisoryRow = {
 //     produced a single range with no upper bound — GHSA-25hc-qcg6-38wj states `< 2.5.0` while its real
 //     branch fixes are 2.5.1 and 4.6.2, so as a supplement it would narrow a correct range into a false
 //     negative. Every cached range is re-derived, so an existing cache must rebuild.
+// v6: drop an interval that can never match — `fixed` at or below `introduced`. `fixed` is exclusive, so
+//     `[X, X)` admits nothing and an inverted pair admits less: a row that sits in the cache looking live
+//     and is silently unable to report. The gemnasium normalizer has refused those since v5 and OSV did
+//     not, which made the two sources disagree about a degenerate interval while feeding one matcher. Zero
+//     rows in the current 227k-row export trip it — OSV's schema requires ascending events and the exports
+//     honour it — so this rebuilds nothing today and exists for the input that does not, which OSV.dev
+//     aggregating many upstream databases makes a question of when. The equality test is ordering-free and
+//     applies to every range type; the ordering test is SEMVER-only, because using semver ordering on a
+//     PEP 440 range would drop real advisories rather than dead ones. The rule now lives in
+//     @sentinello/versions as `canMatchSomething` and is shared with the gemnasium normalizer, which had
+//     its own differently-shaped copy (`isEmptyInterval`) — one question answered twice was how the two
+//     sources came to disagree about a degenerate interval while feeding one matcher. Sharing it also gives
+//     OSV the inclusive-upper-bound half it never had: an interval whose `last_affected` sits below its
+//     `introduced` is dropped too. Unreadable SEMVER upper events now leave their valid interval open, and
+//     the separate GitHub fallback bound is validated AFTER it is attached, so malformed or inverted
+//     fallback data cannot rebuild the impossible interval this version exists to remove. Still zero rows
+//     in the live export, by the same measurement.
 // Lives beside the row type it describes so every store — the portal's SQLite cache and the CLI's ndjson
 // cache alike — invalidates on exactly the same signal.
-export const OSV_NORMALIZER_VERSION = 5
+export const OSV_NORMALIZER_VERSION = 6
 
 // gemnasium carries no range `type` discriminator, so its rows leave that field unset — but it very much
 // does state inclusive upper bounds (`<=X`, maven `[a,b]`) and exclusive lower ones (`>X`), so it uses the
@@ -119,4 +136,42 @@ export type GemnasiumAdvisoryRow = {
 //         the lower bound became the unparseable literal `5.0,<5.8` and the upper bound was lost, leaving
 //         2,830 of 7,159 PyPI records matching nothing at all. Retires one of the three blockers README
 //         names for Python/Go/Rust remaining `preview`; the other two are unchanged, so they stay there.
-export const GEMNASIUM_NORMALIZER_VERSION = 6
+// v7: three fixes in the comparator/interval parser, all re-deriving cached ranges.
+//     (a) An operator written APART from its version is rejoined with it. gemnasium spells 19 records that
+//         way — `< 0.5.2`, `>= 1.7.0 < 1.7.8`, the eleven-branch npm/pg GMS-2017-178 — and node-semver reads
+//         each pair as one comparator, so splitting on whitespace made two. The naked `<` took an empty
+//         version and the version token, now bare, was read as an exact pin, which returned immediately and
+//         discarded every later comparator. npm/fresh GMS-2017-232 therefore cached as "exactly 0.5.2 is
+//         affected" — 0.5.2 being the release that FIXED the ReDoS, and a pin carrying no fix boundary, so
+//         the finding named no remediation. 15 of the 19 lost their range entirely; 7 pinned a version their
+//         own `fixed_versions` names. A trailing operator with nothing to bind to now drops its disjunct
+//         rather than silently discarding a bound.
+//     (b) A bare/`=` token yields an exact pin only when it is the WHOLE disjunct. Beside other comparators
+//         it is a shape this parser does not model — node-semver's hyphen range `1.0.0 - 2.0.0` tokenizes
+//         exactly so — and returning the pin discarded the rest, caching "only 1.0.0 is affected" for a
+//         range spanning two majors. Same short-circuit as (a), reached from the other side.
+//     (c) A maven interval naming NEITHER bound (`[,]`, `(,)`) is refused. It was building `[0, …)` with no
+//         upper bound: every version affected, forever, with no fix, out of a record stating no version.
+//     No record in the current export uses (b) or (c), so those two rebuild nothing today; (a) corrects 19.
+//     (d) THE PARSER STOPPED INTERPRETING npm SYNTAX ITSELF. Each disjunct is now canonicalised through
+//         node-semver (canonicaliseRange in @sentinello/versions) before it is read, which is a delegation
+//         to the specification rather than another rule: gemnasium's field reference calls `affected_range`
+//         "machine-readable syntax used by the package manager", and for npm that parser IS the meaning.
+//         It retires the whole partial-version class in one step — `<=3.3` is `<3.4.0` to npm, "through the
+//         end of the 3.3 line", where a literal reading stopped at 3.3.0 and missed npm/converse.js
+//         CVE-2018-6591 at 3.3.1; `=103` is the whole 103 line, which npm/binaryen states eight times. It
+//         also reads the caret, tilde, x-range and hyphen forms, which were refused outright before, so a
+//         record written in any of them is matched rather than silently dropped. Measured over all 4,696
+//         distinct npm ranges in the export: reading the raw string disagrees with npm on 9, reading the
+//         canonical form on none. 16 records re-derive, 11 of them currently pinned to a partial version.
+//         Three exceptions, each a case where npm's reading is right for a dependency spec and wrong for an
+//         advisory: a range naming NO version (`*`, `x`, `''`, `||`) is refused rather than read as "every
+//         version", since in an advisory it is indistinguishable from a field nobody filled in; each
+//         disjunct is canonicalised separately, so a stray `|| ` cannot widen its siblings to everything;
+//         and a zero exclusive lower bound keeps its own meaning, because npm reads `>0` as `>=1.0.0` and
+//         npm/pandora-doomsday CVE-2017-16127 states `>0` for a credential stealer whose own record says
+//         "All Versions". Non-npm ecosystems are untouched — PEP 440's `==1.0` is an exact pin, not a
+//         wildcard, so npm's rule applied there would invent findings. A real prerelease-zero upper bound
+//         (`<1.2.3-0`) is preserved; only the `-0` marker npm synthesizes for a partial upper bound is
+//         removed from the cached remediation target.
+export const GEMNASIUM_NORMALIZER_VERSION = 7

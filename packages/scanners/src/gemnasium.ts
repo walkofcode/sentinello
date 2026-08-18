@@ -107,7 +107,6 @@ export function matchPackages(
         const comparator = comparatorForEcosystem(ecosystem)
         if (!comparator) continue
         const names = uniqueNames(pkgs)
-        if (names.length === 0) continue
         const byPackageRaw = lookup(ecosystem, names)
         const byPackage = new Map<string, CanonicalAdvisory[]>()
         for (const [name, advisories] of byPackageRaw.entries()) {

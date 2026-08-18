@@ -337,7 +337,9 @@ export function listCurrentFindingsForProject(
         project_id: string
         scanner: string
         source: string | null
-        ecosystem: string | null
+        // Not nullable: findings.ecosystem is NOT NULL DEFAULT 'npm' (schema.ts:150). source above IS,
+        // for the window between the Phase 2 migration and the boot backfill — hence the difference.
+        ecosystem: string
         advisory_id: string
         advisory_title: string | null
         advisory_url: string | null
@@ -391,7 +393,7 @@ export function listCurrentFindingsForProject(
             projectId: row.project_id,
             scanner: row.scanner,
             source: row.source ?? row.scanner,
-            ecosystem: row.ecosystem ?? 'npm',
+            ecosystem: row.ecosystem,
             advisoryId: row.advisory_id,
             advisoryTitle: row.advisory_title,
             advisoryUrl: row.advisory_url,

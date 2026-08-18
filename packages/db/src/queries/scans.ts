@@ -2,6 +2,7 @@ import { desc, eq, inArray, sql } from 'drizzle-orm'
 import type { Scan } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { scans } from '../schema'
+import { sumCount } from './count'
 
 type ScanRow = typeof scans.$inferSelect
 
@@ -77,12 +78,9 @@ export function listScansForProject(db: DrizzleDb, projectId: string, limit = 50
 }
 
 export function countScansForProject(db: DrizzleDb, projectId: string): number {
-    const row = db
-        .select({ count: sql<number>`count(*)` })
-        .from(scans)
-        .where(eq(scans.projectId, projectId))
-        .get()
-    return row?.count ?? 0
+    return sumCount(
+        db.select({ count: sql<number>`count(*)` }).from(scans).where(eq(scans.projectId, projectId)).all()
+    )
 }
 
 // Per-ecosystem resolver coverage for a project, reconstructed from the most recent scans. Phase 4's
@@ -195,7 +193,8 @@ function rowToScan(row: ScanRow): Scan {
         finishedAt: row.finishedAt,
         scanner: row.scanner,
         source: row.source ?? row.scanner,
-        ecosystem: row.ecosystem ?? 'npm',
+        // No `?? 'npm'`: scans.ecosystem is NOT NULL DEFAULT 'npm' (schema.ts:67). Only source is nullable.
+        ecosystem: row.ecosystem,
         status: row.status,
         reasonCode: row.reasonCode,
         durationMs: row.durationMs,

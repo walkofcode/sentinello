@@ -97,8 +97,9 @@ function hydrateTargets(db: DrizzleDb, rows: NotificationTargetRow[]): Notificat
     const ids = rows.map(function pickId(r) { return r.id })
     const rootIdsByTarget = listRootIdsForTargets(db, ids)
     const projectIdsByTarget = listProjectIdsForTargets(db, ids)
+    // Both helpers seed an entry for every id they are handed, so neither .get() can miss.
     return rows.map(function toTarget(row) {
-        return rowToTarget(row, rootIdsByTarget.get(row.id) || [], projectIdsByTarget.get(row.id) || [])
+        return rowToTarget(row, rootIdsByTarget.get(row.id)!, projectIdsByTarget.get(row.id)!)
     })
 }
 
