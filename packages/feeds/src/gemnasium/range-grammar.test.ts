@@ -58,13 +58,13 @@ describe('P1 — every spelling of one comparator parses identically', function 
     }
 
     it.each(cases)('$operator$version — all 9 spellings agree', function ({ operator, version }) {
-        const canonical = parseAffectedRange(operator + version, [])
+        const canonical = parseAffectedRange(operator + version, [], 'npm')
         // A canonical spelling that parses to nothing would make every comparison below vacuous.
         expect(canonical.ranges.length + canonical.versions.length).toBeGreaterThan(0)
         for (const gap of GAPS) {
             for (const prefix of PREFIXES) {
                 const spelling = comparator(operator, gap, prefix, version)
-                expect(parseAffectedRange(spelling, []), spelling).toEqual(canonical)
+                expect(parseAffectedRange(spelling, [], 'npm'), spelling).toEqual(canonical)
             }
         }
     })
@@ -79,7 +79,7 @@ describe('P1 — every spelling of a two-comparator intersection parses identica
     }
 
     it.each(cases)('$low$version $high$upper — all 648 spellings agree', function ({ low, high, version, upper }) {
-        const canonical = parseAffectedRange(low + version + ' ' + high + upper, [])
+        const canonical = parseAffectedRange(low + version + ' ' + high + upper, [], 'npm')
         expect(canonical.ranges).toHaveLength(1)
         for (const lowGap of GAPS) {
             for (const highGap of GAPS) {
@@ -87,7 +87,7 @@ describe('P1 — every spelling of a two-comparator intersection parses identica
                     for (const join of INTERSECTIONS) {
                         const spelling =
                             comparator(low, lowGap, prefix, version) + join + comparator(high, highGap, prefix, upper)
-                        expect(parseAffectedRange(spelling, []), spelling).toEqual(canonical)
+                        expect(parseAffectedRange(spelling, [], 'npm'), spelling).toEqual(canonical)
                     }
                 }
             }
@@ -98,7 +98,7 @@ describe('P1 — every spelling of a two-comparator intersection parses identica
 describe('P1 — every spelling of a disjunction parses identically', function () {
     // Two disjuncts, each an intersection, which is the shape of a real multi-branch advisory
     // (npm/electron GMS-2017-249, npm/pg GMS-2017-178).
-    const canonical = parseAffectedRange('<1.6.14 || >=1.7.0 <1.7.8', [])
+    const canonical = parseAffectedRange('<1.6.14 || >=1.7.0 <1.7.8', [], 'npm')
 
     it('parses the canonical two-branch shape', function () {
         expect(canonical.ranges).toHaveLength(2)
@@ -108,7 +108,7 @@ describe('P1 — every spelling of a disjunction parses identically', function (
     it.each(UNIONS)('joins branches with %j identically', function (union) {
         for (const gap of GAPS) {
             const spelling = '<' + gap + '1.6.14' + union + '>=' + gap + '1.7.0 <' + gap + '1.7.8'
-            expect(parseAffectedRange(spelling, []), spelling).toEqual(canonical)
+            expect(parseAffectedRange(spelling, [], 'npm'), spelling).toEqual(canonical)
         }
     })
 })
@@ -119,7 +119,7 @@ describe('P2 — the generated canon means what npm says it means', function () 
     const PROBES = ['0.9.9', '1.0.0', '1.0.1', '1.9.9', '2.0.0', '2.0.1', '3.0.0'] as const
 
     function ourVerdict(range: string, version: string): boolean {
-        const parsed = parseAffectedRange(range, [])
+        const parsed = parseAffectedRange(range, [], 'npm')
         if (parsed.versions.includes(version)) return true
         return parsed.ranges.some(function inAny(r) {
             const aboveLower =
@@ -201,38 +201,132 @@ describe('maven interval notation — the full bracket cross-product', function 
     ]
 
     it.each(CASES)('reads $notation', function ({ notation, expected }) {
-        expect(parseAffectedRange(notation, [])).toEqual(expected)
+        expect(parseAffectedRange(notation, [], 'npm')).toEqual(expected)
     })
 
     // Neither bound given: the notation states no boundary at all, so there is nothing to cache.
     it.each(['(,)', '[,]', '(,]', '[,)'])('yields nothing for %j', function (notation) {
-        expect(parseAffectedRange(notation, [])).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange(notation, [], 'npm')).toEqual({ ranges: [], versions: [] })
     })
 
     // An unterminated interval is not a range we can read, and guessing the missing bracket would pick an
     // inclusivity the record never stated.
     it.each(['[1.0.0,2.0.0', '(1.0.0,2.0.0', '[1.0.0'])('refuses the unterminated %j', function (notation) {
-        expect(parseAffectedRange(notation, [])).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange(notation, [], 'npm')).toEqual({ ranges: [], versions: [] })
+    })
+
+    // P1 AGAIN, FOR BRACKETS. The comparator forms get a generated spacing sweep at the top of this file
+    // and maven notation had none — which is how a single space went unnoticed in the comparator parser for
+    // as long as it did. Whitespace can appear around either bound, inside either bracket, or around the
+    // comma, so every combination is generated and must parse identically to the tight spelling.
+    //
+    // Maven notation is NOT canonicalised — `validRange('[1.0.0,2.0.0)')` is null, because node-semver
+    // cannot read the notation at all — so unlike the comparator forms nothing upstream normalises these
+    // for us. This sweep is the only thing standing between a spaced bracket and the fresh bug again.
+    const GAPS = ['', ' ', '  '] as const
+
+    it.each([
+        ['[1.0.0,2.0.0]', { introduced: '1.0.0', fixed: null, lastAffected: '2.0.0' }],
+        ['[1.0.0,2.0.0)', { introduced: '1.0.0', fixed: '2.0.0', lastAffected: null }],
+        ['(1.0.0,2.0.0]', { introduced: '1.0.0', introducedExclusive: true, fixed: null, lastAffected: '2.0.0' }],
+        ['(1.0.0,2.0.0)', { introduced: '1.0.0', introducedExclusive: true, fixed: '2.0.0', lastAffected: null }],
+        ['(,2.0.0)', { introduced: '0', fixed: '2.0.0', lastAffected: null }],
+        ['[1.0.0,)', { introduced: '1.0.0', fixed: null, lastAffected: null }]
+    ])('reads %j the same however it is spaced', function (tight, expected) {
+        const open = tight.indexOf(tight[0] === '[' || tight[0] === '(' ? tight[0] : '[')
+        const comma = tight.indexOf(',')
+        const lo = tight.slice(1, comma)
+        const hi = tight.slice(comma + 1, tight.length - 1)
+        expect(open).toBe(0)
+        for (const afterOpen of GAPS) {
+            for (const beforeComma of GAPS) {
+                for (const afterComma of GAPS) {
+                    for (const beforeClose of GAPS) {
+                        const spelling =
+                            tight[0] + afterOpen + lo + beforeComma + ',' + afterComma + hi + beforeClose + tight[tight.length - 1]
+                        expect(parseAffectedRange(spelling, [], 'npm'), spelling).toEqual({
+                            ranges: [expected],
+                            versions: []
+                        })
+                    }
+                }
+            }
+        }
+    })
+
+    // A single exact version in brackets, spaced every way it can be.
+    it('reads a bracketed pin the same however it is spaced', function () {
+        for (const afterOpen of GAPS) {
+            for (const beforeClose of GAPS) {
+                const spelling = '[' + afterOpen + '1.2.3' + beforeClose + ']'
+                expect(parseAffectedRange(spelling, [], 'npm'), spelling).toEqual({ ranges: [], versions: ['1.2.3'] })
+            }
+        }
+    })
+})
+
+// Every npm range shape that used to be refused because this parser had no rule for it. They are not
+// special-cased now either — canonicaliseRange hands each one to node-semver, whose reading is the
+// specification, and what comes back is an ordinary bounded interval the parser already understood.
+//
+// The old behaviour was to drop the record. That was the honest answer while the alternative was pinning
+// `^1.0.0` verbatim as an "exact version" no installed version can equal, but it is still a dropped
+// advisory: a record gemnasium published and Sentinello silently declined to match. None of these appear
+// in gemnasium today — the value is that the NEXT spelling upstream reaches for is read rather than lost.
+describe('npm range syntax is understood rather than dropped', function () {
+    it.each([
+        ['^1.0.0', { introduced: '1.0.0', fixed: '2.0.0', lastAffected: null }],
+        ['^0.2.3', { introduced: '0.2.3', fixed: '0.3.0', lastAffected: null }],
+        ['~1.0.0', { introduced: '1.0.0', fixed: '1.1.0', lastAffected: null }],
+        ['~>1.0.0', { introduced: '1.0.0', fixed: '1.1.0', lastAffected: null }],
+        ['1.x', { introduced: '1.0.0', fixed: '2.0.0', lastAffected: null }],
+        ['1.2.x', { introduced: '1.2.0', fixed: '1.3.0', lastAffected: null }],
+        ['1.0.0 - 2.0.0', { introduced: '1.0.0', fixed: null, lastAffected: '2.0.0' }],
+        // The partial-version forms, which npm reads as X-ranges over a whole release line. `<=3.3` means
+        // "through the end of 3.3.x" — read literally it stopped at 3.3.0 and missed 3.3.1, which is
+        // npm/converse.js CVE-2018-6591.
+        ['<=3.3', { introduced: '0', fixed: '3.4.0', lastAffected: null }],
+        ['<=1', { introduced: '0', fixed: '2.0.0', lastAffected: null }],
+        ['=103', { introduced: '103.0.0', fixed: '104.0.0', lastAffected: null }],
+        ['=4.0', { introduced: '4.0.0', fixed: '4.1.0', lastAffected: null }],
+        ['>1.2', { introduced: '1.3.0', fixed: null, lastAffected: null }],
+        // `<` and `>=` on a partial already agreed with npm before canonicalisation; they must still.
+        ['<0.16', { introduced: '0', fixed: '0.16.0', lastAffected: null }],
+        ['>=4.0', { introduced: '4.0.0', fixed: null, lastAffected: null }]
+    ])('reads %j as npm reads it', function (raw, expected) {
+        expect(parseAffectedRange(raw, [], 'npm')).toEqual({ ranges: [expected], versions: [] })
+    })
+
+    // A union where one branch is a form the parser could not previously read: both branches survive now.
+    it('reads every branch of a mixed-syntax union', function () {
+        expect(parseAffectedRange('^1.0.0 || >=2.0.0 <3.0.0', [], 'npm')).toEqual({
+            ranges: [
+                { introduced: '1.0.0', fixed: '2.0.0', lastAffected: null },
+                { introduced: '2.0.0', fixed: '3.0.0', lastAffected: null }
+            ],
+            versions: []
+        })
     })
 })
 
 describe('syntax this parser does not implement is refused, never guessed', function () {
-    // Each of these is a real npm range shape with a meaning we do not model. The failure mode that
-    // matters is not refusing them — it is pinning them verbatim as an "exact version", which caches a row
-    // that looks like a live advisory and matches nothing for as long as it stays in the cache.
+    // What must still be refused, and the two reasons.
+    //
+    // `!=1.0.0` and `latest` are not node-semver at all, so there is no reading to import — the record is
+    // dropped rather than guessed at, exactly as before.
+    //
+    // `*`, `x`, `''` and `||` ARE valid npm, and mean "any version". That reading is right for a dependency
+    // spec and wrong for an advisory, where the same strings are indistinguishable from a field nobody
+    // filled in — and the two readings differ by the entire package. Reading them as "every version is
+    // vulnerable, forever, with no fix" is precisely the finding this whole class of defect produces, so a
+    // range that names no version at all is refused. A record that means everything writes `>=0`.
     it.each([
-        '^1.0.0',
-        '~1.0.0',
-        '~>1.0.0',
         '!=1.0.0',
-        '1.x',
-        '1.2.x',
+        'latest',
         '*',
         'x',
-        'latest',
         '',
         '   ',
-        '1.0.0 - 2.0.0',
         '>=1.0.0 <',
         '<',
         '>=',
@@ -240,16 +334,25 @@ describe('syntax this parser does not implement is refused, never guessed', func
         '||',
         '>= || <'
     ])('refuses %j', function (raw) {
-        const parsed = parseAffectedRange(raw, [])
+        const parsed = parseAffectedRange(raw, [], 'npm')
         expect(parsed.versions, raw).toEqual([])
         expect(parsed.ranges, raw).toEqual([])
     })
 
-    // One unreadable token poisons its whole disjunct rather than being skipped — a skip would leave the
-    // remaining comparators as an under-constrained range. The SIBLING disjunct is unaffected, because a
-    // union of ranges is exactly that.
+    // A stray separator must not widen the range it trails. `>=1 <2 || ` is `A || (any)` to node-semver,
+    // which canonicalises to `*` — so canonicalising the whole string would turn a two-major interval into
+    // every version ever published. Each disjunct is canonicalised on its own for exactly this reason.
+    it('does not let an empty disjunct swallow its siblings', function () {
+        expect(parseAffectedRange('>=1 <2 || ', [], 'npm')).toEqual({
+            ranges: [{ introduced: '1.0.0', fixed: '2.0.0', lastAffected: null }],
+            versions: []
+        })
+    })
+
+    // One unreadable token still poisons its own disjunct rather than being skipped — a skip would leave
+    // the remaining comparators as an under-constrained range — and the sibling disjunct is unaffected.
     it('drops only the unreadable disjunct of a union', function () {
-        expect(parseAffectedRange('^1.0.0 || >=2.0.0 <3.0.0', [])).toEqual({
+        expect(parseAffectedRange('!=1.0.0 || >=2.0.0 <3.0.0', [], 'npm')).toEqual({
             ranges: [{ introduced: '2.0.0', fixed: '3.0.0', lastAffected: null }],
             versions: []
         })

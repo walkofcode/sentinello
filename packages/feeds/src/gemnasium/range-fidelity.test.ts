@@ -75,7 +75,7 @@ function probesFor(affectedRange: string): string[] {
 // — not a reimplementation of either. `fixedVersions` is empty on purpose: the authoritative-fix override
 // deliberately departs from `affected_range`, so including it would test a different question.
 function sentinelloSaysAffected(affectedRange: string, version: string): boolean {
-    const parsed = parseAffectedRange(affectedRange, [])
+    const parsed = parseAffectedRange(affectedRange, [], 'npm')
     const normalized = semverComparator.normalize(version)
     for (const pinned of parsed.versions) {
         if (semverComparator.normalize(pinned) === normalized) return true
@@ -160,11 +160,13 @@ describe('npm/rc GMS-2021-3 — the hijack advisory end to end', function () {
 // of its own — was cached as an exact pin ON THE VERSION THAT FIXED THE BUG. No curated list catches that,
 // because the whole defect is a spelling nobody thought to curate.
 //
-// So the input list stops being curated. `npm-ranges.fixture.json` holds every distinct `affected_range`
-// gemnasium-db states for an npm package — 4,696 of them, frozen at the sha it records. Run against the
-// parser as it stood before this file's fix, 28 of those ranges disagreed with npm across 87 probes; the
-// 19 spaced ones were all in that set. Anything upstream invents from here on that we read differently
-// from npm fails the build on the sync that first imports it, rather than after a user reports it.
+// So the input list stops being curated. `ranges.fixture.json` holds every distinct `affected_range`
+// gemnasium-db states — 12,472 of them across all four ecosystems, frozen at the sha it records. Its npm
+// half, 4,696 ranges, feeds this sweep; all four feed the readability assertion at the bottom of the file.
+// Run against the parser as it stood before this file's fix, 28 of those npm ranges disagreed with npm
+// across 87 probes; the 19 spaced ones were all in that set. Anything upstream invents from here on that
+// we read differently from npm fails the build on the sync that first imports it, rather than after a
+// user reports it.
 //
 // Frozen rather than fetched because tests are hermetic — no network — and because a moving corpus turns a
 // failure into "did upstream change or did we break it?". Regenerate by re-running the extraction over a
@@ -173,47 +175,32 @@ describe('npm/rc GMS-2021-3 — the hijack advisory end to end', function () {
 // npm only. node-semver is the specification for npm ranges and nothing else, and gemnasium's PyPI records
 // are PEP 440, which would need its own oracle to sweep the same way. That is worth doing and is not done
 // here.
-type RangeCorpus = { sha: string; count: number; ranges: string[] }
+type RangeCorpus = { sha: string; counts: Record<string, number>; ranges: Record<string, string[]> }
 
-const CORPUS = JSON.parse(
-    readFileSync(new URL('./npm-ranges.fixture.json', import.meta.url), 'utf8')
+const FIXTURE = JSON.parse(
+    readFileSync(new URL('./ranges.fixture.json', import.meta.url), 'utf8')
 ) as RangeCorpus
 
-// Ranges we knowingly read differently from npm, with the reason each one is still here.
+const CORPUS = { ranges: FIXTURE.ranges.npm ?? [], count: FIXTURE.counts.npm ?? 0 }
+
+// The one range we knowingly read differently from npm — and it is a DECISION, not a gap.
 //
-// All nine are one defect, and it is NOT the one this file's fix addressed: a comparator whose version is
-// PARTIAL. node-semver treats those as X-ranges — `<=3.3` means `<3.4.0`, `=103` means `103.x.x`, `>0`
-// means `>=1.0.0` — while the parser reads the version literally, so `103.0.1` falls outside `=103` and
-// `0.0.1` falls inside `>0`. It affects 16 records, listed with the entries below.
+// This list used to hold nine, all of them the partial-version class: `<=3.3` means "through the end of
+// 3.3.x" to npm while a literal reading stops at 3.3.0, `=103` means the whole 103 line rather than a
+// single point. Eight are gone because the parser no longer interprets npm syntax itself — canonicaliseRange
+// hands each disjunct to node-semver first, so the parser only ever sees a canonical interval.
 //
-// Left open deliberately rather than folded into this change. Expanding a partial version is only correct
-// per-ecosystem — PEP 440's `==1.0` is an exact pin and `==1.0.*` is the wildcard, so npm's rule applied to
-// a PyPI record would be a new false-positive source — and `parseAffectedRange` is shared across all four
-// ecosystems and is not told which one it is parsing. That is a signature change and its own piece of work.
+// `>0` stays, deliberately. npm reads it as `>=1.0.0`, which would clear every 0.x release, and the record
+// it belongs to is npm/pandora-doomsday CVE-2017-16127: `affected_versions: "All Versions"`,
+// `solution: "Omit this package."`, a package published to steal credentials and since unpublished. A zero
+// exclusive lower bound is gemnasium's idiom for "everything", and following npm here would mean reporting
+// 0.x of known malware as clean. Over-reporting an unpublished malicious package is the cheap direction to
+// be wrong in.
 //
-// This is an inventory, not a mute: the test below asserts each of these STILL diverges. Fix the partial
-// version handling and these start failing, which is the signal to delete them from this list.
+// Still an inventory rather than a mute: the test below asserts this entry STILL diverges, so if the
+// carve-out in canonicaliseRange is ever removed this fails rather than passing quietly.
 const KNOWN_DIVERGENCES: Record<string, string> = {
-    // npm/binaryen, 8 records. `=103` is 103.x.x to npm, so we miss 103.0.1 and every later patch.
-    '=103': 'partial version: npm reads =103 as 103.x.x',
-    '=104': 'partial version: npm reads =104 as 104.x.x',
-    // npm/ckeditor4 CVE-2020-9440, npm/total4 CVE-2019-15952 and CVE-2019-15953.
-    '=4.0': 'partial version: npm reads =4.0 as 4.0.x',
-    '=12.0': 'partial version: npm reads =12.0 as 12.0.x',
-    // npm/converse.js CVE-2018-6591. Its single `fixed_versions: ["3.3.1"]` overrides the parsed bound in
-    // production, so this divergence does not reach a finding — it is visible here only because the sweep
-    // passes no fixed versions, deliberately, to test the range parse rather than the override.
-    '<=3.3': 'partial version: npm reads <=3.3 as <3.4.0',
-    // npm/dojo CVE-2008-6681 and npm/qooxdoo CVE-2011-1714.
-    '<=1.0': 'partial version: npm reads <=1.0 as <1.1.0',
-    '<=1.3': 'partial version: npm reads <=1.3 as <1.4.0',
-    // npm/phpmyadmin CVE-2017-1000018.
-    '>=4.0 <=4.6': 'partial version: npm reads <=4.6 as <4.7.0',
-    // npm/pandora-doomsday CVE-2017-16127, a malware advisory with no fix. The ONLY entry here where we
-    // over-report rather than under-report, and the only one where npm's reading is arguably not what
-    // gemnasium meant: `>0` is `>=1.0.0` to npm, so npm would call 0.x of a package published solely to
-    // exfiltrate data clean. Worth settling deliberately when partial versions are fixed, not by default.
-    '>0': 'partial version: npm reads >0 as >=1.0.0'
+    '>0': 'deliberate: a zero exclusive lower bound keeps meaning every version — npm/pandora-doomsday'
 }
 
 describe('every npm range gemnasium states agrees with node-semver', function () {
@@ -256,5 +243,49 @@ describe('every npm range gemnasium states agrees with node-semver', function ()
             return !diverging.has(range)
         })
         expect(stale).toEqual([])
+    })
+})
+
+// NOTHING GEMNASIUM PUBLISHES MAY BE SILENTLY DROPPED.
+//
+// This is the assertion the rest of the file was missing, and it is the one that matters most, because
+// refusing a range is not a neutral outcome. `parseAffectedRange` returning nothing makes
+// normalizeGemnasiumRecord return no row at all: the advisory is never cached, never matched, and never
+// reported. There is no error, no warning and no count — a real vulnerability simply stops existing as far
+// as Sentinello is concerned. Every other failure in this codebase at least produces a wrong answer; this
+// one produces silence, which is strictly harder to notice.
+//
+// The parser refuses syntax it cannot read on purpose, and that is right — guessing at a range is how
+// `^1.0.0` once got cached as a pin on the literal string "^1.0.0". But "we refuse what we cannot read"
+// is only safe while the set of things we cannot read is EMPTY. Today it is: across all 26,547 records
+// with a machine-readable range, in all four ecosystems, the number refused is zero. The only records that
+// yield nothing are the 1,121 carrying gemnasium's `<0` sentinel, which is upstream stating that the
+// record has no machine-readable range at all — their omission is intentional and theirs, not ours.
+//
+// So the number is pinned at zero. The moment upstream writes a shape this parser cannot read, this test
+// fails and names it, and someone goes and implements it — instead of the advisory quietly vanishing and
+// the suite staying green. That is the whole point: it converts the one failure mode that produces silence
+// into the one that produces a red build.
+//
+// All four ecosystems, not just npm. The npm path is canonicalised through node-semver upstream of the
+// parser and the other three are not, so PyPI, Go and crates.io depend on the hand-written parser alone —
+// they are the ones most likely to meet a shape nobody has taught it.
+const ECOSYSTEM_SENTINEL = /^<\s*v?0(\.0){0,2}$/
+
+describe('every range gemnasium publishes can be read', function () {
+    it.each(['npm', 'PyPI', 'Go', 'crates.io'])('refuses nothing in the %s corpus', function (ecosystem) {
+        const ranges = FIXTURE.ranges[ecosystem] ?? []
+        // A corpus that failed to load would make the assertion below pass while checking nothing.
+        expect(ranges.length).toBeGreaterThan(900)
+
+        const refused: string[] = []
+        for (const range of ranges) {
+            const parsed = parseAffectedRange(range, [], ecosystem)
+            if (parsed.ranges.length > 0 || parsed.versions.length > 0) continue
+            // gemnasium's deliberate "no machine-readable range" sentinel, in both its spellings.
+            if (ECOSYSTEM_SENTINEL.test(range)) continue
+            refused.push(range)
+        }
+        expect(refused).toEqual([])
     })
 })
