@@ -1,5 +1,35 @@
 # Changelog
 
+## [3.4.0](https://github.com/walkofcode/sentinello/compare/v3.3.2...v3.4.0) (2026-08-18)
+
+
+### Features
+
+* **versions:** add the dialect layer every advisory source reads through ([5541547](https://github.com/walkofcode/sentinello/commit/554154734f30bec8a30d8b2641fb770f52e75304))
+
+
+### Bug Fixes
+
+* **build:** stop tracking the generated next-env.d.ts ([64165b3](https://github.com/walkofcode/sentinello/commit/64165b30cea1d17221ef094a7a8125b9b4ae6e91))
+* **feeds:** drop OSV intervals that can never match ([4746985](https://github.com/walkofcode/sentinello/commit/47469850d1d80db2538ae2e39d7c8b2b688c8896))
+* **feeds:** hold both advisory normalizers at 100% coverage ([2f13795](https://github.com/walkofcode/sentinello/commit/2f13795e7a2abee99f2f87ede530187bb347b899))
+* **feeds:** read npm ranges through npm's own implementation ([5974f40](https://github.com/walkofcode/sentinello/commit/5974f40ce8df5b31dda3182ed8c0998d7512c18b))
+* **feeds:** rebuild both advisory caches for the corrected range parsing ([c5a671e](https://github.com/walkofcode/sentinello/commit/c5a671e85a4e35ee5c94018b455f3a5d85440a11))
+* **feeds:** stop a spaced gemnasium comparator pinning the fix version ([594e6d8](https://github.com/walkofcode/sentinello/commit/594e6d81594bd9d4b04af76108b50f429008ae3e))
+* **feeds:** treat an unreadable advisory bound as unknown, never empty ([f142e0e](https://github.com/walkofcode/sentinello/commit/f142e0eaea8c38ec164bf5211b7ac76d300e210b))
+
+
+### Refactor
+
+* remove branches that no input can reach ([2f0a6ba](https://github.com/walkofcode/sentinello/commit/2f0a6ba8ba2ce30ccae933e697582e761f46f1e4))
+
+
+### Documentation
+
+* **releases:** add the what's-new entry ([4ea7b15](https://github.com/walkofcode/sentinello/commit/4ea7b15ba1bc0e9fd6e8abd9d3d89c6e7a8dd0c0))
+* **releases:** expand the what's-new entry to four items ([179b844](https://github.com/walkofcode/sentinello/commit/179b844bf41180905f165a7bf08666acc17e6ea4))
+* state the 100% coverage rule and retarget the notes to 3.4.0 ([ca3403b](https://github.com/walkofcode/sentinello/commit/ca3403b0cca3596011a0de4bdd8ae919670671ce))
+
 ## [3.3.2](https://github.com/walkofcode/sentinello/compare/v3.3.1...v3.3.2) (2026-08-17)
 
 
