@@ -153,6 +153,10 @@ export type ProjectCatalogRow = {
     id: string
     name: string
     alias: string | null
+    // Stable root identity. The dashboard's root filter keys on this rather than on rootPath: an
+    // absolute path may legally contain the comma the filter joins on, and a relabelled root would
+    // otherwise invalidate every bookmarked filter URL.
+    rootId: string
     rootLabel: string | null
     rootPath: string
     packageManager: string
@@ -177,6 +181,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
         id: string
         name: string
         alias: string | null
+        root_id: string
         root_label: string | null
         root_path: string
         package_manager: string
@@ -233,6 +238,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             p.id AS id,
             p.name AS name,
             p.alias AS alias,
+            r.id AS root_id,
             r.label AS root_label,
             r.path AS root_path,
             p.package_manager AS package_manager,
@@ -273,6 +279,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             id: row.id,
             name: row.name,
             alias: row.alias,
+            rootId: row.root_id,
             rootLabel: row.root_label,
             rootPath: row.root_path,
             packageManager: row.package_manager,

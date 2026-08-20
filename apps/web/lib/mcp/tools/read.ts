@@ -88,15 +88,16 @@ export function registerReadTools(server: McpServer): void {
         async function handler({ rootId, depType }) {
             const db = getDb()
             // Always return the rich ProjectCatalogRow shape (severity counts + last-scan status) so
-            // the schema is identical whether or not rootId is passed. ProjectCatalogRow carries
-            // rootPath but not rootId, so resolve the root and filter by path in-memory.
+            // the schema is identical whether or not rootId is passed. The lookup stays even though the
+            // rows now carry rootId: filtering alone cannot tell an unknown root from an empty one, and
+            // "Root not found" is the more useful of those two answers.
             let rows = listProjectCatalog(db, Date.now(), depType || 'all')
             if (rootId) {
                 const root = getRootById(db, rootId)
                 if (!root) {
                     return { isError: true, content: [{ type: 'text', text: 'Root not found: ' + rootId }] }
                 }
-                rows = rows.filter(function inRoot(r) { return r.rootPath === root.path })
+                rows = rows.filter(function inRoot(r) { return r.rootId === rootId })
             }
             return {
                 content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
