@@ -104,4 +104,41 @@ test.describe('renaming and tagging a project', function () {
         await page.goto('/')
         await expect(visible(page, 'payments')).toBeVisible()
     })
+
+    // The tag filter only exists once something is tagged, which is why this lives in the write spec.
+    // The URL assertion is the point: picking one tag must write ONE tag. The shared Dropdown's default
+    // multi mode starts from everything selected, so a click there EXCLUDES — on an open-ended list that
+    // turns "show me this tag" into "all the others" and puts every id in the URL.
+    test('picking one tag filters to it and writes just that tag to the URL', async function ({ page }) {
+        await page.goto('/projects/' + PROJECT_ID)
+        await page.getByRole('button', { name: 'Edit tags' }).click()
+        const dialog = page.getByRole('dialog', { name: 'Edit tags' })
+        await dialog.getByLabel('Tags').fill('payments, e2e')
+        await dialog.getByRole('button', { name: 'Save' }).click()
+        await expect(dialog).toBeHidden()
+
+        await page.goto('/')
+        await page.getByRole('button', { name: 'Filter by tag' }).click()
+        await page.getByRole('option', { name: 'payments' }).click()
+
+        await expect(page).toHaveURL(/[?&]ptag=payments(&|$)/)
+        await expect(visible(page, SEEDED.projectName)).toBeVisible()
+        await expect(visible(page, SEEDED.bulkProjectName)).toHaveCount(0)
+    })
+
+    test('deselecting the last tag returns to all rather than an empty table', async function ({ page }) {
+        await page.goto('/projects/' + PROJECT_ID)
+        await page.getByRole('button', { name: 'Edit tags' }).click()
+        const dialog = page.getByRole('dialog', { name: 'Edit tags' })
+        await dialog.getByLabel('Tags').fill('payments')
+        await dialog.getByRole('button', { name: 'Save' }).click()
+        await expect(dialog).toBeHidden()
+
+        await page.goto('/?ptag=payments')
+        await page.getByRole('button', { name: 'Filter by tag' }).click()
+        await page.getByRole('option', { name: 'payments' }).click()
+
+        await expect(page).not.toHaveURL(/ptag=/)
+        await expect(visible(page, SEEDED.bulkProjectName)).toBeVisible()
+    })
 })

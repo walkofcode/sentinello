@@ -15,6 +15,7 @@ import {
     getLastScanFinishedAt,
     getLatestScanForProject,
     getProjectEcosystemCoverage,
+    hasStaleSourceUnavailableScans,
     insertScan,
     listPrunableScanIds,
     listScansForProject,
@@ -446,5 +447,52 @@ describe('retention leaves the coverage read intact', function () {
         deleteScansByIds(db, listPrunableScanIds(db, T0 + 100 * HOUR, 1, 100))
 
         expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual(before)
+    })
+})
+
+// The boot-time reconciliation the worker uses to notice that a cache is fine while the projects still
+// say it was not — a transition that happened while nobody was watching (an upgrade, a restart, a crash)
+// leaves verdicts nothing else will ever clear.
+describe('hasStaleSourceUnavailableScans', function () {
+    it('is false when nothing has ever scanned', function () {
+        expect(hasStaleSourceUnavailableScans(db, 'osv')).toBe(false)
+    })
+
+    it('is true when a project\'s latest scan for the source says the cache was missing', function () {
+        insertScan(db, scan({ id: 's1', status: 'unauditable', reasonCode: 'osv_db_not_seeded' }))
+        expect(hasStaleSourceUnavailableScans(db, 'osv')).toBe(true)
+    })
+
+    it('is false once that project has been scanned again successfully', function () {
+        insertScan(db, scan({ id: 's1', status: 'unauditable', reasonCode: 'osv_db_not_seeded' }))
+        insertScan(db, scan({ id: 's2', finishedAt: T0 + HOUR }))
+        expect(hasStaleSourceUnavailableScans(db, 'osv')).toBe(false)
+    })
+
+    // Per project, not newest-row-wins: one project scanned since the cache came back does not speak
+    // for the rest, and the whole point is to catch the ones still holding the old verdict.
+    it('is true when only one of several projects is still stale', function () {
+        insertScan(db, scan({ id: 's1', finishedAt: T0 + HOUR }))
+        insertScan(db, scan({ id: 's2', projectId: OTHER_PROJECT_ID, status: 'unauditable', reasonCode: 'osv_db_not_seeded' }))
+        expect(hasStaleSourceUnavailableScans(db, 'osv')).toBe(true)
+    })
+
+    it('ignores a stale verdict belonging to a different source', function () {
+        insertScan(db, scan({ id: 's1', status: 'unauditable', reasonCode: 'osv_db_not_seeded' }))
+        expect(hasStaleSourceUnavailableScans(db, 'gemnasium')).toBe(false)
+    })
+
+    // A project with no lockfile is not waiting on a cache — re-scanning it would change nothing.
+    it('ignores an unauditable verdict that is not about the cache', function () {
+        insertScan(db, scan({ id: 's1', status: 'unauditable', reasonCode: 'no_lockfile' }))
+        expect(hasStaleSourceUnavailableScans(db, 'osv')).toBe(false)
+    })
+
+    // Pre-migration rows carry a null source; the backfill runs at worker boot, and this check runs
+    // during that same boot.
+    it('falls back to the scanner name for a row written before source was backfilled', function () {
+        insertScan(db, scan({ id: 's1', status: 'unauditable', reasonCode: 'osv_db_not_seeded' }))
+        sqlite.prepare('UPDATE scans SET source = NULL').run()
+        expect(hasStaleSourceUnavailableScans(db, 'osv')).toBe(true)
     })
 })

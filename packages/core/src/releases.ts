@@ -20,6 +20,7 @@ function stripVPrefix(value: string): string {
 // needs no empty-array fallback — and an accidental truncation to [] becomes a type error rather than a
 // silently null "latest release".
 export const RELEASES: [ReleaseEntry, ...ReleaseEntry[]] = [
+    { version: '3.5.0', date: '2026-08-20' },
     { version: '3.4.0', date: '2026-08-18' },
     { version: '3.3.2', date: '2026-08-17' },
     { version: '3.3.1', date: '2026-08-15' },
@@ -54,6 +55,14 @@ export const RELEASES: [ReleaseEntry, ...ReleaseEntry[]] = [
 // this is plain TS data, not a next-intl message key (next-intl forbids '.' in keys).
 export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     en: {
+        '3.5.0': {
+            title: 'A dashboard that let one source speak for the whole project',
+            items: [
+                'The dashboard’s <strong>State</strong> column reported one source and threw the rest away. Each scan writes one row per source and they finish milliseconds apart, so the column showed whichever finished last — in practice always OSV. Every project read “OSV database not downloaded yet” while npm audit had scanned them fine and found real vulnerabilities. State now carries one badge per source that could not answer, each naming the source, and shows nothing at all when every enabled source is happy. The scan history gained a <strong>Source</strong> column for the same reason: a sweep wrote three identical-looking rows with no way to tell them apart.',
+                'Settings → Sources claimed a cache was up to date while it was being rebuilt. The status the portal reads was only written when a sync finished, so for the whole of a multi-minute rebuild it kept showing the count from before it — while every scan correctly refused the half-deleted cache. It also never carried the normalizer version, which the scanner requires, so a version bump produced the same false claim with no rebuild at all. The row now reads <strong>Rebuilding…</strong> with the previous count dimmed, or <strong>Rebuild pending</strong> when a cache is unusable and nothing is currently fixing it.',
+                'A cache that finished downloading left every project stuck on the verdict it got while the cache was missing. Nothing re-scanned, so <code>osv_db_not_seeded</code> sat there until the next scheduled sweep, or until you noticed and pressed Scan. Sentinello now queues one full re-scan the moment a cache becomes usable again. An incremental update queues nothing. Upgrading counts: if this release lands on an instance whose projects are still holding that verdict from before the cache finished, the worker notices the disagreement on its first boot and clears it for you — no scan to remember to run.'
+            ]
+        },
         '3.4.0': {
             title: 'An advisory that flagged the version which fixed it',
             items: [
@@ -280,6 +289,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Initial open-source release', items: ['The first public release of Sentinello'] }
     },
     es: {
+        '3.5.0': {
+            title: 'Un panel que dejaba que una sola fuente hablara por todo el proyecto',
+            items: [
+                'La columna <strong>Estado</strong> del panel informaba de una sola fuente y descartaba el resto. Cada análisis escribe una fila por fuente y terminan con milisegundos de diferencia, así que la columna mostraba la que terminaba última — en la práctica siempre OSV. Todos los proyectos decían «Base de datos OSV aún no descargada» cuando npm audit los había analizado bien y había encontrado vulnerabilidades reales. Ahora Estado lleva una etiqueta por cada fuente que no pudo responder, nombrando la fuente, y no muestra nada cuando todas las fuentes activas están bien. El historial de análisis ganó una columna <strong>Fuente</strong> por el mismo motivo: un barrido escribía tres filas idénticas sin forma de distinguirlas.',
+                'Ajustes → Fuentes afirmaba que una caché estaba al día mientras se reconstruía. El estado que lee el portal solo se escribía al terminar una sincronización, así que durante toda una reconstrucción de varios minutos seguía mostrando el recuento anterior — mientras cada análisis rechazaba correctamente la caché medio borrada. Tampoco llevaba nunca la versión del normalizador, que el escáner exige, así que un cambio de versión producía la misma afirmación falsa sin reconstrucción alguna. Ahora la fila dice <strong>Reconstruyendo…</strong> con el recuento anterior atenuado, o <strong>Reconstrucción pendiente</strong> cuando una caché no es utilizable y nada la está arreglando.',
+                'Una caché que terminaba de descargarse dejaba a todos los proyectos con el veredicto que obtuvieron mientras faltaba. Nada volvía a analizarlos, así que <code>osv_db_not_seeded</code> se quedaba ahí hasta el siguiente barrido programado, o hasta que lo notabas y pulsabas Analizar. Sentinello ahora encola un análisis completo en cuanto una caché vuelve a ser utilizable. Una actualización incremental no encola nada. La actualización cuenta: si esta versión llega a una instancia cuyos proyectos aún arrastran ese veredicto de antes de que la caché terminara, el worker detecta la discrepancia en su primer arranque y la resuelve por ti — sin que tengas que acordarte de lanzar un análisis.'
+            ]
+        },
         '3.4.0': {
             title: 'Un aviso que señalaba la versión que lo corregía',
             items: [
@@ -509,6 +526,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primera versión de código abierto', items: ['El primer lanzamiento público de Sentinello'] }
     },
     fr: {
+        '3.5.0': {
+            title: 'Un tableau de bord où une seule source parlait pour tout le projet',
+            items: [
+                'La colonne <strong>État</strong> du tableau de bord rapportait une seule source et jetait les autres. Chaque analyse écrit une ligne par source et elles se terminent à quelques millisecondes d’intervalle, donc la colonne affichait celle qui finissait en dernier — en pratique toujours OSV. Tous les projets affichaient « Base de données OSV pas encore téléchargée » alors que npm audit les avait analysés correctement et avait trouvé de vraies vulnérabilités. État porte désormais un badge par source incapable de répondre, chacun nommant la source, et n’affiche rien quand toutes les sources activées vont bien. L’historique des analyses a gagné une colonne <strong>Source</strong> pour la même raison : un balayage écrivait trois lignes identiques sans moyen de les distinguer.',
+                'Paramètres → Sources prétendait qu’un cache était à jour pendant sa reconstruction. L’état lu par le portail n’était écrit qu’à la fin d’une synchronisation, donc pendant toute une reconstruction de plusieurs minutes il continuait d’afficher le décompte d’avant — alors que chaque analyse refusait à juste titre le cache à moitié effacé. Il ne portait pas non plus la version du normaliseur, que le scanner exige, donc un changement de version produisait la même fausse affirmation sans aucune reconstruction. La ligne indique maintenant <strong>Reconstruction…</strong> avec le décompte précédent atténué, ou <strong>Reconstruction en attente</strong> quand un cache est inutilisable et que rien n’y remédie.',
+                'Un cache qui finissait de se télécharger laissait chaque projet bloqué sur le verdict obtenu pendant son absence. Rien ne relançait d’analyse, donc <code>osv_db_not_seeded</code> restait là jusqu’au balayage planifié suivant, ou jusqu’à ce que vous le remarquiez et lanciez une analyse. Sentinello met désormais en file une analyse complète dès qu’un cache redevient utilisable. Une mise à jour incrémentale ne met rien en file. La mise à jour compte : si cette version arrive sur une instance dont les projets portent encore ce verdict d’avant la fin du téléchargement, le worker repère la contradiction à son premier démarrage et la corrige pour vous — aucune analyse à penser à lancer.'
+            ]
+        },
         '3.4.0': {
             title: 'Un avis qui signalait la version qui le corrigeait',
             items: [
@@ -740,6 +765,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Première version open source', items: ['La première version publique de Sentinello'] }
     },
     de: {
+        '3.5.0': {
+            title: 'Ein Dashboard, in dem eine Quelle für das ganze Projekt sprach',
+            items: [
+                'Die Spalte <strong>Status</strong> im Dashboard meldete eine einzige Quelle und verwarf den Rest. Jeder Scan schreibt eine Zeile pro Quelle, und sie enden im Abstand von Millisekunden — angezeigt wurde also die zuletzt fertige, in der Praxis immer OSV. Jedes Projekt las „OSV-Datenbank noch nicht heruntergeladen“, obwohl npm audit es einwandfrei gescannt und echte Schwachstellen gefunden hatte. Status trägt jetzt ein Abzeichen pro Quelle, die nicht antworten konnte, jeweils mit dem Namen der Quelle, und zeigt gar nichts, wenn alle aktivierten Quellen zufrieden sind. Der Scanverlauf hat aus demselben Grund eine Spalte <strong>Quelle</strong> bekommen: ein Durchlauf schrieb drei gleich aussehende Zeilen ohne jede Unterscheidungsmöglichkeit.',
+                'Einstellungen → Quellen behauptete, ein Cache sei aktuell, während er neu aufgebaut wurde. Der vom Portal gelesene Status wurde erst nach Abschluss einer Synchronisierung geschrieben, also zeigte er während eines minutenlangen Neuaufbaus weiterhin den Zählerstand von davor — während jeder Scan den halb gelöschten Cache zu Recht verweigerte. Er trug außerdem nie die Normalisierer-Version, die der Scanner verlangt, sodass ein Versionssprung dieselbe falsche Aussage ganz ohne Neuaufbau erzeugte. Die Zeile liest sich jetzt <strong>Wird neu aufgebaut…</strong> mit abgeblendetem vorherigem Zählerstand, oder <strong>Neuaufbau ausstehend</strong>, wenn ein Cache unbrauchbar ist und sich gerade nichts darum kümmert.',
+                'Ein fertig heruntergeladener Cache ließ jedes Projekt auf dem Urteil sitzen, das es während seines Fehlens bekommen hatte. Nichts scannte erneut, also blieb <code>osv_db_not_seeded</code> bis zum nächsten geplanten Durchlauf stehen — oder bis es jemandem auffiel und Scannen gedrückt wurde. Sentinello stellt jetzt einen vollständigen Neuscan in die Warteschlange, sobald ein Cache wieder brauchbar ist. Ein inkrementelles Update stellt nichts ein. Das Upgrade zählt mit: Landet diese Version auf einer Instanz, deren Projekte noch das Urteil von vor dem Abschluss des Caches tragen, bemerkt der Worker den Widerspruch beim ersten Start und räumt ihn für Sie auf — kein Scan, an den man denken müsste.'
+            ]
+        },
         '3.4.0': {
             title: 'Ein Hinweis, der die Version meldete, die ihn behob',
             items: [
@@ -972,6 +1005,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         }
     },
     'pt-BR': {
+        '3.5.0': {
+            title: 'Um painel que deixava uma única fonte falar pelo projeto inteiro',
+            items: [
+                'A coluna <strong>Estado</strong> do painel relatava uma única fonte e descartava as demais. Cada varredura grava uma linha por fonte e elas terminam com milissegundos de diferença, então a coluna mostrava a que terminava por último — na prática sempre OSV. Todo projeto lia “Banco de dados OSV ainda não baixado” enquanto o npm audit os havia analisado bem e encontrado vulnerabilidades reais. Agora Estado carrega um selo por fonte que não conseguiu responder, cada um nomeando a fonte, e não mostra nada quando todas as fontes ativas estão bem. O histórico de varreduras ganhou uma coluna <strong>Fonte</strong> pelo mesmo motivo: uma varredura gravava três linhas idênticas sem como distingui-las.',
+                'Configurações → Fontes afirmava que um cache estava atualizado enquanto era reconstruído. O estado que o portal lê só era gravado ao fim de uma sincronização, então durante toda uma reconstrução de vários minutos ele seguia mostrando a contagem anterior — enquanto cada varredura recusava corretamente o cache meio apagado. Ele também nunca carregava a versão do normalizador, que o scanner exige, então uma mudança de versão produzia a mesma afirmação falsa sem reconstrução nenhuma. A linha agora diz <strong>Reconstruindo…</strong> com a contagem anterior esmaecida, ou <strong>Reconstrução pendente</strong> quando um cache está inutilizável e nada está resolvendo.',
+                'Um cache que terminava de baixar deixava todo projeto preso no veredito obtido enquanto ele faltava. Nada varria de novo, então <code>osv_db_not_seeded</code> ficava lá até a próxima varredura agendada, ou até você notar e clicar em Varrer. O Sentinello agora enfileira uma varredura completa assim que um cache volta a ser utilizável. Uma atualização incremental não enfileira nada. A atualização conta: se esta versão chegar a uma instância cujos projetos ainda carregam aquele veredito de antes de o cache terminar, o worker percebe a divergência no primeiro boot e resolve para você — sem varredura para lembrar de rodar.'
+            ]
+        },
         '3.4.0': {
             title: 'Um aviso que apontava a versão que o corrigia',
             items: [
@@ -1201,6 +1242,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primeira versão de código aberto', items: ['O primeiro lançamento público do Sentinello'] }
     },
     it: {
+        '3.5.0': {
+            title: 'Un pannello in cui una sola fonte parlava per l’intero progetto',
+            items: [
+                'La colonna <strong>Stato</strong> del pannello riportava una sola fonte e scartava le altre. Ogni scansione scrive una riga per fonte e finiscono a millisecondi di distanza, quindi la colonna mostrava quella che finiva per ultima — in pratica sempre OSV. Ogni progetto leggeva «Database OSV non ancora scaricato» mentre npm audit li aveva analizzati correttamente trovando vulnerabilità reali. Ora Stato porta un badge per ogni fonte che non ha potuto rispondere, ciascuno con il nome della fonte, e non mostra nulla quando tutte le fonti attive stanno bene. La cronologia delle scansioni ha guadagnato una colonna <strong>Fonte</strong> per lo stesso motivo: una passata scriveva tre righe identiche senza modo di distinguerle.',
+                'Impostazioni → Fonti sosteneva che una cache fosse aggiornata mentre veniva ricostruita. Lo stato letto dal portale veniva scritto solo alla fine di una sincronizzazione, quindi per tutta una ricostruzione di minuti continuava a mostrare il conteggio precedente — mentre ogni scansione rifiutava giustamente la cache mezza cancellata. Non portava nemmeno la versione del normalizzatore, che lo scanner richiede, così un cambio di versione produceva la stessa falsa affermazione senza alcuna ricostruzione. La riga ora dice <strong>Ricostruzione…</strong> con il conteggio precedente attenuato, oppure <strong>Ricostruzione in sospeso</strong> quando una cache è inutilizzabile e nulla se ne sta occupando.',
+                'Una cache che finiva di scaricarsi lasciava ogni progetto fermo sul verdetto ottenuto mentre mancava. Nulla rieseguiva la scansione, quindi <code>osv_db_not_seeded</code> restava lì fino alla passata programmata successiva, o finché non te ne accorgevi e premevi Scansiona. Sentinello ora mette in coda una scansione completa non appena una cache torna utilizzabile. Un aggiornamento incrementale non mette in coda nulla. L’aggiornamento conta: se questa versione arriva su un’istanza i cui progetti portano ancora quel verdetto da prima che la cache finisse, il worker nota la discordanza al primo avvio e la sistema per te — nessuna scansione da ricordarsi di lanciare.'
+            ]
+        },
         '3.4.0': {
             title: 'Un avviso che segnalava la versione che lo correggeva',
             items: [
@@ -1430,6 +1479,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Prima versione open source', items: ['La prima versione pubblica di Sentinello'] }
     },
     ja: {
+        '3.5.0': {
+            title: '1 つのソースがプロジェクト全体を代弁していたダッシュボード',
+            items: [
+                'ダッシュボードの<strong>状態</strong>列は 1 つのソースだけを報告し、残りを捨てていました。スキャンはソースごとに 1 行を書き込み、それらは数ミリ秒差で終わるため、列には最後に終わったもの — 実際には常に OSV — が表示されていました。npm audit が問題なくスキャンして実際の脆弱性を見つけていたのに、どのプロジェクトも「OSV データベースは未ダウンロード」と表示されていたのです。状態は応答できなかったソースごとにバッジを 1 つずつ持ち、それぞれソース名を示すようになり、有効なソースがすべて正常なら何も表示しません。スキャン履歴にも同じ理由で<strong>ソース</strong>列が加わりました。1 回の実行で見分けのつかない 3 行が書き込まれていたためです。',
+                '設定 → ソースは、キャッシュの再構築中に「最新」だと主張していました。ポータルが読む状態は同期の完了時にしか書かれなかったため、数分かかる再構築のあいだずっと以前の件数を表示し続けていました — その間、各スキャンは半分削除されたキャッシュを正しく拒否していたのに。さらにスキャナーが要求する正規化バージョンを一度も持っていなかったため、バージョンの更新だけで再構築なしに同じ虚偽の主張が生じていました。行は現在、以前の件数を薄く表示した<strong>再構築中…</strong>、またはキャッシュが使用不能で誰も対処していないときは<strong>再構築待ち</strong>と表示します。',
+                'ダウンロードが完了したキャッシュがあっても、各プロジェクトはキャッシュが無かったときの判定のまま固定されていました。再スキャンが行われないため、<code>osv_db_not_seeded</code> は次の定期実行まで、あるいは気づいてスキャンを押すまで残り続けました。Sentinello はキャッシュが再び使用可能になった時点で、フルスキャンを 1 回キューに入れるようになりました。増分更新では何もキューに入れません。 アップグレードも対象です。キャッシュの完了前に付いた判定をプロジェクトが抱えたままの環境にこのリリースが入ると、ワーカーは最初の起動でその食い違いに気づき、自動的に解消します。スキャンを忘れずに実行する必要はありません。'
+            ]
+        },
         '3.4.0': {
             title: '修正済みバージョンを指摘していたアドバイザリ',
             items: [
@@ -1655,6 +1712,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '初のオープンソースリリース', items: ['Sentinello の最初の一般公開リリース'] }
     },
     'zh-CN': {
+        '3.5.0': {
+            title: '一个让单个来源代表整个项目发言的仪表板',
+            items: [
+                '仪表板的<strong>状态</strong>列只报告一个来源，其余被丢弃。每次扫描会为每个来源写入一行，而它们相隔仅几毫秒完成，因此该列显示的是最后完成的那个——实际上总是 OSV。于是每个项目都显示“OSV 数据库尚未下载”，而 npm audit 明明已顺利扫描并发现了真实漏洞。现在“状态”会为每个无法给出答复的来源各显示一个标记并注明来源名称；当所有已启用的来源都正常时，则什么也不显示。扫描历史出于同样的原因新增了<strong>来源</strong>列：一次扫描会写入三行看起来完全相同的记录，无从分辨。',
+                '设置 → 来源在缓存重建期间仍声称它是最新的。门户读取的状态只在同步结束时写入，因此在长达数分钟的重建过程中，它一直显示重建之前的数量——而与此同时每次扫描都正确地拒绝了这个删除到一半的缓存。它也从未携带扫描器所要求的规范化版本号，所以仅仅提升版本号就能在完全没有重建的情况下产生同样的虚假说法。该行现在会显示<strong>正在重建…</strong>并将之前的数量淡化，或者在缓存不可用且当前无人处理时显示<strong>等待重建</strong>。',
+                '缓存下载完成后，每个项目仍停留在缓存缺失期间得到的结论上。没有任何机制重新扫描，因此 <code>osv_db_not_seeded</code> 会一直留在那里，直到下一次计划扫描，或者直到你注意到并手动点击扫描。现在只要缓存重新变得可用，Sentinello 就会立即排入一次全量重新扫描。增量更新则不会排入任何任务。 升级同样适用：如果本次发布落到一个项目仍带着缓存完成之前那个结论的实例上，worker 会在首次启动时发现这一矛盾并替你清除——无需记着手动运行扫描。'
+            ]
+        },
         '3.4.0': {
             title: '把修复版本标记为有漏洞的公告',
             items: [
@@ -1860,6 +1925,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '首个开源版本', items: ['Sentinello 的首个公开发布版本'] }
     },
     ko: {
+        '3.5.0': {
+            title: '하나의 출처가 프로젝트 전체를 대변하던 대시보드',
+            items: [
+                '대시보드의 <strong>상태</strong> 열은 하나의 출처만 보고하고 나머지는 버렸습니다. 스캔은 출처마다 한 행씩 기록하며 서로 몇 밀리초 차이로 끝나기 때문에, 열에는 마지막에 끝난 것 — 실제로는 언제나 OSV — 이 표시되었습니다. npm audit이 문제없이 스캔해 실제 취약점을 찾아냈는데도 모든 프로젝트가 “OSV 데이터베이스가 아직 다운로드되지 않음”으로 표시된 이유입니다. 이제 상태는 답하지 못한 출처마다 배지를 하나씩, 출처 이름과 함께 표시하고, 활성화된 출처가 모두 정상이면 아무것도 표시하지 않습니다. 스캔 기록에도 같은 이유로 <strong>출처</strong> 열이 추가되었습니다. 한 번의 스캔이 구분할 수 없는 세 줄을 남겼기 때문입니다.',
+                '설정 → 출처는 캐시를 다시 만드는 중에도 최신이라고 주장했습니다. 포털이 읽는 상태는 동기화가 끝날 때만 기록되었기에, 수 분이 걸리는 재구축 내내 이전 개수를 계속 보여주었습니다 — 그동안 모든 스캔은 반쯤 삭제된 캐시를 올바르게 거부하고 있었는데도 말입니다. 게다가 스캐너가 요구하는 정규화 버전을 한 번도 담지 않아, 버전만 올려도 재구축 없이 같은 거짓 주장이 만들어졌습니다. 이제 이 행은 이전 개수를 흐리게 표시한 <strong>다시 만드는 중…</strong>, 또는 캐시를 쓸 수 없는데 아무도 손대지 않고 있을 때는 <strong>재구축 대기 중</strong>으로 표시됩니다.',
+                '캐시 다운로드가 끝나도 모든 프로젝트는 캐시가 없던 동안 받은 판정에 그대로 묶여 있었습니다. 다시 스캔하는 것이 없어 <code>osv_db_not_seeded</code>는 다음 예약 스캔까지, 또는 직접 알아차리고 스캔을 누를 때까지 남아 있었습니다. 이제 Sentinello는 캐시가 다시 사용 가능해지는 즉시 전체 재스캔을 한 번 대기열에 넣습니다. 증분 업데이트는 아무것도 넣지 않습니다. 업그레이드도 포함됩니다. 캐시가 완료되기 전의 판정을 프로젝트가 그대로 안고 있는 인스턴스에 이 릴리스가 올라가면, 워커가 첫 부팅에서 그 불일치를 발견해 대신 정리합니다 — 잊지 않고 스캔을 눌러야 할 일이 없습니다.'
+            ]
+        },
         '3.4.0': {
             title: '문제를 고친 버전을 취약하다고 알린 권고',
             items: [
@@ -2079,6 +2152,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '첫 오픈 소스 릴리스', items: ['Sentinello의 첫 공개 릴리스'] }
     },
     ru: {
+        '3.5.0': {
+            title: 'Панель, где один источник говорил за весь проект',
+            items: [
+                'Столбец <strong>Состояние</strong> на панели сообщал об одном источнике и отбрасывал остальные. Каждое сканирование пишет по строке на источник, и они завершаются с разницей в миллисекунды, поэтому в столбце оказывался тот, что закончил последним — на практике всегда OSV. Каждый проект показывал «База данных OSV ещё не загружена», хотя npm audit прекрасно их просканировал и нашёл настоящие уязвимости. Теперь Состояние несёт по значку на каждый источник, который не смог ответить, с указанием источника, и не показывает ничего, когда все включённые источники в порядке. В истории сканирований по той же причине появился столбец <strong>Источник</strong>: один проход писал три одинаковых на вид строки, которые нельзя было различить.',
+                'Настройки → Источники утверждали, что кэш актуален, пока он перестраивался. Состояние, которое читает портал, записывалось только по завершении синхронизации, поэтому на протяжении всей многоминутной перестройки оно продолжало показывать прежнее количество — тогда как каждое сканирование справедливо отвергало наполовину удалённый кэш. Оно также никогда не несло версию нормализатора, которую требует сканер, так что смена версии порождала то же ложное утверждение вообще без перестройки. Теперь строка читается как <strong>Перестроение…</strong> с приглушённым прежним количеством или <strong>Ожидает перестроения</strong>, когда кэш непригоден и им никто не занимается.',
+                'Догрузившийся кэш оставлял каждый проект с тем вердиктом, который тот получил, пока кэша не было. Ничто не пересканировало, поэтому <code>osv_db_not_seeded</code> держался до следующего планового прохода — или пока вы не замечали и не нажимали «Сканировать». Теперь Sentinello ставит в очередь один полный пересканинг, как только кэш снова становится пригодным. Инкрементное обновление не ставит в очередь ничего. Обновление тоже учитывается: если этот выпуск попадёт на инстанс, чьи проекты всё ещё несут вердикт, вынесенный до завершения кэша, воркер заметит расхождение при первом запуске и устранит его за вас — не нужно помнить про запуск сканирования.'
+            ]
+        },
         '3.4.0': {
             title: 'Уведомление, помечавшее версию, которая его и исправила',
             items: [

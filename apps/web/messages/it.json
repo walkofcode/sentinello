@@ -296,6 +296,8 @@
             "disabled": "Disabilitato",
             "seeded": "Aggiornato",
             "seeding": "Download in corso…",
+            "rebuilding": "Ricostruzione…",
+            "rebuildPending": "Ricostruzione in sospeso",
             "recordCount": "{n, number} avvisi in cache",
             "lastRefreshed": "Ultimo aggiornamento",
             "lastError": "Ultimo errore",
@@ -656,6 +658,7 @@
             "scanTable": {
                 "finished": "Completata",
                 "status": "Stato",
+                "source": "Fonte",
                 "reason": "Motivo",
                 "duration": "Durata",
                 "detail": "Dettaglio",

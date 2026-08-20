@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { SeverityPill } from '@/components/ui/severity-pill'
 import { Card } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { sourceLabel } from './source-order'
 
 export type ScanFindingVM = {
     id: string
@@ -19,6 +20,9 @@ export type ScanFindingVM = {
 
 export type ScanHistoryRowVM = {
     id: string
+    // Which advisory source produced this row. A sweep writes one row per source, so without it the
+    // history is N visually identical rows per sweep with no way to tell which one reported what.
+    source: string
     finishedRelative: string
     finishedAbsolute: string
     statusLabel: string
@@ -65,6 +69,7 @@ function ScanTableHeads() {
     return (
         <>
             <TableHead>{t('project.scanTable.finished')}</TableHead>
+            <TableHead>{t('project.scanTable.source')}</TableHead>
             <TableHead>{t('project.scanTable.status')}</TableHead>
             <TableHead>{t('project.scanTable.changes')}</TableHead>
         </>
@@ -107,6 +112,7 @@ function ScanRow({ scan }: { scan: ScanHistoryRowVM }) {
                 <TableCell className="font-mono text-xs">
                     <span title={scan.finishedAbsolute}>{scan.finishedRelative}</span>
                 </TableCell>
+                <TableCell className="text-xs text-muted-foreground">{sourceLabel(scan.source)}</TableCell>
                 <TableCell>
                     <div className="flex flex-wrap items-center gap-1.5">
                         <Badge variant={scan.statusOk ? 'default' : 'outline'}>{scan.statusLabel}</Badge>
@@ -119,7 +125,7 @@ function ScanRow({ scan }: { scan: ScanHistoryRowVM }) {
             </TableRow>
             {open && expandable ? (
                 <TableRow>
-                    <TableCell colSpan={4} className="bg-muted/20 p-4">
+                    <TableCell colSpan={5} className="bg-muted/20 p-4">
                         <ChangeDetail scan={scan} />
                     </TableCell>
                 </TableRow>
@@ -154,6 +160,7 @@ function ScanCard({ scan }: { scan: ScanHistoryRowVM }) {
             className={'p-4 ' + (expandable ? 'cursor-pointer' : '')}
         >
             <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">{sourceLabel(scan.source)}</span>
                 <Badge variant={scan.statusOk ? 'default' : 'outline'}>{scan.statusLabel}</Badge>
                 {scan.reasonLabel ? <Badge variant="outline">{scan.reasonLabel}</Badge> : null}
                 <span className="ml-auto font-mono text-xs text-muted-foreground" title={scan.finishedAbsolute}>

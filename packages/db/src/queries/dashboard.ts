@@ -1,5 +1,5 @@
-import { sql } from 'drizzle-orm'
-import { parseFindingCorroborations, SCAN_HEARTBEAT_STALE_MS, type DepTypeFilter, type FindingCorroboration } from '@sentinello/core'
+import { sql, type SQL } from 'drizzle-orm'
+import { parseFindingCorroborations, SCAN_HEARTBEAT_STALE_MS, SOURCE_IDS, type DepTypeFilter, type FindingCorroboration } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { depTypeClause } from './dep-type'
 import { activeSourceCellClause } from './sources'
@@ -149,10 +149,31 @@ export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeF
     }
 }
 
+// One entry per advisory source that has scanned this project and whose (source, ecosystem) cell is
+// still enabled, carrying that source's OWN latest verdict. Two sources that disagree produce two
+// entries; the single lastScan* fields this replaced reported whichever source happened to finish
+// last — in practice OSV every time, because it finishes milliseconds after npm audit.
+//
+// An empty array means nothing has ever scanned the project, which is NOT the same as clean — it is
+// why the dashboard's isHealthy checks the length before it checks the statuses.
+export type ProjectScanState = {
+    // COALESCE(source, scanner), typed as string rather than SourceId to match CurrentFindingRow.source:
+    // the column is free text and a legacy row can carry a plugin name the registry never knew.
+    source: string
+    finishedAt: number
+    status: string
+    reasonCode: string | null
+    errorText: string | null
+}
+
 export type ProjectCatalogRow = {
     id: string
     name: string
     alias: string | null
+    // Stable root identity. The dashboard's root filter keys on this rather than on rootPath: an
+    // absolute path may legally contain the comma the filter joins on, and a relabelled root would
+    // otherwise invalidate every bookmarked filter URL.
+    rootId: string
     rootLabel: string | null
     rootPath: string
     packageManager: string
@@ -163,20 +184,103 @@ export type ProjectCatalogRow = {
     // Null when the project is not muted.
     muteId: string | null
     tagsJson: string
-    lastScanFinishedAt: number | null
-    lastScanStatus: string | null
-    lastScanReasonCode: string | null
-    lastScanErrorText: string | null
+    scanStates: ProjectScanState[]
     severityCounts: SeverityCounts
+}
+
+// Display order (npm audit -> OSV -> gemnasium), derived from SOURCE_IDS so it cannot drift from the
+// registry's dedup-priority order. An unknown/legacy source value sorts after all of them; the
+// caller's second ORDER BY term makes that group alphabetical. Source ids are fixed registry
+// constants, never user input, so the inlined literals carry no injection risk — same reasoning as
+// activeSourceCellClause.
+function sourceRankSql(expr: string): SQL {
+    const whens = SOURCE_IDS.map(function when(id, index) {
+        return "WHEN '" + id + "' THEN " + index
+    }).join(' ')
+    return sql.raw('CASE ' + expr + ' ' + whens + ' ELSE ' + SOURCE_IDS.length + ' END')
+}
+
+// Latest scan per (project, source), for every source cell that is currently active.
+//
+// One row per source, deliberately. A sweep writes one scans row PER SOURCE and they finish
+// milliseconds apart, so "the project's latest scan" was whichever source finished last. Reading that
+// as the project's verdict discarded npm audit's answer silently: on a real instance every project
+// reported "OSV database not downloaded yet" while npm audit had scanned fine and produced findings.
+// Sources disagree; the row has to carry all of them.
+//
+// ROW_NUMBER rather than a correlated `s.id = (SELECT ... LIMIT 1)`: the correlation would have to
+// match on COALESCE(source, scanner), which no index can supply, and the inner scan could no longer
+// stop at the project's newest row. One pass and one sort instead. Mirrors listPrunableScanIds.
+//
+// Retention prunes per project rather than per source, so a source that ran once long ago and has
+// been out-scanned since can lose its only row and silently drop out of this map. keepPerProject
+// covers dozens of sweeps and a still-enabled source re-creates its row next sweep, so the window is
+// narrow — but it is why an absent source reads as "has not run", never as "is fine".
+function listLatestScanStates(db: DrizzleDb): Map<string, ProjectScanState[]> {
+    // The scans table carries source/scanner/ecosystem exactly like findings, so the shared cell
+    // filter applies verbatim: a source the operator has since switched off leaves its scan rows
+    // behind, and they must not badge.
+    const sourceFilter = activeSourceCellClause(db, 'r')
+    const rows = db.all<{
+        project_id: string
+        source: string
+        finished_at: number
+        status: string
+        reason_code: string | null
+        error_text: string | null
+    }>(sql`
+        WITH ranked AS (
+            SELECT s.project_id AS project_id,
+                   s.source AS source,
+                   s.scanner AS scanner,
+                   s.ecosystem AS ecosystem,
+                   s.finished_at AS finished_at,
+                   s.status AS status,
+                   s.reason_code AS reason_code,
+                   s.error_text AS error_text,
+                   -- id DESC breaks a finished_at tie deterministically: scan ids are ULIDs, so the
+                   -- higher id is the later write.
+                   ROW_NUMBER() OVER (
+                       PARTITION BY s.project_id, COALESCE(s.source, s.scanner)
+                       ORDER BY s.finished_at DESC, s.id DESC
+                   ) AS rn
+            FROM scans s
+        )
+        SELECT r.project_id AS project_id,
+               COALESCE(r.source, r.scanner) AS source,
+               r.finished_at AS finished_at,
+               r.status AS status,
+               r.reason_code AS reason_code,
+               r.error_text AS error_text
+        FROM ranked r
+        WHERE r.rn = 1
+          ${sourceFilter}
+        ORDER BY ${sourceRankSql('COALESCE(r.source, r.scanner)')}, COALESCE(r.source, r.scanner)
+    `)
+    const byProject = new Map<string, ProjectScanState[]>()
+    for (const row of rows) {
+        const states = byProject.get(row.project_id) ?? []
+        states.push({
+            source: row.source,
+            finishedAt: row.finished_at,
+            status: row.status,
+            reasonCode: row.reason_code,
+            errorText: row.error_text
+        })
+        byProject.set(row.project_id, states)
+    }
+    return byProject
 }
 
 export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFilter = 'all'): ProjectCatalogRow[] {
     const depFilter = depTypeClause(depType)
     const sourceFilter = activeSourceCellClause(db)
+    const scanStates = listLatestScanStates(db)
     const rows = db.all<{
         id: string
         name: string
         alias: string | null
+        root_id: string
         root_label: string | null
         root_path: string
         package_manager: string
@@ -185,32 +289,13 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
         muted: number
         mute_id: string | null
         tags_json: string
-        last_scan_finished_at: number | null
-        last_scan_status: string | null
-        last_scan_reason_code: string | null
-        last_scan_error_text: string | null
         critical: number
         high: number
         moderate: number
         low: number
         info: number
     }>(sql`
-        WITH latest_scan AS (
-            SELECT s.project_id,
-                   s.id AS scan_id,
-                   s.finished_at,
-                   s.status,
-                   s.reason_code,
-                   s.error_text
-            FROM scans s
-            WHERE s.id = (
-                SELECT s2.id FROM scans s2
-                WHERE s2.project_id = s.project_id
-                ORDER BY s2.finished_at DESC
-                LIMIT 1
-            )
-        ),
-        deduped AS (
+        WITH deduped AS (
             SELECT f.project_id AS project_id, MAX(${severityRankSql('f')}) AS sev_rank
             FROM findings f
             WHERE f.resolved_at IS NULL
@@ -233,6 +318,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             p.id AS id,
             p.name AS name,
             p.alias AS alias,
+            r.id AS root_id,
             r.label AS root_label,
             r.path AS root_path,
             p.package_manager AS package_manager,
@@ -253,10 +339,6 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
                 AND (m2.expires_at IS NULL OR m2.expires_at > ${at})
               LIMIT 1) AS mute_id,
             p.tags_json AS tags_json,
-            ls.finished_at AS last_scan_finished_at,
-            ls.status AS last_scan_status,
-            ls.reason_code AS last_scan_reason_code,
-            ls.error_text AS last_scan_error_text,
             COALESCE(ps.critical, 0) AS critical,
             COALESCE(ps.high, 0) AS high,
             COALESCE(ps.moderate, 0) AS moderate,
@@ -264,7 +346,6 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             COALESCE(ps.info, 0) AS info
         FROM projects p
         INNER JOIN roots r ON r.id = p.root_id
-        LEFT JOIN latest_scan ls ON ls.project_id = p.id
         LEFT JOIN project_sev ps ON ps.project_id = p.id
         ORDER BY p.name ASC
     `)
@@ -273,6 +354,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             id: row.id,
             name: row.name,
             alias: row.alias,
+            rootId: row.root_id,
             rootLabel: row.root_label,
             rootPath: row.root_path,
             packageManager: row.package_manager,
@@ -281,10 +363,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             muteId: row.mute_id,
             muted: row.muted === 1,
             tagsJson: row.tags_json,
-            lastScanFinishedAt: row.last_scan_finished_at,
-            lastScanStatus: row.last_scan_status,
-            lastScanReasonCode: row.last_scan_reason_code,
-            lastScanErrorText: row.last_scan_error_text,
+            scanStates: scanStates.get(row.id) ?? [],
             severityCounts: {
                 critical: row.critical,
                 high: row.high,

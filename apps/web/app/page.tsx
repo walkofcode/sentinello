@@ -8,7 +8,6 @@ import {
     listProjectCatalog
 } from '@sentinello/db'
 import { ProjectsFilterView } from '@/components/home/projects-filter-view'
-import { ScanAutoRefresh } from '@/components/scan-auto-refresh'
 import { getDb } from '@/lib/db'
 import { getFilterDefaults, parseDepTypeParam } from '@/lib/filter-defaults'
 
@@ -36,7 +35,6 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Sea
     const inFlightProjectIds = listInFlightScanProjectIds(db, now)
     return (
         <div className="space-y-6">
-            <ScanAutoRefresh active={anyInFlight} />
             <ProjectsFilterView
                 rows={projects}
                 inFlightProjectIds={inFlightProjectIds}

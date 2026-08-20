@@ -296,6 +296,8 @@
             "disabled": "無効",
             "seeded": "最新",
             "seeding": "ダウンロード中…",
+            "rebuilding": "再構築中…",
+            "rebuildPending": "再構築待ち",
             "recordCount": "{n, number} 件のアドバイザリをキャッシュ",
             "lastRefreshed": "最終更新",
             "lastError": "最後のエラー",
@@ -656,6 +658,7 @@
             "scanTable": {
                 "finished": "完了",
                 "status": "ステータス",
+                "source": "ソース",
                 "reason": "理由",
                 "duration": "所要時間",
                 "detail": "詳細",

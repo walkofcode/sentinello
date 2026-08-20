@@ -63,7 +63,12 @@ export async function checkOsvFreeSpace(): Promise<{ freeBytes: number; sufficie
 // ecosystem's seedComplete + its normalizer-version stamp + the lastModified cursor from the zip header.
 // Rows are keyed by (advisoryId, ecosystem, packageName) and the discard is ecosystem-scoped, so seeding
 // one ecosystem never disturbs another's rows.
-export async function seedOsv(db: OsvDrizzleDb, ecosystem: EcosystemId, abortSignal?: AbortSignal): Promise<OsvSyncResult> {
+export async function seedOsv(
+    db: OsvDrizzleDb,
+    ecosystem: EcosystemId,
+    abortSignal?: AbortSignal,
+    onCacheDiscarded?: () => void
+): Promise<OsvSyncResult> {
     function ecoCount(): number {
         return countOsvAdvisories(db, ecosystem)
     }
@@ -96,6 +101,14 @@ export async function seedOsv(db: OsvDrizzleDb, ecosystem: EcosystemId, abortSig
                 setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, ecosystem), false)
                 deleteOsvAdvisoriesForEcosystem(db, ecosystem)
                 invalidated = true
+                // The point of no return, announced. The ecosystem's rows are gone and the scanner already
+                // refuses it, so anything mirroring this cache's state has to learn that NOW rather than
+                // when the seed finishes minutes later. Sampling only at the ends is what let Settings →
+                // Sources report a pre-rebuild snapshot for the whole rebuild while every scan returned
+                // osv_db_not_seeded. A throw here would be caught below and recorded as a seed error;
+                // that is the right outcome — the only caller writes to the worker's own main DB, and a
+                // write failure on that handle is already fatal to everything else the worker does.
+                if (onCacheDiscarded) onCacheDiscarded()
             }
             lastModified = batch.lastModified
             upsertOsvAdvisories(db, batch.rows)
@@ -125,7 +138,12 @@ export async function seedOsv(db: OsvDrizzleDb, ecosystem: EcosystemId, abortSig
 // ONLY. Advisories that 404 (deleted upstream) or come back withdrawn are purged. Advances the ecosystem's
 // cursor to the newest seen. When the feed has not been republished since the stored ETag, this costs a
 // single round trip and transfers nothing.
-export async function incrementalSyncOsv(db: OsvDrizzleDb, ecosystem: EcosystemId, abortSignal?: AbortSignal): Promise<OsvSyncResult> {
+export async function incrementalSyncOsv(
+    db: OsvDrizzleDb,
+    ecosystem: EcosystemId,
+    abortSignal?: AbortSignal,
+    onCacheDiscarded?: () => void
+): Promise<OsvSyncResult> {
     function ecoCount(): number {
         return countOsvAdvisories(db, ecosystem)
     }
@@ -151,7 +169,9 @@ export async function incrementalSyncOsv(db: OsvDrizzleDb, ecosystem: EcosystemI
     // whole export — OSV can land tens of thousands of malware records in a single day.
     if (changed.ids.length > OSV_INCREMENTAL_MAX_IDS) {
         console.log('[osv-sync] ' + changed.ids.length + ' changed advisories for ' + ecosystem + ' exceeds the incremental threshold; re-seeding')
-        return await seedOsv(db, ecosystem, abortSignal)
+        // Forwarded: this is a destructive re-seed reached from a USABLE cache, so it is the one rebuild
+        // whose invalidation nobody would otherwise be told about.
+        return await seedOsv(db, ecosystem, abortSignal, onCacheDiscarded)
     }
     if (changed.ids.length === 0) {
         setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.refreshedAt, ecosystem), Date.now())

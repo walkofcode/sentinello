@@ -156,7 +156,7 @@ describe('list_projects', function () {
 
     // The rich catalog shape is returned whether or not rootId is passed, so an agent gets the same
     // fields either way rather than a narrower row when it filters.
-    it('carries severity counts and last-scan status in both modes', async function () {
+    it('carries severity counts and per-source scan state in both modes', async function () {
         scanProject(handle.db, 'project-1', [finding({ severity: 'critical' })])
 
         const all = jsonOf<Record<string, unknown>[]>(await mcp.call('list_projects'))
@@ -167,6 +167,9 @@ describe('list_projects', function () {
         expect(scoped.length).toBeGreaterThan(0)
         expect(Object.keys(all[0] ?? {}).sort()).toEqual(Object.keys(scoped[0] ?? {}).sort())
         expect(scoped[0]).toHaveProperty('rootPath', ROOT_PATH)
+        // The description promises one entry per source; assert the contract is actually met rather
+        // than only that the two modes agree with each other.
+        expect(all[0]?.scanStates).toMatchObject([{ source: 'npm-audit', status: 'ok' }])
     })
 
     it('rejects a depType outside the allowed set', async function () {

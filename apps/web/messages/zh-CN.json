@@ -296,6 +296,8 @@
             "disabled": "已禁用",
             "seeded": "已是最新",
             "seeding": "下载中…",
+            "rebuilding": "正在重建…",
+            "rebuildPending": "等待重建",
             "recordCount": "已缓存 {n, number} 条公告",
             "lastRefreshed": "上次刷新",
             "lastError": "上次错误",
@@ -656,6 +658,7 @@
             "scanTable": {
                 "finished": "完成时间",
                 "status": "状态",
+                "source": "来源",
                 "reason": "原因",
                 "duration": "时长",
                 "detail": "详情",

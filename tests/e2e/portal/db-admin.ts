@@ -247,3 +247,19 @@ export function deleteRequest(id: string): void {
         sqlite.close()
     }
 }
+
+// Overwrites one (source, ecosystem) status blob in app_config. The portal derives the Sources row's
+// state from this snapshot alone, and the states worth asserting — a rebuild in flight, a normalizer
+// stamp the running code no longer accepts — are ones no seeded fixture can reach: they need a live
+// download to be halfway through, or the constant to have moved. Writing the blob is the only way to
+// stand a spec in front of them.
+export function setSourceStatus(source: string, ecosystem: string, statusJson: string): void {
+    const { sqlite } = open()
+    try {
+        sqlite
+            .prepare('insert into app_config (key, value_json) values (?, ?) on conflict(key) do update set value_json = excluded.value_json')
+            .run('sources.' + source + '.' + ecosystem + '.status', statusJson)
+    } finally {
+        sqlite.close()
+    }
+}

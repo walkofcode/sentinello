@@ -47,6 +47,17 @@ test.describe('search', function () {
     })
 
     test('mirrors itself into the URL without asking the server', async function ({ page }) {
+        // Neutralize the site-wide auto-refresh for this test only. It calls router.refresh() on a 60s
+        // timer, which is an RSC request indistinguishable from one a filter might have caused — so a
+        // slow run that straddles a tick would fail this assertion for a reason that has nothing to do
+        // with what it measures. Only long intervals are stubbed; nothing else on the page uses one.
+        await page.addInitScript(function stubLongIntervals() {
+            const original = window.setInterval
+            window.setInterval = function guarded(handler: TimerHandler, ms?: number, ...rest: unknown[]) {
+                if (typeof ms === 'number' && ms >= 30000) return 0
+                return original(handler, ms, ...rest)
+            } as typeof window.setInterval
+        })
         await page.goto('/')
         await page.waitForLoadState('networkidle')
 
@@ -181,21 +192,30 @@ test.describe('sorting', function () {
 })
 
 test.describe('the root and tag filters', function () {
-    test('offer an all-inclusive option and the seeded root', async function ({ page }) {
+    // Both are multi-selects, and both hide rather than render a control that cannot change anything:
+    // the fixture tree has exactly one root and no tags, so neither offers a choice. A dropdown whose
+    // only entry is "All roots" costs a click to discover it does nothing.
+    test('stay hidden while neither offers a choice', async function ({ page }) {
         await page.goto('/')
 
-        await page.getByRole('button', { name: 'Filter by root' }).click()
-        await expect(page.getByRole('option', { name: 'All roots' })).toBeVisible()
-        await expect(page.getByRole('option', { name: new RegExp(SEEDED.rootLabel) })).toBeVisible()
+        await expect(page.getByRole('button', { name: 'Filter by root' })).toHaveCount(0)
+        await expect(page.getByRole('button', { name: 'Filter by tag' })).toHaveCount(0)
     })
 
-    test('the tag filter offers only All tags while nothing is tagged', async function ({ page }) {
-        await page.goto('/')
+    test('the root filter reappears for an active selection so it stays clearable', async function ({ page }) {
+        // A bookmarked ?proot outlives the root it names. Hiding the control on a URL that still
+        // carries a selection would filter the table with nothing on screen to undo it.
+        await page.goto('/?proot=' + SEEDED.rootId)
 
-        await page.getByRole('button', { name: 'Filter by tag' }).click()
+        await expect(page.getByRole('button', { name: 'Filter by root' })).toBeVisible()
+        await expect(row(page, SEEDED.projectName)).toBeVisible()
+    })
 
-        await expect(page.getByRole('option')).toHaveCount(1)
-        await expect(page.getByRole('option', { name: 'All tags' })).toBeVisible()
+    test('an unknown root id is dropped rather than emptying the table', async function ({ page }) {
+        await page.goto('/?proot=deleted-root')
+
+        await expect(page.getByRole('button', { name: 'Filter by root' })).toHaveCount(0)
+        for (const name of WITH_FINDINGS) await expect(row(page, name)).toBeVisible()
     })
 })
 
@@ -227,6 +247,26 @@ test.describe('returning from a project', function () {
 
         // sessionStorage-backed (lib/home-url-memory.ts). Losing the filter on the way back is a small
         // thing that makes triaging a long list genuinely painful.
+        await expect(page).toHaveURL(/pq=checkout/)
+    })
+
+    // pdep is the filter written by router.replace rather than by the shared URL writer, and for as
+    // long as the writer's effect did not depend on it, changing the dep type never refreshed the
+    // remembered URL — so this trip silently reverted to the default dep type. This spec only ever
+    // checked pq, which is exactly why that shipped.
+    test('the back link restores the dependency type as well as the search', async function ({ page }) {
+        await page.goto('/')
+        await page.getByRole('searchbox', { name: 'Search projects' }).fill('checkout')
+        await page.getByRole('button', { name: 'Filter by dependency type' }).click()
+        await page.getByRole('option', { name: 'Dev only' }).click()
+        await expect(page).toHaveURL(/pdep=dev/)
+
+        await visible(page, SEEDED.projectName).click()
+        await expect(page).toHaveURL(/\/projects\//)
+
+        await page.getByRole('link', { name: /Projects/ }).first().click()
+
+        await expect(page).toHaveURL(/pdep=dev/)
         await expect(page).toHaveURL(/pq=checkout/)
     })
 })

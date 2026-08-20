@@ -40,6 +40,17 @@ type MultiProps = BaseProps & {
     onChange: (values: string[]) => void
     // Trigger label shown when nothing (= everything) is selected.
     allLabel: string
+    // Start from nothing selected rather than from everything, so a click PICKS an option instead of
+    // excluding it. Both modes treat an empty selection as "no filter"; they differ in what the rows
+    // show while it is empty, and therefore in what the first click does.
+    //
+    // Default (false) suits a short, fixed list — the three scanners — where "all checked, uncheck the
+    // one you don't want" reads naturally and the selection can never get long.
+    //
+    // Set it for an open-ended list (roots, tags). With 50 roots the default turns "show me this one"
+    // into "deselect the other 49" and writes all 49 ids into the URL — 1.4KB that says the opposite
+    // of what the operator meant.
+    additive?: boolean
 }
 
 type Props = SingleProps | MultiProps
@@ -83,9 +94,10 @@ export function Dropdown(props: Props) {
         setHighlight(0)
     }, [query])
 
-    // For multi-select, an empty selection means "all" — so every row reads as checked and toggling one
-    // narrows from the full set rather than inverting. Single-select compares against the chosen value.
-    const effective = props.multiple && props.values.length === 0
+    // For multi-select, an empty selection means "all". In the default mode every row then reads as
+    // checked, so toggling one narrows from the full set; in `additive` mode the rows read as unchecked
+    // and the first click picks that option alone. Single-select compares against the chosen value.
+    const effective = props.multiple && props.values.length === 0 && !props.additive
         ? props.options.map(function val(o) { return o.value })
         : (props.multiple ? props.values : [])
     function isSelected(o: DropdownOption): boolean {
@@ -100,7 +112,9 @@ export function Dropdown(props: Props) {
                     return opt.value === o.value ? !on : on
                 })
                 .map(function val(opt) { return opt.value })
-            props.onChange(next)
+            // Ticking the last box means "all", which is what an empty selection already means. Emitting
+            // [] for both keeps one canonical value, so callers never have to serialize the full list.
+            props.onChange(next.length === props.options.length ? [] : next)
         } else {
             props.onChange(o.value)
             setOpen(false)

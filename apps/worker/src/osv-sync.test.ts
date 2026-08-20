@@ -253,6 +253,34 @@ describe('seedOsv', function () {
         })).toEqual(['GHSA-aaaa'])
     })
 
+    // The discard is announced so anything mirroring the cache's state learns it at the moment it happens
+    // rather than when the seed finishes minutes later. Sampling only at the ends is what let Settings →
+    // Sources report a pre-rebuild snapshot for the whole rebuild while every scan returned
+    // osv_db_not_seeded.
+    it('announces the discard once, at the moment the rows go', async function () {
+        upsertOsvAdvisories(db, [row({ advisoryId: 'GHSA-gone' })])
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, ECO), true)
+        feeds.streamOsvSeed.mockImplementation(stream([
+            { rows: [row()], lastModified: null },
+            { rows: [row({ advisoryId: 'GHSA-bbbb' })], lastModified: null }
+        ]))
+        const seen: { seedComplete: boolean | null; rows: number }[] = []
+        await seedOsv(db, ECO, undefined, function onDiscard() {
+            seen.push({ seedComplete: meta<boolean>(OSV_META_KEYS.seedComplete), rows: countOsvAdvisories(db, ECO) })
+        })
+        // Once, even across two batches — and by then the cache is genuinely both unseeded and empty.
+        expect(seen).toEqual([{ seedComplete: false, rows: 0 }])
+    })
+
+    it('does not announce a discard when the download dies before the first batch', async function () {
+        upsertOsvAdvisories(db, [row({ advisoryId: 'GHSA-kept' })])
+        feeds.streamOsvSeed.mockImplementation(stream([], 0))
+        const onDiscard = vi.fn()
+        await seedOsv(db, ECO, undefined, onDiscard)
+        expect(onDiscard).not.toHaveBeenCalled()
+        expect(countOsvAdvisories(db, ECO)).toBe(1)
+    })
+
     it('leaves a sibling ecosystem untouched', async function () {
         upsertOsvAdvisories(db, [row({ ecosystem: 'PyPI', packageName: 'django' })])
         feeds.streamOsvSeed.mockImplementation(stream([{ rows: [row()], lastModified: null }]))
@@ -471,11 +499,15 @@ describe('incrementalSyncOsv', function () {
         feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids, newestIso: null, etag: null })
         feeds.streamOsvSeed.mockImplementation(stream([{ rows: [row()], lastModified: null }]))
 
-        const result = await incrementalSyncOsv(db, ECO)
+        const onDiscard = vi.fn()
+        const result = await incrementalSyncOsv(db, ECO, undefined, onDiscard)
 
         expect(feeds.streamOsvSeed).toHaveBeenCalledTimes(1)
         expect(feeds.fetchOsvAdvisoryRows).not.toHaveBeenCalled()
         expect(result).toMatchObject({ status: 'ok' })
+        // Forwarded through the delegation: this is the one rebuild that starts from a cache the scanner
+        // was happily matching, so without the callback nobody would ever learn it went away.
+        expect(onDiscard).toHaveBeenCalledTimes(1)
     })
 
     it('stays incremental exactly at the threshold', async function () {

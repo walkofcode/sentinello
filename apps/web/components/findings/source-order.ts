@@ -18,6 +18,18 @@ export function orderSources(scanners: Iterable<string>): string[] {
     })
 }
 
+// Short-form source label for chips and badges: 'npm', 'OSV', 'gemnasium'. Deliberately shorter than
+// the registry's displayName ('npm audit', 'GitLab gemnasium') — these sit inside dense table cells,
+// next to a reason phrase in the dashboard's State column. Never localized: source names are proper
+// nouns everywhere in this repo. Lives here rather than in a component so the server-rendered State
+// column and the client SourceFilter read the same table.
+export function sourceLabel(source: string): string {
+    if (source === 'npm-audit') return 'npm'
+    if (source === 'osv') return 'OSV'
+    if (source === 'gemnasium') return 'gemnasium'
+    return source
+}
+
 // Parse the ?src= param into the selected source set, intersected with what's actually available so a
 // stale / unknown / now-disabled source in the URL is silently ignored. Empty result = "all".
 export function parseSourceParam(raw: string | null | undefined, available: string[]): string[] {

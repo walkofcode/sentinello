@@ -296,6 +296,8 @@
             "disabled": "Disabled",
             "seeded": "Up to date",
             "seeding": "Downloading…",
+            "rebuilding": "Rebuilding…",
+            "rebuildPending": "Rebuild pending",
             "recordCount": "{n, number} advisories cached",
             "lastRefreshed": "Last refreshed",
             "lastError": "Last error",
@@ -656,6 +658,7 @@
             "scanTable": {
                 "finished": "Finished",
                 "status": "Status",
+                "source": "Source",
                 "reason": "Reason",
                 "duration": "Duration",
                 "detail": "Detail",

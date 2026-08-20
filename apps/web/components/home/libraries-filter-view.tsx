@@ -74,16 +74,24 @@ export function LibrariesFilterView({ libraries, depType, defaultDepType }: Prop
     }, [])
 
     // Sync state back to URL via replaceState; remember it for the back button.
+    //
+    // `depType` is a prop written by router.replace rather than state, but it belongs in the serialized
+    // state and in these dependencies — without it, changing the dep type never refreshed the
+    // remembered URL and the back link dropped ?ldep. Same defect the projects view had with ?pdep.
+    //
+    // `libraries` is a render signal: router.refresh() restores the URL the Next router knows, which
+    // omits everything written by history.replaceState, so the app-wide auto-refresh would otherwise
+    // strip the l* params from the address bar on every tick.
     useEffect(function syncUrl() {
         if (!hydratedRef.current) return
         const params = mergeLibraryFiltersIntoParams(new URLSearchParams(window.location.search), {
-            query, minSeverity, sort
-        })
+            query, minSeverity, sort, depType
+        }, defaultDepType)
         const search = params.toString()
         const next = window.location.pathname + (search && '?' + search) + window.location.hash
         window.history.replaceState(window.history.state, '', next)
         rememberLibrariesUrl(next)
-    }, [query, minSeverity, sort])
+    }, [query, minSeverity, sort, depType, defaultDepType, libraries])
 
     const filtered = useMemo(function applyFilters() {
         const q = query.trim().toLowerCase()
@@ -222,6 +230,7 @@ type LibraryFiltersState = {
     query: string
     minSeverity: MinSeverity
     sort: SortKey
+    depType: DepTypeFilter
 }
 
 const VALID_MIN_SEVERITY: MinSeverity[] = ['', 'critical', 'high', 'moderate', 'low']
@@ -239,10 +248,15 @@ function parseLibraryFiltersFromSearch(search: string): Partial<LibraryFiltersSt
     return out
 }
 
-function mergeLibraryFiltersIntoParams(params: URLSearchParams, state: LibraryFiltersState): URLSearchParams {
+function mergeLibraryFiltersIntoParams(
+    params: URLSearchParams,
+    state: LibraryFiltersState,
+    defaultDepType: DepTypeFilter
+): URLSearchParams {
     upsertParam(params, 'lq', state.query)
     upsertParam(params, 'lsev', state.minSeverity)
     upsertParam(params, 'lsort', state.sort !== 'severity' && state.sort)
+    upsertParam(params, 'ldep', state.depType !== defaultDepType && state.depType)
     return params
 }
 

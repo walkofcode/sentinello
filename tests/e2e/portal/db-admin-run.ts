@@ -6,6 +6,7 @@ import {
     findingAges,
     insertRunningRequest,
     reset,
+    setSourceStatus,
     state
 } from './db-admin'
 
@@ -52,6 +53,12 @@ async function main(): Promise<void> {
     if (sub === 'delete-request') {
         if (!rest[0]) throw new Error('[e2e] delete-request needs a request id')
         deleteRequest(rest[0])
+        console.log(JSON.stringify({ ok: true }))
+        return
+    }
+    if (sub === 'set-source-status') {
+        if (!rest[0] || !rest[1] || !rest[2]) throw new Error('[e2e] set-source-status needs a source, ecosystem and status JSON')
+        setSourceStatus(rest[0], rest[1], rest[2])
         console.log(JSON.stringify({ ok: true }))
         return
     }

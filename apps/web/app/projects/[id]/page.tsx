@@ -25,7 +25,6 @@ import { ScrollToTop } from '@/components/layout/scroll-to-top'
 import { AliasEditor } from '@/components/triage/alias-editor'
 import { MuteDialog } from '@/components/triage/mute-dialog'
 import { MuteLiftsTable } from '@/components/triage/mute-lifts-table'
-import { ScanAutoRefresh } from '@/components/scan-auto-refresh'
 import { ExportAdvisoryButton } from '@/components/triage/export-advisory-button'
 import { ScanNowButton } from '@/components/triage/scan-now-button'
 import { TagEditor } from '@/components/triage/tag-editor'
@@ -136,6 +135,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     const scanHistoryVM: ScanHistoryRowVM[] = scanHistory.map(function toVM(scan) {
         return {
             id: scan.id,
+            source: scan.source,
             finishedRelative: formatRelativeTime(scan.finishedAt, tTime, now),
             finishedAbsolute: formatAbsoluteTime(scan.finishedAt),
             statusLabel: scanStatusLabel(scan.status, locale),
@@ -163,7 +163,6 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     return (
         <div className="space-y-8">
             <ScrollToTop />
-            <ScanAutoRefresh active={scanning} />
             <header className="space-y-4">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">

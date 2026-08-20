@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { ShieldCheck } from 'lucide-react'
-import { reasonCodeLabel, severityWeight, type DepTypeFilter, type Locale, type ReasonCode, type Severity } from '@sentinello/core'
+import { severityWeight, type DepTypeFilter, type Locale } from '@sentinello/core'
 import type { ProjectCatalogRow } from '@sentinello/db'
 import { Badge } from '@/components/ui/badge'
 import { ExportAdvisoryButton } from '@/components/triage/export-advisory-button'
@@ -20,11 +20,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { EmptyState } from '@/components/ui/empty-state'
 import { parseJsonArray, rootDisplayLabel } from '@/lib/format'
 import { rememberProjectsUrl } from '@/lib/home-url-memory'
+import { isProjectHealthy, problemScanStates, scanStateLabel } from '@/lib/project-state'
+import {
+    buildProjectFiltersUrl,
+    parseProjectFiltersFromSearch,
+    type MinSeverity,
+    type ProjectFiltersState,
+    type SortKey
+} from '@/lib/project-filters'
 import { OverviewSection } from '@/components/home/overview-section'
-
-type SortKey = 'name' | 'severity'
-
-type MinSeverity = '' | Severity
 
 const MIN_SEVERITY_OPTIONS: { value: MinSeverity; labelKey: string }[] = [
     { value: '', labelKey: 'severityAny' },
@@ -40,7 +44,7 @@ const DEP_TYPE_OPTIONS: { value: DepTypeFilter; labelKey: string }[] = [
     { value: 'all', labelKey: 'depAll' }
 ]
 
-type RootOption = { label: string; path: string }
+type RootOption = { label: string; id: string }
 
 type Props = {
     rows: ProjectCatalogRow[]
@@ -57,43 +61,60 @@ type Props = {
 
 export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultDepType, librariesCount, lastScanFinishedAt, now, anyInFlight }: Props) {
     const t = useTranslations('Home')
-    const locale = useLocale() as Locale
     const router = useRouter()
     const [query, setQuery] = useState<string>('')
-    const [root, setRoot] = useState<string>('')
-    const [tag, setTag] = useState<string>('')
+    const [roots, setRoots] = useState<string[]>([])
+    const [tags, setTags] = useState<string[]>([])
     const [minSeverity, setMinSeverity] = useState<MinSeverity>('')
     const [showHealthy, setShowHealthy] = useState<boolean>(false)
     const [showMuted, setShowMuted] = useState<boolean>(false)
     const [sort, setSort] = useState<SortKey>('severity')
     const hydratedRef = useRef<boolean>(false)
 
+    // One object so the URL writer has a single dependency and cannot be updated for six filters and
+    // silently miss the seventh.
+    const filterState: ProjectFiltersState = useMemo(function buildState() {
+        return { query, roots, tags, minSeverity, showHealthy, showMuted, sort, depType }
+    }, [query, roots, tags, minSeverity, showHealthy, showMuted, sort, depType])
+
     // Hydrate filter state from the URL once on client mount. Defaults stay
-    // until this runs (one-frame flash) to avoid SSR/CSR hydration mismatch.
+    // until this runs (one-frame flash) to avoid SSR/CSR hydration mismatch. The guard, not the
+    // dependency list, is what makes it run once — the universe it needs to intersect stale root and
+    // tag ids against is derived from `rows`, so the effect has to declare that dependency honestly.
     useEffect(function hydrateFromUrl() {
-        const parsed = parseProjectFiltersFromSearch(window.location.search)
+        if (hydratedRef.current) return
+        const parsed = parseProjectFiltersFromSearch(window.location.search, {
+            roots: uniqueRoots(rows).map(function toId(r) { return r.id }),
+            tags: uniqueTags(rows)
+        })
         if (parsed.query !== undefined) setQuery(parsed.query)
-        if (parsed.root !== undefined) setRoot(parsed.root)
-        if (parsed.tag !== undefined) setTag(parsed.tag)
+        if (parsed.roots !== undefined) setRoots(parsed.roots)
+        if (parsed.tags !== undefined) setTags(parsed.tags)
         if (parsed.minSeverity !== undefined) setMinSeverity(parsed.minSeverity)
         if (parsed.showHealthy !== undefined) setShowHealthy(parsed.showHealthy)
         if (parsed.showMuted !== undefined) setShowMuted(parsed.showMuted)
         if (parsed.sort !== undefined) setSort(parsed.sort)
         hydratedRef.current = true
-    }, [])
+    }, [rows])
 
-    // Write filter state back into the URL via replaceState (no router churn),
-    // and remember it so the top-nav back button can land here later.
+    // Write filter state back into the URL via replaceState (no router churn), and remember it so the
+    // top-nav back button can land here later.
+    //
+    // `depType` is a prop rather than state — it round-trips through the server, since it changes the
+    // SQL — but it MUST stay in this effect's dependencies. It was the one param written elsewhere
+    // (onDepTypeChange's router.replace), which meant changing it never refreshed the remembered URL:
+    // the back link from a project silently dropped ?pdep and reverted to the default dep type.
     useEffect(function syncUrl() {
         if (!hydratedRef.current) return
-        const params = mergeProjectFiltersIntoParams(new URLSearchParams(window.location.search), {
-            query, root, tag, minSeverity, showHealthy, showMuted, sort
-        })
-        const search = params.toString()
-        const next = window.location.pathname + (search && '?' + search) + window.location.hash
+        const next = buildProjectFiltersUrl(window.location, filterState, defaultDepType)
         window.history.replaceState(window.history.state, '', next)
         rememberProjectsUrl(next)
-    }, [query, root, tag, minSeverity, showHealthy, showMuted, sort])
+        // `rows` is in here as a render signal, not because the URL depends on it: router.refresh()
+        // restores the URL the Next router knows, which does not include anything written by
+        // history.replaceState — so every auto-refresh silently dropped the client-side filter params
+        // from the address bar (the filters themselves survive; the shareable URL did not). A fresh
+        // `rows` identity is exactly "the server just re-rendered", which is when to re-assert.
+    }, [filterState, defaultDepType, rows])
 
     const inFlightSet = useMemo(function buildInFlight() {
         return new Set(inFlightProjectIds)
@@ -110,14 +131,17 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
         const q = query.trim().toLowerCase()
         const floor = minSeverity ? severityWeight(minSeverity) : 0
         const matched = rows.filter(function predicate(row): boolean {
-            if (root && row.rootPath !== root) return false
-            if (tag) {
-                const tags = parseJsonArray(row.tagsJson)
-                if (!tags.includes(tag)) return false
+            if (roots.length > 0 && !roots.includes(row.rootId)) return false
+            if (tags.length > 0) {
+                // OR within the control: a project matches if it carries ANY selected tag, mirroring
+                // how multiple roots must behave. AND-ing them would make the two adjacent multi-selects
+                // mean different things.
+                const rowTags = parseJsonArray(row.tagsJson)
+                if (!rowTags.some(function anyMatch(rt) { return tags.includes(rt) })) return false
             }
             if (row.muted) {
                 if (!showMuted) return false
-            } else if (!showHealthy && isHealthy(row)) {
+            } else if (!showHealthy && isProjectHealthy(row, totalNonMutedFindings(row))) {
                 return false
             }
             if (q) {
@@ -128,7 +152,7 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
             return true
         })
         return sortRows(matched, sort)
-    }, [rows, query, root, tag, minSeverity, showHealthy, showMuted, sort])
+    }, [rows, query, roots, tags, minSeverity, showHealthy, showMuted, sort])
 
     // Overview cards summarize exactly the rows shown below, so the counts track every filter.
     const overviewCounts = useMemo(function buildOverview() {
@@ -146,12 +170,10 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
         return { projectsWithFindings, totalProjects: filtered.length, severityCounts }
     }, [filtered])
 
+    // The only filter that has to reach the server: pdep changes the SQL, so the row set and every
+    // severity count are recomputed rather than re-filtered on the client.
     function onDepTypeChange(next: DepTypeFilter) {
-        const params = new URLSearchParams(window.location.search)
-        if (next === defaultDepType) params.delete('pdep')
-        else params.set('pdep', next)
-        const search = params.toString()
-        const url = window.location.pathname + (search && '?' + search) + window.location.hash
+        const url = buildProjectFiltersUrl(window.location, { ...filterState, depType: next }, defaultDepType)
         router.replace(url, { scroll: false })
     }
 
@@ -162,16 +184,16 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                 rootOptions={rootOptions}
                 tagOptions={tagOptions}
                 query={query}
-                root={root}
-                tag={tag}
+                roots={roots}
+                tags={tags}
                 minSeverity={minSeverity}
                 showHealthy={showHealthy}
                 showMuted={showMuted}
                 sort={sort}
                 depType={depType}
                 onQueryChange={setQuery}
-                onRootChange={setRoot}
-                onTagChange={setTag}
+                onRootsChange={setRoots}
+                onTagsChange={setTags}
                 onMinSeverityChange={setMinSeverity}
                 onShowHealthyChange={setShowHealthy}
                 onShowMutedChange={setShowMuted}
@@ -204,9 +226,6 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                 <>
                     <div className="space-y-2 md:hidden">
                         {filtered.map(function card(project) {
-                            const scanReason = project.lastScanStatus && project.lastScanStatus !== 'ok'
-                                ? reasonCodeLabel((project.lastScanReasonCode as ReasonCode | null) || null, locale)
-                                : null
                             const href = '/projects/' + project.id
                             const tags = parseJsonArray(project.tagsJson)
                             function onCardClick(e: MouseEvent<HTMLDivElement>) {
@@ -225,11 +244,7 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                                             <TagList tags={tags} />
                                         </div>
                                         <div className="flex shrink-0 flex-wrap justify-end gap-1">
-                                            {scanReason ? (
-                                                <Badge variant="outline" title={project.lastScanErrorText || ''}>
-                                                    {scanReason}
-                                                </Badge>
-                                            ) : null}
+                                            <ScanStateBadges row={project} />
                                             {project.muted ? <Badge variant="muted">{t('badgeMuted')}</Badge> : null}
                                         </div>
                                     </div>
@@ -269,9 +284,6 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                             </TableHeader>
                             <TableBody>
                                 {filtered.map(function row(project) {
-                                    const scanReason = project.lastScanStatus && project.lastScanStatus !== 'ok'
-                                        ? reasonCodeLabel((project.lastScanReasonCode as ReasonCode | null) || null, locale)
-                                        : null
                                     const href = '/projects/' + project.id
                                     function onRowClick(e: MouseEvent<HTMLTableRowElement>) {
                                         const target = e.target as HTMLElement
@@ -306,11 +318,7 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                                             </TableCell>
                                             <TableCell>
                                                 <div className="flex flex-wrap gap-1">
-                                                    {scanReason ? (
-                                                        <Badge variant="outline" title={project.lastScanErrorText || ''}>
-                                                            {scanReason}
-                                                        </Badge>
-                                                    ) : null}
+                                                    <ScanStateBadges row={project} />
                                                     {project.muted ? <Badge variant="muted">{t('badgeMuted')}</Badge> : null}
                                                 </div>
                                             </TableCell>
@@ -332,10 +340,6 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
 function totalNonMutedFindings(row: ProjectCatalogRow): number {
     const c = row.severityCounts
     return c.critical + c.high + c.moderate + c.low + c.info
-}
-
-function isHealthy(row: ProjectCatalogRow): boolean {
-    return row.lastScanStatus === 'ok' && totalNonMutedFindings(row) === 0
 }
 
 // Weight of the project's worst finding; 0 when it has none, which sorts below every real severity.
@@ -378,60 +382,13 @@ function compareBySeverity(a: ProjectCatalogRow, b: ProjectCatalogRow): number {
     return bc.info - ac.info
 }
 
-type ProjectFiltersState = {
-    query: string
-    root: string
-    tag: string
-    minSeverity: MinSeverity
-    showHealthy: boolean
-    showMuted: boolean
-    sort: SortKey
-}
-
-const VALID_MIN_SEVERITY: MinSeverity[] = ['', 'critical', 'high', 'moderate', 'low']
-const VALID_SORT: SortKey[] = ['name', 'severity']
-
-function parseProjectFiltersFromSearch(search: string): Partial<ProjectFiltersState> {
-    const params = new URLSearchParams(search)
-    const out: Partial<ProjectFiltersState> = {}
-    const q = params.get('pq')
-    if (q) out.query = q
-    const r = params.get('proot')
-    if (r) out.root = r
-    const t = params.get('ptag')
-    if (t) out.tag = t
-    const sev = params.get('psev')
-    if (sev && (VALID_MIN_SEVERITY as string[]).includes(sev)) out.minSeverity = sev as MinSeverity
-    if (params.get('phealthy') === '1') out.showHealthy = true
-    if (params.get('pmuted') === '1') out.showMuted = true
-    const s = params.get('psort')
-    if (s && (VALID_SORT as string[]).includes(s)) out.sort = s as SortKey
-    return out
-}
-
-function mergeProjectFiltersIntoParams(params: URLSearchParams, state: ProjectFiltersState): URLSearchParams {
-    upsertParam(params, 'pq', state.query)
-    upsertParam(params, 'proot', state.root)
-    upsertParam(params, 'ptag', state.tag)
-    upsertParam(params, 'psev', state.minSeverity)
-    upsertParam(params, 'phealthy', state.showHealthy && '1')
-    upsertParam(params, 'pmuted', state.showMuted && '1')
-    upsertParam(params, 'psort', state.sort !== 'severity' && state.sort)
-    return params
-}
-
-function upsertParam(params: URLSearchParams, key: string, value: string | false | undefined): void {
-    if (value) params.set(key, value)
-    else params.delete(key)
-}
-
 function uniqueRoots(rows: ProjectCatalogRow[]): RootOption[] {
     const seen = new Map<string, string>()
     for (const row of rows) {
-        if (!seen.has(row.rootPath)) seen.set(row.rootPath, rootDisplayLabel(row.rootLabel, row.rootPath))
+        if (!seen.has(row.rootId)) seen.set(row.rootId, rootDisplayLabel(row.rootLabel, row.rootPath))
     }
-    return Array.from(seen.entries()).map(function entry([path, label]) {
-        return { path, label }
+    return Array.from(seen.entries()).map(function entry([id, label]) {
+        return { id, label }
     }).sort(function byLabel(a, b) {
         return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
     })
@@ -450,16 +407,16 @@ type FiltersProps = {
     rootOptions: RootOption[]
     tagOptions: string[]
     query: string
-    root: string
-    tag: string
+    roots: string[]
+    tags: string[]
     minSeverity: MinSeverity
     showHealthy: boolean
     showMuted: boolean
     sort: SortKey
     depType: DepTypeFilter
     onQueryChange: (v: string) => void
-    onRootChange: (v: string) => void
-    onTagChange: (v: string) => void
+    onRootsChange: (v: string[]) => void
+    onTagsChange: (v: string[]) => void
     onMinSeverityChange: (v: MinSeverity) => void
     onShowHealthyChange: (v: boolean) => void
     onShowMutedChange: (v: boolean) => void
@@ -481,22 +438,37 @@ function ProjectFilters(props: FiltersProps) {
                 className="h-9 w-56"
                 aria-label={t('searchProjectsAria')}
             />
-            <FilterSelect
-                ariaLabel={t('filterByRoot')}
-                value={props.root}
-                onChange={props.onRootChange}
-                options={[{ value: '', label: t('allRoots') }, ...props.rootOptions.map(function toOpt(r) {
-                    return { value: r.path, label: r.label }
-                })]}
-            />
-            <FilterSelect
-                ariaLabel={t('filterByTag')}
-                value={props.tag}
-                onChange={props.onTagChange}
-                options={[{ value: '', label: t('allTags') }, ...props.tagOptions.map(function toOpt(tg) {
-                    return { value: tg, label: tg }
-                })]}
-            />
+            {/* Both multi-selects hide when they cannot do anything: no tags anywhere, or a
+                single-root install where "filter by root" only ever offers the root you are already
+                looking at. The `.length > 0` half of each guard keeps an ACTIVE selection visible —
+                a stale ?proot / ?ptag from a bookmark must stay clearable rather than filtering the
+                table to nothing behind a control that is no longer rendered. Mirrors SourceFilter. */}
+            {props.rootOptions.length > 1 || props.roots.length > 0 ? (
+                <Dropdown
+                    multiple
+                    additive
+                    ariaLabel={t('filterByRoot')}
+                    allLabel={t('allRoots')}
+                    values={props.roots}
+                    onChange={props.onRootsChange}
+                    options={props.rootOptions.map(function toOpt(r) {
+                        return { value: r.id, label: r.label }
+                    })}
+                />
+            ) : null}
+            {props.tagOptions.length > 0 || props.tags.length > 0 ? (
+                <Dropdown
+                    multiple
+                    additive
+                    ariaLabel={t('filterByTag')}
+                    allLabel={t('allTags')}
+                    values={props.tags}
+                    onChange={props.onTagsChange}
+                    options={props.tagOptions.map(function toOpt(tg) {
+                        return { value: tg, label: tg }
+                    })}
+                />
+            ) : null}
             <FilterSelect
                 ariaLabel={t('filterBySeverity')}
                 value={props.minSeverity}
@@ -610,6 +582,24 @@ function RowActions({ project, depType, scanning }: { project: ProjectCatalogRow
             )}
             <TagEditor projectId={project.id} initialTags={parseJsonArray(project.tagsJson)} iconOnly />
         </div>
+    )
+}
+
+// One badge per source that could not answer. A source that returned ok shows nothing, so a healthy
+// project's State cell is empty and a project where npm audit worked but OSV was never seeded shows
+// exactly one badge — naming OSV, rather than condemning the whole project.
+function ScanStateBadges({ row }: { row: ProjectCatalogRow }) {
+    const locale = useLocale() as Locale
+    return (
+        <>
+            {problemScanStates(row).map(function stateBadge(state) {
+                return (
+                    <Badge key={state.source} variant="outline" title={state.errorText || ''}>
+                        {scanStateLabel(state, locale)}
+                    </Badge>
+                )
+            })}
+        </>
     )
 }
 

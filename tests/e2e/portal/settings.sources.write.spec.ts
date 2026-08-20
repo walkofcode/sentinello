@@ -1,3 +1,4 @@
+import { setSourceStatus } from './admin'
 import { errorAlert, expect, test } from './test-fixtures'
 
 // Settings → Sources: the per-ecosystem switches, and the reference table that explains each source.
@@ -130,6 +131,45 @@ test.describe('cache-backed source status', function () {
         // The button only enqueues a worker signal. Saying so is the honest thing for a control whose
         // work happens in another process on its own schedule.
         await expect(page.getByText('Refresh requested — it runs in the background.')).toBeVisible()
+    })
+
+    // A normalizer bump with no rebuild window: every row is still there and seedComplete is still true,
+    // and the scanner refuses all of them because the stamp no longer matches the constant it is
+    // compiled with. This is the state Settings used to report as "Up to date" while every scan came
+    // back unauditable — the reason this page reads both facts now instead of just seedComplete.
+    test('does not claim a cache the scanner refuses is up to date', async function ({ page }) {
+        await setSourceStatus('osv', 'npm', {
+            seedComplete: true,
+            normalizerVersion: 1,
+            recordCount: 35,
+            refreshedAt: 1750000000000,
+            syncStartedAt: null,
+            lastError: null
+        })
+        await page.goto('/settings/sources')
+
+        await expect(page.getByText('Rebuild pending')).toBeVisible()
+        await expect(page.getByText('Up to date')).toHaveCount(0)
+        // Still shown, because it is the count the operator had and will have again — just dimmed.
+        await expect(page.getByText('35 advisories cached')).toBeVisible()
+    })
+
+    // The same unusable cache, but with a sync actually running against it. "Rebuilding…" and "Rebuild
+    // pending" differ only in whether anything is being done about it, which is the whole reason the
+    // worker stamps syncStartedAt rather than leaving it to client-side memory a reload throws away.
+    test('says a rebuild is running when the worker has stamped one', async function ({ page }) {
+        await setSourceStatus('osv', 'npm', {
+            seedComplete: false,
+            normalizerVersion: 1,
+            recordCount: 35,
+            refreshedAt: 1750000000000,
+            syncStartedAt: 1750000500000,
+            lastError: null
+        })
+        await page.goto('/settings/sources')
+
+        await expect(page.getByText('Rebuilding…')).toBeVisible()
+        await expect(page.getByText('35 advisories cached')).toBeVisible()
     })
 
     test('shows no sync status for a source that is switched off', async function ({ page }) {
