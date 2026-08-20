@@ -47,6 +47,17 @@ test.describe('search', function () {
     })
 
     test('mirrors itself into the URL without asking the server', async function ({ page }) {
+        // Neutralize the site-wide auto-refresh for this test only. It calls router.refresh() on a 60s
+        // timer, which is an RSC request indistinguishable from one a filter might have caused — so a
+        // slow run that straddles a tick would fail this assertion for a reason that has nothing to do
+        // with what it measures. Only long intervals are stubbed; nothing else on the page uses one.
+        await page.addInitScript(function stubLongIntervals() {
+            const original = window.setInterval
+            window.setInterval = function guarded(handler: TimerHandler, ms?: number, ...rest: unknown[]) {
+                if (typeof ms === 'number' && ms >= 30000) return 0
+                return original(handler, ms, ...rest)
+            } as typeof window.setInterval
+        })
         await page.goto('/')
         await page.waitForLoadState('networkidle')
 

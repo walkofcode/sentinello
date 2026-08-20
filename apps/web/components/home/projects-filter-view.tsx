@@ -464,6 +464,7 @@ function ProjectFilters(props: FiltersProps) {
             {props.rootOptions.length > 1 || props.roots.length > 0 ? (
                 <Dropdown
                     multiple
+                    additive
                     ariaLabel={t('filterByRoot')}
                     allLabel={t('allRoots')}
                     values={props.roots}
@@ -476,6 +477,7 @@ function ProjectFilters(props: FiltersProps) {
             {props.tagOptions.length > 0 || props.tags.length > 0 ? (
                 <Dropdown
                     multiple
+                    additive
                     ariaLabel={t('filterByTag')}
                     allLabel={t('allTags')}
                     values={props.tags}
