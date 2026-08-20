@@ -1,5 +1,26 @@
 # Changelog
 
+## [3.5.0](https://github.com/walkofcode/sentinello/compare/v3.4.0...v3.5.0) (2026-08-20)
+
+
+### Features
+
+* **dashboard:** multi-select roots and tags behind one URL writer ([d33e076](https://github.com/walkofcode/sentinello/commit/d33e07668c808fa9548d1b65e0506988b2b1262d))
+* **sources:** report scan state per source and re-scan when a cache lands ([ced55af](https://github.com/walkofcode/sentinello/commit/ced55af66317793c8b3709b6131a22d8248e1453))
+* **web:** keep every page fresh on a timer, not only during a scan ([ae4bcb4](https://github.com/walkofcode/sentinello/commit/ae4bcb4552173aa9e7c85a96c2fe12bc33e72025))
+
+
+### Bug Fixes
+
+* **dashboard:** make picking a root or tag write one id, not forty-nine ([69e5aea](https://github.com/walkofcode/sentinello/commit/69e5aea1362777e2b7f1a1a8c2116aba3d6ffed6))
+* **settings:** clear the source refresh notice when the refresh lands ([c18ca67](https://github.com/walkofcode/sentinello/commit/c18ca67a78345754fb8292304091725e82bd2f47))
+* **worker:** clear stale unauditable verdicts a cache recovery left behind ([64631e4](https://github.com/walkofcode/sentinello/commit/64631e41487a5da443b8d30bbf8766c302d92098))
+
+
+### Documentation
+
+* **releases:** move the what's-new entry to 3.5.0 ([d8a0d80](https://github.com/walkofcode/sentinello/commit/d8a0d801157545aa78a72eaf4defe121a8806840))
+
 ## [3.4.0](https://github.com/walkofcode/sentinello/compare/v3.3.2...v3.4.0) (2026-08-18)
 
 
