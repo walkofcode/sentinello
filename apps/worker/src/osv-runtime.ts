@@ -7,7 +7,7 @@ import {
     sourceStatusKey,
     type EcosystemId,
     type OsvAdvisoryRow,
-    type OsvSourceStatus
+    type SourceStatus
 } from '@sentinello/core'
 import {
     OSV_META_KEYS,
@@ -18,6 +18,7 @@ import {
     openOsvDb,
     osvMetaKeyFor,
     runOsvMigrations,
+    enqueueScanRequest,
     setConfigValue,
     type DrizzleDb,
     type OsvDrizzleDb
@@ -29,7 +30,7 @@ import {
 } from '@sentinello/scanners'
 
 export type { ScannerPlugin }
-import { checkOsvFreeSpace, incrementalSyncOsv, osvFeedDisabled, seedOsv } from './osv-sync'
+import { incrementalSyncOsv, osvFeedDisabled, seedOsv } from './osv-sync'
 import { gemnasiumSourceEnabled, type GemnasiumController } from './gemnasium-runtime'
 import type { WorkerRuntime } from './runtime'
 
@@ -180,13 +181,7 @@ export function startOsvRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime): OsvR
             return getSourceEnabled(mainDb, 'osv', ecosystem as EcosystemId)
         },
         isSeeded: function isSeeded(ecosystem: string): boolean {
-            // Gate per ecosystem on BOTH the ecosystem's seed flag AND its own normalizer-version stamp: when
-            // the row shape has changed the cache is rebuilding (forced re-seed) and old rows lack the new
-            // fields — stay unauditable for that ecosystem until its re-seed lands rather than match stale
-            // data. Both keys are per-ecosystem, so a multi-ecosystem rebuild never marks a not-yet-rebuilt
-            // ecosystem current just because a sibling finished first.
-            return getOsvMeta<boolean>(osvDb, osvMetaKeyFor(OSV_META_KEYS.seedComplete, ecosystem)) === true
-                && getOsvMeta<number>(osvDb, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, ecosystem)) === OSV_NORMALIZER_VERSION
+            return osvCacheUsable(osvDb, ecosystem)
         },
         lookup: function lookup(ecosystem: string, packageNames: string[]): Map<string, OsvAdvisory[]> {
             // The cache `ecosystem` column holds the canonical OSV id (== the registry osvEcosystem).
@@ -231,6 +226,20 @@ export function startOsvRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime): OsvR
     }
 }
 
+// The predicate the SCANNER gates on, in one place. isSeeded (above), runSync's seed-vs-incremental
+// decision, and the post-sync "did this cache become matchable" check all read it, so they cannot drift
+// apart — which is how Settings came to report "Up to date" about a cache every scan was refusing.
+//
+// Gates per ecosystem on BOTH the ecosystem's seed flag AND its own normalizer-version stamp: when the
+// row shape has changed the cache is rebuilding (forced re-seed) and old rows lack the new fields, so
+// stay unauditable for that ecosystem until its re-seed lands rather than match stale data. Both keys
+// are per-ecosystem, so a multi-ecosystem rebuild never marks a not-yet-rebuilt ecosystem current just
+// because a sibling finished first.
+export function osvCacheUsable(osvDb: OsvDrizzleDb, ecosystem: string): boolean {
+    return getOsvMeta<boolean>(osvDb, osvMetaKeyFor(OSV_META_KEYS.seedComplete, ecosystem)) === true
+        && getOsvMeta<number>(osvDb, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, ecosystem)) === OSV_NORMALIZER_VERSION
+}
+
 // Manually trigger a sync (seed-or-incremental) for every enabled OSV ecosystem, then mirror each cell's
 // status into the main DB so the portal reflects it. Used by the "refresh now" action, the scheduled tick,
 // and the initial run. Ecosystems are synced sequentially to keep disk/network pressure bounded; an error
@@ -238,48 +247,79 @@ export function startOsvRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime): OsvR
 export async function runSync(mainDb: DrizzleDb, osvDb: OsvDrizzleDb, runtime: WorkerRuntime): Promise<void> {
     const ecosystems = enabledOsvEcosystems(mainDb)
     const signal = runtime.abortController.signal
+    // Set when ANY ecosystem's cache ends this pass matchable after a window in which it was not. Every
+    // scan that ran inside that window recorded unauditable/osv_db_not_seeded, and nothing else in the
+    // system ever revisits those rows. Accumulated across the loop and acted on once.
+    let becameUsable = false
     for (const ecosystem of ecosystems) {
         if (signal.aborted) break
         const seeded = getOsvMeta<boolean>(osvDb, osvMetaKeyFor(OSV_META_KEYS.seedComplete, ecosystem)) === true
         // Per-ecosystem normalizer stamp: a bump (or a never-seeded ecosystem) forces a full re-seed for
         // THIS ecosystem only; siblings already at the current version still take the cheap incremental path.
-        const normalizerCurrent = getOsvMeta<number>(osvDb, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, ecosystem)) === OSV_NORMALIZER_VERSION
+        const usableBefore = osvCacheUsable(osvDb, ecosystem)
+        let discarded = false
+        const startedAt = Date.now()
+        function onCacheDiscarded(): void {
+            discarded = true
+            writeStatus(mainDb, osvDb, ecosystem, startedAt)
+        }
+        // Stamped BEFORE the first network byte: the portal's only other signal that work was happening
+        // was client-side memory a page reload threw away.
+        writeStatus(mainDb, osvDb, ecosystem, startedAt)
         try {
-            if (!seeded || !normalizerCurrent) {
+            if (!usableBefore) {
                 console.log('[osv] ' + (seeded ? 'normalizer changed — rebuilding cache' : 'seeding cache (first run)') + ' for ' + ecosystem + '...')
-                await seedOsv(osvDb, ecosystem, signal)
+                await seedOsv(osvDb, ecosystem, signal, onCacheDiscarded)
             } else {
-                await incrementalSyncOsv(osvDb, ecosystem, signal)
+                await incrementalSyncOsv(osvDb, ecosystem, signal, onCacheDiscarded)
             }
         } finally {
-            await mirrorStatusWithSpace(mainDb, osvDb, ecosystem)
+            writeStatus(mainDb, osvDb, ecosystem, null)
         }
+        // `discarded` covers the one rebuild that starts from a usable cache: a change set past
+        // OSV_INCREMENTAL_MAX_IDS re-seeds from inside incrementalSyncOsv, and the scanner is unauditable
+        // for its duration just as much as for any other rebuild.
+        if ((!usableBefore || discarded) && osvCacheUsable(osvDb, ecosystem)) becameUsable = true
+    }
+    if (becameUsable) {
+        // A full sweep, not a targeted subset: every project scanned while this cache was unusable
+        // recorded unauditable/osv_db_not_seeded, and nothing else revisits those rows — not the cron (it
+        // waits out the interval), not the watcher (it needs a lockfile to change), not the portal (the
+        // operator has to notice and click).
+        //
+        // Deliberately NOT guarded by isAnyScanInFlight. That guard stops a human double-clicking Scan
+        // now; here an in-flight sweep is the strongest reason TO enqueue, because it is the sweep that
+        // ran against the cache while it was down and whose verdicts must be superseded. On a cold start
+        // the boot sweep is still finishing when the seed lands, so guarding would skip the one enqueue
+        // that makes the estate auditable. The poller claims one request per tick and runs them
+        // sequentially, so the cost is one more pass, never concurrency.
+        enqueueScanRequest(mainDb, {}, Date.now())
+        console.log('[osv] cache is matchable again — enqueued a full re-scan to replace stale unauditable verdicts')
     }
 }
 
-// Reads one ecosystem cell's meta + free space and writes the compact OsvSourceStatus snapshot into the main
-// app_config so the portal (which never opens osv.db) can render sync status from the main DB alone.
-async function mirrorStatusWithSpace(mainDb: DrizzleDb, osvDb: OsvDrizzleDb, ecosystem: EcosystemId): Promise<void> {
-    // checkOsvFreeSpace() already swallows stat errors (reporting 0 free), so no try/catch needed here.
-    const space = await checkOsvFreeSpace()
-    writeStatus(mainDb, osvDb, ecosystem, space.freeBytes)
-}
-
 // Initial snapshot for every enabled cell (before the first sync), so each enabled (osv, ecosystem) row in
-// Settings shows "not seeded yet" rather than nothing the moment the source is enabled.
+// Settings shows "not seeded yet" rather than nothing the moment the source is enabled. Also the self-heal
+// for a worker SIGKILLed mid-rebuild: it unconditionally clears syncStartedAt, so a stuck "Rebuilding…"
+// cannot survive a restart.
 function mirrorStatus(mainDb: DrizzleDb, osvDb: OsvDrizzleDb): void {
     for (const ecosystem of enabledOsvEcosystems(mainDb)) {
         writeStatus(mainDb, osvDb, ecosystem, null)
     }
 }
 
-function writeStatus(mainDb: DrizzleDb, osvDb: OsvDrizzleDb, ecosystem: EcosystemId, freeBytes: number | null): void {
-    const status: OsvSourceStatus = {
+// Reads one ecosystem cell's meta and writes the compact SourceStatus snapshot into the main app_config so
+// the portal (which never opens osv.db) can render sync status from the main DB alone. Called at three
+// points per sync — start, cache discard, and end — because sampling only at the ends is what let Settings
+// report a pre-rebuild snapshot for the whole of a rebuild.
+function writeStatus(mainDb: DrizzleDb, osvDb: OsvDrizzleDb, ecosystem: EcosystemId, syncStartedAt: number | null): void {
+    const status: SourceStatus = {
         seedComplete: getOsvMeta<boolean>(osvDb, osvMetaKeyFor(OSV_META_KEYS.seedComplete, ecosystem)) === true,
+        normalizerVersion: getOsvMeta<number>(osvDb, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, ecosystem)),
         recordCount: getOsvMeta<number>(osvDb, osvMetaKeyFor(OSV_META_KEYS.recordCount, ecosystem)) ?? 0,
-        refreshedAt: getOsvMeta<number>(osvDb, osvMetaKeyFor(OSV_META_KEYS.refreshedAt, ecosystem)) ?? null,
-        lastError: getOsvMeta<string>(osvDb, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem)) ?? null,
-        freeBytes
+        refreshedAt: getOsvMeta<number>(osvDb, osvMetaKeyFor(OSV_META_KEYS.refreshedAt, ecosystem)),
+        syncStartedAt,
+        lastError: getOsvMeta<string>(osvDb, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem))
     }
     setConfigValue(mainDb, sourceStatusKey('osv', ecosystem), status)
 }

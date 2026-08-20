@@ -10,6 +10,7 @@
 // download a sizable advisory dump). The "always a source on" invariant (validated on every toggle
 // write) is what lets npm-audit's cell be disabled without ever leaving the system source-blind.
 
+import { GEMNASIUM_NORMALIZER_VERSION, OSV_NORMALIZER_VERSION } from './advisory-rows'
 import type { EcosystemId, SourceCell, SourceId } from './ecosystems'
 
 export function sourceEnabledKey(source: SourceId, ecosystem: EcosystemId): string {
@@ -42,18 +43,36 @@ export type NotificationSourceScope = {
 export type SourceStatus = {
     // True once the initial full seed completed.
     seedComplete: boolean
-    // Advisory→package row count after the last sync.
+    // The normalizer version the CACHED ROWS were built under, or null if never seeded. Mirrored raw
+    // rather than pre-compared: the comparison is only ever true against the constant the READING
+    // process is compiled with, so a boolean frozen into an app_config row goes stale exactly the way
+    // seedComplete did. The scanner gates on seedComplete AND this === CURRENT, so the portal has to
+    // read the same pair or it reports a cache the scanner refuses as "Up to date".
+    normalizerVersion: number | null
+    // Advisory→package row count as of the last SUCCESSFUL sync. Deliberately not recomputed during a
+    // rebuild: this is the count the operator had, and the count they will have again.
     recordCount: number
     // Epoch ms of the last successful sync, or null if never.
     refreshedAt: number | null
+    // Epoch ms the in-flight sync started, or null when nothing is running. Stamped when the sync
+    // BEGINS, not only when it ends, so the portal can say so across a page reload — and so a rebuild
+    // that stopped can be told from one still going. Held as a worker-process local rather than a
+    // cache meta key, so a SIGKILL mid-rebuild self-heals on the next boot mirror instead of pinning
+    // the row to "Rebuilding…" forever.
+    syncStartedAt: number | null
     // Last sync error message, or null.
     lastError: string | null
-    // Free bytes on the cache volume at the last sync (for the provisioning hint), or null if unknown.
-    freeBytes: number | null
 }
 
-// Back-compat alias: OSV's status type is the shared SourceStatus shape.
-export type OsvSourceStatus = SourceStatus
+// The normalizer version a cache-backed source's rows are currently expected to carry, or null for a
+// source that keeps no cache and therefore has no snapshot to compare (npm-audit runs live). Lives
+// here rather than in the Settings component so every reader of a mirrored SourceStatus compares
+// against one table instead of restating the mapping.
+export function sourceNormalizerVersion(source: SourceId): number | null {
+    if (source === 'osv') return OSV_NORMALIZER_VERSION
+    if (source === 'gemnasium') return GEMNASIUM_NORMALIZER_VERSION
+    return null
+}
 
 // The scanner name OSV findings are recorded under (the `scanner` column on findings/scans). Must match
 // the `name` field of the OSV scanner plugin so per-scanner merge scoping lines up across the codebase.

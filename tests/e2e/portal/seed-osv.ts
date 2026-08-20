@@ -42,10 +42,13 @@ export function seedOsvCache(): { path: string; count: number } {
 
     const count = countOsvAdvisories(db, 'npm')
 
-    // BOTH stamps, and the second one is load-bearing rather than cosmetic. The scanner's isSeeded
-    // gate (apps/worker/src/osv-runtime.ts) requires seedComplete === true AND normalizerVersion ===
-    // OSV_NORMALIZER_VERSION. Set only the first and every scan returns unauditable/osv_db_not_seeded
-    // — which reads as "no vulnerabilities found" in the portal rather than as an error.
+    // BOTH stamps, and the second one is load-bearing rather than cosmetic. The scanner's isSeeded gate
+    // (osvCacheUsable in apps/worker/src/osv-runtime.ts) requires seedComplete === true AND
+    // normalizerVersion === OSV_NORMALIZER_VERSION. Set only the first and every scan returns
+    // unauditable/osv_db_not_seeded — which reads as "no vulnerabilities found" in the portal rather
+    // than as an error. The PORTAL now reads the same pair: Settings → Sources compares the mirrored
+    // normalizerVersion against the constant it is compiled with, so a missing second stamp also makes
+    // the cache-backed-status block read "Rebuild pending" instead of "Up to date".
     setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, 'npm'), true)
     setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, 'npm'), OSV_NORMALIZER_VERSION)
     setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.recordCount, 'npm'), count)

@@ -306,8 +306,16 @@ each sync reads the upstream HEAD commit, and fetches only the advisory files th
 last one. The full archive is re-downloaded only when that incremental path is unusable. Both
 normalized caches (`osv.db`, `gemnasium.db`) are fully **rebuildable** and stored separately from
 `sentinello.sqlite`, so deleting either never touches your findings, and they're excluded from a lean
-DB backup. The Settings panel shows the last refresh, the cached-advisory count, and a free-space hint,
-and runs a free-space pre-flight before the first download. For a fully air-gapped install, leave these
+DB backup. The Settings panel shows the last refresh, the cached-advisory count and a free-space hint, reads
+**Rebuilding…** (with the previous count dimmed) while a cache is being rebuilt and therefore
+temporarily unusable, and runs a free-space pre-flight before the first download.
+
+When a cache finishes its first download — or a rebuild that made it temporarily unusable — Sentinello
+queues **one full re-scan** automatically. Projects reported `osv_db_not_seeded` /
+`gemnasium_db_not_seeded` while the cache was unavailable are re-evaluated straight away instead of
+carrying that verdict until the next scheduled sweep. An incremental update queues nothing.
+
+For a fully air-gapped install, leave these
 sources off (or set `SENTINELLO_OSV_FEED_URL=off` / `SENTINELLO_GEMNASIUM_FEED_URL=off`) and Sentinello
 makes no OSV/gemnasium network calls at all.
 

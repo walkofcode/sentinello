@@ -141,7 +141,16 @@ Enabling **GitLab gemnasium** downloads its archive from `gitlab.com` (~52 MB, ~
 sync around 03:42, then
 updates from the repository's commit history — only the advisory files that changed since the last sync,
 with a full re-download only when that is unusable. Both normalized caches (`osv.db`, `gemnasium.db`) are rebuildable and
-stored separately from your findings. Leave these sources off (or set `SENTINELLO_OSV_FEED_URL=off` /
+stored separately from your findings. While a cache is being rebuilt the Settings row reads
+**Rebuilding…** with the previous count dimmed, because the scanner cannot match against it until the
+rebuild lands.
+
+When a cache finishes its first download — or a rebuild that made it temporarily unusable — Sentinello
+queues **one full re-scan**, so projects reported `osv_db_not_seeded` / `gemnasium_db_not_seeded` while
+the cache was unavailable are re-evaluated instead of waiting for the next scheduled sweep. An
+incremental update queues nothing.
+
+Leave these sources off (or set `SENTINELLO_OSV_FEED_URL=off` /
 `SENTINELLO_GEMNASIUM_FEED_URL=off`) for a fully air-gapped install.
 
 ### Language

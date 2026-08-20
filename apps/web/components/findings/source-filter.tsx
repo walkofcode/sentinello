@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { Dropdown, type DropdownOption } from '@/components/ui/dropdown'
-import { SOURCE_PARAM, parseSourceParam } from './source-order'
+import { SOURCE_PARAM, parseSourceParam, sourceLabel } from './source-order'
 
 // Mirrors source-tags.tsx so the menu chips look identical to the row provenance tags.
 function sourceVariant(scanner: string): BadgeProps['variant'] {
@@ -12,12 +12,6 @@ function sourceVariant(scanner: string): BadgeProps['variant'] {
     if (scanner === 'npm-audit') return 'npm'
     if (scanner === 'gemnasium') return 'gemnasium'
     return 'muted'
-}
-function sourceLabel(scanner: string): string {
-    if (scanner === 'osv') return 'OSV'
-    if (scanner === 'npm-audit') return 'npm'
-    if (scanner === 'gemnasium') return 'gemnasium'
-    return scanner
 }
 
 type Props = {

@@ -296,6 +296,8 @@
             "disabled": "Выключено",
             "seeded": "Актуально",
             "seeding": "Загрузка…",
+            "rebuilding": "Перестроение…",
+            "rebuildPending": "Ожидает перестроения",
             "recordCount": "{n, number} рекомендаций в кэше",
             "lastRefreshed": "Последнее обновление",
             "lastError": "Последняя ошибка",
@@ -656,6 +658,7 @@
             "scanTable": {
                 "finished": "Завершено",
                 "status": "Статус",
+                "source": "Источник",
                 "reason": "Причина",
                 "duration": "Длительность",
                 "detail": "Детали",

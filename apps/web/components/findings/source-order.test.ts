@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ECOSYSTEMS } from '@sentinello/core'
-import { orderEcosystems, orderSources, parseEcosystemParam, parseSourceParam } from './source-order'
+import { orderEcosystems, orderSources, parseEcosystemParam, parseSourceParam, sourceLabel } from './source-order'
 
 describe('orderSources', function () {
     it('puts npm-audit before osv before gemnasium regardless of input order', function () {
@@ -90,5 +90,19 @@ describe('parseEcosystemParam', function () {
 
     it.each([null, undefined, ''])('treats %j as "all" by returning an empty selection', function (raw) {
         expect(parseEcosystemParam(raw, ['npm'])).toEqual([])
+    })
+})
+
+describe('sourceLabel', function () {
+    it.each([
+        ['npm-audit', 'npm'],
+        ['osv', 'OSV'],
+        ['gemnasium', 'gemnasium']
+    ])('shortens %s to %s', function (source, expected) {
+        expect(sourceLabel(source)).toBe(expected)
+    })
+
+    it('passes an unknown source through unchanged rather than blanking it', function () {
+        expect(sourceLabel('snyk')).toBe('snyk')
     })
 })

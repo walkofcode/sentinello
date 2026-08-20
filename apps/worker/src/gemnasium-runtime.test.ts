@@ -11,7 +11,8 @@ import {
     setGemnasiumMeta,
     upsertGemnasiumAdvisories,
     type GemnasiumDrizzleDb,
-    type SqliteDb
+    type SqliteDb,
+    listRecentScanRequests
 } from '@sentinello/db'
 import { sourceEnabledKey, sourceStatusKey } from '@sentinello/core'
 import { closeWorkerTestDb, openWorkerTestDb, type WorkerTestDb } from './worker-test-db.fixture'
@@ -280,10 +281,13 @@ describe('startGemnasiumRuntime', function () {
         startGemnasiumRuntime(handle.db, runtime)
         expect(status()).toMatchObject({
             seedComplete: false,
+            normalizerVersion: null,
             recordCount: 0,
             refreshedAt: null,
-            lastError: null,
-            freeBytes: null
+            // Already stamped: the initial sync starts synchronously, and saying so is the point — the
+            // panel can now distinguish "downloading" from "nothing is happening about this".
+            syncStartedAt: expect.any(Number),
+            lastError: null
         })
     })
 
@@ -370,11 +374,17 @@ describe('runSync', function () {
         expect(sync.syncGemnasium).toHaveBeenCalledWith(cache.db, runtime.abortController.signal)
     })
 
-    it('mirrors the resulting status with the free-space reading', async function () {
+    it('mirrors the resulting status with the sync stamp cleared', async function () {
         setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.seedComplete, true)
+        setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.normalizerVersion, GEMNASIUM_NORMALIZER_VERSION)
         setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.recordCount, 4321)
         await runSync(handle.db, cache.db, runtime)
-        expect(status()).toMatchObject({ seedComplete: true, recordCount: 4321, freeBytes: 99_000_000 })
+        expect(status()).toMatchObject({
+            seedComplete: true,
+            normalizerVersion: GEMNASIUM_NORMALIZER_VERSION,
+            recordCount: 4321,
+            syncStartedAt: null
+        })
     })
 
     // The mirror is in a finally block so a failed sync surfaces its error rather than leaving the
@@ -383,12 +393,40 @@ describe('runSync', function () {
         setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.lastError, 'archive exploded')
         sync.syncGemnasium.mockRejectedValueOnce(new Error('archive exploded'))
         await expect(runSync(handle.db, cache.db, runtime)).rejects.toThrow('archive exploded')
-        expect(status()).toMatchObject({ lastError: 'archive exploded' })
+        // syncStartedAt must clear on the throw too, or the panel reads "Rebuilding…" forever.
+        expect(status()).toMatchObject({ lastError: 'archive exploded', syncStartedAt: null })
+    })
+
+    it('enqueues one full sweep when a first seed makes the cache matchable', async function () {
+        sync.syncGemnasium.mockImplementationOnce(async function seed() {
+            setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.seedComplete, true)
+            setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.normalizerVersion, GEMNASIUM_NORMALIZER_VERSION)
+            return { status: 'ok', upserted: 1, recordCount: 1, message: null }
+        })
+        await runSync(handle.db, cache.db, runtime)
+        const requests = listRecentScanRequests(handle.db)
+        expect(requests).toHaveLength(1)
+        expect(requests[0]).toMatchObject({ projectId: null, rootId: null, status: 'pending' })
+    })
+
+    // Simultaneously the "unchanged upstream" case and the non-destructive-rebuild case: gemnasium
+    // upserts over its existing rows and purges only on success, so a rebuild never makes the cache
+    // unmatchable and no scan was ever refused. Nothing to supersede, nothing to enqueue.
+    it('does not enqueue a sweep when the cache was already matchable', async function () {
+        setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.seedComplete, true)
+        setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.normalizerVersion, GEMNASIUM_NORMALIZER_VERSION)
+        await runSync(handle.db, cache.db, runtime)
+        expect(listRecentScanRequests(handle.db)).toHaveLength(0)
+    })
+
+    it('does not enqueue a sweep when the sync could not seed', async function () {
+        await runSync(handle.db, cache.db, runtime)
+        expect(listRecentScanRequests(handle.db)).toHaveLength(0)
     })
 
     it('reports a never-refreshed cache as null rather than zero', async function () {
         await runSync(handle.db, cache.db, runtime)
-        expect(status()).toMatchObject({ refreshedAt: null, recordCount: 0 })
+        expect(status()).toMatchObject({ refreshedAt: null, recordCount: 0, normalizerVersion: null })
     })
 })
 

@@ -296,6 +296,8 @@
             "disabled": "Désactivé",
             "seeded": "À jour",
             "seeding": "Téléchargement…",
+            "rebuilding": "Reconstruction…",
+            "rebuildPending": "Reconstruction en attente",
             "recordCount": "{n, number} avis en cache",
             "lastRefreshed": "Dernière mise à jour",
             "lastError": "Dernière erreur",
@@ -656,6 +658,7 @@
             "scanTable": {
                 "finished": "Terminé",
                 "status": "Statut",
+                "source": "Source",
                 "reason": "Raison",
                 "duration": "Durée",
                 "detail": "Détail",

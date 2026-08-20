@@ -12,7 +12,7 @@ import {
     upsertOsvAdvisories,
     type OsvDrizzleDb
 } from '@sentinello/db'
-import { OSV_META_KEYS } from '@sentinello/db'
+import { OSV_META_KEYS, listRecentScanRequests } from '@sentinello/db'
 import { sourceEnabledKey, sourceStatusKey } from '@sentinello/core'
 import type { SqliteDb } from '@sentinello/db'
 import { closeWorkerTestDb, openWorkerTestDb, type WorkerTestDb } from './worker-test-db.fixture'
@@ -54,14 +54,23 @@ vi.mock('node-cron', function mockNodeCron() {
 const sync = vi.hoisted(function makeSyncDouble() {
     return {
         feedDisabled: false,
-        seedOsv: vi.fn(async function seedOsv(_db: unknown, _ecosystem: string, _signal?: AbortSignal) {
+        // The 4th parameter is the cache-discard announcement. Carried on the double even though the
+        // default implementation ignores it, so a test can drive the mid-rebuild mirror.
+        seedOsv: vi.fn(async function seedOsv(
+            _db: unknown,
+            _ecosystem: string,
+            _signal?: AbortSignal,
+            _onCacheDiscarded?: () => void
+        ) {
             return { status: 'ok', upserted: 0, recordCount: 0, message: null }
         }),
-        incrementalSyncOsv: vi.fn(async function incrementalSyncOsv(_db: unknown, _ecosystem: string, _signal?: AbortSignal) {
+        incrementalSyncOsv: vi.fn(async function incrementalSyncOsv(
+            _db: unknown,
+            _ecosystem: string,
+            _signal?: AbortSignal,
+            _onCacheDiscarded?: () => void
+        ) {
             return { status: 'ok', upserted: 0, recordCount: 0, message: null }
-        }),
-        checkOsvFreeSpace: vi.fn(async function checkOsvFreeSpace() {
-            return { freeBytes: 42_000_000, sufficient: true }
         })
     }
 })
@@ -70,7 +79,6 @@ vi.mock('./osv-sync', function mockOsvSync() {
     return {
         seedOsv: sync.seedOsv,
         incrementalSyncOsv: sync.incrementalSyncOsv,
-        checkOsvFreeSpace: sync.checkOsvFreeSpace,
         osvFeedDisabled: function osvFeedDisabled() { return sync.feedDisabled }
     }
 })
@@ -382,10 +390,13 @@ describe('startOsvRuntime', function () {
         startOsvRuntime(handle.db, runtime)
         expect(getConfigValue(handle.db, sourceStatusKey('osv' as never, 'npm' as never))).toMatchObject({
             seedComplete: false,
+            normalizerVersion: null,
             recordCount: 0,
             refreshedAt: null,
-            lastError: null,
-            freeBytes: null
+            // Already stamped: the initial sync starts synchronously, and saying so is the point — the
+            // panel can now distinguish "downloading" from "nothing is happening about this".
+            syncStartedAt: expect.any(Number),
+            lastError: null
         })
     })
 
@@ -476,7 +487,7 @@ describe('runSync — seed or catch up', function () {
     it('seeds an ecosystem that has never been downloaded', async function () {
         enable('npm')
         await runSync(handle.db, cache.db, runtime)
-        expect(sync.seedOsv).toHaveBeenCalledWith(cache.db, 'npm', runtime.abortController.signal)
+        expect(sync.seedOsv).toHaveBeenCalledWith(cache.db, 'npm', runtime.abortController.signal, expect.any(Function))
         expect(sync.incrementalSyncOsv).not.toHaveBeenCalled()
     })
 
@@ -539,15 +550,16 @@ describe('runSync — seed or catch up', function () {
         expect(sync.seedOsv).toHaveBeenCalledTimes(1)
     })
 
-    it('mirrors each cell status with the free-space reading after syncing it', async function () {
+    it('mirrors each cell status after syncing it, with the sync stamp cleared', async function () {
         enable('npm')
         setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.recordCount, 'npm'), 1234)
-        setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, 'npm'), true)
+        markSeeded('npm')
         await runSync(handle.db, cache.db, runtime)
         expect(getConfigValue(handle.db, sourceStatusKey('osv' as never, 'npm' as never))).toMatchObject({
             seedComplete: true,
+            normalizerVersion: OSV_NORMALIZER_VERSION,
             recordCount: 1234,
-            freeBytes: 42_000_000
+            syncStartedAt: null
         })
     })
 
@@ -560,16 +572,84 @@ describe('runSync — seed or catch up', function () {
             throw new Error('seed exploded')
         })
         await expect(runSync(handle.db, cache.db, runtime)).rejects.toThrow('seed exploded')
+        // syncStartedAt must clear on the throw too, or the panel reads "Rebuilding…" forever.
         expect(getConfigValue(handle.db, sourceStatusKey('osv' as never, 'npm' as never))).toMatchObject({
-            lastError: 'seed exploded'
+            lastError: 'seed exploded',
+            syncStartedAt: null
         })
+    })
+
+    // Bug A, pinned. The discard is deferred to the first streamed batch, so a mirror written only at the
+    // start and end of the sync leaves the panel claiming the pre-rebuild state for the whole rebuild —
+    // which is exactly how Settings came to read "Up to date, 227,715 advisories" while every scan
+    // returned unauditable/osv_db_not_seeded.
+    it('re-mirrors the moment a seed discards the cache, keeping the prior count visible', async function () {
+        enable('npm')
+        setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.recordCount, 'npm'), 220)
+        markSeeded('npm', OSV_NORMALIZER_VERSION - 1)
+        let midRebuild: unknown = null
+        sync.seedOsv.mockImplementationOnce(async function discardThenSeed(_db: unknown, eco: string, _signal?: AbortSignal, onCacheDiscarded?: () => void) {
+            setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, eco), false)
+            onCacheDiscarded?.()
+            midRebuild = getConfigValue(handle.db, sourceStatusKey('osv' as never, 'npm' as never))
+            markSeeded(eco)
+            return { status: 'ok', upserted: 0, recordCount: 220, message: null }
+        })
+        await runSync(handle.db, cache.db, runtime)
+        expect(midRebuild).toMatchObject({
+            seedComplete: false,
+            recordCount: 220,
+            syncStartedAt: expect.any(Number)
+        })
+    })
+
+    it('enqueues one full sweep when an ecosystem becomes matchable', async function () {
+        enable('npm')
+        sync.seedOsv.mockImplementationOnce(async function seed(_db: unknown, eco: string) {
+            markSeeded(eco)
+            return { status: 'ok', upserted: 1, recordCount: 1, message: null }
+        })
+        await runSync(handle.db, cache.db, runtime)
+        const requests = listRecentScanRequests(handle.db)
+        expect(requests).toHaveLength(1)
+        expect(requests[0]).toMatchObject({ projectId: null, rootId: null, status: 'pending' })
+    })
+
+    it('does not enqueue a sweep for an incremental sync', async function () {
+        enable('npm')
+        markSeeded('npm')
+        await runSync(handle.db, cache.db, runtime)
+        expect(listRecentScanRequests(handle.db)).toHaveLength(0)
+    })
+
+    it('does not enqueue a sweep when the seed left the cache unusable', async function () {
+        enable('npm')
+        await runSync(handle.db, cache.db, runtime)
+        expect(listRecentScanRequests(handle.db)).toHaveLength(0)
+    })
+
+    // The one rebuild that starts from a USABLE cache: a change set past OSV_INCREMENTAL_MAX_IDS re-seeds
+    // from inside incrementalSyncOsv, so a plain before/after reading would see usable-to-usable and miss
+    // that the scanner was refusing everything in between.
+    it('enqueues a sweep when a rebuild discarded an already-matchable cache', async function () {
+        enable('npm')
+        markSeeded('npm')
+        sync.incrementalSyncOsv.mockImplementationOnce(async function reseed(_db: unknown, eco: string, _signal?: AbortSignal, onCacheDiscarded?: () => void) {
+            setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, eco), false)
+            onCacheDiscarded?.()
+            markSeeded(eco)
+            return { status: 'ok', upserted: 1, recordCount: 1, message: null }
+        })
+        await runSync(handle.db, cache.db, runtime)
+        expect(listRecentScanRequests(handle.db)).toHaveLength(1)
     })
 
     it('reports a never-refreshed cell as null rather than zero', async function () {
         enable('npm')
         await runSync(handle.db, cache.db, runtime)
         expect(getConfigValue(handle.db, sourceStatusKey('osv' as never, 'npm' as never))).toMatchObject({
-            refreshedAt: null
+            refreshedAt: null,
+            normalizerVersion: null
         })
     })
 })

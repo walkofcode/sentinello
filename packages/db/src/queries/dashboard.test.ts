@@ -316,8 +316,7 @@ describe('listProjectCatalog', function () {
 
     it('reports no scan state for a project that never ran', function () {
         const row = listProjectCatalog(db, T0 + DAY).find(function p(r) { return r.id === 'project-1' })
-        expect(row?.lastScanFinishedAt).toBeNull()
-        expect(row?.lastScanStatus).toBeNull()
+        expect(row?.scanStates).toEqual([])
     })
 
     it('reports the latest scan state', function () {
@@ -329,12 +328,58 @@ describe('listProjectCatalog', function () {
             errorText: 'spawn failed'
         })
         const row = listProjectCatalog(db, T0 + DAY).find(function p(r) { return r.id === 'project-1' })
-        expect(row).toMatchObject({
-            lastScanFinishedAt: T0 + 5 * HOUR,
-            lastScanStatus: 'error',
-            lastScanReasonCode: 'audit_spawn_error',
-            lastScanErrorText: 'spawn failed'
+        expect(row?.scanStates).toEqual([
+            {
+                source: 'npm-audit',
+                finishedAt: T0 + 5 * HOUR,
+                status: 'error',
+                reasonCode: 'audit_spawn_error',
+                errorText: 'spawn failed'
+            }
+        ])
+    })
+
+    // The regression this whole surface exists for. A sweep writes one row per source and OSV lands a
+    // millisecond after npm audit, so a single latest-scan row reported OSV's verdict as the project's
+    // and threw npm audit's away: every project read "OSV database not downloaded yet" while npm audit
+    // had scanned fine and produced findings.
+    it('keeps every source verdict when two sources disagree in the same sweep', function () {
+        scanProject('project-1', [], { at: T0 + 5 * HOUR, scanner: 'npm-audit' })
+        scanProject('project-1', [], {
+            at: T0 + 5 * HOUR + 1,
+            scanner: 'osv',
+            status: 'unauditable',
+            reasonCode: 'osv_db_not_seeded',
+            errorText: 'OSV database has not been downloaded yet'
         })
+        const row = listProjectCatalog(db, T0 + DAY).find(function p(r) { return r.id === 'project-1' })
+        expect(row?.scanStates).toHaveLength(2)
+        expect(row?.scanStates.find(function s(e) { return e.source === 'npm-audit' })?.status).toBe('ok')
+        expect(row?.scanStates.find(function s(e) { return e.source === 'osv' })?.reasonCode).toBe('osv_db_not_seeded')
+    })
+
+    it('orders scan states by the registry source order, not by when they ran', function () {
+        scanProject('project-1', [], { at: T0 + 6 * HOUR, scanner: 'osv' })
+        scanProject('project-1', [], { at: T0 + 7 * HOUR, scanner: 'npm-audit' })
+        const row = listProjectCatalog(db, T0 + DAY).find(function p(r) { return r.id === 'project-1' })
+        expect(row?.scanStates.map(function s(e) { return e.source })).toEqual(['npm-audit', 'osv'])
+    })
+
+    it('drops the stale verdict of a source the operator has since disabled', function () {
+        scanProject('project-1', [], { at: T0 + 5 * HOUR, scanner: 'npm-audit' })
+        scanProject('project-1', [], { at: T0 + 5 * HOUR + 1, scanner: 'osv', status: 'unauditable', reasonCode: 'osv_db_not_seeded' })
+        setConfigValue(db, sourceEnabledKey('osv', 'npm'), false)
+        const row = listProjectCatalog(db, T0 + DAY).find(function p(r) { return r.id === 'project-1' })
+        expect(row?.scanStates.map(function s(e) { return e.source })).toEqual(['npm-audit'])
+    })
+
+    // Pre-migration rows carry a null source; the backfill runs at WORKER boot, so the portal can read
+    // them in the window before a worker has ever started against an upgraded install.
+    it('falls back to the scanner name for a row written before source was backfilled', function () {
+        scanProject('project-1', [], { at: T0 + 5 * HOUR, scanner: 'npm-audit' })
+        db.run(sql`UPDATE scans SET source = NULL`)
+        const row = listProjectCatalog(db, T0 + DAY).find(function p(r) { return r.id === 'project-1' })
+        expect(row?.scanStates.map(function s(e) { return e.source })).toEqual(['npm-audit'])
     })
 
     it('tallies per-project severity counts', function () {

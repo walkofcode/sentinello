@@ -75,3 +75,7 @@ export async function enqueueScanRequests(projectId: string, count: number): Pro
 export async function deleteRequest(id: string): Promise<void> {
     await run(['delete-request', id])
 }
+
+export async function setSourceStatus(source: string, ecosystem: string, status: Record<string, unknown>): Promise<void> {
+    await run(['set-source-status', source, ecosystem, JSON.stringify(status)])
+}

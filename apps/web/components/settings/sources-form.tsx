@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useTranslations } from 'next-intl'
 import { RefreshCw } from 'lucide-react'
-import { ECOSYSTEMS, type EcosystemId, type EcosystemLanguage, type SourceId, type SourceStatus } from '@sentinello/core'
+import { ECOSYSTEMS, sourceNormalizerVersion, type EcosystemId, type EcosystemLanguage, type SourceId, type SourceStatus } from '@sentinello/core'
 import { Button } from '@/components/ui/button'
 import { ScanAutoRefresh } from '@/components/scan-auto-refresh'
 import { Switch } from '@/components/ui/switch'
@@ -141,7 +141,24 @@ function SourceCell({ cell, label }: SourceCellProps) {
         })
     }
 
-    const seeded = status !== null && status.seedComplete
+    // The cache the SCANNER will actually use, from the same two facts its isSeeded gate reads
+    // (apps/worker/src/osv-runtime.ts osvCacheUsable). `seedComplete` alone is what let this row say
+    // "Up to date" for the whole of a multi-minute rebuild while every scan returned osv_db_not_seeded
+    // — and a normalizer bump reproduced it with no rebuild window at all.
+    //
+    // `?? null` on the two newer fields, deliberately: an app_config row written by an older worker
+    // genuinely lacks them until the worker re-mirrors at boot. A missing stamp must read as "not the
+    // current one" (fail closed, exactly as the scanner does), and a missing syncStartedAt as "nothing
+    // running" — `undefined !== null` is true and would pin the row to "Rebuilding…" forever.
+    const usable = status !== null
+        && status.seedComplete
+        && (status.normalizerVersion ?? null) === sourceNormalizerVersion(cell.source)
+    // Non-zero only once a sync has actually landed rows, so a first-ever download shows no count rather
+    // than "0 advisories cached". recordCount is NOT recomputed during a rebuild, so this is the
+    // pre-rebuild figure — which is the one worth showing.
+    const everSeeded = status !== null && status.recordCount > 0
+    // Worker-stamped, so unlike the old client-memory baseline this survives a page reload.
+    const syncing = status !== null && (status.syncStartedAt ?? null) !== null
     const failing = status !== null && status.lastError !== null
     // Derived during render, not tracked in an effect: `status` is a server prop, so once the worker
     // writes a newer snapshot (or a new error) the very next render flips this false and leaves it
@@ -151,9 +168,13 @@ function SourceCell({ cell, label }: SourceCellProps) {
     // Known limitation, accepted: the baseline is client memory, so reloading the page drops the label
     // while the sync is genuinely still running. Fixing that properly means a syncStartedAt field on
     // SourceStatus, stamped by the worker.
-    const refreshPending = refreshBaseline !== null
-        && (status?.refreshedAt ?? null) === refreshBaseline.refreshedAt
-        && (status?.lastError ?? null) === refreshBaseline.lastError
+    // The baseline now covers only the <=5s between clicking Refresh and the worker claiming the
+    // refresh-* signal, before anything has stamped syncStartedAt. After that `syncing` is the truth,
+    // and it survives a reload where the baseline never did.
+    const refreshPending = syncing
+        || (refreshBaseline !== null
+            && (status?.refreshedAt ?? null) === refreshBaseline.refreshedAt
+            && (status?.lastError ?? null) === refreshBaseline.lastError)
 
     return (
         <div className="py-3">
@@ -165,14 +186,20 @@ function SourceCell({ cell, label }: SourceCellProps) {
                         band of three stacked rows below them; every field it carried is still here. */}
                     {cell.cacheBacked && enabled ? (
                         <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span aria-hidden className={'size-1.5 shrink-0 rounded-full ' + stateDotClass(seeded, failing)} />
+                            <span aria-hidden className={'size-1.5 shrink-0 rounded-full ' + stateDotClass(usable, failing)} />
                             <span className="font-medium text-foreground">
-                                {seeded ? t('sources.seeded') : t('sources.seeding')}
+                                {t(cacheStateKey(usable, everSeeded, syncing))}
                             </span>
-                            {seeded ? (
+                            {everSeeded ? (
                                 <>
                                     <span aria-hidden>·</span>
-                                    <span>{t('sources.recordCount', { n: status.recordCount })}</span>
+                                    {/* Dimmed, not hidden. During a rebuild this is the count from BEFORE
+                                        it — the number the operator wants back — but it is not what the
+                                        scanner can match right now, and rendering it at full weight beside
+                                        "Rebuilding…" would say otherwise. */}
+                                    <span className={usable ? '' : 'opacity-60'}>
+                                        {t('sources.recordCount', { n: status.recordCount })}
+                                    </span>
                                 </>
                             ) : null}
                             <span aria-hidden>·</span>
@@ -223,9 +250,13 @@ function SourceCell({ cell, label }: SourceCellProps) {
                 <>
                     {/* Only while pending, and faster than the app-wide idle cadence: this is the one
                         screen where the operator is actively waiting on a background job to land.
-                        Unmounting when it lands is what stops N cells owning N idle timers. */}
+                        Unmounting when it lands is what stops N cells owning N idle timers. Polls for a
+                        cron-triggered sync too, but the "Refresh requested" line stays gated on the
+                        baseline — a rebuild nobody asked for must not claim the operator asked for it. */}
                     <ScanAutoRefresh active activeIntervalMs={10000} />
-                    <p className="mt-1.5 text-xs text-muted-foreground">{t('sources.refreshQueued')}</p>
+                    {refreshBaseline !== null ? (
+                        <p className="mt-1.5 text-xs text-muted-foreground">{t('sources.refreshQueued')}</p>
+                    ) : null}
                 </>
             ) : null}
             {error ? (
@@ -243,8 +274,18 @@ function toggleLabel(pending: boolean, saved: boolean, enabled: boolean, tc: Tra
     return enabled ? t('sources.enabled') : t('sources.disabled')
 }
 
-function stateDotClass(seeded: boolean, failing: boolean): string {
+// Four outcomes, three of which the old binary seeded/seeding pair collapsed into one lie. The fourth —
+// had rows, cannot use them, and nothing is currently doing anything about it — is the difference between
+// "wait" and "this is stuck", and it is the state a normalizer bump leaves behind.
+function cacheStateKey(usable: boolean, everSeeded: boolean, syncing: boolean): string {
+    if (usable) return 'sources.seeded'
+    if (!everSeeded) return 'sources.seeding'
+    if (syncing) return 'sources.rebuilding'
+    return 'sources.rebuildPending'
+}
+
+function stateDotClass(usable: boolean, failing: boolean): string {
     if (failing) return 'bg-[color:var(--color-sev-high)]'
-    if (seeded) return 'bg-success'
+    if (usable) return 'bg-success'
     return 'bg-warning'
 }

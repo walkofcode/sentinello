@@ -135,6 +135,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     const scanHistoryVM: ScanHistoryRowVM[] = scanHistory.map(function toVM(scan) {
         return {
             id: scan.id,
+            source: scan.source,
             finishedRelative: formatRelativeTime(scan.finishedAt, tTime, now),
             finishedAbsolute: formatAbsoluteTime(scan.finishedAt),
             statusLabel: scanStatusLabel(scan.status, locale),

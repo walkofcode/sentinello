@@ -8,6 +8,7 @@ import {
     lookupGemnasiumByPackages,
     openGemnasiumDb,
     runGemnasiumMigrations,
+    enqueueScanRequest,
     setConfigValue,
     type DrizzleDb,
     type GemnasiumDrizzleDb
@@ -20,7 +21,7 @@ import {
 } from '@sentinello/scanners'
 
 export type { ScannerPlugin }
-import { checkGemnasiumFreeSpace, gemnasiumFeedDisabled, syncGemnasium } from './gemnasium-sync'
+import { gemnasiumFeedDisabled, syncGemnasium } from './gemnasium-sync'
 import type { WorkerRuntime } from './runtime'
 
 // Owns the gemnasium cache connection + the gemnasium scanner instance + the periodic sync job. Opened
@@ -125,10 +126,7 @@ export function startGemnasiumRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime)
             return getSourceEnabled(mainDb, 'gemnasium', ecosystem as EcosystemId)
         },
         isSeeded: function isSeeded() {
-            // Gate on BOTH the seed flag and the normalizer version: a normalizer bump rebuilds the cache,
-            // and the old rows lack the new fields — stay unauditable until the re-seed lands.
-            return getGemnasiumMeta<boolean>(gemnasiumDb, GEMNASIUM_META_KEYS.seedComplete) === true
-                && getGemnasiumMeta<number>(gemnasiumDb, GEMNASIUM_META_KEYS.normalizerVersion) === GEMNASIUM_NORMALIZER_VERSION
+            return gemnasiumCacheUsable(gemnasiumDb)
         },
         lookup: function lookup(ecosystem: string, packageNames: string[]): Map<string, GemnasiumAdvisory[]> {
             // The gemnasium cache `ecosystem` column holds the registry EcosystemId (stamped by the
@@ -175,25 +173,44 @@ export function startGemnasiumRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime)
     }
 }
 
+// The predicate the SCANNER gates on, in one place, so isSeeded and the post-sync "did this cache become
+// matchable" check cannot drift apart. Gates on BOTH the seed flag and the normalizer version: a bump
+// rebuilds the cache and the old rows lack the new fields, so stay unauditable until the re-seed lands.
+export function gemnasiumCacheUsable(gemnasiumDb: GemnasiumDrizzleDb): boolean {
+    return getGemnasiumMeta<boolean>(gemnasiumDb, GEMNASIUM_META_KEYS.seedComplete) === true
+        && getGemnasiumMeta<number>(gemnasiumDb, GEMNASIUM_META_KEYS.normalizerVersion) === GEMNASIUM_NORMALIZER_VERSION
+}
+
 // gemnasium has no incremental delta source, so a sync is always a full re-seed. Mirrors the resulting
 // status into the main DB so the portal reflects it. Used by "refresh now", the scheduled tick, and the
 // initial run.
 export async function runSync(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb, runtime: WorkerRuntime): Promise<void> {
     const signal = runtime.abortController.signal
+    // No OSV-style invalidation callback here, and none is missing: rebuildGemnasium upserts OVER the
+    // existing rows and purges only after the whole stream succeeds, so the cache never stops being
+    // matchable mid-rebuild. The only states in which the scanner refuses it are a first seed and a
+    // normalizer bump, and both are visible from the meta before the sync starts — syncGemnasium picks its
+    // own path internally and does not need to report which, because the cache's own state answers it.
+    const usableBefore = gemnasiumCacheUsable(gemnasiumDb)
+    // Stamped before the first network byte so the portal can say a sync is running across a page reload.
+    writeStatus(mainDb, gemnasiumDb, Date.now())
     try {
         await syncGemnasium(gemnasiumDb, signal)
     } finally {
-        await mirrorStatusWithSpace(mainDb, gemnasiumDb)
+        writeStatus(mainDb, gemnasiumDb, null)
+    }
+    if (!usableBefore && gemnasiumCacheUsable(gemnasiumDb)) {
+        // See the OSV twin for why this is a full sweep and why it is deliberately not guarded by
+        // isAnyScanInFlight: every project scanned while the cache was unusable holds a stale
+        // gemnasium_db_not_seeded verdict that nothing else in the system ever revisits.
+        enqueueScanRequest(mainDb, {}, Date.now())
+        console.log('[gemnasium] cache is matchable again — enqueued a full re-scan to replace stale unauditable verdicts')
     }
 }
 
-// Reads the gemnasium cache's meta + free space and writes the compact SourceStatus snapshot into the
-// main app_config so the portal (which never opens gemnasium.db) can render sync status from the main DB.
-async function mirrorStatusWithSpace(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb): Promise<void> {
-    const space = await checkGemnasiumFreeSpace()
-    writeStatus(mainDb, gemnasiumDb, space.freeBytes)
-}
-
+// Initial snapshot before the first sync, so the row reads "not seeded yet" rather than nothing the moment
+// the source is enabled. Also the self-heal for a worker SIGKILLed mid-rebuild: it unconditionally clears
+// syncStartedAt, so a stuck "Rebuilding…" cannot survive a restart.
 function mirrorStatus(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb): void {
     writeStatus(mainDb, gemnasiumDb, null)
 }
@@ -203,13 +220,14 @@ function mirrorStatus(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb): void 
 // status under the canonical npm-cell key as the source's status slot; Phase 5's matrix reads this single
 // status for every enabled gemnasium cell rather than expecting a per-cell row that doesn't exist. (OSV
 // differs: each OSV ecosystem is a separate download, so it mirrors a status per enabled cell.)
-function writeStatus(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb, freeBytes: number | null): void {
+function writeStatus(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb, syncStartedAt: number | null): void {
     const status: SourceStatus = {
         seedComplete: getGemnasiumMeta<boolean>(gemnasiumDb, GEMNASIUM_META_KEYS.seedComplete) === true,
+        normalizerVersion: getGemnasiumMeta<number>(gemnasiumDb, GEMNASIUM_META_KEYS.normalizerVersion),
         recordCount: getGemnasiumMeta<number>(gemnasiumDb, GEMNASIUM_META_KEYS.recordCount) ?? 0,
-        refreshedAt: getGemnasiumMeta<number>(gemnasiumDb, GEMNASIUM_META_KEYS.refreshedAt) ?? null,
-        lastError: getGemnasiumMeta<string>(gemnasiumDb, GEMNASIUM_META_KEYS.lastError) ?? null,
-        freeBytes
+        refreshedAt: getGemnasiumMeta<number>(gemnasiumDb, GEMNASIUM_META_KEYS.refreshedAt),
+        syncStartedAt,
+        lastError: getGemnasiumMeta<string>(gemnasiumDb, GEMNASIUM_META_KEYS.lastError)
     }
     setConfigValue(mainDb, sourceStatusKey('gemnasium', DEFAULT_ECOSYSTEM), status)
 }

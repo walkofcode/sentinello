@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { ShieldCheck } from 'lucide-react'
-import { reasonCodeLabel, severityWeight, type DepTypeFilter, type Locale, type ReasonCode } from '@sentinello/core'
+import { severityWeight, type DepTypeFilter, type Locale } from '@sentinello/core'
 import type { ProjectCatalogRow } from '@sentinello/db'
 import { Badge } from '@/components/ui/badge'
 import { ExportAdvisoryButton } from '@/components/triage/export-advisory-button'
@@ -20,6 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { EmptyState } from '@/components/ui/empty-state'
 import { parseJsonArray, rootDisplayLabel } from '@/lib/format'
 import { rememberProjectsUrl } from '@/lib/home-url-memory'
+import { isProjectHealthy, problemScanStates, scanStateLabel } from '@/lib/project-state'
 import {
     buildProjectFiltersUrl,
     parseProjectFiltersFromSearch,
@@ -60,7 +61,6 @@ type Props = {
 
 export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultDepType, librariesCount, lastScanFinishedAt, now, anyInFlight }: Props) {
     const t = useTranslations('Home')
-    const locale = useLocale() as Locale
     const router = useRouter()
     const [query, setQuery] = useState<string>('')
     const [roots, setRoots] = useState<string[]>([])
@@ -141,7 +141,7 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
             }
             if (row.muted) {
                 if (!showMuted) return false
-            } else if (!showHealthy && isHealthy(row)) {
+            } else if (!showHealthy && isProjectHealthy(row, totalNonMutedFindings(row))) {
                 return false
             }
             if (q) {
@@ -226,9 +226,6 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                 <>
                     <div className="space-y-2 md:hidden">
                         {filtered.map(function card(project) {
-                            const scanReason = project.lastScanStatus && project.lastScanStatus !== 'ok'
-                                ? reasonCodeLabel((project.lastScanReasonCode as ReasonCode | null) || null, locale)
-                                : null
                             const href = '/projects/' + project.id
                             const tags = parseJsonArray(project.tagsJson)
                             function onCardClick(e: MouseEvent<HTMLDivElement>) {
@@ -247,11 +244,7 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                                             <TagList tags={tags} />
                                         </div>
                                         <div className="flex shrink-0 flex-wrap justify-end gap-1">
-                                            {scanReason ? (
-                                                <Badge variant="outline" title={project.lastScanErrorText || ''}>
-                                                    {scanReason}
-                                                </Badge>
-                                            ) : null}
+                                            <ScanStateBadges row={project} />
                                             {project.muted ? <Badge variant="muted">{t('badgeMuted')}</Badge> : null}
                                         </div>
                                     </div>
@@ -291,9 +284,6 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                             </TableHeader>
                             <TableBody>
                                 {filtered.map(function row(project) {
-                                    const scanReason = project.lastScanStatus && project.lastScanStatus !== 'ok'
-                                        ? reasonCodeLabel((project.lastScanReasonCode as ReasonCode | null) || null, locale)
-                                        : null
                                     const href = '/projects/' + project.id
                                     function onRowClick(e: MouseEvent<HTMLTableRowElement>) {
                                         const target = e.target as HTMLElement
@@ -328,11 +318,7 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                                             </TableCell>
                                             <TableCell>
                                                 <div className="flex flex-wrap gap-1">
-                                                    {scanReason ? (
-                                                        <Badge variant="outline" title={project.lastScanErrorText || ''}>
-                                                            {scanReason}
-                                                        </Badge>
-                                                    ) : null}
+                                                    <ScanStateBadges row={project} />
                                                     {project.muted ? <Badge variant="muted">{t('badgeMuted')}</Badge> : null}
                                                 </div>
                                             </TableCell>
@@ -354,10 +340,6 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
 function totalNonMutedFindings(row: ProjectCatalogRow): number {
     const c = row.severityCounts
     return c.critical + c.high + c.moderate + c.low + c.info
-}
-
-function isHealthy(row: ProjectCatalogRow): boolean {
-    return row.lastScanStatus === 'ok' && totalNonMutedFindings(row) === 0
 }
 
 // Weight of the project's worst finding; 0 when it has none, which sorts below every real severity.
@@ -600,6 +582,24 @@ function RowActions({ project, depType, scanning }: { project: ProjectCatalogRow
             )}
             <TagEditor projectId={project.id} initialTags={parseJsonArray(project.tagsJson)} iconOnly />
         </div>
+    )
+}
+
+// One badge per source that could not answer. A source that returned ok shows nothing, so a healthy
+// project's State cell is empty and a project where npm audit worked but OSV was never seeded shows
+// exactly one badge — naming OSV, rather than condemning the whole project.
+function ScanStateBadges({ row }: { row: ProjectCatalogRow }) {
+    const locale = useLocale() as Locale
+    return (
+        <>
+            {problemScanStates(row).map(function stateBadge(state) {
+                return (
+                    <Badge key={state.source} variant="outline" title={state.errorText || ''}>
+                        {scanStateLabel(state, locale)}
+                    </Badge>
+                )
+            })}
+        </>
     )
 }
 

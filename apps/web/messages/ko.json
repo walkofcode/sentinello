@@ -296,6 +296,8 @@
             "disabled": "비활성화됨",
             "seeded": "최신",
             "seeding": "다운로드 중…",
+            "rebuilding": "다시 만드는 중…",
+            "rebuildPending": "재구축 대기 중",
             "recordCount": "{n, number}개 권고 캐시됨",
             "lastRefreshed": "마지막 새로 고침",
             "lastError": "마지막 오류",
@@ -656,6 +658,7 @@
             "scanTable": {
                 "finished": "완료됨",
                 "status": "상태",
+                "source": "출처",
                 "reason": "사유",
                 "duration": "소요 시간",
                 "detail": "상세",

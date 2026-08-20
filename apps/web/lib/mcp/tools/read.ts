@@ -79,7 +79,7 @@ export function registerReadTools(server: McpServer): void {
         {
             title: 'List projects',
             description:
-                'Lists projects discovered under all (or one) root, each with severity counts and last-scan status. Severity counts are DISTINCT ADVISORIES, deduplicated across reporting sources — so they are lower than the row count list_findings returns for the same project, and they match get_project_advisory. A project silenced by a project-scope mute is still LISTED here, carrying muted: true and severity counts of zero; those zeros mean silenced, not clean, so check the muted flag before reporting a project as having nothing wrong. Such projects are excluded from the get_dashboard_summary totals, which is why this list can be longer than totalActiveProjects. This is the usual starting point for finding a projectId.',
+                'Lists projects discovered under all (or one) root, each with severity counts and a PER-SOURCE scan state. Severity counts are DISTINCT ADVISORIES, deduplicated across reporting sources — so they are lower than the row count list_findings returns for the same project, and they match get_project_advisory. scanStates carries ONE ENTRY PER ADVISORY SOURCE (npm-audit, osv, gemnasium) that has scanned the project and is still enabled, each with that source own latest finishedAt, status, reasonCode and errorText — reported separately because the sources finish at different times and routinely disagree, so a project can be ok for one source and unauditable for another. Read every entry: a non-ok entry means that source could not look at all, so zero findings from it means unknown, not safe. An EMPTY scanStates array means nothing has ever scanned the project, which is also not clean. A project silenced by a project-scope mute is still LISTED here, carrying muted: true and severity counts of zero; those zeros mean silenced, not clean, so check the muted flag before reporting a project as having nothing wrong. Such projects are excluded from the get_dashboard_summary totals, which is why this list can be longer than totalActiveProjects. This is the usual starting point for finding a projectId.',
             inputSchema: {
                 rootId: z.string().min(1).optional().describe('Limit to one root by id'),
                 depType: depTypeSchema.describe('Filter findings by dependency type (default: all)')
@@ -87,7 +87,7 @@ export function registerReadTools(server: McpServer): void {
         },
         async function handler({ rootId, depType }) {
             const db = getDb()
-            // Always return the rich ProjectCatalogRow shape (severity counts + last-scan status) so
+            // Always return the rich ProjectCatalogRow shape (severity counts + per-source scan state) so
             // the schema is identical whether or not rootId is passed. The lookup stays even though the
             // rows now carry rootId: filtering alone cannot tell an unknown root from an empty one, and
             // "Root not found" is the more useful of those two answers.
