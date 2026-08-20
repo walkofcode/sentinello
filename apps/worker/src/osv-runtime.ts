@@ -19,6 +19,7 @@ import {
     osvMetaKeyFor,
     runOsvMigrations,
     enqueueScanRequest,
+    hasStaleSourceUnavailableScans,
     setConfigValue,
     type DrizzleDb,
     type OsvDrizzleDb
@@ -197,6 +198,7 @@ export function startOsvRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime): OsvR
     // Mirror an initial status snapshot immediately (even before the first sync) so the Settings panel
     // shows "not seeded yet" rather than nothing the moment the source is enabled.
     mirrorStatus(mainDb, osvDb)
+    reconcileStaleVerdicts(mainDb, osvDb)
 
     if (!osvFeedDisabled()) {
         const initial = runSync(mainDb, osvDb, runtime).catch(function onErr(err: unknown) {
@@ -238,6 +240,22 @@ export function startOsvRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime): OsvR
 export function osvCacheUsable(osvDb: OsvDrizzleDb, ecosystem: string): boolean {
     return getOsvMeta<boolean>(osvDb, osvMetaKeyFor(OSV_META_KEYS.seedComplete, ecosystem)) === true
         && getOsvMeta<number>(osvDb, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, ecosystem)) === OSV_NORMALIZER_VERSION
+}
+
+// Boot-time counterpart to the transition check in runSync. runSync enqueues a sweep when it WATCHES a
+// cache become matchable; this asks whether one already did without anyone watching — a cache seeded
+// under a previous build, or while the worker was down, leaves every project holding an
+// osv_db_not_seeded verdict that nothing is left to clear. The two are mutually exclusive by
+// construction: if the cache is usable now, runSync takes the incremental path and its own check does
+// not fire.
+function reconcileStaleVerdicts(mainDb: DrizzleDb, osvDb: OsvDrizzleDb): void {
+    const usable = enabledOsvEcosystems(mainDb).some(function anyUsable(ecosystem) {
+        return osvCacheUsable(osvDb, ecosystem)
+    })
+    if (!usable) return
+    if (!hasStaleSourceUnavailableScans(mainDb, OSV_SCANNER_NAME)) return
+    enqueueScanRequest(mainDb, {}, Date.now())
+    console.log('[osv] cache is matchable but projects still hold unauditable verdicts — enqueued a full re-scan')
 }
 
 // Manually trigger a sync (seed-or-incremental) for every enabled OSV ecosystem, then mirror each cell's

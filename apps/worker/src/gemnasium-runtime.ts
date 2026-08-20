@@ -9,6 +9,7 @@ import {
     openGemnasiumDb,
     runGemnasiumMigrations,
     enqueueScanRequest,
+    hasStaleSourceUnavailableScans,
     setConfigValue,
     type DrizzleDb,
     type GemnasiumDrizzleDb
@@ -144,6 +145,7 @@ export function startGemnasiumRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime)
     // Mirror an initial status snapshot immediately so the Settings panel shows "not seeded yet" rather
     // than nothing the moment the source is enabled.
     mirrorStatus(mainDb, gemnasiumDb)
+    reconcileStaleVerdicts(mainDb, gemnasiumDb)
 
     if (!gemnasiumFeedDisabled()) {
         const initial = runSync(mainDb, gemnasiumDb, runtime).catch(function onErr(err: unknown) {
@@ -171,6 +173,15 @@ export function startGemnasiumRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime)
             task.stop()
         }
     }
+}
+
+// Boot-time counterpart to the transition check in runSync — see the OSV twin for why watching the
+// transition is not enough on its own.
+function reconcileStaleVerdicts(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb): void {
+    if (!gemnasiumCacheUsable(gemnasiumDb)) return
+    if (!hasStaleSourceUnavailableScans(mainDb, GEMNASIUM_SCANNER_NAME)) return
+    enqueueScanRequest(mainDb, {}, Date.now())
+    console.log('[gemnasium] cache is matchable but projects still hold unauditable verdicts — enqueued a full re-scan')
 }
 
 // The predicate the SCANNER gates on, in one place, so isSeeded and the post-sync "did this cache become

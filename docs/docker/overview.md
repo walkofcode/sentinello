@@ -150,6 +150,10 @@ queues **one full re-scan**, so projects reported `osv_db_not_seeded` / `gemnasi
 the cache was unavailable are re-evaluated instead of waiting for the next scheduled sweep. An
 incremental update queues nothing.
 
+The same check runs at worker startup, so a cache that finished downloading while the worker was down
+(or under an older version) still clears those verdicts on the next boot rather than needing a manual
+scan.
+
 Leave these sources off (or set `SENTINELLO_OSV_FEED_URL=off` /
 `SENTINELLO_GEMNASIUM_FEED_URL=off`) for a fully air-gapped install.
 

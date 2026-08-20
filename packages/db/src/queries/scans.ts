@@ -1,5 +1,5 @@
 import { desc, eq, inArray, sql } from 'drizzle-orm'
-import type { Scan } from '@sentinello/core'
+import { SOURCE_UNAVAILABLE_REASON_CODES, type Scan } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { scans } from '../schema'
 import { sumCount } from './count'
@@ -53,6 +53,39 @@ export function getLatestScanForProject(db: DrizzleDb, projectId: string): Scan 
         .get()
     if (!row) return null
     return rowToScan(row)
+}
+
+// Does any project's LATEST scan for this source still say the source's cache could not be consulted?
+//
+// The worker enqueues a re-scan when a cache TRANSITIONS to usable inside one sync, which covers the
+// seed that just finished. It cannot cover a transition nobody was watching: a cache that became usable
+// under a previous build, or while the worker was down, leaves every project holding an
+// osv_db_not_seeded verdict with nothing left to trigger a re-scan — the cache is fine, the verdicts are
+// stale, and they would sit there until the next scheduled sweep or until someone noticed and clicked.
+// This is the boot-time reconciliation for exactly that: ask whether the two disagree, rather than
+// relying on having observed the moment they stopped agreeing.
+//
+// Latest scan PER PROJECT for the source, not the newest row overall: one project scanned since the
+// cache came back does not speak for the rest.
+export function hasStaleSourceUnavailableScans(db: DrizzleDb, source: string): boolean {
+    // .all() + sumCount rather than .get() + `?? 0`: a COUNT(*) with no GROUP BY always returns exactly
+    // one row, so the fallback would be a branch no database state can reach. See ./count.
+    const rows = db.all<{ count: number }>(sql`
+        WITH ranked AS (
+            SELECT s.reason_code AS reason_code,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY s.project_id
+                       ORDER BY s.finished_at DESC, s.id DESC
+                   ) AS rn
+            FROM scans s
+            WHERE COALESCE(s.source, s.scanner) = ${source}
+        )
+        SELECT COUNT(*) AS count
+        FROM ranked
+        WHERE rn = 1
+          AND reason_code IN (${sql.join(SOURCE_UNAVAILABLE_REASON_CODES.map(function lit(c) { return sql`${c}` }), sql`, `)})
+    `)
+    return sumCount(rows) > 0
 }
 
 export function getLastScanFinishedAt(db: DrizzleDb): number | null {

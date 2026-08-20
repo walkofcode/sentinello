@@ -315,6 +315,11 @@ queues **one full re-scan** automatically. Projects reported `osv_db_not_seeded`
 `gemnasium_db_not_seeded` while the cache was unavailable are re-evaluated straight away instead of
 carrying that verdict until the next scheduled sweep. An incremental update queues nothing.
 
+The worker also reconciles at startup: if a cache is usable but some project's most recent scan for
+that source still says it was not — a cache that finished downloading while the worker was down, or
+under an older version — it queues the same re-scan on its first boot. Upgrading is enough; there is
+no scan you have to remember to run.
+
 For a fully air-gapped install, leave these
 sources off (or set `SENTINELLO_OSV_FEED_URL=off` / `SENTINELLO_GEMNASIUM_FEED_URL=off`) and Sentinello
 makes no OSV/gemnasium network calls at all.

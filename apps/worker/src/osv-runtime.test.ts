@@ -12,7 +12,7 @@ import {
     upsertOsvAdvisories,
     type OsvDrizzleDb
 } from '@sentinello/db'
-import { OSV_META_KEYS, listRecentScanRequests } from '@sentinello/db'
+import { OSV_META_KEYS, insertScan, listRecentScanRequests, upsertProject, upsertRoot } from '@sentinello/db'
 import { sourceEnabledKey, sourceStatusKey } from '@sentinello/core'
 import type { SqliteDb } from '@sentinello/db'
 import { closeWorkerTestDb, openWorkerTestDb, type WorkerTestDb } from './worker-test-db.fixture'
@@ -398,6 +398,52 @@ describe('startOsvRuntime', function () {
             syncStartedAt: expect.any(Number),
             lastError: null
         })
+    })
+
+    // The transition check in runSync only fires for a transition it WATCHES. A cache seeded under a
+    // previous build, or while the worker was down, leaves projects holding osv_db_not_seeded with
+    // nothing left to clear it — which is exactly the state a real instance was found in.
+    function seedStaleProject(): void {
+        upsertRoot(handle.db, { id: 'root-x', path: '/repo', label: null, createdAt: 1 })
+        upsertProject(handle.db, {
+            id: 'proj-x', rootId: 'root-x', relPath: 'app', name: 'app', alias: null,
+            packageManager: 'npm', nvmrcVersion: null, gitBranch: null, ecosystems: ['npm'],
+            muted: false, tags: [], createdAt: 1, updatedAt: 1
+        })
+        insertScan(handle.db, {
+            id: 'scan-x', projectId: 'proj-x', startedAt: 1, finishedAt: 2, scanner: 'osv', source: 'osv',
+            ecosystem: 'npm', status: 'unauditable', reasonCode: 'osv_db_not_seeded', durationMs: 1,
+            errorText: null, rawJson: ''
+        })
+    }
+
+    it('re-scans at boot when the cache is matchable but projects still say it was not', function () {
+        const cache = openCache()
+        setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, 'npm'), true)
+        setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, 'npm'), OSV_NORMALIZER_VERSION)
+        cache.sqlite.close()
+        seedStaleProject()
+        startOsvRuntime(handle.db, runtime)
+        const requests = listRecentScanRequests(handle.db)
+        expect(requests).toHaveLength(1)
+        expect(requests[0]).toMatchObject({ projectId: null, rootId: null })
+    })
+
+    it('does not re-scan at boot when the cache is still unusable', function () {
+        seedStaleProject()
+        startOsvRuntime(handle.db, runtime)
+        // Nothing to reconcile: the verdict is still accurate. Recovery here is runSync's job, and its
+        // own transition check is what enqueues once the seed lands — the boot check must not double it.
+        expect(listRecentScanRequests(handle.db)).toHaveLength(0)
+    })
+
+    it('does not re-scan at boot when no project is holding a stale verdict', function () {
+        const cache = openCache()
+        setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, 'npm'), true)
+        setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, 'npm'), OSV_NORMALIZER_VERSION)
+        cache.sqlite.close()
+        startOsvRuntime(handle.db, runtime)
+        expect(listRecentScanRequests(handle.db)).toHaveLength(0)
     })
 
     it('mirrors an initial snapshot for every enabled cell', function () {

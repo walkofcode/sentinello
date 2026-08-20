@@ -12,7 +12,10 @@ import {
     upsertGemnasiumAdvisories,
     type GemnasiumDrizzleDb,
     type SqliteDb,
-    listRecentScanRequests
+    listRecentScanRequests,
+    insertScan,
+    upsertProject,
+    upsertRoot
 } from '@sentinello/db'
 import { sourceEnabledKey, sourceStatusKey } from '@sentinello/core'
 import { closeWorkerTestDb, openWorkerTestDb, type WorkerTestDb } from './worker-test-db.fixture'
@@ -275,6 +278,47 @@ describe('startGemnasiumRuntime', function () {
         expect(sync.syncGemnasium).not.toHaveBeenCalled()
         expect(rt.scanner).not.toBeNull()
         expect(logLines().some(function m(l) { return l.includes('feed disabled') })).toBe(true)
+    })
+
+    // See the OSV twin: a cache seeded under a previous build leaves projects holding
+    // gemnasium_db_not_seeded with nothing left to clear it.
+    function seedStaleProject(): void {
+        upsertRoot(handle.db, { id: 'root-x', path: '/repo', label: null, createdAt: 1 })
+        upsertProject(handle.db, {
+            id: 'proj-x', rootId: 'root-x', relPath: 'app', name: 'app', alias: null,
+            packageManager: 'npm', nvmrcVersion: null, gitBranch: null, ecosystems: ['npm'],
+            muted: false, tags: [], createdAt: 1, updatedAt: 1
+        })
+        insertScan(handle.db, {
+            id: 'scan-x', projectId: 'proj-x', startedAt: 1, finishedAt: 2, scanner: 'gemnasium',
+            source: 'gemnasium', ecosystem: 'npm', status: 'unauditable',
+            reasonCode: 'gemnasium_db_not_seeded', durationMs: 1, errorText: null, rawJson: ''
+        })
+    }
+
+    it('re-scans at boot when the cache is matchable but projects still say it was not', function () {
+        const cache = openCache()
+        setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.seedComplete, true)
+        setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.normalizerVersion, GEMNASIUM_NORMALIZER_VERSION)
+        cache.sqlite.close()
+        seedStaleProject()
+        startGemnasiumRuntime(handle.db, runtime)
+        expect(listRecentScanRequests(handle.db)).toHaveLength(1)
+    })
+
+    it('does not re-scan at boot when the cache is still unusable', function () {
+        seedStaleProject()
+        startGemnasiumRuntime(handle.db, runtime)
+        expect(listRecentScanRequests(handle.db)).toHaveLength(0)
+    })
+
+    it('does not re-scan at boot when no project is holding a stale verdict', function () {
+        const cache = openCache()
+        setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.seedComplete, true)
+        setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.normalizerVersion, GEMNASIUM_NORMALIZER_VERSION)
+        cache.sqlite.close()
+        startGemnasiumRuntime(handle.db, runtime)
+        expect(listRecentScanRequests(handle.db)).toHaveLength(0)
     })
 
     it('mirrors a not-seeded-yet snapshot before the first sync', function () {
