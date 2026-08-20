@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { getTranslations } from 'next-intl/server'
-import { isAnyScanInFlight, isScanInFlightForRoot, listRoots } from '@sentinello/db'
+import { isScanInFlightForRoot, listRoots } from '@sentinello/db'
 import { RootList } from '@/components/settings/root-list'
 import { getDb, getSqlite } from '@/lib/db'
 
@@ -39,7 +39,6 @@ export default async function RootsSettingsPage() {
         countsByRootId.set(row.rootId, row.n)
         mutedByRootId.set(row.rootId, row.muted)
     }
-    const anyInFlight = isAnyScanInFlight(db, now)
     const rows = roots.map(function toRow(r) {
         return {
             id: r.id,
@@ -50,5 +49,5 @@ export default async function RootsSettingsPage() {
             scanning: isScanInFlightForRoot(db, r.id, now)
         }
     })
-    return <RootList roots={rows} anyInFlight={anyInFlight} />
+    return <RootList roots={rows} />
 }

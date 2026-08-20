@@ -3,6 +3,9 @@ import { type ReactNode } from 'react'
 import { headers } from 'next/headers'
 import { NextIntlClientProvider } from 'next-intl'
 import { getLocale, getMessages, getTranslations } from 'next-intl/server'
+import { isAnyScanInFlight } from '@sentinello/db'
+import { getDb } from '@/lib/db'
+import { ScanAutoRefresh } from '@/components/scan-auto-refresh'
 import { ThemeProvider } from '@/components/layout/theme-provider'
 import { FontSizeProvider } from '@/components/layout/font-size-provider'
 import { TopNav } from '@/components/layout/top-nav'
@@ -37,6 +40,11 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     // arrives from middleware (x-sentinello-pathname).
     const pathname = (await headers()).get('x-sentinello-pathname') || ''
     const isBare = pathname === '/login' || pathname.startsWith('/login/')
+    // Site-wide auto-refresh, so a page is never stale just because nobody thought to mount a poller
+    // on it. Skipped on the bare login page, which has nothing to keep fresh and no session to read
+    // the database with. One synchronous SQLite query on an already force-dynamic layout.
+    // eslint-disable-next-line react-hooks/purity -- async Server Component: renders once, never re-renders
+    const anyInFlight = !isBare && isAnyScanInFlight(getDb(), Date.now())
     return (
         <html lang={locale} data-scroll-behavior="smooth" suppressHydrationWarning>
             <head>
@@ -54,6 +62,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                                 <div className="flex min-h-screen flex-col">{children}</div>
                             ) : (
                                 <div className="flex min-h-screen flex-col">
+                                    <ScanAutoRefresh active={anyInFlight} />
                                     <TopNav whatsNew={<WhatsNewPill />} />
                                     <UpdateBanner />
                                     <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">{children}</main>

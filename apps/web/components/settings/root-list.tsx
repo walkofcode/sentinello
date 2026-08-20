@@ -9,7 +9,6 @@ import { Input } from '@/components/ui/input'
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { EmptyState } from '@/components/ui/empty-state'
 import { AddRootDialog } from '@/components/settings/add-root-dialog'
-import { ScanAutoRefresh } from '@/components/scan-auto-refresh'
 import { deleteRootAction, updateRootLabelAction } from '@/lib/actions/settings'
 import { requestScanForRoot } from '@/lib/actions/scan-request'
 
@@ -26,10 +25,9 @@ type RootRow = {
 
 type Props = {
     roots: RootRow[]
-    anyInFlight: boolean
 }
 
-export function RootList({ roots, anyInFlight }: Props) {
+export function RootList({ roots }: Props) {
     const t = useTranslations('Settings')
     const tc = useTranslations('Common')
     const tTabs = useTranslations('Nav.tabs')
@@ -81,7 +79,6 @@ export function RootList({ roots, anyInFlight }: Props) {
     const existingPaths = roots.map(function pick(r) { return r.path })
     return (
         <div className="space-y-4">
-            <ScanAutoRefresh active={anyInFlight} />
             <div className="rounded-(--radius-card) border bg-card">
                 <div className="flex items-center justify-between gap-4 border-b px-5 py-4">
                     <h2 className="text-sm font-medium">{tTabs('roots')}</h2>
