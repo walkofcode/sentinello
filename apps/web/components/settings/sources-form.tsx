@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import { RefreshCw } from 'lucide-react'
 import { ECOSYSTEMS, type EcosystemId, type EcosystemLanguage, type SourceId, type SourceStatus } from '@sentinello/core'
 import { Button } from '@/components/ui/button'
+import { ScanAutoRefresh } from '@/components/scan-auto-refresh'
 import { Switch } from '@/components/ui/switch'
 import { formatRelativeTime } from '@/lib/format'
 import { refreshSourceAction, updateSourceCellAction } from '@/lib/actions/settings'
@@ -104,7 +105,10 @@ function SourceCell({ cell, label }: SourceCellProps) {
     const [saved, setSaved] = useState(false)
     const [pending, startTransition] = useTransition()
     const [refreshing, startRefresh] = useTransition()
-    const [refreshRequested, setRefreshRequested] = useState(false)
+    // What this cell's status looked like when a refresh was asked for. The worker exposes no
+    // "syncing" state — only the SourceStatus snapshot it writes when a sync ENDS — so "still
+    // running" is derived by comparing against this baseline rather than stored anywhere.
+    const [refreshBaseline, setRefreshBaseline] = useState<{ refreshedAt: number | null; lastError: string | null } | null>(null)
     const [error, setError] = useState<string | null>(null)
     const status = cell.status
 
@@ -133,12 +137,23 @@ function SourceCell({ cell, label }: SourceCellProps) {
     function refresh() {
         startRefresh(async function run() {
             await refreshSourceAction(cell.source)
-            setRefreshRequested(true)
+            setRefreshBaseline({ refreshedAt: status?.refreshedAt ?? null, lastError: status?.lastError ?? null })
         })
     }
 
     const seeded = status !== null && status.seedComplete
     const failing = status !== null && status.lastError !== null
+    // Derived during render, not tracked in an effect: `status` is a server prop, so once the worker
+    // writes a newer snapshot (or a new error) the very next render flips this false and leaves it
+    // false. This used to be a useState nothing ever reset, so the label sat there until you navigated
+    // away — claiming a refresh was still running hours after it finished.
+    //
+    // Known limitation, accepted: the baseline is client memory, so reloading the page drops the label
+    // while the sync is genuinely still running. Fixing that properly means a syncStartedAt field on
+    // SourceStatus, stamped by the worker.
+    const refreshPending = refreshBaseline !== null
+        && (status?.refreshedAt ?? null) === refreshBaseline.refreshedAt
+        && (status?.lastError ?? null) === refreshBaseline.lastError
 
     return (
         <div className="py-3">
@@ -171,10 +186,10 @@ function SourceCell({ cell, label }: SourceCellProps) {
                                 size="icon"
                                 className="size-6"
                                 onClick={refresh}
-                                disabled={refreshing}
+                                disabled={refreshing || refreshPending}
                                 aria-label={t('sources.refreshNow')}
                             >
-                                <RefreshCw className={'h-3.5 w-3.5' + (refreshing ? ' animate-spin' : '')} />
+                                <RefreshCw className={'h-3.5 w-3.5' + (refreshing || refreshPending ? ' animate-spin' : '')} />
                             </Button>
                         </span>
                     ) : null}
@@ -204,8 +219,14 @@ function SourceCell({ cell, label }: SourceCellProps) {
                     {t('sources.lastError')}: {status.lastError}
                 </p>
             ) : null}
-            {refreshRequested ? (
-                <p className="mt-1.5 text-xs text-muted-foreground">{t('sources.refreshQueued')}</p>
+            {refreshPending ? (
+                <>
+                    {/* Only while pending, and faster than the app-wide idle cadence: this is the one
+                        screen where the operator is actively waiting on a background job to land.
+                        Unmounting when it lands is what stops N cells owning N idle timers. */}
+                    <ScanAutoRefresh active activeIntervalMs={10000} />
+                    <p className="mt-1.5 text-xs text-muted-foreground">{t('sources.refreshQueued')}</p>
+                </>
             ) : null}
             {error ? (
                 <p role="alert" className="mt-1.5 text-xs text-[color:var(--color-sev-high)]">{error}</p>
