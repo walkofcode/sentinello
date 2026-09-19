@@ -20,6 +20,7 @@ function stripVPrefix(value: string): string {
 // needs no empty-array fallback — and an accidental truncation to [] becomes a type error rather than a
 // silently null "latest release".
 export const RELEASES: [ReleaseEntry, ...ReleaseEntry[]] = [
+    { version: '3.5.1', date: '2026-09-19' },
     { version: '3.5.0', date: '2026-08-20' },
     { version: '3.4.0', date: '2026-08-18' },
     { version: '3.3.2', date: '2026-08-17' },
@@ -55,6 +56,14 @@ export const RELEASES: [ReleaseEntry, ...ReleaseEntry[]] = [
 // this is plain TS data, not a next-intl message key (next-intl forbids '.' in keys).
 export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     en: {
+        '3.5.1': {
+            title: 'The sixteen advisories Sentinello was reporting on itself',
+            items: [
+                'Sentinello scans its own source tree like any other project, and it was reporting three critical advisories against itself. Two are unauthenticated remote code execution in Next.js — one reachable on Windows-hosted servers, one through the Image Optimization API when an AVIF file is served — and neither has a fix on the 16.2 line, so both apps move to Next 16.3.4. The third is in <code>sharp</code>, which Next uses to resize images, and what held it in place was Sentinello’s own version pin: the pin existed to clear an earlier sharp advisory back when no stable Next resolved a patched copy, and Next 16.3 now asks for one itself. Removing the pin was the fix.',
+                'Two more pins had gone the same way — written to clear an advisory, left in place, and quietly become the thing holding the next one. <code>fast-uri</code> was pinned at the version that cleared a host-confusion bug, and four further highs have landed on it since, three of them server-side request forgery. <code>hono</code> was pinned at the version that cleared a ReDoS in its CORS middleware, and has collected three moderates since, including a path traversal in <code>toSSG()</code> that was itself the incomplete fix of an earlier one. Both pins now name a current version, and each carries a note saying what it clears and when it should be removed.',
+                'The remaining advisories are cleared by moving the versions themselves: <code>js-yaml</code> to 4.3.2 for a high where a crafted merge key burns CPU without bound — which matters for a scanner that reads YAML it did not write — <code>qs</code> to 6.16.0 for two denial-of-service paths in the query parser behind the MCP endpoint, and <code>vitest</code> to 4.1.11 for an arbitrary file read that only ever reached the test runner. A sixteenth, in a browser-compatibility data package Next pulls in, cleared itself once the tree settled onto the copy Sentinello already pinned. <code>pnpm audit</code> now reports no known vulnerabilities across all 741 dependencies, and every version involved had been published long enough to clear the seven-day quarantine Sentinello applies to new releases — no exception was needed.'
+            ]
+        },
         '3.5.0': {
             title: 'A dashboard that let one source speak for the whole project',
             items: [
@@ -289,6 +298,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Initial open-source release', items: ['The first public release of Sentinello'] }
     },
     es: {
+        '3.5.1': {
+            title: 'Las dieciséis vulnerabilidades que Sentinello informaba sobre sí mismo',
+            items: [
+                'Sentinello analiza su propio árbol de código como cualquier otro proyecto, y estaba informando de tres vulnerabilidades críticas contra sí mismo. Dos son ejecución remota de código sin autenticar en Next.js — una alcanzable en servidores alojados en Windows y otra a través de la API de optimización de imágenes cuando se sirve un archivo AVIF — y ninguna tiene corrección en la línea 16.2, así que ambas aplicaciones pasan a Next 16.3.4. La tercera está en <code>sharp</code>, que Next usa para redimensionar imágenes, y lo que la mantenía en su sitio era la propia fijación de versión de Sentinello: existía para resolver una vulnerabilidad anterior de sharp, cuando ninguna versión estable de Next resolvía una copia parcheada, y Next 16.3 ya pide una por su cuenta. Quitar la fijación fue la corrección.',
+                'Otras dos fijaciones habían acabado igual: escritas para resolver una vulnerabilidad, dejadas ahí y convertidas en silencio en lo que retenía la siguiente. <code>fast-uri</code> estaba fijada en la versión que resolvía una confusión de host, y desde entonces han aparecido cuatro vulnerabilidades altas más, tres de ellas falsificación de peticiones del lado del servidor. <code>hono</code> estaba fijada en la versión que resolvía un ReDoS en su middleware CORS, y desde entonces ha acumulado tres de severidad media, incluido un salto de directorio en <code>toSSG()</code> que era a su vez la corrección incompleta de otro anterior. Ambas fijaciones nombran ahora una versión actual, y cada una lleva una nota que dice qué resuelve y cuándo debería quitarse.',
+                'Las vulnerabilidades restantes se resuelven moviendo las versiones directamente: <code>js-yaml</code> a 4.3.2 por una alta en la que una clave de fusión manipulada consume CPU sin límite — algo que importa en un analizador que lee YAML que no ha escrito él —, <code>qs</code> a 6.16.0 por dos vías de denegación de servicio en el analizador de consultas que hay detrás del extremo MCP, y <code>vitest</code> a 4.1.11 por una lectura arbitraria de archivos que solo llegaba al ejecutor de pruebas. Una decimosexta, en un paquete de datos de compatibilidad de navegadores que arrastra Next, se resolvió sola en cuanto el árbol se asentó sobre la copia que Sentinello ya tenía fijada. <code>pnpm audit</code> ya no informa de ninguna vulnerabilidad conocida en las 741 dependencias, y todas las versiones implicadas llevaban publicadas lo suficiente para superar la cuarentena de siete días que Sentinello aplica a las novedades: no hizo falta ninguna excepción.'
+            ]
+        },
         '3.5.0': {
             title: 'Un panel que dejaba que una sola fuente hablara por todo el proyecto',
             items: [
@@ -526,6 +543,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primera versión de código abierto', items: ['El primer lanzamiento público de Sentinello'] }
     },
     fr: {
+        '3.5.1': {
+            title: 'Les seize vulnérabilités que Sentinello signalait sur lui-même',
+            items: [
+                'Sentinello analyse son propre arbre de sources comme n’importe quel autre projet, et il signalait trois vulnérabilités critiques sur lui-même. Deux sont des exécutions de code à distance sans authentification dans Next.js — l’une atteignable sur les serveurs hébergés sous Windows, l’autre via l’API d’optimisation d’images lorsqu’un fichier AVIF est servi — et aucune n’est corrigée sur la ligne 16.2 : les deux applications passent donc à Next 16.3.4. La troisième concerne <code>sharp</code>, que Next utilise pour redimensionner les images, et ce qui la maintenait en place était l’épinglage de version de Sentinello lui-même : il existait pour corriger une vulnérabilité antérieure de sharp, à l’époque où aucune version stable de Next ne résolvait une copie corrigée, et Next 16.3 en demande désormais une de lui-même. Le retirer a suffi.',
+                'Deux autres épinglages avaient connu le même sort : écrits pour corriger une vulnérabilité, laissés en place, puis devenus discrètement ce qui retenait la suivante. <code>fast-uri</code> était épinglé sur la version qui corrigeait une confusion d’hôte, et quatre vulnérabilités élevées sont arrivées depuis, dont trois de falsification de requête côté serveur. <code>hono</code> était épinglé sur la version qui corrigeait un ReDoS dans son intergiciel CORS, et en a accumulé trois moyennes depuis, dont une traversée de répertoire dans <code>toSSG()</code> qui était elle-même la correction incomplète d’une précédente. Les deux épinglages nomment maintenant une version actuelle, et chacun porte une note indiquant ce qu’il corrige et quand il devra être retiré.',
+                'Les vulnérabilités restantes se corrigent en déplaçant directement les versions : <code>js-yaml</code> en 4.3.2 pour une faille élevée où une clé de fusion forgée consomme du processeur sans limite — ce qui compte pour un scanner qui lit du YAML qu’il n’a pas écrit —, <code>qs</code> en 6.16.0 pour deux dénis de service dans l’analyseur de requêtes derrière le point d’accès MCP, et <code>vitest</code> en 4.1.11 pour une lecture de fichier arbitraire qui n’a jamais atteint que le lanceur de tests. Une seizième, dans un paquet de données de compatibilité navigateur tiré par Next, s’est réglée d’elle-même dès que l’arbre s’est posé sur la copie que Sentinello épinglait déjà. <code>pnpm audit</code> ne signale plus aucune vulnérabilité connue sur les 741 dépendances, et toutes les versions concernées étaient publiées depuis assez longtemps pour passer la quarantaine de sept jours que Sentinello impose aux nouveautés : aucune exception n’a été nécessaire.'
+            ]
+        },
         '3.5.0': {
             title: 'Un tableau de bord où une seule source parlait pour tout le projet',
             items: [
@@ -765,6 +790,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Première version open source', items: ['La première version publique de Sentinello'] }
     },
     de: {
+        '3.5.1': {
+            title: 'Die sechzehn Sicherheitsmeldungen, die Sentinello über sich selbst meldete',
+            items: [
+                'Sentinello scannt seinen eigenen Quellbaum wie jedes andere Projekt — und meldete drei kritische Schwachstellen gegen sich selbst. Zwei davon sind unauthentifizierte Remote-Code-Ausführung in Next.js: eine auf Windows-gehosteten Servern erreichbar, die andere über die Image-Optimization-API, sobald eine AVIF-Datei ausgeliefert wird. Auf der 16.2er-Linie gibt es für keine von beiden eine Korrektur, also wechseln beide Anwendungen auf Next 16.3.4. Die dritte steckt in <code>sharp</code>, das Next zum Skalieren von Bildern verwendet, und festgehalten wurde sie von Sentinellos eigener Versionsfixierung: Die war einst gesetzt worden, um eine ältere sharp-Schwachstelle zu schließen, als noch kein stabiles Next eine gepatchte Kopie auflöste — Next 16.3 verlangt sie inzwischen von sich aus. Die Fixierung zu entfernen war die Korrektur.',
+                'Zwei weitere Fixierungen waren denselben Weg gegangen: geschrieben, um eine Schwachstelle zu schließen, stehen gelassen und still zu dem geworden, was die nächste festhielt. <code>fast-uri</code> stand auf der Version, die eine Host-Verwechslung behob; seitdem sind vier weitere hohe Meldungen dazugekommen, drei davon Server-Side Request Forgery. <code>hono</code> stand auf der Version, die einen ReDoS in seiner CORS-Middleware behob, und hat seither drei mittlere angesammelt, darunter einen Pfaddurchlauf in <code>toSSG()</code>, der selbst die unvollständige Korrektur eines früheren war. Beide Fixierungen nennen jetzt eine aktuelle Version, und jede trägt eine Notiz dazu, was sie schließt und wann sie entfernt gehört.',
+                'Die übrigen Meldungen werden durch schlichte Versionswechsel erledigt: <code>js-yaml</code> auf 4.3.2 gegen eine hohe Schwachstelle, bei der ein präparierter Merge-Key unbegrenzt CPU verbraucht — was für einen Scanner zählt, der fremdes YAML liest —, <code>qs</code> auf 6.16.0 gegen zwei Denial-of-Service-Pfade im Query-Parser hinter dem MCP-Endpunkt, und <code>vitest</code> auf 4.1.11 gegen ein beliebiges Dateilesen, das immer nur den Testrunner erreichte. Eine sechzehnte, in einem von Next mitgezogenen Paket mit Browser-Kompatibilitätsdaten, erledigte sich von selbst, sobald der Baum auf die von Sentinello ohnehin fixierte Kopie zusammenfiel. <code>pnpm audit</code> meldet über alle 741 Abhängigkeiten hinweg keine bekannten Schwachstellen mehr, und jede beteiligte Version war lange genug veröffentlicht, um die Sieben-Tage-Quarantäne zu bestehen, die Sentinello neuen Releases auferlegt — eine Ausnahme war nicht nötig.'
+            ]
+        },
         '3.5.0': {
             title: 'Ein Dashboard, in dem eine Quelle für das ganze Projekt sprach',
             items: [
@@ -1005,6 +1038,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         }
     },
     'pt-BR': {
+        '3.5.1': {
+            title: 'As dezesseis vulnerabilidades que o Sentinello relatava sobre si mesmo',
+            items: [
+                'O Sentinello varre a própria árvore de código como qualquer outro projeto, e estava relatando três vulnerabilidades críticas contra si mesmo. Duas são execução remota de código sem autenticação no Next.js — uma alcançável em servidores hospedados no Windows e outra pela API de otimização de imagens quando um arquivo AVIF é servido — e nenhuma tem correção na linha 16.2, então os dois aplicativos passam para o Next 16.3.4. A terceira está no <code>sharp</code>, que o Next usa para redimensionar imagens, e o que a mantinha no lugar era a própria fixação de versão do Sentinello: ela existia para resolver uma vulnerabilidade anterior do sharp, quando nenhum Next estável resolvia uma cópia corrigida, e o Next 16.3 já pede uma por conta própria. Remover a fixação foi a correção.',
+                'Outras duas fixações tiveram o mesmo destino: escritas para resolver uma vulnerabilidade, deixadas ali e transformadas em silêncio naquilo que segurava a seguinte. O <code>fast-uri</code> estava fixado na versão que resolvia uma confusão de host, e desde então surgiram mais quatro vulnerabilidades altas, três delas de falsificação de requisição do lado do servidor. O <code>hono</code> estava fixado na versão que resolvia um ReDoS no seu middleware de CORS e desde então acumulou três médias, incluindo uma travessia de diretório em <code>toSSG()</code> que era, ela própria, a correção incompleta de outra anterior. As duas fixações agora apontam para uma versão atual, e cada uma traz uma nota dizendo o que resolve e quando deve ser removida.',
+                'As vulnerabilidades restantes se resolvem movendo as versões diretamente: <code>js-yaml</code> para 4.3.2 por uma alta em que uma chave de mesclagem forjada consome CPU sem limite — o que importa num scanner que lê YAML que não escreveu —, <code>qs</code> para 6.16.0 por dois caminhos de negação de serviço no analisador de consultas por trás do endpoint MCP, e <code>vitest</code> para 4.1.11 por uma leitura arbitrária de arquivos que só alcançava o executor de testes. Uma décima sexta, num pacote de dados de compatibilidade de navegadores que o Next traz junto, resolveu-se sozinha assim que a árvore assentou sobre a cópia que o Sentinello já fixava. O <code>pnpm audit</code> agora não relata nenhuma vulnerabilidade conhecida nas 741 dependências, e todas as versões envolvidas já estavam publicadas havia tempo suficiente para passar pela quarentena de sete dias que o Sentinello aplica a lançamentos novos: nenhuma exceção foi necessária.'
+            ]
+        },
         '3.5.0': {
             title: 'Um painel que deixava uma única fonte falar pelo projeto inteiro',
             items: [
@@ -1242,6 +1283,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primeira versão de código aberto', items: ['O primeiro lançamento público do Sentinello'] }
     },
     it: {
+        '3.5.1': {
+            title: 'Le sedici vulnerabilità che Sentinello segnalava su se stesso',
+            items: [
+                'Sentinello analizza il proprio albero dei sorgenti come qualsiasi altro progetto, e segnalava tre vulnerabilità critiche contro se stesso. Due sono esecuzione di codice remoto senza autenticazione in Next.js — una raggiungibile sui server ospitati su Windows, l’altra tramite l’API di ottimizzazione delle immagini quando viene servito un file AVIF — e nessuna delle due ha una correzione sulla linea 16.2, quindi entrambe le applicazioni passano a Next 16.3.4. La terza è in <code>sharp</code>, che Next usa per ridimensionare le immagini, e a tenerla in vita era il vincolo di versione di Sentinello stesso: esisteva per chiudere una vulnerabilità precedente di sharp, quando nessun Next stabile risolveva una copia corretta, e Next 16.3 ormai ne chiede una da sé. Toglierlo è stata la correzione.',
+                'Altri due vincoli avevano fatto la stessa fine: scritti per chiudere una vulnerabilità, lasciati lì e diventati in silenzio ciò che tratteneva la successiva. <code>fast-uri</code> era fissato alla versione che chiudeva una confusione di host, e da allora ne sono arrivate altre quattro di gravità alta, tre delle quali di falsificazione di richieste lato server. <code>hono</code> era fissato alla versione che chiudeva un ReDoS nel suo middleware CORS e da allora ne ha accumulate tre di gravità media, compreso un attraversamento di directory in <code>toSSG()</code> che era a sua volta la correzione incompleta di uno precedente. Entrambi i vincoli indicano ora una versione attuale, e ciascuno porta una nota che dice cosa chiude e quando andrà rimosso.',
+                'Le vulnerabilità rimanenti si chiudono spostando direttamente le versioni: <code>js-yaml</code> a 4.3.2 per una di gravità alta in cui una chiave di merge costruita ad arte consuma CPU senza limite — cosa che conta per uno scanner che legge YAML non scritto da lui —, <code>qs</code> a 6.16.0 per due percorsi di denial of service nell’analizzatore delle query dietro l’endpoint MCP, e <code>vitest</code> a 4.1.11 per una lettura arbitraria di file che raggiungeva soltanto l’esecutore dei test. Una sedicesima, in un pacchetto di dati di compatibilità dei browser trascinato da Next, si è risolta da sola non appena l’albero si è assestato sulla copia che Sentinello già fissava. <code>pnpm audit</code> non segnala più alcuna vulnerabilità nota sulle 741 dipendenze, e ogni versione coinvolta era pubblicata da abbastanza tempo da superare la quarantena di sette giorni che Sentinello impone alle novità: non è servita alcuna eccezione.'
+            ]
+        },
         '3.5.0': {
             title: 'Un pannello in cui una sola fonte parlava per l’intero progetto',
             items: [
@@ -1479,6 +1528,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Prima versione open source', items: ['La prima versione pubblica di Sentinello'] }
     },
     ja: {
+        '3.5.1': {
+            title: 'Sentinello が自分自身について報告していた 16 件の脆弱性',
+            items: [
+                'Sentinello は自分自身のソースツリーも他のプロジェクトと同じようにスキャンしており、自分自身に対して 3 件の重大な脆弱性を報告していました。2 件は Next.js における認証不要のリモートコード実行で、1 つは Windows 上でホストされたサーバーで到達可能なもの、もう 1 つは AVIF ファイルを配信したときに画像最適化 API を経由するものです。どちらも 16.2 系には修正がないため、両アプリとも Next 16.3.4 へ移行しました。3 件目は Next が画像のリサイズに使う <code>sharp</code> のもので、これを留めていたのは Sentinello 自身のバージョン固定でした。この固定は、修正済みの sharp を解決する安定版 Next がまだ存在しなかった頃に、以前の sharp の脆弱性を解消するために置かれたものです。Next 16.3 は今や自力で修正版を要求するため、固定を外すことがそのまま修正になりました。',
+                'ほかに 2 つの固定も同じ道をたどっていました。脆弱性を解消するために書かれ、そのまま残され、いつのまにか次の脆弱性を抱え込む側になっていたのです。<code>fast-uri</code> はホスト取り違えを解消したバージョンに固定されていましたが、その後さらに 4 件の高深刻度が判明し、うち 3 件はサーバーサイドリクエストフォージェリでした。<code>hono</code> は CORS ミドルウェアの ReDoS を解消したバージョンに固定されていましたが、その後 3 件の中深刻度が積み上がり、その中には以前の修正が不完全だったことによる <code>toSSG()</code> のパストラバーサルも含まれます。どちらの固定も現行バージョンを指すようになり、それぞれ何を解消し、いつ外すべきかを記した注記が付いています。',
+                '残りの脆弱性はバージョンそのものを上げることで解消しました。<code>js-yaml</code> は 4.3.2 へ — 細工されたマージキーが CPU を際限なく消費する高深刻度の問題で、自分が書いたわけではない YAML を読むスキャナーにとっては重要です。<code>qs</code> は 6.16.0 へ — MCP エンドポイントの背後にあるクエリパーサーの 2 件のサービス拒否。<code>vitest</code> は 4.1.11 へ — テストランナーにしか届かない任意ファイル読み取りです。16 件目は Next が引き込むブラウザー互換性データのパッケージにあり、依存ツリーが Sentinello の既存の固定と同じコピーに落ち着いた時点で自然に解消されました。<code>pnpm audit</code> は 741 個すべての依存関係について既知の脆弱性を報告しなくなり、関係したバージョンはいずれも、Sentinello が新しいリリースに課す 7 日間の検疫を通過できるだけの期間が経っていました。例外措置は必要ありませんでした。'
+            ]
+        },
         '3.5.0': {
             title: '1 つのソースがプロジェクト全体を代弁していたダッシュボード',
             items: [
@@ -1712,6 +1769,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '初のオープンソースリリース', items: ['Sentinello の最初の一般公開リリース'] }
     },
     'zh-CN': {
+        '3.5.1': {
+            title: 'Sentinello 对自己报出的十六条漏洞',
+            items: [
+                'Sentinello 会像扫描其他项目一样扫描自己的源码树，而它对自己报出了三条严重漏洞。其中两条是 Next.js 中无需认证的远程代码执行：一条在以 Windows 托管的服务器上可达，另一条在提供 AVIF 文件时经由图片优化 API 触发。16.2 线上都没有修复版本，因此两个应用都升到了 Next 16.3.4。第三条出在 Next 用来缩放图片的 <code>sharp</code> 上，而把它按在原地的正是 Sentinello 自己的版本固定：当初没有任何稳定版 Next 会解析到已修复的 sharp，这条固定是为了清掉更早的一条 sharp 漏洞而写的；如今 Next 16.3 自己就会要求修复版。删掉这条固定就是修复。',
+                '另外两条固定也走上了同一条路：为清掉某条漏洞而写下，一直留着，然后悄悄变成了压住下一条漏洞的东西。<code>fast-uri</code> 被固定在清掉主机混淆问题的那个版本上，此后又出现了四条高危，其中三条是服务端请求伪造。<code>hono</code> 被固定在清掉 CORS 中间件 ReDoS 的那个版本上，此后又积累了三条中危，其中包括 <code>toSSG()</code> 的一处路径穿越——它本身就是对更早一条修复不彻底的产物。现在这两条固定都指向当前版本，并各自附有说明，写清它清掉了什么、何时应当移除。',
+                '其余漏洞通过直接抬升版本解决：<code>js-yaml</code> 升到 4.3.2，修复一条高危——精心构造的合并键会无上限地消耗 CPU，这对一个要读取并非自己编写的 YAML 的扫描器来说尤为重要；<code>qs</code> 升到 6.16.0，修复 MCP 端点背后查询解析器的两条拒绝服务路径；<code>vitest</code> 升到 4.1.11，修复一处只触及测试运行器的任意文件读取。第十六条出在 Next 带进来的一个浏览器兼容性数据包里，当依赖树落到 Sentinello 本就固定的那份副本上时，它自行消失了。现在 <code>pnpm audit</code> 在全部 741 个依赖上都不再报出已知漏洞，且所有涉及的版本发布时间都足够久，能通过 Sentinello 对新版本施加的七天隔离期——无需任何例外。'
+            ]
+        },
         '3.5.0': {
             title: '一个让单个来源代表整个项目发言的仪表板',
             items: [
@@ -1925,6 +1990,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '首个开源版本', items: ['Sentinello 的首个公开发布版本'] }
     },
     ko: {
+        '3.5.1': {
+            title: 'Sentinello가 자기 자신에 대해 보고하던 열여섯 건의 취약점',
+            items: [
+                'Sentinello는 자신의 소스 트리도 다른 프로젝트와 똑같이 스캔하며, 자기 자신에 대해 심각도 “위험” 취약점 세 건을 보고하고 있었습니다. 두 건은 Next.js의 인증 없는 원격 코드 실행으로, 하나는 Windows에서 호스팅되는 서버에서 도달할 수 있고 다른 하나는 AVIF 파일을 제공할 때 이미지 최적화 API를 통해 발생합니다. 16.2 계열에는 둘 다 수정판이 없어 두 앱 모두 Next 16.3.4로 올렸습니다. 세 번째는 Next가 이미지 크기 조정에 쓰는 <code>sharp</code>에 있었는데, 이를 붙잡아 두고 있던 것은 Sentinello 자신의 버전 고정이었습니다. 이 고정은 수정된 sharp를 해석하는 안정판 Next가 없던 시절에 이전 sharp 취약점을 해소하려고 넣은 것이고, 이제 Next 16.3은 스스로 수정판을 요구합니다. 고정을 없앤 것이 곧 수정이었습니다.',
+                '다른 고정 두 건도 같은 길을 걸었습니다. 취약점을 해소하려고 써 두었다가 그대로 남았고, 어느새 다음 취약점을 붙잡고 있는 쪽이 되어 있었습니다. <code>fast-uri</code>는 호스트 혼동 문제를 해소한 버전에 고정되어 있었는데, 그 뒤로 높음 등급이 네 건 더 나왔고 그중 세 건이 서버 측 요청 위조였습니다. <code>hono</code>는 CORS 미들웨어의 ReDoS를 해소한 버전에 고정되어 있었는데, 그 뒤로 보통 등급 세 건이 쌓였고 여기에는 이전 수정이 불완전했던 탓에 생긴 <code>toSSG()</code>의 경로 탐색이 포함됩니다. 이제 두 고정 모두 현재 버전을 가리키며, 각각 무엇을 해소하고 언제 걷어내야 하는지를 적은 메모가 붙어 있습니다.',
+                '나머지 취약점은 버전을 그대로 올려 해소했습니다. <code>js-yaml</code>은 4.3.2로 — 조작된 병합 키가 CPU를 끝없이 소모하는 높음 등급 문제이며, 자신이 쓰지 않은 YAML을 읽는 스캐너에게는 중요한 사안입니다. <code>qs</code>는 6.16.0으로 — MCP 엔드포인트 뒤의 쿼리 파서에 있던 서비스 거부 두 건. <code>vitest</code>는 4.1.11로 — 테스트 러너에만 닿던 임의 파일 읽기입니다. 열여섯 번째는 Next가 끌고 오는 브라우저 호환성 데이터 패키지에 있었고, 의존성 트리가 Sentinello가 이미 고정해 둔 사본으로 모이면서 저절로 사라졌습니다. 이제 <code>pnpm audit</code>은 741개 의존성 전체에서 알려진 취약점을 보고하지 않으며, 관련된 모든 버전은 Sentinello가 새 릴리스에 적용하는 7일 격리를 통과할 만큼 충분히 오래전에 게시된 것들이었습니다. 예외는 필요하지 않았습니다.'
+            ]
+        },
         '3.5.0': {
             title: '하나의 출처가 프로젝트 전체를 대변하던 대시보드',
             items: [
@@ -2152,6 +2225,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '첫 오픈 소스 릴리스', items: ['Sentinello의 첫 공개 릴리스'] }
     },
     ru: {
+        '3.5.1': {
+            title: 'Шестнадцать уязвимостей, о которых Sentinello сообщал в самом себе',
+            items: [
+                'Sentinello сканирует собственное дерево исходников так же, как любой другой проект, — и сообщал о трёх критических уязвимостях в самом себе. Две из них — удалённое выполнение кода без аутентификации в Next.js: одна достижима на серверах под Windows, другая — через API оптимизации изображений при выдаче файла AVIF. В ветке 16.2 исправления нет ни для одной, поэтому оба приложения переходят на Next 16.3.4. Третья — в <code>sharp</code>, которым Next меняет размер изображений, и удерживала её собственная фиксация версии Sentinello: она была поставлена, чтобы закрыть более раннюю уязвимость sharp, когда ни один стабильный Next не разрешал исправленную копию, а Next 16.3 теперь запрашивает её сам. Снять фиксацию и оказалось исправлением.',
+                'Ещё две фиксации прошли тот же путь: написаны, чтобы закрыть уязвимость, оставлены на месте и незаметно превратились в то, что удерживало следующую. <code>fast-uri</code> был закреплён на версии, закрывшей подмену узла, и с тех пор появились ещё четыре уязвимости высокой степени, три из них — подделка запросов на стороне сервера. <code>hono</code> был закреплён на версии, закрывшей ReDoS в промежуточном слое CORS, и с тех пор набрал три средних, включая выход за пределы каталога в <code>toSSG()</code>, который сам был неполным исправлением более раннего. Обе фиксации теперь указывают на актуальную версию, и к каждой приложена заметка о том, что она закрывает и когда её следует снять.',
+                'Остальные уязвимости закрыты простым подъёмом версий: <code>js-yaml</code> до 4.3.2 — высокая, при которой подготовленный ключ слияния расходует процессор без ограничений, что важно для сканера, читающего чужой YAML; <code>qs</code> до 6.16.0 — два пути отказа в обслуживании в разборщике запросов за конечной точкой MCP; <code>vitest</code> до 4.1.11 — произвольное чтение файлов, которое доходило только до запускателя тестов. Шестнадцатая, в пакете с данными о совместимости браузеров, который тянет за собой Next, закрылась сама, как только дерево зависимостей сошлось на копии, уже закреплённой Sentinello. Теперь <code>pnpm audit</code> не сообщает об известных уязвимостях ни в одной из 741 зависимости, а каждая задействованная версия была опубликована достаточно давно, чтобы пройти семидневный карантин, который Sentinello применяет к новым релизам, — исключений не потребовалось.'
+            ]
+        },
         '3.5.0': {
             title: 'Панель, где один источник говорил за весь проект',
             items: [
