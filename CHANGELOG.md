@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.5.1](https://github.com/walkofcode/sentinello/compare/v3.5.0...v3.5.1) (2026-09-20)
+
+
+### Bug Fixes
+
+* **deps:** clear the sixteen advisories the portal was reporting on itself ([34da499](https://github.com/walkofcode/sentinello/commit/34da499a06c3e025c6abcdc15e7105114a878ca6))
+
+
+### Documentation
+
+* **releases:** add the 3.5.1 what's-new entry ([3005117](https://github.com/walkofcode/sentinello/commit/3005117e4c7086bfa1c07c79e6f88e5b239d9f47))
+
 ## [3.5.0](https://github.com/walkofcode/sentinello/compare/v3.4.0...v3.5.0) (2026-08-20)
 
 
