@@ -10,7 +10,7 @@ name: ci
 on:
     pull_request:
     push:
-        branches: [main, develop]
+        branches: [main]
 
 # A force-push or a quick follow-up commit should cancel the superseded run rather than queue behind it.
 concurrency:
