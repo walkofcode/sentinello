@@ -5,12 +5,21 @@
 # the lockfile without a resolution pass, which is what keeps the `minimumReleaseAge` supply-chain
 # guard (7 days, set in .npmrc and pnpm-workspace.yaml) from re-validating already-vetted transitive
 # platform binaries and failing the build on a package nobody added.
+#
+# `workflow_dispatch` exists for ONE caller: the dispatch-release-pr-ci job in release-please.yml.
+# The `pull_request` trigger below cannot gate release-please's own PR, because that PR is opened by
+# GITHUB_TOKEN and GitHub does not execute workflow runs triggered by GITHUB_TOKEN. The run is still
+# created as a record, so the PR shows a red X that never ran a single job — see the long note in
+# release-please.yml. Do not remove this trigger to "tidy up" the file: it is the only way that PR
+# gets tested at all. Nothing here reads github.event.pull_request and no checkout pins a ref, so a
+# dispatched run tests whatever `--ref` names.
 name: ci
 
 on:
     pull_request:
     push:
         branches: [main]
+    workflow_dispatch:
 
 # A force-push or a quick follow-up commit should cancel the superseded run rather than queue behind it.
 concurrency:

@@ -21,6 +21,25 @@
 #      by hand. Anything added here later that publishes off a tag needs a job below too —
 #      the tag trigger alone will look correct and never fire.
 #
+#   5. dispatch-release-pr-ci fires .github/workflows/ci.yml against the release PR's own branch,
+#      for the SAME reason and with the same mechanism. The release PR is opened by GITHUB_TOKEN,
+#      so ci.yml's `pull_request` trigger creates a run record that GitHub never dispatches: zero
+#      jobs, conclusion `failure`, and the unhelpful message "This run likely failed because of a
+#      workflow file issue". That red X is not a test failure and never was — it is a run that did
+#      not happen. Every release from 3.0.1 to 3.5.1 merged with it showing, and the only green one
+#      in the history (2026-08-03) was a human clicking re-run the next morning, which shows up in
+#      the API as run_attempt 2 with triggering_actor a real user rather than the bot.
+#
+#      The dispatched run is a real gate, but it does NOT attach to the PR as a status check —
+#      workflow_dispatch runs never do. So the phantom red X stays. Read the dispatched run in the
+#      Actions tab, not the check on the PR. Removing that red X entirely needs release-please to
+#      author its PR with a PAT or GitHub App token instead of GITHUB_TOKEN, which is the trade this
+#      repo has deliberately not made — see the "No secrets required" note below.
+#
+#      Cost: this doubles CI on every push to main, since the release branch is main plus a version
+#      bump. That redundancy is the point — a test that compares package.json#version against
+#      packages/core/src/releases.ts can only pass on the release branch, never on main.
+#
 # NOTE: when folding curated release notes (packages/core/src/releases.ts) into an OPEN release PR,
 # commit them as `docs(...)`, NEVER `chore(...)`. `chore` is hidden:true in release-please-config.json,
 # so a chore-only delta yields an identical changelog and release-please leaves the open PR stale (it
@@ -50,6 +69,8 @@ jobs:
         outputs:
             release_created: ${{ steps.release.outputs.release_created }}
             tag_name: ${{ steps.release.outputs.tag_name }}
+            prs_created: ${{ steps.release.outputs.prs_created }}
+            pr: ${{ steps.release.outputs.pr }}
         steps:
             - name: Run release-please
               id: release
@@ -92,3 +113,24 @@ jobs:
                       --repo ${{ github.repository }} \
                       --ref ${{ needs.release-please.outputs.tag_name }} \
                       -f publish=true
+
+    # The release PR's own gate. `prs_created` is true when release-please opened OR updated the PR,
+    # which is exactly when its branch has new content worth testing. Guarded on `pr` being non-empty
+    # too: fromJSON below would fail the job outright on an unset output, and the docs describe `pr`
+    # as unset in cases that do not line up cleanly with prs_created.
+    dispatch-release-pr-ci:
+        needs: release-please
+        if: needs.release-please.outputs.prs_created == 'true' && needs.release-please.outputs.pr != ''
+        runs-on: ubuntu-latest
+        permissions:
+            actions: write
+        steps:
+            - name: Dispatch ci for the release PR branch
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  BRANCH: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
+              run: |
+                  echo "Dispatching ci.yml against release PR branch: $BRANCH"
+                  gh workflow run ci.yml \
+                      --repo ${{ github.repository }} \
+                      --ref "$BRANCH"
