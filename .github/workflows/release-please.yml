@@ -9,36 +9,36 @@
 #      Release whose body is the changelog excerpt.
 #   4. The dispatch jobs below then fire .github/workflows/publish-image.yml and
 #      .github/workflows/publish-npm.yml via workflow_dispatch against the new tag.
-#      We chain via workflow_dispatch (rather than the natural `push: tags: v*` trigger
-#      on those workflows) because tags pushed by GITHUB_TOKEN do NOT trigger downstream
-#      workflows — workflow_dispatch and repository_dispatch are the two documented
-#      exceptions to that rule. This keeps the whole chain on the default GITHUB_TOKEN —
-#      no PAT and no GitHub App required.
 #
-#      Both publishes need their own dispatch job. publish-npm.yml was added after this
-#      chaining was set up and never got one, so its `push: tags` trigger sat dead: 3.0.0
-#      tagged, published a Docker image, and put nothing on npm until someone dispatched it
-#      by hand. Anything added here later that publishes off a tag needs a job below too —
-#      the tag trigger alone will look correct and never fire.
+# AUTHENTICATION — a GitHub App, NOT the default GITHUB_TOKEN. This is load-bearing:
+#   GitHub does not execute workflow runs triggered by GITHUB_TOKEN. While release-please
+#   authenticated that way, its own release PR had a permanently red `ci` check that had never run a
+#   single job: the run record was created and never dispatched, and GitHub reported it as "This run
+#   likely failed because of a workflow file issue", which points at the workflow file rather than at
+#   who opened the PR. Every release from 3.0.1 to 3.5.1 merged with that red X. The one green run in
+#   the whole history was a human clicking re-run — run_attempt 2, triggering_actor a real user.
 #
-#   5. dispatch-release-pr-ci fires .github/workflows/ci.yml against the release PR's own branch,
-#      for the SAME reason and with the same mechanism. The release PR is opened by GITHUB_TOKEN,
-#      so ci.yml's `pull_request` trigger creates a run record that GitHub never dispatches: zero
-#      jobs, conclusion `failure`, and the unhelpful message "This run likely failed because of a
-#      workflow file issue". That red X is not a test failure and never was — it is a run that did
-#      not happen. Every release from 3.0.1 to 3.5.1 merged with it showing, and the only green one
-#      in the history (2026-08-03) was a human clicking re-run the next morning, which shows up in
-#      the API as run_attempt 2 with triggering_actor a real user rather than the bot.
+#   A GitHub App installation token is a different identity and does trigger workflows, so the
+#   release PR now gets a real `ci` run as a genuine PR status check. Required setup, once:
+#     - A GitHub App with repository permissions Contents: read/write and Pull requests: read/write,
+#       installed on this repository.
+#     - Repo secrets RELEASE_BOT_APP_ID and RELEASE_BOT_PRIVATE_KEY (the App's .pem, whole file).
+#   If those secrets go missing the create-github-app-token step fails loudly and no release is cut.
+#   That is deliberate: the alternative — silently falling back to GITHUB_TOKEN — restores the red X
+#   and, worse, stops the tag from triggering anything at all.
 #
-#      The dispatched run is a real gate, but it does NOT attach to the PR as a status check —
-#      workflow_dispatch runs never do. So the phantom red X stays. Read the dispatched run in the
-#      Actions tab, not the check on the PR. Removing that red X entirely needs release-please to
-#      author its PR with a PAT or GitHub App token instead of GITHUB_TOKEN, which is the trade this
-#      repo has deliberately not made — see the "No secrets required" note below.
+# WHY THE PUBLISH WORKFLOWS HAVE NO `push: tags` TRIGGER:
+#   They used to, and it was dead — a tag pushed by GITHUB_TOKEN triggers nothing, which is why the
+#   dispatch jobs below exist at all. (publish-npm.yml was added after that chaining was set up and
+#   never got a dispatch job, so its tag trigger sat dead: 3.0.0 tagged, published a Docker image,
+#   and put nothing on npm until someone dispatched it by hand.)
 #
-#      Cost: this doubles CI on every push to main, since the release branch is main plus a version
-#      bump. That redundancy is the point — a test that compares package.json#version against
-#      packages/core/src/releases.ts can only pass on the release branch, never on main.
+#   Under the App token that tag trigger would come alive — and would then fire ALONGSIDE these
+#   dispatch jobs, publishing every release twice. So the tag triggers were removed and the explicit
+#   dispatch kept, rather than the other way round: dispatch is the path with 29/30 and 12/12 behind
+#   it, and it keeps publishing working identically to before this change. Anything added later that
+#   publishes off a tag needs a dispatch job here too — a `push: tags` trigger alone will look
+#   correct and never fire.
 #
 # NOTE: when folding curated release notes (packages/core/src/releases.ts) into an OPEN release PR,
 # commit them as `docs(...)`, NEVER `chore(...)`. `chore` is hidden:true in release-please-config.json,
@@ -48,7 +48,6 @@
 # Neither type changes the computed bump; the notes ship either way (the tag is cut from main HEAD),
 # but `docs` keeps the PR an accurate preview.
 #
-# No secrets required — uses the built-in GITHUB_TOKEN with elevated permissions below.
 # Manual override: workflow_dispatch re-runs the action without waiting for a push.
 
 name: release-please
@@ -69,16 +68,24 @@ jobs:
         outputs:
             release_created: ${{ steps.release.outputs.release_created }}
             tag_name: ${{ steps.release.outputs.tag_name }}
-            prs_created: ${{ steps.release.outputs.prs_created }}
-            pr: ${{ steps.release.outputs.pr }}
         steps:
+            # Mints a short-lived installation token. See the AUTHENTICATION note at the top of this
+            # file — swapping this back to secrets.GITHUB_TOKEN silently breaks both the release PR's
+            # CI check and the tag, and neither failure announces itself.
+            - name: Mint a GitHub App token
+              id: app-token
+              uses: actions/create-github-app-token@v2
+              with:
+                  app-id: ${{ secrets.RELEASE_BOT_APP_ID }}
+                  private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+
             - name: Run release-please
               id: release
               uses: googleapis/release-please-action@v5
               with:
                   config-file: release-please-config.json
                   manifest-file: .release-please-manifest.json
-                  token: ${{ secrets.GITHUB_TOKEN }}
+                  token: ${{ steps.app-token.outputs.token }}
 
     dispatch-image-publish:
         needs: release-please
@@ -113,24 +120,3 @@ jobs:
                       --repo ${{ github.repository }} \
                       --ref ${{ needs.release-please.outputs.tag_name }} \
                       -f publish=true
-
-    # The release PR's own gate. `prs_created` is true when release-please opened OR updated the PR,
-    # which is exactly when its branch has new content worth testing. Guarded on `pr` being non-empty
-    # too: fromJSON below would fail the job outright on an unset output, and the docs describe `pr`
-    # as unset in cases that do not line up cleanly with prs_created.
-    dispatch-release-pr-ci:
-        needs: release-please
-        if: needs.release-please.outputs.prs_created == 'true' && needs.release-please.outputs.pr != ''
-        runs-on: ubuntu-latest
-        permissions:
-            actions: write
-        steps:
-            - name: Dispatch ci for the release PR branch
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  BRANCH: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
-              run: |
-                  echo "Dispatching ci.yml against release PR branch: $BRANCH"
-                  gh workflow run ci.yml \
-                      --repo ${{ github.repository }} \
-                      --ref "$BRANCH"
