@@ -22,8 +22,9 @@
 #   release PR now gets a real `ci` run as a genuine PR status check. Required setup, once:
 #     - A GitHub App with repository permissions Contents: read/write and Pull requests: read/write,
 #       installed on this repository.
-#     - Repo secrets RELEASE_BOT_APP_ID and RELEASE_BOT_PRIVATE_KEY (the App's .pem, whole file).
-#   If those secrets go missing the create-github-app-token step fails loudly and no release is cut.
+#     - Repo variable RELEASE_BOT_CLIENT_ID (the App's Client ID — public, so a variable, not a
+#       secret) and repo secret RELEASE_BOT_PRIVATE_KEY (the App's .pem, whole file).
+#   If either goes missing the create-github-app-token step fails loudly and no release is cut.
 #   That is deliberate: the alternative — silently falling back to GITHUB_TOKEN — restores the red X
 #   and, worse, stops the tag from triggering anything at all.
 #
@@ -74,9 +75,9 @@ jobs:
             # CI check and the tag, and neither failure announces itself.
             - name: Mint a GitHub App token
               id: app-token
-              uses: actions/create-github-app-token@v2
+              uses: actions/create-github-app-token@v3
               with:
-                  app-id: ${{ secrets.RELEASE_BOT_APP_ID }}
+                  client-id: ${{ vars.RELEASE_BOT_CLIENT_ID }}
                   private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
 
             - name: Run release-please
