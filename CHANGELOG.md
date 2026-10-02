@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.6.0](https://github.com/walkofcode/sentinello/compare/v3.5.1...v3.6.0) (2026-10-02)
+
+
+### Bug Fixes
+
+* **deps:** clear the thirty-three advisories Sentinello was reporting on itself ([9665806](https://github.com/walkofcode/sentinello/commit/966580654ec80750ae463311081a11fd539622a7))
+
+
+### Documentation
+
+* **releases:** add the 3.6.0 what's-new entry ([bca8f2d](https://github.com/walkofcode/sentinello/commit/bca8f2d11b07cfaea4ade7d540e4e113e7fbe387))
+
 ## [3.5.1](https://github.com/walkofcode/sentinello/compare/v3.5.0...v3.5.1) (2026-09-20)
 
 
