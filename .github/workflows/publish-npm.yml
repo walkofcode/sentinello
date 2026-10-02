@@ -1,9 +1,17 @@
 # Build and publish the Sentinello CLI to npm as `sentinello`.
 #
-# Triggers:
-#   - Push of a `v*` tag (e.g. `v3.0.0`) → publishes sentinello@X.Y.Z, alongside publish-image.yml
-#     which publishes the container at the same tag. One tag, one version, everywhere.
-#   - workflow_dispatch → dry run by default (packs and inspects without publishing), so the
+# Triggers — workflow_dispatch ONLY. There is deliberately NO `push: tags` trigger:
+#   - release-please.yml's dispatch-npm-publish job fires this workflow against the new tag,
+#     publishing sentinello@X.Y.Z alongside publish-image.yml at the same tag. One tag, one version,
+#     everywhere. Keeping a `push: tags` trigger as well would publish every release TWICE, because
+#     release-please now pushes its tag with a GitHub App token, and an App-pushed tag does trigger
+#     downstream workflows where the old GITHUB_TOKEN one did not. If you ever restore the tag
+#     trigger, delete the dispatch job in the same change.
+#
+#   Leftover from when the tag trigger existed: the `github.event_name == 'push'` half of the publish
+#   condition below is now permanently false, since the only event that reaches this file is
+#   workflow_dispatch. Left as-is deliberately; read it as `inputs.publish`.
+#   - Dispatched by hand it is a dry run by default (packs and inspects without publishing), so the
 #     packaging can be smoke-tested without burning a version.
 #
 # Versioning — why nothing here reads apps/cli/package.json#version:
@@ -51,9 +59,6 @@
 name: publish-npm
 
 on:
-    push:
-        tags:
-            - 'v*'
     workflow_dispatch:
         inputs:
             publish:

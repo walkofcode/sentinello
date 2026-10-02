@@ -1,11 +1,23 @@
 # Build and publish the official Sentinello container image.
 #
-# Triggers:
-#   - Push of a `v*` tag (e.g. `v0.1.0`) → builds linux/amd64 + linux/arm64 and publishes to
-#     both ghcr.io/walkofcode/sentinello and walkofcode/sentinello with tags:
+# Triggers — workflow_dispatch ONLY. There is deliberately NO `push: tags` trigger:
+#   - release-please.yml's dispatch-image-publish job fires this workflow against the new tag, and
+#     that is the single supported release path. Keeping a `push: tags` trigger as well would publish
+#     every release TWICE, because release-please now pushes its tag with a GitHub App token, and an
+#     App-pushed tag does trigger downstream workflows where the old GITHUB_TOKEN one did not.
+#     If you ever restore the tag trigger, delete the dispatch job in the same change.
+#
+#   Leftover from when the tag trigger existed: the `github.event_name == 'push'` half of the
+#   `github.event_name == 'push' || inputs.push` conditions below is now permanently false, since the
+#   only event that reaches this file is workflow_dispatch. They are left as-is deliberately rather
+#   than rewritten to bare `inputs.push` — ten edits inside a live publish path to delete a clause
+#   that already evaluates correctly is not a trade worth making. Read them as `inputs.push`.
+#   - Dispatched by release-please it publishes (push=true). Dispatched by hand it defaults to
+#     build-only (no push) for dry-run smoke tests; flip the `push` input to true to actually publish
+#     (useful for re-publishing `latest` off main).
+#   - Either way it builds linux/amd64 + linux/arm64 and publishes to both
+#     ghcr.io/walkofcode/sentinello and walkofcode/sentinello with tags:
 #       latest, vX.Y.Z, vX.Y, sha-<short>
-#   - workflow_dispatch → manual run. Defaults to build-only (no push) for dry-run smoke tests;
-#     flip the `push` input to true to actually publish (useful for re-publishing `latest` off main).
 #
 # The `version` input — republishing an image for a version whose tag cannot build one:
 #   Image tags are derived from the git ref, so a release whose tree fails to build an image has no
@@ -14,7 +26,7 @@
 #   ref — run against a ref that DOES build, and the image publishes under the version you name.
 #   It emits that ONE tag and nothing else: no `latest`, no `X.Y`, no `sha-`, so a retroactive
 #   republish can never displace a newer release at a shared tag. Leave it blank for every normal
-#   release; on a tag push it is unset and the ref-derived tag set applies as before.
+#   release; on the release dispatch it is unset and the ref-derived tag set applies as before.
 
 # Provenance caveat, for whoever reaches for `version` next: the image it produces is NOT reproducible
 # from the tag it is named after — it is built from whatever ref you dispatched, and its provenance
@@ -47,9 +59,6 @@
 name: publish-image
 
 on:
-    push:
-        tags:
-            - 'v*'
     workflow_dispatch:
         inputs:
             push:
