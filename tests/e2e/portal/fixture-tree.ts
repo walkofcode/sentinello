@@ -22,6 +22,7 @@ import { bulkDeps, bulkLock, BULK_DEP_COUNT, E2E_FIXTURE_ROOT, SEEDED } from './
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const NPM_BASIC = resolve(HERE, '..', '..', 'fixtures', 'projects', 'npm-basic')
+const NPM_NO_FIX = resolve(HERE, '..', '..', 'fixtures', 'projects', 'npm-no-fix')
 
 function write(path: string, contents: string): void {
     mkdirSync(dirname(path), { recursive: true })
@@ -68,6 +69,11 @@ export const FIXTURE_PROJECTS: FixtureProject[] = [
     {
         relPath: SEEDED.bulkProjectName,
         purpose: BULK_DEP_COUNT + ' findings, all prod: the only project wide enough to render a pagination control'
+    },
+    {
+        relPath: SEEDED.noFixProjectName,
+        // The same files as the CLI e2e suite's no-fix fixture, so both suites prove the same two findings.
+        purpose: 'two findings with no fixed version released: braces 3.0.3 (dev, nodemon › chokidar) and node-forge 1.4.0 (prod)'
     }
 ]
 
@@ -112,6 +118,12 @@ export function buildFixtureTree(): string {
     }, null, 4) + '\n')
     write(join(bulk, 'package-lock.json'), bulkLock(SEEDED.bulkProjectName, deps))
     write(join(bulk, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+
+    const noFix = join(E2E_FIXTURE_ROOT, SEEDED.noFixProjectName)
+    mkdirSync(noFix, { recursive: true })
+    copyFileSync(join(NPM_NO_FIX, 'package.json'), join(noFix, 'package.json'))
+    copyFileSync(join(NPM_NO_FIX, 'package-lock.json'), join(noFix, 'package-lock.json'))
+    write(join(noFix, '.git', 'HEAD'), 'ref: refs/heads/main\n')
 
     return E2E_FIXTURE_ROOT
 }

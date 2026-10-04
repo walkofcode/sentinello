@@ -773,7 +773,7 @@ describe('applyFixSettlement and the unsettled merge', function () {
             { id: a?.id as string, fixStatus: 'none_released', fixVersion: null, fixAvailable: false, fixCheck: CHECK },
             { id: b?.id as string, fixStatus: 'released', fixVersion: '4.17.21', fixAvailable: true, fixCheck: CHECK }
         ])
-        const way: Remediation = { v: 1, checkedAt: T0, package: 'lodash', health: { name: 'lodash', latest: null, lastPublishAt: null, maintainers: 0, weeklyDownloads: null, deprecated: null, daysSinceLastPublish: null, unmaintained: false }, chains: [], moreChains: 0, alternatives: [], devOnly: null, partial: false }
+        const way: Remediation = { v: 1, checkedAt: T0, package: 'lodash', health: { name: 'lodash', latest: null, lastPublishAt: null, maintainers: 0, weeklyDownloads: null, deprecated: null, daysSinceLastPublish: null, unmaintained: false }, chains: [], moreChains: 0, moreChainsAtLeast: false, alternatives: [], devOnly: null, partial: false }
         const written = applyRemediation(db, [{ id: a?.id as string, remediation: way }, { id: b?.id as string, remediation: way }])
         expect([...written.keys()]).toEqual([a?.id])
         expect(written.get(a?.id as string)).toEqual(way)

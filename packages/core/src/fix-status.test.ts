@@ -60,7 +60,7 @@ describe('readFixFields', function () {
 
     // A way-out exists only for a settled none_released finding: one left on any other row is never read.
     it('reads the way-out of a none_released row only', function () {
-        const way = JSON.stringify({ v: 1, checkedAt: 1, package: 'braces', health: { name: 'braces', unmaintained: true }, chains: [], moreChains: 0, alternatives: [], devOnly: null, partial: false })
+        const way = JSON.stringify({ v: 1, checkedAt: 1, package: 'braces', health: { name: 'braces', latest: '3.0.3', lastPublishAt: 1, maintainers: 2, weeklyDownloads: null, deprecated: null, daysSinceLastPublish: 0, unmaintained: true }, chains: [], moreChains: 0, moreChainsAtLeast: false, alternatives: [], devOnly: null, partial: false })
         expect(readFixFields({ fixStatus: 'none_released', fixVersion: null, fixAvailable: false, fixCheckJson: json, remediationJson: way }).remediation).toMatchObject({ package: 'braces' })
         expect(readFixFields({ fixStatus: 'released', fixVersion: '3.0.4', fixAvailable: true, fixCheckJson: json, remediationJson: way }).remediation).toBeNull()
         expect(readFixFields({ fixStatus: 'none_released', fixVersion: null, fixAvailable: false, fixCheckJson: null, remediationJson: way }).remediation).toBeNull()

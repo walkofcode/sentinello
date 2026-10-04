@@ -212,15 +212,19 @@ type EdgeRequest = { name: string; range: string }
 
 // One release's dependency edges as (name, range) requests. An `npm:` alias resolves the real package.
 export function edgesOf(summary: NpmPackageSummary, version: string): EdgeRequest[] {
+    return Object.entries(effectiveDependencies(summary, version)).map(function request([name, range]) { return unalias(name, range) })
+}
+
+// The ranges an install of `name@version` honours, one per dependency name, in npm's precedence: a later
+// field replaces a same-name entry of an earlier one — peerDependencies, then dependencies, then
+// optionalDependencies (Arborist's load order; npm's docs: "Entries in optionalDependencies will override
+// entries of the same name in dependencies"). Every effective edge is followed, optional and peer included.
+// Empty for a release the registry has no record of, or one without dependencies.
+export function effectiveDependencies(summary: NpmPackageSummary, version: string): Record<string, string> {
     const meta = summary.versions[version]
-    if (!meta || meta.edges === null) return []
-    const edges = summary.edges[meta.edges]
-    if (!edges) return []
-    const out: EdgeRequest[] = []
-    for (const map of [edges.dependencies, edges.optionalDependencies, edges.peerDependencies]) {
-        for (const [name, range] of Object.entries(map)) out.push(unalias(name, range))
-    }
-    return out
+    const edges = meta && meta.edges !== null ? summary.edges[meta.edges] : undefined
+    if (!edges) return {}
+    return { ...edges.peerDependencies, ...edges.dependencies, ...edges.optionalDependencies }
 }
 
 export function unalias(name: string, range: string): EdgeRequest {

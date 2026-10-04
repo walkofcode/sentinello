@@ -189,6 +189,17 @@ describe('the walk, level by level', function () {
             .toMatchObject({ kind: 'upgrade', package: 'a', toAtLeast: '1.5.0' })
     })
 
+    // Issue 018: the parent admits the escape by its effective range — optionalDependencies over dependencies.
+    it('judges admission by the range npm honours when the parent declares the child twice', async function () {
+        const a: FakePackage = { releases: { '1.0.0': { dependencies: { v: '1' } }, '2.0.0': {} } }
+        // The overridden dependencies range admits a@2; the effective optional pin does not.
+        expect(await walk({ v, a, p: { releases: { '1.0.0': { dependencies: { a: '^2.0.0' }, optionalDependencies: { a: '1.0.0' } } } } }))
+            .toMatchObject({ kind: 'blocked', escapePackage: 'a', escapeVersion: '2.0.0', blockedBy: 'p', blockedRange: '1.0.0' })
+        // Reversed: the effective optional range admits a@2.
+        expect(await walk({ v, a, p: { releases: { '1.0.0': { dependencies: { a: '1.0.0' }, optionalDependencies: { a: '^2.0.0' } } } } }))
+            .toMatchObject({ kind: 'upgrade', package: 'a', toAtLeast: '2.0.0' })
+    })
+
     it('follows an aliased declaration', async function () {
         expect(await walk({ v, a: { releases: { '1.0.0': { dependencies: { v: '1' } }, '1.5.0': {} } }, p: { releases: { '1.0.0': { dependencies: { a: 'npm:a@^1.0.0' } } } } }))
             .toMatchObject({ kind: 'upgrade', package: 'a', toAtLeast: '1.5.0' })
@@ -238,14 +249,68 @@ describe('paths and dev-only, from the whole graph', function () {
             roots: [['r@1.0.0', 'prod']],
             edges: ['r@1.0.0 > a@1.0.0(x@1)', 'r@1.0.0 > a@1.0.0(x@2)', 'r@1.0.0 > a@1.0.0(x@2)', 'r@1.0.0 > b@1.0.0', 'b@1.0.0 > a@1.0.0(x@2)', 'a@1.0.0(x@1) > braces@3.0.3', 'a@1.0.0(x@2) > braces@3.0.3', 'braces@3.0.3 > r@1.0.0']
         }), 'braces', ['3.0.3'])
-        expect(found.chains.map(function p(c) { return c.nodes.map(function n(x) { return x.name }).join('>') })).toEqual(['r>a>braces'])
-        // Both variants are shown by the one displayed path; the longer path through b is not a shortest one.
+        // Both variants are shown by the one displayed path; the longer path through b is a path of its own.
+        expect(found.chains.map(function p(c) { return c.nodes.map(function n(x) { return x.name }).join('>') })).toEqual(['r>a>braces', 'r>b>a>braces'])
+        expect(found.more).toBe(0)
+        expect(found.moreAtLeast).toBe(false)
+    })
+
+    // Issue 016: every simple path counts, not only the shortest ones per root.
+    it('shows a longer path from the same root after the shorter one, and counts longer paths it does not show', function () {
+        const unequal = findChains(graph({ roots: [['root@1.0.0', 'prod']], edges: ['root@1.0.0 > braces@3.0.3', 'root@1.0.0 > a@1.0.0', 'a@1.0.0 > b@1.0.0', 'b@1.0.0 > braces@3.0.3'] }), 'braces', ['3.0.3'])
+        expect(unequal.chains.map(function p(c) { return c.nodes.map(function n(x) { return x.name }).join('>') })).toEqual(['root>braces', 'root>a>b>braces'])
+        expect(unequal.more).toBe(0)
+        // Six paths: one short, five through a diamond ladder; five shown, the longest left over and counted.
+        const ladder = findChains(graph({
+            roots: [['r@1.0.0', 'prod']],
+            edges: ['r@1.0.0 > braces@3.0.3', 'r@1.0.0 > x1@1.0.0', 'r@1.0.0 > y1@1.0.0', 'x1@1.0.0 > m@1.0.0', 'y1@1.0.0 > m@1.0.0', 'm@1.0.0 > x2@1.0.0', 'm@1.0.0 > y2@1.0.0', 'm@1.0.0 > z@1.0.0', 'z@1.0.0 > w@1.0.0', 'x2@1.0.0 > braces@3.0.3', 'y2@1.0.0 > braces@3.0.3', 'w@1.0.0 > braces@3.0.3']
+        }), 'braces', ['3.0.3'])
+        const lengths = ladder.chains.map(function len(c) { return c.nodes.length })
+        expect(lengths).toEqual([...lengths].sort(function asc(a, b) { return a - b }))
+        expect(lengths[0]).toBe(2)
+        expect(ladder.chains).toHaveLength(5)
+        expect(ladder.more).toBe(2)
+        expect(ladder.moreAtLeast).toBe(false)
+    })
+
+    it('counts the simple paths through a cycle one by one, exactly when they fit the cap', function () {
+        // a and b depend on each other, and both reach braces: r>a>braces, r>a>b>braces, r>b>braces, r>b>a>braces.
+        const found = findChains(graph({
+            roots: [['r@1.0.0', 'prod']],
+            edges: ['r@1.0.0 > a@1.0.0', 'r@1.0.0 > b@1.0.0', 'a@1.0.0 > b@1.0.0', 'b@1.0.0 > a@1.0.0', 'a@1.0.0 > braces@3.0.3', 'b@1.0.0 > braces@3.0.3']
+        }), 'braces', ['3.0.3'])
+        expect(found.chains.map(function p(c) { return c.nodes.map(function n(x) { return x.name }).join('>') })).toEqual(['r>a>braces', 'r>b>braces', 'r>a>b>braces', 'r>b>a>braces'])
+        expect(found.more).toBe(0)
+        expect(found.moreAtLeast).toBe(false)
+    })
+
+    it('counts past a dependency that leads nowhere near the target', function () {
+        const found = findChains(graph({ roots: [['r@1.0.0', 'prod']], edges: ['r@1.0.0 > a@1.0.0', 'a@1.0.0 > x@1.0.0', 'a@1.0.0 > braces@3.0.3', 'r@1.0.0 > b@1.0.0', 'b@1.0.0 > braces@3.0.3'] }), 'braces', ['3.0.3'])
+        expect(found.chains).toHaveLength(2)
         expect(found.more).toBe(0)
     })
 
+    it('stops at the expansion cap, and then calls the remainder a lower bound', function () {
+        const edges = ['r@1.0.0 > a@1.0.0', 'r@1.0.0 > b@1.0.0', 'a@1.0.0 > b@1.0.0', 'b@1.0.0 > a@1.0.0', 'a@1.0.0 > braces@3.0.3', 'b@1.0.0 > braces@3.0.3']
+        const found = findChains(graph({ roots: [['r@1.0.0', 'prod']], edges }), 'braces', ['3.0.3'], { paths: 10_000, expansions: 3 })
+        expect(found.chains.length).toBeGreaterThan(0)
+        expect(found.moreAtLeast).toBe(true)
+    })
+
+    it('says "at least" when a cycle makes the paths too many to count', function () {
+        // A 16-rung ladder of cycles between two columns: 2^16+ simple paths, past the enumeration cap.
+        const edges: string[] = ['r@1.0.0 > a0@1.0.0', 'r@1.0.0 > b0@1.0.0']
+        for (let i = 0; i < 16; i++) edges.push(`a${i}@1.0.0 > a${i + 1}@1.0.0`, `a${i}@1.0.0 > b${i + 1}@1.0.0`, `b${i}@1.0.0 > a${i + 1}@1.0.0`, `b${i}@1.0.0 > b${i + 1}@1.0.0`, `a${i}@1.0.0 > b${i}@1.0.0`, `b${i}@1.0.0 > a${i}@1.0.0`)
+        edges.push('a16@1.0.0 > braces@3.0.3', 'b16@1.0.0 > braces@3.0.3')
+        const found = findChains(graph({ roots: [['r@1.0.0', 'prod']], edges }), 'braces', ['3.0.3'])
+        expect(found.chains).toHaveLength(5)
+        expect(found.moreAtLeast).toBe(true)
+        expect(found.more).toBeGreaterThan(0)
+    })
+
     it('has no paths and no dev-only answer when nothing in the graph is the installed copy, or nothing reaches it', function () {
-        expect(findChains(graph({ roots: [['a@1.0.0', 'prod']] }), 'braces', ['3.0.3'])).toEqual({ chains: [], more: 0, devOnly: null })
-        expect(findChains(graph({ roots: [['a@1.0.0', 'prod']], edges: ['x@1.0.0 > braces@3.0.3'] }), 'braces', ['3.0.3'])).toEqual({ chains: [], more: 0, devOnly: null })
+        expect(findChains(graph({ roots: [['a@1.0.0', 'prod']] }), 'braces', ['3.0.3'])).toEqual({ chains: [], more: 0, moreAtLeast: false, devOnly: null })
+        expect(findChains(graph({ roots: [['a@1.0.0', 'prod']], edges: ['x@1.0.0 > braces@3.0.3'] }), 'braces', ['3.0.3'])).toEqual({ chains: [], more: 0, moreAtLeast: false, devOnly: null })
     })
 
     it('says the paths are unknown without a lockfile graph, or without a path to the copy', async function () {

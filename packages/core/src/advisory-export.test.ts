@@ -462,7 +462,7 @@ describe('the way out of a none_released finding', function () {
         chains: [
             { importer: '.', rootKind: 'dev', path: ['nodemon@3.1.14', 'chokidar@3.6.0', 'braces@3.0.3'], verdict: { kind: 'blocked', escapePackage: 'chokidar', escapeVersion: '4.0.0', blockedBy: 'nodemon', blockedByLatest: '3.1.14', blockedRange: '^3.5.2', proof: { release: 'chokidar@4.0.0', closureSize: 2 } } }
         ],
-        moreChains: 0,
+        moreChains: 0, moreChainsAtLeast: false,
         alternatives: [{ replaces: 'nodemon', reason: 'blocked', signals: null, options: [], url: null }],
         devOnly: true,
         partial: false
@@ -487,7 +487,12 @@ describe('the way out of a none_released finding', function () {
 
     it('tells the reader, in the default prompt, not to chase a version that is not released', function () {
         expect(DEFAULT_EXPORT_PROMPT).toContain('## When no fixed version is released')
-        expect(DEFAULT_EXPORT_PROMPT).toContain('Do not search for one, do not pin, install or override to a version the Fix line does not name')
+        // Issue 019: the prohibition covers a fix of the vulnerable package itself, never the registry-checked
+        // ancestor, escape and alternative releases the Way out block names.
+        expect(DEFAULT_EXPORT_PROMPT).toContain('do not pin, install or override the vulnerable package to a version that is meant to be its fix')
+        expect(DEFAULT_EXPORT_PROMPT).toContain('This applies to the vulnerable package only')
+        expect(DEFAULT_EXPORT_PROMPT).not.toContain('a version the Fix line does not name')
+        expect(DEFAULT_EXPORT_PROMPT).not.toContain('it does not exist yet')
         expect(DEFAULT_EXPORT_PROMPT).toContain('dev tooling only')
         expect(DEFAULT_EXPORT_PROMPT).toContain('"no upstream fix released"')
     })

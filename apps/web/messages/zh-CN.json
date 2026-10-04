@@ -480,6 +480,7 @@
             "verdictUnknown": "未知 — {at} 处的注册表信息不足",
             "verdictDirect": "{target} 是直接依赖 — 唯一的解决途径是替换它",
             "morePaths": "另有 {count, plural, other {# 条路径}}",
+            "morePathsAtLeast": "另有至少 {count, plural, other {# 条路径}}",
             "devOnlyAll": "所有路径都只到达开发工具 — 仍需修复，但排在生产问题之后。",
             "devOnlyNo": "至少有一条生产路径到达此包。",
             "devOnlyUnknown": "无法确定是否只有开发工具到达它。",
@@ -616,6 +617,16 @@
                 "when": "在每次扫描期间",
                 "disable": "核心功能——无法禁用"
             },
+            "npmRegistry": {
+                "purpose": "核实修复版本确实已发布；若没有，则读取用于生成出路的包元数据（版本、依赖、弃用说明、维护者）。仅限有发现项的包及其依赖链",
+                "when": "每次扫描后，针对过去 24 小时内未检查过的包",
+                "disable": "无法关闭——可用 SENTINELLO_NPM_REGISTRY_URL 指向镜像。无法访问时，修复版本显示为“未在注册表中核实”"
+            },
+            "npmDownloads": {
+                "purpose": "在出路中的包和替代方案旁显示的每周下载量",
+                "when": "扫描发现没有已发布修复版本的问题后，针对过去 24 小时内未统计过的包",
+                "disable": "无法关闭——可用 SENTINELLO_NPM_DOWNLOADS_URL 指向其他地址。无法访问时，下载量显示为未知"
+            },
             "osv": {
                 "purpose": "下载 npm 生态系统的公开 OSV 公告导出",
                 "when": "每日约 03:17 以及手动刷新时 — 仅在启用 OSV 时",
@@ -661,7 +672,9 @@
             "osvFeedUrl": "OSV 通告导出的基础 URL，仅在启用 OSV 来源时使用；设为 off 可禁用所有 OSV 网络访问。",
             "osvDbPath": "可重建的 OSV 公告缓存的位置；默认位于主数据库旁边。",
             "gemnasiumFeedUrl": "GitLab gemnasium 公告归档的 URL，仅在启用 gemnasium 来源时使用；设为 off 可禁用所有 gemnasium 网络访问。",
-            "gemnasiumDbPath": "可重建的 gemnasium 公告缓存的位置；默认位于主数据库旁边。"
+            "gemnasiumDbPath": "可重建的 gemnasium 公告缓存的位置；默认位于主数据库旁边。",
+            "npmRegistryUrl": "每次扫描后用来核实修复版本、并读取出路所需包元数据的 npm 注册表；如使用镜像，可指向镜像。无法访问时，修复版本显示为未经注册表核实。",
+            "npmDownloadsUrl": "npm 下载量 API，用于读取出路中显示的每周下载量。无法访问时，下载量显示为未知。"
         },
         "builtWithTitle": "技术栈",
         "reportingTitle": "报告 Sentinello 中的漏洞",

@@ -116,8 +116,9 @@ test.describe('cache-backed source status', function () {
         await page.goto('/settings/sources')
 
         await expect(page.getByText('Up to date')).toBeVisible()
-        // 35 rows: the five original fixtures plus the thirty bulk advisories.
-        await expect(page.getByText('35 advisories cached')).toBeVisible()
+        // 37 rows: the five original fixtures, the thirty bulk advisories, and braces and node-forge
+        // (no fixed version released).
+        await expect(page.getByText('37 advisories cached')).toBeVisible()
     })
 
     // Refresh is an icon-only control now, so its accessible name is the ONLY thing naming it. If

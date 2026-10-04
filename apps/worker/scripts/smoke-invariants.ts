@@ -284,27 +284,26 @@ function rewalk(name: string, version: string, summaries: Map<string, NpmPackage
         }
         const edges = meta.edges === null ? undefined : summary.edges[meta.edges]
         if (!edges) continue
-        for (const map of [edges.dependencies, edges.optionalDependencies, edges.peerDependencies]) {
-            for (const [depName, depRange] of Object.entries(map)) {
-                let child = depName
-                let range = depRange
-                if (range.startsWith('npm:')) {
-                    const spec = range.slice(4)
-                    const at = spec.lastIndexOf('@')
-                    child = at <= 0 ? spec : spec.slice(0, at)
-                    range = at <= 0 ? '*' : spec.slice(at + 1)
-                }
-                const childSummary = summaries.get(child)
-                const resolved = childSummary ? resolveWith(childSummary, range) : null
-                if (resolved === null) {
-                    missing.push(child + '@' + range)
-                    continue
-                }
-                const key = child + '@' + resolved
-                if (nodes.has(key)) continue
-                nodes.add(key)
-                queue.push([child, resolved])
+        // npm honours one range per name: optionalDependencies over dependencies over peerDependencies.
+        for (const [depName, depRange] of Object.entries({ ...edges.peerDependencies, ...edges.dependencies, ...edges.optionalDependencies })) {
+            let child = depName
+            let range = depRange
+            if (range.startsWith('npm:')) {
+                const spec = range.slice(4)
+                const at = spec.lastIndexOf('@')
+                child = at <= 0 ? spec : spec.slice(0, at)
+                range = at <= 0 ? '*' : spec.slice(at + 1)
             }
+            const childSummary = summaries.get(child)
+            const resolved = childSummary ? resolveWith(childSummary, range) : null
+            if (resolved === null) {
+                missing.push(child + '@' + range)
+                continue
+            }
+            const key = child + '@' + resolved
+            if (nodes.has(key)) continue
+            nodes.add(key)
+            queue.push([child, resolved])
         }
     }
     return { nodes, missing }

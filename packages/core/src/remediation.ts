@@ -87,9 +87,11 @@ export type Remediation = {
     checkedAt: number
     package: string
     health: RemediationHealth
-    // Up to MAX_REMEDIATION_CHAINS paths, shortest first; `moreChains` counts the rest.
+    // Up to MAX_REMEDIATION_CHAINS paths, shortest first; `moreChains` counts the rest (every simple path,
+    // not only the shortest ones). `moreChainsAtLeast`: a cycle on the way made the count a lower bound.
     chains: RemediationChain[]
     moreChains: number
+    moreChainsAtLeast: boolean
     alternatives: Alternative[]
     // True only when no production or optional root reaches the vulnerable package at all; null when
     // that could not be determined (no lockfile graph).
@@ -110,7 +112,8 @@ export function isUnmaintained(deprecated: string | null, days: number | null): 
 }
 
 // Degrades to null rather than throwing, like parseFixCheck: a corrupt or future-shaped value reads as "no
-// way out recorded", which the renderers simply omit.
+// way out recorded", which the renderers simply omit. Every field a renderer reads is checked, variant by
+// variant, so an accepted value can always be rendered.
 export function parseRemediation(json: string | null): Remediation | null {
     if (json === null) return null
     let parsed: unknown
@@ -119,29 +122,85 @@ export function parseRemediation(json: string | null): Remediation | null {
     } catch {
         return null
     }
-    if (!isRecord(parsed) || parsed.v !== 1) return null
-    const r = parsed as Partial<Remediation>
-    if (typeof r.checkedAt !== 'number' || typeof r.package !== 'string' || typeof r.moreChains !== 'number' || typeof r.partial !== 'boolean') return null
-    if (r.devOnly !== null && typeof r.devOnly !== 'boolean') return null
-    if (!isRecord(r.health) || typeof r.health.name !== 'string' || typeof r.health.unmaintained !== 'boolean') return null
-    if (!Array.isArray(r.chains) || !r.chains.every(isChain)) return null
-    if (!Array.isArray(r.alternatives) || !r.alternatives.every(isAlternative)) return null
-    return parsed as Remediation
+    return isRemediation(parsed) ? parsed : null
 }
 
-const VERDICT_KINDS = new Set(['upgrade', 'blocked', 'noEscape', 'unknown', 'direct'])
-const OPTION_KINDS = new Set(['module', 'native', 'snippet', 'removal'])
-
-function isChain(value: unknown): boolean {
-    if (!isRecord(value) || !Array.isArray(value.path) || !isRecord(value.verdict)) return false
-    return typeof value.verdict.kind === 'string' && VERDICT_KINDS.has(value.verdict.kind)
+function isRemediation(r: unknown): r is Remediation {
+    return isRecord(r) && r.v === 1 && isTime(r.checkedAt) && typeof r.package === 'string' && isCount(r.moreChains) &&
+        typeof r.moreChainsAtLeast === 'boolean' && typeof r.partial === 'boolean' && (r.devOnly === null || typeof r.devOnly === 'boolean') &&
+        isHealth(r.health) && isListOf(r.chains, isChain) && isListOf(r.alternatives, isAlternative)
 }
 
-function isAlternative(value: unknown): boolean {
-    if (!isRecord(value) || typeof value.replaces !== 'string' || !Array.isArray(value.options)) return false
-    return value.options.every(function option(o: unknown) {
-        return isRecord(o) && typeof o.kind === 'string' && OPTION_KINDS.has(o.kind)
-    })
+const ROOT_KINDS = new Set<unknown>(['prod', 'dev', 'optional', null])
+const ALTERNATIVE_REASONS = new Set<unknown>(['unmaintained', 'direct', 'noEscape', 'blocked'])
+
+function isSignals(s: unknown): s is PackageSignals {
+    return isRecord(s) && typeof s.name === 'string' && isOptionalString(s.latest) && (s.lastPublishAt === null || isTime(s.lastPublishAt)) &&
+        isCount(s.maintainers) && (s.weeklyDownloads === null || isCount(s.weeklyDownloads))
+}
+
+function isHealth(h: unknown): h is RemediationHealth {
+    if (!isSignals(h)) return false
+    const health = h as Record<string, unknown>
+    return isOptionalString(health.deprecated) && (health.daysSinceLastPublish === null || isCount(health.daysSinceLastPublish)) && typeof health.unmaintained === 'boolean'
+}
+
+function isProof(p: unknown): p is ClosureProof {
+    return isRecord(p) && typeof p.release === 'string' && isCount(p.closureSize)
+}
+
+function isVerdict(v: unknown): v is ChainVerdict {
+    if (!isRecord(v)) return false
+    if (v.kind === 'upgrade') return typeof v.package === 'string' && typeof v.toAtLeast === 'string' && isProof(v.proof)
+    if (v.kind === 'blocked') {
+        return typeof v.escapePackage === 'string' && typeof v.escapeVersion === 'string' && typeof v.blockedBy === 'string' &&
+            isOptionalString(v.blockedByLatest) && typeof v.blockedRange === 'string' && isProof(v.proof)
+    }
+    if (v.kind === 'noEscape') return isListOf(v.packages, isString)
+    if (v.kind === 'unknown') return typeof v.at === 'string' && typeof v.reason === 'string'
+    return v.kind === 'direct'
+}
+
+function isChain(c: unknown): c is RemediationChain {
+    return isRecord(c) && isOptionalString(c.importer) && ROOT_KINDS.has(c.rootKind) && isListOf(c.path, isString) && isVerdict(c.verdict)
+}
+
+function isOption(o: unknown): o is AlternativeOption {
+    if (!isRecord(o)) return false
+    if (o.kind === 'module') {
+        return typeof o.name === 'string' && isOptionalString(o.version) && typeof o.verified === 'boolean' &&
+            (o.proof === null || isProof(o.proof)) && (o.signals === null || isSignals(o.signals))
+    }
+    if (o.kind === 'native') return typeof o.id === 'string' && isOptionalString(o.description) && isOptionalString(o.url)
+    if (o.kind === 'snippet') return typeof o.id === 'string' && typeof o.description === 'string' && isOptionalString(o.url)
+    return o.kind === 'removal' && typeof o.description === 'string' && isOptionalString(o.url)
+}
+
+function isAlternative(a: unknown): a is Alternative {
+    return isRecord(a) && typeof a.replaces === 'string' && ALTERNATIVE_REASONS.has(a.reason) && (a.signals === null || isSignals(a.signals)) &&
+        isListOf(a.options, isOption) && isOptionalString(a.url)
+}
+
+function isListOf<T>(value: unknown, item: (v: unknown) => v is T): value is T[] {
+    return Array.isArray(value) && value.every(function each(v: unknown) { return item(v) })
+}
+
+function isString(value: unknown): value is string {
+    return typeof value === 'string'
+}
+
+function isOptionalString(value: unknown): value is string | null {
+    return value === null || typeof value === 'string'
+}
+
+// A non-negative whole number: a count, a size or a number of days.
+function isCount(value: unknown): value is number {
+    return Number.isSafeInteger(value) && (value as number) >= 0
+}
+
+// An epoch-ms instant a Date can print (toISOString throws past ±8.64e15).
+function isTime(value: unknown): value is number {
+    return typeof value === 'number' && !Number.isNaN(new Date(value).getTime())
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -244,7 +303,7 @@ export function describeRemediation(r: Remediation, style: FixTextStyle): { heal
         const path = c.path.length > 0 ? style.code(c.path.join(' › ')) + where + rootLabel(c) + ': ' : ''
         return path + describeVerdict(c.verdict, target, style)
     })
-    if (r.moreChains > 0) chains.push('and ' + plural(r.moreChains, 'more path', 'more paths'))
+    if (r.moreChains > 0) chains.push('and ' + (r.moreChainsAtLeast ? 'at least ' : '') + plural(r.moreChains, 'more path', 'more paths'))
     return {
         health: describeHealth(r.health, style),
         chains,
@@ -262,7 +321,7 @@ export function summarizeRemediation(r: Remediation, style: FixTextStyle): strin
     const [first] = r.chains
     if (first) parts.push(describeVerdict(first.verdict, target, style))
     const others = r.chains.length - 1 + r.moreChains
-    if (others > 0) parts.push(plural(others, 'more path', 'more paths') + ' in the advisory')
+    if (others > 0) parts.push((r.moreChainsAtLeast ? 'at least ' : '') + plural(others, 'more path', 'more paths') + ' in the advisory')
     if (r.devOnly === true) parts.push('dev tooling only')
     return parts.length > 0 ? parts.join('; ') : 'see the advisory'
 }

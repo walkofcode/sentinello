@@ -12,6 +12,7 @@ import { runMigrations } from '../../../packages/db/src/migrate'
 import { setConfigValue, upsertRoot } from '../../../packages/db/src/queries/config'
 import { buildFixtureTree, FIXTURE_PROJECTS } from './fixture-tree'
 import { seedOsvCache } from './seed-osv'
+import { seedRegistryCache } from './seed-registry'
 import {
     E2E_DB_PATH,
     E2E_LOCK_DIR,
@@ -85,6 +86,10 @@ export function seedPortalDatabase(): string {
 
     setConfigValue(db, 'e2e.fixture', { version: FIXTURE_VERSION, rootPath, seededAt: T0 })
 
+    // Fix settlement reads the npm registry after every scan; the worker's registry URLs point at a
+    // refused port (playwright.config.ts), so this cache is the only registry the suite has.
+    const registry = seedRegistryCache(db, Date.now())
+
     sqlite.close()
 
     const osv = seedOsvCache()
@@ -102,7 +107,7 @@ export function seedPortalDatabase(): string {
     }
     writeFileSync(E2E_MANIFEST_PATH, JSON.stringify(manifest, null, 4) + '\n', 'utf8')
 
-    return dbPath + ' (osv advisories=' + osv.count + ')'
+    return dbPath + ' (osv advisories=' + osv.count + ', registry packages=' + registry.packages + ')'
 }
 
 // Refuses to run while a worker from a previous run still holds the lock.

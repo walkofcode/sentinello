@@ -16,7 +16,7 @@ import {
 import { applyRemediation, type DrizzleDb } from '@sentinello/db'
 import type { NpmPackageSummary } from '@sentinello/feeds'
 import type { FixEvidence, LockRoot, NodeGraph, ResolvedGraph } from '@sentinello/scanners'
-import { createClosureWalker, REMEDIATION_FETCH_BUDGET, unalias, type ClosureWalker, type ProofTarget, type SummaryAnswer } from './closure'
+import { createClosureWalker, effectiveDependencies, REMEDIATION_FETCH_BUDGET, unalias, type ClosureWalker, type ProofTarget, type SummaryAnswer } from './closure'
 import { fixEvidenceKey } from './fix-verification'
 import type { RegistryClient } from './registry-client'
 import { createReplacementDataset, type ReplacementDataset } from './replacements'
@@ -129,6 +129,7 @@ async function buildOne(args: BuildOneArgs): Promise<Remediation> {
         health,
         chains,
         moreChains: found ? found.more : 0,
+        moreChainsAtLeast: found ? found.moreAtLeast : false,
         alternatives,
         devOnly: found ? found.devOnly : null,
         partial: false
@@ -162,27 +163,32 @@ function deprecationOf(summary: NpmPackageSummary, installed: string[]): string 
 
 type ChainNode = { name: string; version: string }
 type FoundChain = { root: LockRoot; nodes: ChainNode[] }
-type FoundChains = { chains: FoundChain[]; more: number; devOnly: boolean | null }
+// `more` counts the root→vulnerable paths not shown; `moreAtLeast` says it is a lower bound, because the
+// graph has a cycle on the way and the enumeration that counted it hit its cap.
+type FoundChains = { chains: FoundChain[]; more: number; moreAtLeast: boolean; devOnly: boolean | null }
 
-// How many node paths are examined while looking for MAX_REMEDIATION_CHAINS distinct ones to show (peer
-// variants of one path display identically).
-const PATH_ENUMERATION_CAP = 200
+// How many complete paths are examined, and how many partial ones expanded, while choosing the paths to
+// show (peer variants of one path display identically) or counting paths through a cycle.
+export type PathLimits = { paths: number; expansions: number }
+export const PATH_LIMITS: PathLimits = { paths: 10_000, expansions: 100_000 }
 
-// Up to MAX_REMEDIATION_CHAINS distinct root→vulnerable paths, shortest first, with the shortest
-// production path always among them when one exists; the count of the remaining shortest paths; and
-// whether only dev roots reach the vulnerable copies, from complete reachability over every node and
-// importer — never from the paths shown.
-export function findChains(graph: NodeGraph, target: string, installed: string[]): FoundChains {
+// Up to MAX_REMEDIATION_CHAINS distinct simple root→vulnerable paths, shortest first, with the shortest
+// production path always among them when one exists; how many paths are left (every simple path, not only
+// the shortest ones); and whether only dev roots reach the vulnerable copies, from complete reachability
+// over every node and importer — never from the paths shown. A path ends at the first vulnerable copy.
+export function findChains(graph: NodeGraph, target: string, installed: string[], limits: PathLimits = PATH_LIMITS): FoundChains {
     const byId = new Map(graph.nodes.map(function entry(n) { return [n.id, n] as const }))
     const vulnerable = graph.nodes.filter(function hit(n) { return n.name === target && installed.includes(n.version) }).map(function id(n) { return n.id })
-    if (vulnerable.length === 0) return { chains: [], more: 0, devOnly: null }
+    if (vulnerable.length === 0) return { chains: [], more: 0, moreAtLeast: false, devOnly: null }
     const children = new Map<string, string[]>()
     const parents = new Map<string, string[]>()
     for (const e of graph.edges) {
         push(children, e.from, e.to)
         push(parents, e.to, e.from)
     }
-    // Distance from each node to the nearest vulnerable copy, walking edges backwards.
+    // Distance from each node to the nearest vulnerable copy, walking edges backwards. It is the remaining
+    // length of the shortest completion of any path standing on that node, so the walk below can hand out
+    // paths in order of their full length.
     const dist = new Map<string, number>()
     let frontier = vulnerable
     for (const id of frontier) dist.set(id, 0)
@@ -198,57 +204,125 @@ export function findChains(graph: NodeGraph, target: string, installed: string[]
         frontier = next
     }
     const reaching = graph.roots.filter(function reaches(r) { return dist.has(r.nodeId) })
-    if (reaching.length === 0) return { chains: [], more: 0, devOnly: null }
+    if (reaching.length === 0) return { chains: [], more: 0, moreAtLeast: false, devOnly: null }
     const devOnly = reaching.every(function dev(r) { return r.kind === 'dev' })
-
-    // Shortest-path counts, for "and N more".
-    const counts = new Map<string, number>()
-    function countFrom(id: string): number {
-        const known = counts.get(id)
-        if (known !== undefined) return known
-        const d = dist.get(id) as number
-        let n = d === 0 ? 1 : 0
-        // A node at distance d > 0 got there through a child, so it has children.
-        if (d > 0) for (const c of children.get(id) as string[]) if (dist.get(c) === d - 1) n = Math.min(Number.MAX_SAFE_INTEGER, n + countFrom(c))
-        counts.set(id, n)
-        return n
-    }
     const ordered = [...reaching].sort(function shortestFirst(a, b) {
         return (dist.get(a.nodeId) as number) - (dist.get(b.nodeId) as number) || rank(a) - rank(b)
     })
-    const total = ordered.reduce(function sum(n, r) { return Math.min(Number.MAX_SAFE_INTEGER, n + countFrom(r.nodeId)) }, 0)
+
+    // Every simple path from `roots` to a vulnerable copy, in order of length (best-first on length so far
+    // plus `dist`, which never overestimates). Paths of one length are walked depth-first, roots and
+    // children in order, so the first complete path comes after a handful of steps however wide the graph.
+    // `visit` returns false to stop. True when every path was visited; false when `visit` stopped it or the
+    // expansion cap was reached.
+    function walkPaths(roots: LockRoot[], visit: (root: LockRoot, ids: string[]) => boolean): boolean {
+        // One stack per total length; a path extended along a shortest edge keeps its length, so it lands
+        // back on the stack being read.
+        const stacks: { root: LockRoot; ids: string[] }[][] = []
+        function add(root: LockRoot, ids: string[]): void {
+            const length = ids.length - 1 + (dist.get(ids[ids.length - 1] as string) as number)
+            const stack = stacks[length]
+            if (stack) stack.push({ root, ids })
+            else stacks[length] = [{ root, ids }]
+        }
+        for (const root of roots) add(root, [root.nodeId])
+        let expanded = 0
+        for (let length = 0; length < stacks.length; length++) {
+            // Paths deferred to this length arrived in discovery order; the first discovered is read first.
+            const stack = (stacks[length] ?? []).reverse()
+            for (let next = stack.pop(); next !== undefined; next = stack.pop()) {
+                const { root, ids } = next
+                const last = ids[ids.length - 1] as string
+                if (dist.get(last) === 0) {
+                    if (!visit(root, ids)) return false
+                    continue
+                }
+                if (++expanded > limits.expansions) return false
+                // A node at distance > 0 got there through a child, so it has children.
+                // Children that keep this length go on top in reverse, so the first is read next; children
+                // deferred to a longer length keep their order.
+                const onward = (children.get(last) as string[]).filter(function open(c) { return dist.has(c) && !ids.includes(c) })
+                const later = onward.filter(function longer(c) { return (dist.get(c) as number) >= (dist.get(last) as number) })
+                const now = onward.filter(function shorter(c) { return (dist.get(c) as number) < (dist.get(last) as number) })
+                for (const c of later) add(root, [...ids, c])
+                for (const c of now.reverse()) add(root, [...ids, c])
+            }
+        }
+        return true
+    }
 
     // Distinct displayed paths in order; `represents` counts the node paths each one stands for (peer
-    // variants of a path display identically), so "N more" counts only paths not shown.
+    // variants of a path display identically, and have the same length, so the walk finishes the length
+    // it filled the list at), so "N more" counts only paths not shown.
     function collect(roots: LockRoot[], limit: number): { chain: FoundChain; represents: number }[] {
         const found: { chain: FoundChain; represents: number; key: string }[] = []
+        let filledAt: number | null = null
         let examined = 0
-        function enumerate(root: LockRoot, id: string, path: string[]): void {
-            if (found.length >= limit || examined >= PATH_ENUMERATION_CAP) return
-            const here = [...path, id]
-            const d = dist.get(id) as number
-            if (d > 0) {
-                for (const c of children.get(id) as string[]) if (dist.get(c) === d - 1) enumerate(root, c, here)
-                return
-            }
-            examined++
-            const nodes = here.map(function toNode(nodeId) { const n = byId.get(nodeId) as { name: string; version: string }; return { name: n.name, version: n.version } })
+        walkPaths(roots, function visit(root, ids) {
+            if (filledAt !== null && ids.length > filledAt) return false
+            const nodes = ids.map(function toNode(nodeId) { const n = byId.get(nodeId) as { name: string; version: string }; return { name: n.name, version: n.version } })
             const key = root.importer + '|' + root.kind + '|' + nodes.map(display).join('>')
             const same = found.find(function dup(f) { return f.key === key })
             if (same) same.represents++
-            else found.push({ chain: { root, nodes }, represents: 1, key })
-        }
-        for (const root of roots) enumerate(root, root.nodeId, [])
+            else if (filledAt === null) {
+                found.push({ chain: { root, nodes }, represents: 1, key })
+                if (found.length >= limit) filledAt = ids.length
+            }
+            return ++examined < limits.paths
+        })
         return found
     }
     let shown = collect(ordered, MAX_REMEDIATION_CHAINS)
     // The reader must see a production path when one exists, even if shorter dev paths fill the list.
-    const firstProd = ordered.find(function prod(r) { return r.kind !== 'dev' })
-    if (firstProd && !shown.some(function isProd(c) { return c.chain.root.kind !== 'dev' })) {
-        shown = [...shown.slice(0, MAX_REMEDIATION_CHAINS - 1), ...collect([firstProd], 1)]
+    const prodRoots = ordered.filter(function prod(r) { return r.kind !== 'dev' })
+    if (prodRoots.length > 0 && !shown.some(function isProd(c) { return c.chain.root.kind !== 'dev' })) {
+        shown = [...shown.slice(0, MAX_REMEDIATION_CHAINS - 1), ...collect(prodRoots, 1)]
     }
     const represented = shown.reduce(function sum(n, c) { return n + c.represents }, 0)
-    return { chains: shown.map(function chainOf(c) { return c.chain }), more: Math.max(0, total - represented), devOnly }
+    const total = countPaths(ordered, dist, children, walkPaths, limits.paths)
+    return { chains: shown.map(function chainOf(c) { return c.chain }), more: Math.max(0, total.count - represented), moreAtLeast: !total.exact, devOnly }
+}
+
+// The number of simple root→vulnerable paths. Exact by dynamic programming when no cycle lies on the way
+// to a vulnerable copy (the usual lockfile); with one, simple paths are counted one by one up to the cap,
+// and a count the cap cut short is a lower bound (`exact: false`), never presented as the total.
+function countPaths(
+    roots: LockRoot[],
+    dist: Map<string, number>,
+    children: Map<string, string[]>,
+    walkPaths: (roots: LockRoot[], visit: (root: LockRoot, ids: string[]) => boolean) => boolean,
+    cap: number
+): { count: number; exact: boolean } {
+    const counts = new Map<string, number>()
+    const open = new Set<string>()
+    let cyclic = false
+    function countFrom(id: string): number {
+        const known = counts.get(id)
+        if (known !== undefined) return known
+        if (dist.get(id) === 0) return 1
+        if (open.has(id)) {
+            cyclic = true
+            return 0
+        }
+        open.add(id)
+        let n = 0
+        for (const c of children.get(id) as string[]) {
+            if (cyclic) break
+            if (dist.has(c)) n = Math.min(Number.MAX_SAFE_INTEGER, n + countFrom(c))
+        }
+        open.delete(id)
+        counts.set(id, n)
+        return n
+    }
+    let count = 0
+    for (const r of roots) {
+        count = Math.min(Number.MAX_SAFE_INTEGER, count + countFrom(r.nodeId))
+        if (cyclic) break
+    }
+    if (!cyclic) return { count, exact: true }
+    let walked = 0
+    const exact = walkPaths(roots, function visit() { return ++walked < cap })
+    return { count: walked, exact }
 }
 
 function rank(root: LockRoot): number {
@@ -330,9 +404,7 @@ type Declared = { kind: 'known'; range: string; latest: string | null } | { kind
 async function declaredRange(parent: ChainNode, child: string, walker: ClosureWalker): Promise<Declared> {
     const answer = await summaryOf(walker, parent.name)
     if (answer.status === 'missing') return { kind: 'unknown', reason: 'no registry data for ' + parent.name }
-    const meta = answer.summary.versions[parent.version]
-    const edges = meta && meta.edges !== null ? answer.summary.edges[meta.edges] : undefined
-    const range = edges ? edges.dependencies[child] ?? edges.optionalDependencies[child] ?? edges.peerDependencies[child] : undefined
+    const range = effectiveDependencies(answer.summary, parent.version)[child]
     if (range === undefined) return { kind: 'unknown', reason: parent.name + '@' + parent.version + ' does not declare ' + child + ' in the registry' }
     if (semver.validRange(unalias(child, range).range) === null) return { kind: 'unknown', reason: parent.name + ' requires ' + child + ' as ' + range + ', which is not a registry range' }
     return { kind: 'known', range, latest: answer.summary.latest }

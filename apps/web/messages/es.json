@@ -480,6 +480,7 @@
             "verdictUnknown": "Desconocido: no hay suficientes datos del registro en {at}",
             "verdictDirect": "{target} es una dependencia directa: la única salida es reemplazarlo",
             "morePaths": "y {count, plural, one {# ruta más} other {# rutas más}}",
+            "morePathsAtLeast": "y al menos {count, plural, one {# ruta más} other {# rutas más}}",
             "devOnlyAll": "Todas las rutas llegan solo a herramientas de desarrollo: corrígelo igualmente, después de los hallazgos de producción.",
             "devOnlyNo": "Al menos una ruta de producción llega a este paquete.",
             "devOnlyUnknown": "No se pudo determinar si solo lo alcanzan herramientas de desarrollo.",
@@ -616,6 +617,16 @@
                 "when": "Durante cada escaneo",
                 "disable": "Función central — no se puede deshabilitar"
             },
+            "npmRegistry": {
+                "purpose": "Comprobar que una versión con la corrección se publicó de verdad y, si no hay ninguna, leer los metadatos del paquete con los que se arma la salida (versiones, dependencias, avisos de obsolescencia, mantenedores). Solo paquetes con hallazgos y sus cadenas de dependencias",
+                "when": "Después de cada escaneo, para paquetes no comprobados en las últimas 24 horas",
+                "disable": "No se puede desactivar: SENTINELLO_NPM_REGISTRY_URL lo apunta a un mirror. Si no se puede alcanzar, las correcciones se muestran como no comprobadas en el registro"
+            },
+            "npmDownloads": {
+                "purpose": "Descargas semanales que se muestran junto a los paquetes y alternativas de una salida",
+                "when": "Después de un escaneo que no encuentra ninguna versión corregida publicada, para paquetes no contados en las últimas 24 horas",
+                "disable": "No se puede desactivar: SENTINELLO_NPM_DOWNLOADS_URL lo apunta a otro sitio. Si no se puede alcanzar, las descargas se muestran como desconocidas"
+            },
             "osv": {
                 "purpose": "Descargar el export público de avisos OSV del ecosistema npm",
                 "when": "A diario cerca de las 03:17, además de actualización manual — solo cuando OSV está habilitado",
@@ -661,7 +672,9 @@
             "osvFeedUrl": "URL base de la exportación de avisos OSV, usada solo cuando la fuente OSV está habilitada; ponla en off para deshabilitar todo el acceso de red a OSV.",
             "osvDbPath": "Ubicación de la caché reconstruible de avisos OSV; por defecto se ubica junto a la base de datos principal.",
             "gemnasiumFeedUrl": "URL del archivo de avisos gemnasium de GitLab, usada solo cuando la fuente gemnasium está habilitada; poné off para desactivar todo el acceso de red de gemnasium.",
-            "gemnasiumDbPath": "Ubicación de la caché reconstruible de avisos gemnasium; por defecto se ubica junto a la base de datos principal."
+            "gemnasiumDbPath": "Ubicación de la caché reconstruible de avisos gemnasium; por defecto se ubica junto a la base de datos principal.",
+            "npmRegistryUrl": "Registro de npm con el que se comprueban las versiones corregidas después de cada escaneo y del que se leen los metadatos de los paquetes para la salida; apúntalo a un mirror si usas uno. Si no se puede alcanzar, las correcciones se muestran como no verificadas en el registro.",
+            "npmDownloadsUrl": "API de descargas de npm, de la que se leen las descargas semanales que se muestran en una salida. Si no se puede alcanzar, las descargas se muestran como desconocidas."
         },
         "builtWithTitle": "Construido con",
         "reportingTitle": "Reportar una vulnerabilidad en Sentinello",

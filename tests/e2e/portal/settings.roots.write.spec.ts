@@ -39,8 +39,8 @@ test.describe('the roots table', function () {
 
         await expect(visible(page, E2E_FIXTURE_ROOT)).toBeVisible()
         await expect(visible(page, SEEDED.rootLabel)).toBeVisible()
-        // Four projects: the worker's boot sweep discovered every directory in the fixture tree.
-        await expect(page.getByRole('cell', { name: '4', exact: true })).toBeVisible()
+        // Five projects: the worker's boot sweep discovered every directory in the fixture tree.
+        await expect(page.getByRole('cell', { name: '5', exact: true })).toBeVisible()
     })
 
     test('offers per-row scan, rename and remove controls', async function ({ page }) {
@@ -175,7 +175,7 @@ test.describe('removing a root', function () {
         await expect(confirm).toContainText(E2E_FIXTURE_ROOT)
         // The count matters: this is the sentence that tells an operator they are about to delete four
         // projects' worth of scans and findings, not just a path.
-        await expect(confirm).toContainText('4 projects')
+        await expect(confirm).toContainText('5 projects')
         await expect(confirm).toContainText('This cannot be undone.')
     })
 

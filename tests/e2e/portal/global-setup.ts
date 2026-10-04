@@ -16,12 +16,13 @@ import {
 
 // What the worker's boot sweep must produce before any test runs. Not a hand-written fixture — these
 // are the counts the real scanner emits from the frozen tree (see tests/e2e/portal/fixture-tree.ts):
-// four projects, one scan each, two findings on checkout-service and BULK_DEP_COUNT on bulk-deps.
-// axios is deliberately absent because its advisory is already fixed at the installed version.
+// five projects, one scan each, two findings on checkout-service, BULK_DEP_COUNT on bulk-deps and two
+// (braces, node-forge) on watch-tools. axios is deliberately absent because its advisory is already
+// fixed at the installed version.
 //
 // These counts are the reason a dropped advisory or a mis-generated lockfile fails loudly here rather
 // than presenting later as a pagination control that silently does not render.
-const EXPECTED = { projects: 4, scans: 4, findings: 2 + BULK_DEP_COUNT }
+const EXPECTED = { projects: 5, scans: 5, findings: 2 + BULK_DEP_COUNT + 2 }
 
 // Verification only — the seeding itself happens in `pnpm test:e2e:seed`, BEFORE Playwright is
 // launched at all.

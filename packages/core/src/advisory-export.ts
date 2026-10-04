@@ -71,7 +71,7 @@ No justification block, no override.
 
 ## When no fixed version is released
 
-Some findings say **No fixed version released**: Sentinello checked the package registry and no published version of the package is outside the vulnerable range. For those, there is no version to find. Do not search for one, do not pin, install or override to a version the Fix line does not name, and do not trust a version suggested elsewhere — it does not exist yet. Follow the finding's **Way out** block instead, in this order:
+Some findings say **No fixed version released**: Sentinello checked the package registry and no published version of the vulnerable package is outside the vulnerable range. For those, there is no fixed version *of that package* to find. Do not search for one, and do not pin, install or override the vulnerable package to a version that is meant to be its fix — any such version you see elsewhere (an advisory text, an audit tool, a changelog) was not on the registry when Sentinello checked. This applies to the vulnerable package only: the releases of *other* packages that the **Way out** block names — an ancestor to upgrade, the escape version of a blocked ancestor, a listed alternative — were each checked against the registry, and are the route to take. Follow the Way out block, in this order:
 
 - **The package is deprecated or unmaintained** (no publish for six months or more): plan to replace it, using the alternatives listed when there are any.
 - **"Upgrade X to ≥ v"**: upgrade that ancestor. The block has already checked that the named release's whole resolved dependency closure no longer reaches the vulnerable package — verify it in the lockfile afterwards like any other fix.

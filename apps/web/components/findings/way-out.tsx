@@ -18,7 +18,7 @@ export function WayOut({ remediation }: { remediation: Remediation }) {
                     {remediation.chains.map(function chainItem(chain) {
                         return <ChainLine key={(chain.importer ?? '') + '|' + chain.path.join('>')} chain={chain} target={remediation.package} />
                     })}
-                    {remediation.moreChains > 0 ? <li className="text-muted-foreground">{t('morePaths', { count: remediation.moreChains })}</li> : null}
+                    {remediation.moreChains > 0 ? <li className="text-muted-foreground">{t(remediation.moreChainsAtLeast ? 'morePathsAtLeast' : 'morePaths', { count: remediation.moreChains })}</li> : null}
                 </ul>
                 <p className="text-muted-foreground">{devOnlyText(t, remediation.devOnly)}</p>
                 {remediation.alternatives.map(function altItem(a) {

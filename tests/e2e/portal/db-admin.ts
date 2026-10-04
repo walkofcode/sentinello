@@ -151,7 +151,11 @@ export async function reset(): Promise<Counts> {
                 }
             }
         })
-        restore()
+        // IMMEDIATE: the transaction reads the table list before its first delete, and a deferred one
+        // that reads first and then upgrades to a write fails at once with "database is locked" when the
+        // worker commits in between — the busy timeout is never consulted for that upgrade. Taking the
+        // write lock up front waits for the worker instead.
+        restore.immediate()
 
         sqlite.pragma('wal_checkpoint(TRUNCATE)')
         sqlite.pragma('foreign_keys = ON')

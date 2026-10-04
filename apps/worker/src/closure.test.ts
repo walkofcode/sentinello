@@ -40,6 +40,21 @@ describe('reaches — the closure, not the direct dependencies', function () {
         expect((await w.reaches('viaPeer', '2.0.0', BRACES)).verdict).toBe('yes')
     })
 
+    // Issue 018: npm installs one edge per name — optionalDependencies over dependencies over peerDependencies.
+    it('follows only the effective range when a name is declared in more than one field', async function () {
+        const helper: FakePackage = { releases: { '1.0.0': { dependencies: { braces: '3.0.3' } }, '2.0.0': {} } }
+        const { walker: w } = walker({
+            optionalWins: { releases: { '1.0.0': { dependencies: { helper: '1.0.0' }, optionalDependencies: { helper: '2.0.0' } } } },
+            optionalReaches: { releases: { '1.0.0': { dependencies: { helper: '2.0.0' }, optionalDependencies: { helper: '1.0.0' } } } },
+            dependencyWinsOverPeer: { releases: { '1.0.0': { peerDependencies: { helper: '1.0.0' }, dependencies: { helper: '2.0.0' } } } },
+            helper,
+            braces: { releases: { '3.0.3': {} } }
+        })
+        expect(await w.reaches('optionalWins', '1.0.0', BRACES)).toEqual({ verdict: 'no', closureSize: 2, reason: null })
+        expect((await w.reaches('optionalReaches', '1.0.0', BRACES)).verdict).toBe('yes')
+        expect((await w.reaches('dependencyWinsOverPeer', '1.0.0', BRACES)).verdict).toBe('no')
+    })
+
     it('resolves each range to the highest published release, and proves a clean closure', async function () {
         const { walker: w } = walker({
             chokidar: { releases: { '4.0.0': { dependencies: { readdirp: '^4.0.1' } } } },
