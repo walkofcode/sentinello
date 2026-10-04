@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { DiscoveredProject, GemnasiumAdvisory, OsvAdvisory, RawFinding, ScanContext, ScanResult, ScannerPlugin } from '@sentinello/scanners'
+import type { NpmPackageResult } from '@sentinello/feeds'
+import { createMemoryRegistryStore, createNpmRegistryClient } from '@sentinello/fixes'
 import type { LoadedCache } from './cache/lookup'
 import { buildScanners, collectPackageNames, pick, resolveProjects, scanProject, type ResolvedProject, type ScanSetup } from './scan'
 
@@ -49,6 +51,7 @@ function setup(overrides: Partial<ScanSetup> = {}): ScanSetup {
         includeNpmAudit: true,
         seeded: { osv: true, gemnasium: true },
         settledAt: 0,
+        registry: null,
         ...overrides
     } as ScanSetup
 }
@@ -436,6 +439,60 @@ describe('scanProject', function () {
         const scanners = [fakeScanner('a', result()), fakeScanner('b', result())]
         const out = await scanProject(setup({ abortSignal: controller.signal }), resolved(), scanners)
         expect(out.outcomes).toEqual([])
+    })
+
+    // The fix is settled by the same settleProject the worker calls, against the run's registry client.
+    describe('fix settlement', function () {
+        const braces = finding({
+            advisoryId: 'GHSA-vfj7-8cjw-p6xm',
+            packageName: 'braces',
+            installedVersion: '3.0.3',
+            vulnerableRange: '<=3.0.3',
+            fixAvailable: false,
+            fixVersion: null,
+            fixInputs: { source: 'osv', installed: ['3.0.3'], affected: { ranges: '<=3.0.3', exact: [], complete: true }, patched: null, statedFix: null, fixViaParent: false }
+        })
+
+        function registry(fail = false) {
+            const asked: string[] = []
+            const client = createNpmRegistryClient(createMemoryRegistryStore(), {
+                now: function now() { return 1 },
+                fetchPackage: async function fetchPackage(name: string): Promise<NpmPackageResult> {
+                    asked.push(name)
+                    if (fail) return { status: 'error', reason: 'HTTP 503' }
+                    return { status: 'ok', summary: { v: 1, name, latest: '3.0.3', modified: 1, maintainers: 1, repository: null, versions: { '3.0.3': { publishedAt: 1, deprecated: null, edges: null } }, edges: [] } }
+                },
+                fetchDownloads: async function fetchDownloads() { return { status: 'error', reason: 'down' } }
+            })
+            return { client, asked }
+        }
+
+        it('settles against the registry and carries the way out of a finding with no released fix', async function () {
+            const { client, asked } = registry()
+            // Reported by two sources: one identity, one lookup, one settlement, one way out.
+            const scanners = [fakeScanner('osv', result({ findings: [braces] })), fakeScanner('gemnasium', result({ findings: [{ ...braces, fixInputs: { ...braces.fixInputs, source: 'gemnasium' } }] }))]
+            const out = await scanProject(setup({ registry: client }), resolved(), scanners)
+            expect(out.findings).toHaveLength(1)
+            expect(asked).toEqual(['braces'])
+            const kept = first(out.findings, 'finding')
+            expect(out.fixes.get(kept)).toMatchObject({ fixStatus: 'none_released', fixVersion: null, fixCheck: { registry: 'ok' } })
+            expect(out.remediations.get(kept)).toMatchObject({ package: 'braces' })
+            expect(out.wayOutError).toBeNull()
+        })
+
+        it('leaves a finding unverified with no way out when the registry cannot answer', async function () {
+            const { client } = registry(true)
+            const out = await scanProject(setup({ registry: client }), resolved(), [fakeScanner('osv', result({ findings: [braces] }))])
+            const kept = first(out.findings, 'finding')
+            expect(out.fixes.get(kept)).toMatchObject({ fixStatus: 'unverified', fixCheck: { registry: 'error' } })
+            expect(out.remediations.size).toBe(0)
+        })
+
+        it('asks nothing offline, and marks the fix as not checked because of it', async function () {
+            const out = await scanProject(setup({ registry: null }), resolved(), [fakeScanner('osv', result({ findings: [braces] }))])
+            expect(out.fixes.get(first(out.findings, 'finding'))).toMatchObject({ fixStatus: 'unverified', fixCheck: { registry: 'offline' } })
+            expect(out.remediations.size).toBe(0)
+        })
     })
 
     describe('per-scanner context', function () {

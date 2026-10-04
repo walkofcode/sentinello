@@ -82,6 +82,31 @@ advisories are fetched — not the whole corpus.
 The cache lives in `$SENTINELLO_CACHE_DIR`, else `$XDG_CACHE_HOME/sentinello`, else
 `~/.cache/sentinello`. Deleting it costs nothing but a re-download.
 
+The same directory holds `registry-npm.ndjson.gz`, the npm registry answers the fix check and the way out
+read (see below). An answer is reused for 24 hours; after that the next scan that needs the package asks
+again, and if the registry cannot be reached the earlier answer is used and marked with its date. Two
+runs at once never lose each other's answers: each saves only what it fetched, merged into the file under
+the cache lock, and a run that finds the lock held skips its save.
+
+## Fixes are checked against npm
+
+An advisory's stated fix is not trusted on its word — braces `<=3.0.3` "fixed in 3.0.4" names a version
+npm never published. For each npm finding the CLI asks the npm registry, through the same code the
+portal's worker uses, whether a version outside every reporting source's affected range and not below any
+installed copy has been published:
+
+| fix status | reads | meaning |
+|---|---|---|
+| `released` | upgrade to `X` | `X` is published and safe to target |
+| `none_released` | No fixed version released, then the way out | no published version qualifies; the way out says which dependency chain carries the package, whether upgrading a parent frees it, and curated alternatives |
+| `unverified` | the advisory's stated fix · not checked against the registry (why) | the registry could not settle it: not reachable, not on npm, `--offline`, or an affected range that cannot be evaluated |
+
+The JSON carries the same as `fixStatus`, `fixVersion`, `fixCheck` and `remediation` per finding. Only
+npm is checked; other ecosystems are not offered yet.
+
+`SENTINELLO_NPM_REGISTRY_URL` and `SENTINELLO_NPM_DOWNLOADS_URL` point the check at a mirror, as they do
+for the portal's worker.
+
 ## Scope control
 
 ```bash
@@ -142,8 +167,11 @@ retained between runs.
 | `osv-vulnerabilities.storage.googleapis.com` | download the public OSV advisory export | on sync | `--source npm-audit` / `--offline` |
 | `gitlab.com` | download the public gemnasium-db advisories | on sync | `--source npm-audit,osv` / `--offline` |
 | your npm registry | `npm audit` submits the dependency tree, exactly as `npm audit` always does | on scan | `--source osv,gemnasium` |
+| `registry.npmjs.org` | read the public metadata of the packages with findings, and of the dependency chains, candidate releases and alternatives the way out weighs — package names only, cached 24 hours | on scan, for packages not cached | `--offline` |
+| `api.npmjs.org` | read last week's download count of the packages a way out shows | on scan, for packages not cached | `--offline` |
 
-`--offline` makes no network requests at all and uses whatever is cached.
+`--offline` makes no network requests at all and uses whatever is cached; fixes then read "not checked
+against the registry (offline)" and carry no way out.
 
 ## Troubleshooting
 

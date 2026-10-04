@@ -14,10 +14,12 @@ import { highestVersion, normalizeSemver } from '@sentinello/versions'
 
 // What the registry had for the package, as the settlement needs it. `dataAsOf` is when that data was
 // fetched — recorded on the finding so its "checked" date never moves when the cache is refreshed later.
+// `offline` is a run that was told to make no network request, so the registry was deliberately not asked.
 export type RegistryView =
     | { status: 'ok' | 'stale'; published: readonly PublishedVersion[]; dataAsOf: number }
     | { status: 'not_found'; dataAsOf: number }
     | { status: 'error' }
+    | { status: 'offline' }
 
 export type FixSettlement = {
     fixStatus: FixStatus
@@ -29,8 +31,7 @@ export type FixSettlement = {
 export type SettleFixArgs = {
     // Every source's and every installed copy's evidence for one finding identity.
     evidence: readonly FixEvidence[]
-    // Null when the registry was not asked: an ecosystem it does not cover yet, or a caller (the CLI)
-    // that never asks it.
+    // Null when the registry does not cover the finding's ecosystem yet.
     registry: RegistryView | null
     checkedAt: number
 }
@@ -57,6 +58,7 @@ export function settleFix(args: SettleFixArgs): FixSettlement {
     }
 
     if (registry === null) return unverified({ registry: 'skipped', packageDataAsOf: null, unevaluable: null })
+    if (registry.status === 'offline') return unverified({ registry: 'offline', packageDataAsOf: null, unevaluable: null })
     if (registry.status === 'error') return unverified({ registry: 'error', packageDataAsOf: null, unevaluable: null })
     if (registry.status === 'not_found') return unverified({ registry: 'not_found', packageDataAsOf: registry.dataAsOf, unevaluable: null })
 

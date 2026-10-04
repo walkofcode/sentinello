@@ -94,6 +94,7 @@ describe('describeFix', function () {
         ['stale without a data date', facts({ fixStatus: 'released', fixVersion: '1.0.0', fixCheck: check({ registry: 'stale', packageDataAsOf: null }) }), 'upgrade to 1.0.0'],
         ['legacy', facts({ fixCheck: null }), 'fix not re-checked yet — rescan pending'],
         ['stated, registry skipped', facts({ fixVersion: '3.0.4', fixCheck: check({ registry: 'skipped' }) }), 'advisory names 3.0.4 as the fix · not checked against the registry'],
+        ['stated, run offline', facts({ fixVersion: '3.0.4', fixCheck: check({ registry: 'offline' }) }), 'advisory names 3.0.4 as the fix · not checked against the registry (offline)'],
         ['stated, registry down', facts({ fixVersion: '3.0.4', fixCheck: check({ registry: 'error' }) }), 'advisory names 3.0.4 as the fix · not checked against the registry (registry not reachable)'],
         ['none stated, not on registry', facts({ fixCheck: check({ registry: 'not_found' }) }), 'no fix stated by the advisory · not checked against the registry (not on the npm registry)'],
         ['via parent', facts({ fixAvailable: true, fixCheck: check({ registry: 'skipped' }) }), 'npm reports npm audit fix resolves it (no version of this package stated) · not checked against the registry'],

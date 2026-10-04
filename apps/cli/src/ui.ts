@@ -90,6 +90,7 @@ export type Ui = {
     scanStart(count: number): void
     scanProject(project: DiscoveredProject): void
     scanProjectDone(result: ProjectScanResult): void
+    registryCacheNotSaved(why: string): void
     summary(summary: RunSummary, destination: string | null): void
     error(message: string): void
 }
@@ -327,6 +328,15 @@ export function createUi(options: CliOptions): Ui {
             line += c.dim + '  (' + blocked.map(function name(o) { return o.scanner + ': ' + o.reasonCode }).join(', ') + ')' + c.reset
         }
         write(line)
+        // The fixes stand; only the guidance for the findings with no released fix is missing.
+        if (result.wayOutError !== null) {
+            write('      ' + c.yellow + '!' + c.reset + c.dim + ' way out not computed: ' + result.wayOutError + c.reset)
+        }
+    }
+
+    function registryCacheNotSaved(why: string): void {
+        clearProgress()
+        write('  ' + c.dim + 'npm registry cache not saved (' + why + '); the next run fetches again' + c.reset)
     }
 
     // Sources that never answered, deduplicated across projects. report.ts's ProjectSummary comment says
@@ -346,6 +356,23 @@ export function createUi(options: CliOptions): Ui {
         })
     }
 
+    // What the registry said about the fixes, so "3 findings" never hides that none of them has a fix.
+    function fixCounts(runSummary: RunSummary): string {
+        let released = 0
+        let none = 0
+        let unverified = 0
+        for (const finding of runSummary.findings) {
+            if (finding.fixStatus === 'released') released++
+            else if (finding.fixStatus === 'none_released') none++
+            else unverified++
+        }
+        const parts: string[] = []
+        if (released > 0) parts.push(released + ' with a released fix')
+        if (none > 0) parts.push(none + ' with no released fix')
+        if (unverified > 0) parts.push(unverified + ' not checked against the registry')
+        return parts.join(' · ')
+    }
+
     function summary(runSummary: RunSummary, destination: string | null): void {
         write('')
         const lost = lostSourceLines(runSummary)
@@ -362,6 +389,7 @@ export function createUi(options: CliOptions): Ui {
                 parts.push(severityColor(severity) + c.bold + count + c.reset + ' ' + severityColor(severity) + severity + c.reset)
             }
             write('  ' + c.bold + runSummary.totalFindings + ' finding' + (runSummary.totalFindings === 1 ? '' : 's') + c.reset + '   ' + parts.join('   '))
+            write('  ' + c.dim + fixCounts(runSummary) + c.reset)
             write('')
             // Every project with findings is listed explicitly: a total alone hides which repository in a
             // folder of twenty actually needs the work.
@@ -421,6 +449,7 @@ export function createUi(options: CliOptions): Ui {
         scanStart,
         scanProject,
         scanProjectDone,
+        registryCacheNotSaved,
         summary,
         error
     }

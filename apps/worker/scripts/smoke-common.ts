@@ -10,7 +10,7 @@ import type { DrizzleDb } from '@sentinello/db'
 import type { FixEvidence, OsvAdvisory, RawFinding, ScannerPlugin, ScanResult } from '@sentinello/scanners'
 import { checkInvariants, FRESH_WINDOW_MS, type InvariantInput, type InvariantRow } from './smoke-invariants'
 import { openScratchEnv, type ScratchEnv } from './scratch-env'
-import { startStubRegistry, type StubRegistry } from './stub-registry'
+import { startStubRegistry, type StubRegistry } from '../../../tests/fixtures/registry-stub'
 
 // The machinery both milestone smokes share — smoke-fix-status.ts (only released fixes) and
 // smoke-remediation.ts (the way out). Each script brings its own historical assertion set; the run order,

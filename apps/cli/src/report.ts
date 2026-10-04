@@ -69,10 +69,8 @@ export function summarize(results: readonly ProjectScanResult[], options: CliOpt
             total[finding.severity]++
             projectFindings++
             totalFindings++
-            // The CLI never asks the registry (it stays offline and dependency-free), so a fix version is
-            // only ever what the sources stated — settled `unverified` and rendered as such, never as
-            // "upgrade to".
-            // scanProject settles every finding it keeps, so the entry is always there.
+            // Settled against the npm registry exactly as the worker settles it; only a `released` fix is
+            // rendered as "upgrade to". scanProject settles every finding it keeps, so the entry is there.
             const fix = result.fixes.get(finding) as FixSettlement
             findings.push({
                 packageName: finding.packageName,
@@ -81,8 +79,8 @@ export function summarize(results: readonly ProjectScanResult[], options: CliOpt
                 fixVersion: fix.fixVersion,
                 fixStatus: fix.fixStatus,
                 fixCheck: fix.fixCheck,
-                // The way out needs the registry, which the CLI does not ask (D3).
-                remediation: null,
+                // Only a finding settled 'none_released' has one.
+                remediation: result.remediations.get(finding) ?? null,
                 severity: finding.severity,
                 advisoryId: finding.advisoryId,
                 advisoryTitle: finding.advisoryTitle,

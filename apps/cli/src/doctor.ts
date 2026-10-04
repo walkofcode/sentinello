@@ -1,6 +1,7 @@
 import { GEMNASIUM_NORMALIZER_VERSION, OSV_NORMALIZER_VERSION, DEFAULT_ECOSYSTEM } from '@sentinello/core'
 import { discoverProjectsInTree } from '@sentinello/scanners'
 import { advisoryFilePath, getSourceState, readCacheMeta, type SourceId } from './cache/meta'
+import { registryCacheSummary, registryFilePath } from './cache/registry'
 import { cacheRowCount } from './cache/sync'
 import type { CliOptions } from './options'
 import { CLI_VERSION } from './help'
@@ -24,7 +25,7 @@ export async function runDoctor(options: CliOptions, cacheDir: string): Promise<
     lines.push('  prompt       ' + (!options.includePrompt ? '(none)' : options.promptPath ?? 'built-in'))
     lines.push('  fail-on      ' + options.failOn)
     lines.push('')
-    lines.push('Advisory cache')
+    lines.push('Cache')
     lines.push('  directory    ' + cacheDir)
     const meta = await readCacheMeta(cacheDir)
     for (const source of ['osv', 'gemnasium'] as SourceId[]) {
@@ -52,6 +53,14 @@ export async function runDoctor(options: CliOptions, cacheDir: string): Promise<
         lines.push('               ' + advisoryFilePath(cacheDir, source, DEFAULT_ECOSYSTEM))
         if (source === 'osv' && state.cursorIso) lines.push('               cursor ' + state.cursorIso)
         if (source === 'gemnasium' && state.headSha) lines.push('               commit ' + state.headSha.slice(0, 12))
+    }
+    // The npm registry answers the fix check and the way out read: reused for 24 hours, refetched after.
+    const registry = await registryCacheSummary(cacheDir)
+    if (registry === null) {
+        lines.push('  ' + 'npm registry'.padEnd(12) + ' nothing cached yet')
+    } else {
+        lines.push('  ' + 'npm registry'.padEnd(12) + ' ' + registry.rows.toLocaleString() + ' package' + (registry.rows === 1 ? '' : 's') + ', oldest answer ' + describeAge(registry.oldestCheckedAt))
+        lines.push('               ' + registryFilePath(cacheDir))
     }
     lines.push('')
     lines.push('Projects')

@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createRowWriter } from '../../../apps/cli/src/cache/store'
 import { advisoryFilePath, writeCacheMeta } from '../../../apps/cli/src/cache/meta'
+import { startStubRegistry, type StubRegistry } from '../../fixtures/registry-stub'
 import { OSV_NORMALIZER_VERSION } from '@sentinello/core'
 import type { OsvAdvisoryRow } from '@sentinello/core'
 
@@ -17,7 +18,9 @@ import type { OsvAdvisoryRow } from '@sentinello/core'
 //
 // The run is hermetic by construction. Both feed URLs are set to 'off', which makes planSync skip
 // every source, and --source osv,gemnasium sets includeNpmAudit=false so nothing is ever spawned.
-// The advisory cache is pre-seeded from the frozen fixture, so findings are exact and permanent.
+// The advisory cache is pre-seeded from the frozen fixture, so findings are exact and permanent. The fix
+// check reads the npm registry, so every run points it at a loopback stub over recorded packuments: this
+// suite never reaches the live registry, and it counts every request the CLI makes.
 
 const execFileAsync = promisify(execFile)
 
@@ -27,6 +30,10 @@ const CLI_BIN = join(REPO_ROOT, 'apps', 'cli', 'dist', 'cli.cjs')
 const FIXTURE_PROJECT = join(REPO_ROOT, 'tests', 'fixtures', 'projects', 'npm-basic')
 const FIXTURE_NO_FIX_PROJECT = join(REPO_ROOT, 'tests', 'fixtures', 'projects', 'npm-no-fix')
 const FIXTURE_ADVISORIES = join(REPO_ROOT, 'tests', 'fixtures', 'advisories', 'osv-npm.ndjson')
+const REGISTRY_LAYERS = [
+    join(REPO_ROOT, 'apps', 'worker', 'test', 'fixtures', 'registry', 'base'),
+    join(REPO_ROOT, 'tests', 'fixtures', 'registry', 'npm-basic')
+]
 
 const OFFLINE_ENV = {
     SENTINELLO_OSV_FEED_URL: 'off',
@@ -35,13 +42,14 @@ const OFFLINE_ENV = {
 }
 
 let cacheDir: string
+let stub: StubRegistry
 
 type RunResult = { code: number; stdout: string; stderr: string }
 
-async function runCli(args: string[]): Promise<RunResult> {
+async function runCli(args: string[], cache: string = cacheDir): Promise<RunResult> {
     try {
         const { stdout, stderr } = await execFileAsync('node', [CLI_BIN, ...args], {
-            env: { ...process.env, ...OFFLINE_ENV, SENTINELLO_CACHE_DIR: cacheDir },
+            env: { ...process.env, ...OFFLINE_ENV, SENTINELLO_CACHE_DIR: cache, SENTINELLO_NPM_REGISTRY_URL: stub.url, SENTINELLO_NPM_DOWNLOADS_URL: stub.url },
             maxBuffer: 32 * 1024 * 1024
         })
         return { code: 0, stdout, stderr }
@@ -61,7 +69,13 @@ beforeAll(async function seedCache() {
         throw new Error('CLI bundle missing at ' + CLI_BIN + ' — run `pnpm --filter sentinello build` first')
     }
 
-    cacheDir = await mkdtemp(join(tmpdir(), 'sentinello-cli-e2e-'))
+    stub = await startStubRegistry(REGISTRY_LAYERS)
+    cacheDir = await seededCache()
+})
+
+// An advisory cache seeded from the frozen fixture, with no registry cache yet.
+async function seededCache(): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'sentinello-cli-e2e-'))
 
     // Seed through the real writer, so the cache is byte-identical to one a live sync would produce.
     const text = await readFile(FIXTURE_ADVISORIES, 'utf8')
@@ -74,20 +88,22 @@ beforeAll(async function seedCache() {
             return JSON.parse(line) as OsvAdvisoryRow
         })
 
-    const writer = createRowWriter(advisoryFilePath(cacheDir, 'osv', 'npm'))
+    const writer = createRowWriter(advisoryFilePath(dir, 'osv', 'npm'))
     await writer.write(rows)
     const count = await writer.commit()
 
-    await writeCacheMeta(cacheDir, {
+    await writeCacheMeta(dir, {
         schemaVersion: 1,
         sources: {
             osv: { npm: { normalizerVersion: OSV_NORMALIZER_VERSION, recordCount: count, refreshedAt: Date.UTC(2026, 0, 1) } },
             gemnasium: {}
         }
     })
-})
+    return dir
+}
 
 afterAll(async function cleanup() {
+    await stub.close()
     await rm(cacheDir, { recursive: true, force: true })
 })
 
@@ -171,27 +187,47 @@ describe('scanning the frozen fixture', function () {
 
 // braces <=3.0.3 and node-forge <=1.4.0: every source says no fix, and npm has published neither 3.0.4 nor
 // 1.4.1. The CLI used to print "upgrade to 3.0.4" / "1.4.1" anyway — a version bumped out of the `<=` bound —
-// and five fix agents each lost a run chasing them. The findings must still be reported, with no version.
+// and five fix agents each lost a run chasing them. It now asks the registry, exactly as the worker does:
+// both are settled `none_released` and carry the way out.
 describe('advisories with no fixed version released', function () {
+    let noFixCache: string
+
+    beforeAll(async function freshCache() {
+        noFixCache = await seededCache()
+    })
+
+    afterAll(async function dropCache() {
+        await rm(noFixCache, { recursive: true, force: true })
+    })
+
     async function scanNoFix(extraArgs: string[] = []): Promise<RunResult> {
-        return await runCli([FIXTURE_NO_FIX_PROJECT, '--source', 'osv,gemnasium', '--no-prompt', '--out', '-', ...extraArgs])
+        return await runCli([FIXTURE_NO_FIX_PROJECT, '--source', 'osv,gemnasium', '--no-prompt', '--out', '-', ...extraArgs], noFixCache)
     }
 
-    it('reports both findings with no fix version, in JSON and markdown', async function () {
+    it('settles both against the registry as none_released, with the way out, in JSON and markdown', async function () {
+        const before = stub.requests.length
         const json = await scanNoFix(['--json'])
         expect(json.code).toBe(0)
+        expect(stub.requests.length).toBeGreaterThan(before)
         const doc = JSON.parse(json.stdout)
         const byName = new Map(doc.findings.map(function entry(f: { packageName: string }) {
             return [f.packageName, f] as const
         }))
         expect([...byName.keys()].sort()).toEqual(['braces', 'node-forge'])
-        for (const finding of byName.values()) {
-            expect(finding).toMatchObject({ severity: 'high', fixAvailable: false, fixVersion: null, fixStatus: 'unverified' })
-        }
+        expect(byName.get('braces')).toMatchObject({ advisoryId: 'GHSA-vfj7-8cjw-p6xm', fixStatus: 'none_released', fixVersion: null, fixCheck: { registry: 'ok' } })
+        expect(byName.get('node-forge')).toMatchObject({ advisoryId: 'GHSA-86w9-cpqp-85rv', fixStatus: 'none_released', fixVersion: null, fixCheck: { registry: 'ok' } })
+        // braces: unmaintained, and the nodemon chain is blocked by chokidar 4.0.0, whose closure still reaches it.
+        const braces = byName.get('braces') as { remediation: { health: { unmaintained: boolean }; chains: { path: string[]; verdict: { kind: string; proof?: { release: string } } }[] } }
+        expect(braces.remediation.health.unmaintained).toBe(true)
+        const nodemon = braces.remediation.chains.find(function viaNodemon(c) { return c.path[0]?.startsWith('nodemon@') })
+        expect(nodemon?.verdict).toMatchObject({ kind: 'blocked', proof: { release: 'chokidar@4.0.0' } })
+        expect((byName.get('node-forge') as { remediation: unknown }).remediation).not.toBeNull()
 
         const markdown = await scanNoFix([])
         expect(markdown.code).toBe(0)
-        expect(markdown.stdout).toContain('no fix stated by the advisory · not checked against the registry')
+        expect(markdown.stdout).toContain('No fixed version released')
+        expect(markdown.stdout).toContain('- **Way out:**')
+        expect(markdown.stdout).not.toContain('not checked against the registry')
         expect(markdown.stdout).not.toContain('upgrade to')
 
         for (const output of [json, markdown]) {
@@ -200,10 +236,39 @@ describe('advisories with no fixed version released', function () {
         }
     })
 
-    // A version the advisory does state is still shown, but as the advisory's word, not as an instruction.
-    it('labels a stated fix as unverified', async function () {
+    // The first test's run cached every answer; a run within 24 hours asks the registry for no packument.
+    it('makes no packument request on a second run within 24 hours', async function () {
+        const before = stub.requests.length
+        const result = await scanNoFix(['--json'])
+        expect(result.code).toBe(0)
+        expect(stub.requests.length).toBe(before)
+        expect(JSON.parse(result.stdout).findings.map(function s(f: { fixStatus: string }) { return f.fixStatus })).toEqual(['none_released', 'none_released'])
+    })
+
+    it('makes no request at all under --offline, and says the fix was not checked because of it', async function () {
+        const packuments = stub.requests.length
+        const counts = stub.downloadRequests.length
+        const result = await scanNoFix(['--offline'])
+        expect(result.code).toBe(0)
+        expect(stub.requests.length).toBe(packuments)
+        expect(stub.downloadRequests.length).toBe(counts)
+        expect(result.stdout).toContain('no fix stated by the advisory · not checked against the registry (offline)')
+        expect(result.stdout).not.toContain('- **Way out:**')
+        expect(result.stdout).not.toContain('3.0.4')
+    })
+})
+
+// A fix the registry confirms is an instruction; one it was not asked about is only the advisory's word.
+describe('fixes the registry confirms', function () {
+    it('renders a published stated fix as an upgrade', async function () {
         const result = await scanFixture([])
-        expect(result.stdout).toContain('advisory names `4.17.21` as the fix · not checked against the registry')
+        expect(result.stdout).toContain('upgrade to `4.17.21`')
+        expect(result.stdout).not.toContain('not checked against the registry')
+    })
+
+    it('labels the same fix as unverified under --offline', async function () {
+        const result = await scanFixture(['--offline'])
+        expect(result.stdout).toContain('advisory names `4.17.21` as the fix · not checked against the registry (offline)')
         expect(result.stdout).not.toContain('upgrade to')
     })
 })
@@ -272,6 +337,11 @@ describe('doctor', function () {
 
 describe('hermetic guarantees', function () {
     // If this ever fails, the suite has started depending on the network.
+    it('never reaches the live npm registry: every lookup went to the stub', async function () {
+        await scanFixture([])
+        expect(stub.requests.length + stub.downloadRequests.length).toBeGreaterThan(0)
+    })
+
     it('never reports a sync when both feeds are disabled', async function () {
         const result = await scanFixture([])
         expect(result.stderr).not.toContain('Downloading')
@@ -289,7 +359,7 @@ describe('hermetic guarantees', function () {
         delete second.generatedAt
         for (const doc of [first, second]) {
             for (const f of doc.findings) {
-                expect(f.fixCheck.registry).toBe('skipped')
+                expect(f.fixCheck.registry).toBe('ok')
                 delete f.fixCheck.checkedAt
             }
         }

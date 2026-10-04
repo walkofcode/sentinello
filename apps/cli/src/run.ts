@@ -9,8 +9,10 @@ import {
 } from '@sentinello/core'
 import { discoverProjectsInTree, type DiscoverySkip } from '@sentinello/scanners'
 import { gemnasiumFeedDisabled, osvFeedDisabled } from '@sentinello/feeds'
+import { createNpmRegistryClient } from '@sentinello/fixes'
 import { isSeeded, readCacheMeta, resolveCacheDir, type CacheMeta, type SourceId } from './cache/meta'
 import { loadCacheForPackages } from './cache/lookup'
+import { loadRegistryStore, saveRegistryStore } from './cache/registry'
 import { planSync, runSync, type SyncOutcome, type SyncPlan, type SyncPlanItem } from './cache/sync'
 import { applyConfigFile, explicitFlagNames, parseArgs, type CliOptions } from './options'
 import {
@@ -161,13 +163,17 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
 
     // 4. Scan. Seeded state comes from the cache metadata, not from whether this project happened to match
     // any rows, so a dependency-free project is reported as scanned-and-clean rather than unauditable.
+    // Every fix is settled against the npm registry through one client for the whole run, over the
+    // registry cache; --offline makes no request at all, so it gets no client.
     const meta = await readCacheMeta(cacheDir)
+    const registryStore = options.offline ? null : await loadRegistryStore(cacheDir)
     const setup = {
         cacheDir,
         sources,
         ecosystem: DEFAULT_ECOSYSTEM,
         includeNpmAudit: options.includeNpmAudit,
         settledAt: generatedAt,
+        registry: registryStore === null ? null : createNpmRegistryClient(registryStore),
         seeded: {
             osv: isSeeded(meta, 'osv', DEFAULT_ECOSYSTEM, OSV_NORMALIZER_VERSION),
             gemnasium: isSeeded(meta, 'gemnasium', DEFAULT_ECOSYSTEM, GEMNASIUM_NORMALIZER_VERSION)
@@ -181,6 +187,17 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
         const result = await scanProject(setup, entry, scanners)
         results.push(result)
         ui.scanProjectDone(result)
+    }
+    // Saved once, after the last project. A save that cannot happen costs the next run a refetch, never
+    // this run's answers, so it is reported and the run goes on.
+    if (registryStore !== null) {
+        try {
+            if (await saveRegistryStore(cacheDir, registryStore) === 'locked') {
+                ui.registryCacheNotSaved('another sentinello run holds the cache lock')
+            }
+        } catch (err) {
+            ui.registryCacheNotSaved(errText(err))
+        }
     }
 
     // 5. Report.

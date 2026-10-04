@@ -35,7 +35,8 @@ SCOPE
 
 SOURCES
   --source <list>       npm-audit, osv, gemnasium. Default: all three.
-  --offline             Skip the freshness check and use the cached data as-is.
+  --offline             Make no network request: use the cached advisories as-is and
+                        do not check fixes against the npm registry.
   --cache-dir <path>    Where the advisory cache lives.
                         Default: $XDG_CACHE_HOME/sentinello or ~/.cache/sentinello.
   --feed-wait <secs>    How long to keep retrying a feed that declines a download.
@@ -79,6 +80,12 @@ CONFIG
   An optional sentinello.config.json in the scanned directory supplies defaults for
   depth, exclude, sources, depType, prompt, failOn, out, and feedWait. Flags always win.
 
+FIXES
+  Each npm finding's fix is checked against the npm registry (registry.npmjs.org, and
+  api.npmjs.org for download counts), as the Sentinello portal checks it: a published
+  fix reads "upgrade to", none reads "No fixed version released" with the way out.
+  Only package names are sent. Answers are cached for 24 hours.
+
 Sentinello stores nothing about your code. The only thing written to the cache
-directory is public advisory data downloaded from OSV and GitLab.
+directory is public data: advisories from OSV and GitLab, and npm registry metadata.
 `

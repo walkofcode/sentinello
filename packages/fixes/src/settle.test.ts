@@ -70,6 +70,7 @@ describe('settleFix', function () {
 
     it('is unverified, carrying the stated fix, for every registry outcome that is not an answer', function () {
         expect(settleFix({ evidence: [evidence()], registry: null, checkedAt: AT }).fixCheck).toMatchObject({ registry: 'skipped', packageDataAsOf: null })
+        expect(settleFix({ evidence: [evidence()], registry: { status: 'offline' }, checkedAt: AT })).toMatchObject({ fixStatus: 'unverified', fixCheck: { registry: 'offline', packageDataAsOf: null } })
         expect(settleFix({ evidence: [evidence()], registry: { status: 'error' }, checkedAt: AT })).toMatchObject({
             fixStatus: 'unverified', fixVersion: '1.1.0', fixCheck: { registry: 'error', packageDataAsOf: null }
         })

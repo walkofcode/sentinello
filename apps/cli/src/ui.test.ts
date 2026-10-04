@@ -116,7 +116,7 @@ function outcome(overrides: Partial<SyncOutcome> = {}): SyncOutcome {
 }
 
 function scanResult(overrides: Partial<ProjectScanResult> = {}): ProjectScanResult {
-    return { project: project(), findings: [], outcomes: [], ...overrides } as ProjectScanResult
+    return { project: project(), findings: [], outcomes: [], fixes: new Map(), remediations: new Map(), wayOutError: null, ...overrides } as ProjectScanResult
 }
 
 function projectSummary(overrides: Partial<RunSummary['projects'][number]> = {}): RunSummary['projects'][number] {
@@ -735,6 +735,19 @@ describe('scan progress', function () {
         expect(out()).toContain('npm-audit: no_lockfile')
         expect(out()).not.toContain('osv: ok')
     })
+
+    // The fixes stand when the way out fails; the user is told which part of the answer is missing.
+    it('says when the way out could not be computed, and is silent when it was', function () {
+        ui().scanProjectDone(scanResult())
+        expect(out()).not.toContain('way out')
+        ui().scanProjectDone(scanResult({ wayOutError: 'registry exploded' }))
+        expect(out()).toContain('way out not computed: registry exploded')
+    })
+
+    it('says when the npm registry cache could not be saved', function () {
+        ui().registryCacheNotSaved('another sentinello run holds the cache lock')
+        expect(out()).toContain('npm registry cache not saved (another sentinello run holds the cache lock); the next run fetches again')
+    })
 })
 
 describe('summary', function () {
@@ -767,6 +780,22 @@ describe('summary', function () {
 
     // The total is pluralised independently of the clean-project count above, so it needs its own
     // singular case — "1 findings" is the kind of thing nobody notices until it ships.
+    // "3 findings" must never hide that none of them has a fix.
+    it('counts the findings by what the registry said about their fix', function () {
+        const status = function status(fixStatus: string) { return { fixStatus } as RunSummary['findings'][number] }
+        ui().summary(summary({
+            totalFindings: 4,
+            counts: { critical: 0, high: 4, moderate: 0, low: 0, info: 0 },
+            findings: [status('released'), status('none_released'), status('none_released'), status('unverified')]
+        }), null)
+        expect(out()).toContain('1 with a released fix · 2 with no released fix · 1 not checked against the registry')
+        written.length = 0
+        ui().summary(summary({ totalFindings: 1, counts: { critical: 0, high: 1, moderate: 0, low: 0, info: 0 }, findings: [status('none_released')] }), null)
+        expect(out()).toContain('1 with no released fix')
+        expect(out()).not.toContain('released fix ·')
+        expect(out()).not.toContain('not checked')
+    })
+
     it('singularises a lone finding', function () {
         ui().summary(summary({
             totalFindings: 1,

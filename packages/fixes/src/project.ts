@@ -15,7 +15,8 @@ import { settleFix, type FixSettlement, type PublishedVersion, type RegistryView
 // gathered so far. Settling once is what makes the answer independent of scanner order.
 //
 // Only npm is checked against a registry (D1); every other ecosystem settles as `unverified` with the
-// fix its sources state, and gets no way out.
+// fix its sources state, and gets no way out. A run with no registry client (the CLI's --offline) makes no
+// request at all: its npm findings settle `unverified` too, marked offline, with no way out.
 
 // What identifies a finding to settlement: findings that share it share their evidence, so they settle
 // the same way.
@@ -27,7 +28,8 @@ export type SettleProjectInput = {
     evidence: ReadonlyMap<string, readonly FixEvidence[]>
     // The project's npm graph; null when the project has none (no lockfile, or one we cannot parse).
     graph: ResolvedGraph | null
-    registry: RegistryClient
+    // Null when the run must make no network request (the CLI's --offline).
+    registry: RegistryClient | null
     checkedAt: number
     dataset?: ReplacementDataset
 }
@@ -57,18 +59,19 @@ export async function settleProject(input: SettleProjectInput): Promise<ProjectS
     const npmNames = input.findings
         .filter(function onRegistry(f) { return f.ecosystem === REGISTRY_ECOSYSTEM })
         .map(function nameOf(f) { return f.packageName })
-    const entries = npmNames.length > 0 ? await input.registry.lookup(npmNames) : new Map<string, RegistryEntry>()
+    const registry = input.registry
+    const entries = registry !== null && npmNames.length > 0 ? await registry.lookup(npmNames) : new Map<string, RegistryEntry>()
     for (const finding of input.findings) {
         const key = fixEvidenceKey(finding)
         if (settlements.has(key)) continue
-        settlements.set(key, settleFix({
-            evidence: input.evidence.get(key) ?? [],
-            registry: finding.ecosystem === REGISTRY_ECOSYSTEM ? registryView(entries.get(finding.packageName)) : null,
-            checkedAt: input.checkedAt
-        }))
+        let view: RegistryView | null = null
+        if (finding.ecosystem === REGISTRY_ECOSYSTEM) view = registry === null ? { status: 'offline' } : registryView(entries.get(finding.packageName))
+        settlements.set(key, settleFix({ evidence: input.evidence.get(key) ?? [], registry: view, checkedAt: input.checkedAt }))
     }
+    // Offline, nothing settles 'none_released', so there is no way out to compute.
+    if (registry === null) return { settlements, remediations, wayOutError: null }
     try {
-        await wayOut(input, settlements, remediations)
+        await wayOut(input, registry, settlements, remediations)
     } catch (err) {
         return { settlements, remediations: new Map(), wayOutError: errText(err) }
     }
@@ -77,7 +80,7 @@ export async function settleProject(input: SettleProjectInput): Promise<ProjectS
 
 // One advisory's guidance is the same for every finding that carries the same evidence, so it is computed
 // once per (package, affected sets, installed copies).
-async function wayOut(input: SettleProjectInput, settlements: Map<string, FixSettlement>, out: Map<string, Remediation>): Promise<void> {
+async function wayOut(input: SettleProjectInput, registry: RegistryClient, settlements: Map<string, FixSettlement>, out: Map<string, Remediation>): Promise<void> {
     const requests: RemediationRequest[] = []
     const requestOf = new Map<string, number>()
     const forKey = new Map<string, number>()
@@ -98,7 +101,7 @@ async function wayOut(input: SettleProjectInput, settlements: Map<string, FixSet
         forKey.set(key, index)
     }
     if (requests.length === 0) return
-    const built = await computeRemediations(requests, { graph: input.graph?.nodeGraph ?? null, registry: input.registry, checkedAt: input.checkedAt, dataset: input.dataset })
+    const built = await computeRemediations(requests, { graph: input.graph?.nodeGraph ?? null, registry, checkedAt: input.checkedAt, dataset: input.dataset })
     for (const [key, index] of forKey) out.set(key, built[index] as Remediation)
 }
 

@@ -5,6 +5,7 @@ import { parseArgs } from './options'
 import type { CliOptions } from './options'
 import type { ProjectScanResult, ScannerOutcome } from './scan'
 import { settleFix } from '@sentinello/fixes'
+import type { Remediation } from '@sentinello/core'
 import type { RawFinding } from '@sentinello/scanners'
 import type { DiscoveredProject } from '@sentinello/scanners'
 
@@ -59,15 +60,16 @@ function outcome(overrides: Partial<ScannerOutcome> = {}): ScannerOutcome {
     return { scanner: 'osv', status: 'ok', reasonCode: 'ok', errorText: null, durationMs: 1, ...overrides }
 }
 
+// Settled offline: the registry is the CLI's settleProject's business (scan.test.ts), not the report's.
 function result(
     proj: DiscoveredProject,
     findings: RawFinding[],
     outcomes: ScannerOutcome[] = [outcome()]
 ): ProjectScanResult {
     const fixes = new Map(findings.map(function settle(f) {
-        return [f, settleFix({ evidence: [f.fixInputs], registry: null, checkedAt: 0 })] as const
+        return [f, settleFix({ evidence: [f.fixInputs], registry: { status: 'offline' }, checkedAt: 0 })] as const
     }))
-    return { project: proj, findings, outcomes, fixes }
+    return { project: proj, findings, outcomes, fixes, remediations: new Map(), wayOutError: null }
 }
 
 describe('summarize — counting', function () {
@@ -180,11 +182,10 @@ describe('summarize — project attribution', function () {
     })
 })
 
-// The CLI never asks the registry, so it cannot know whether a stated fix was ever published. Every fix
-// it shows is labelled as the source's statement — "upgrade to X" for an unchecked X is how agents came to
-// chase braces 3.0.4.
+// A fix the registry did not confirm is labelled as the source's statement — "upgrade to X" for an
+// unchecked X is how agents came to chase braces 3.0.4.
 describe('summarize — fix status', function () {
-    it('marks every finding unverified', function () {
+    it('marks every finding settled offline unverified', function () {
         const summary = summarize([result(project('a', 'a'), [finding(), finding({ fixAvailable: false, fixVersion: null })])], optionsWith([]))
         expect(summary.findings.map(function status(f) { return f.fixStatus })).toEqual(['unverified', 'unverified'])
     })
@@ -192,7 +193,7 @@ describe('summarize — fix status', function () {
     it('renders a stated fix as unverified and never as an upgrade instruction', function () {
         const summary = summarize([result(project('a', 'a'), [finding()])], optionsWith([]))
         const md = renderMarkdown(summary, optionsWith([]), '', 0)
-        expect(md).toContain('- **Fix:** advisory names `4.17.21` as the fix · not checked against the registry')
+        expect(md).toContain('- **Fix:** advisory names `4.17.21` as the fix · not checked against the registry (offline)')
         expect(md).not.toContain('upgrade to')
     })
 
@@ -200,7 +201,26 @@ describe('summarize — fix status', function () {
         const none = finding({ fixAvailable: false, fixVersion: null })
         none.fixInputs = { ...none.fixInputs, statedFix: null }
         const summary = summarize([result(project('a', 'a'), [none])], optionsWith([]))
-        expect(renderMarkdown(summary, optionsWith([]), '', 0)).toContain('- **Fix:** no fix stated by the advisory · not checked against the registry')
+        expect(renderMarkdown(summary, optionsWith([]), '', 0)).toContain('- **Fix:** no fix stated by the advisory · not checked against the registry (offline)')
+    })
+
+    it('carries a none_released finding\'s way out into the JSON and the markdown', function () {
+        const braces = finding({ packageName: 'braces', advisoryId: 'GHSA-vfj7-8cjw-p6xm', fixAvailable: false, fixVersion: null })
+        const scanned = result(project('a', 'a'), [braces])
+        scanned.fixes.set(braces, settleFix({ evidence: [{ ...braces.fixInputs, statedFix: null, affected: { ranges: '<=3.0.3', exact: [], complete: true } }], registry: { status: 'ok', published: [{ version: '3.0.3', deprecated: false }], dataAsOf: 0 }, checkedAt: 0 }))
+        const wayOut: Remediation = {
+            v: 1, package: 'braces', checkedAt: 0,
+            health: { name: 'braces', latest: '3.0.3', lastPublishAt: null, maintainers: 1, weeklyDownloads: null, deprecated: null, daysSinceLastPublish: null, unmaintained: false },
+            chains: [{ importer: '.', rootKind: 'prod', path: ['braces@3.0.3'], verdict: { kind: 'direct' } }],
+            moreChains: 0, moreChainsAtLeast: false, alternatives: [], devOnly: false, partial: false
+        }
+        scanned.remediations.set(braces, wayOut)
+        const summary = summarize([scanned], optionsWith([]))
+        expect(summary.findings[0]).toMatchObject({ fixStatus: 'none_released', remediation: wayOut })
+        expect(JSON.parse(renderJson(summary, optionsWith([]), 0)).findings[0].remediation).toEqual(wayOut)
+        const md = renderMarkdown(summary, optionsWith([]), '', 0)
+        expect(md).toContain('No fixed version released')
+        expect(md).toContain('- **Way out:**')
     })
 })
 

@@ -3,9 +3,10 @@ import type { FixStatus } from './types'
 
 // What the registry said when a finding's fix was settled. `ok` — fresh package data; `stale` — a refetch
 // failed and the last good data was used; `not_found` — the registry has no such package; `error` — the
-// registry could not be reached; `skipped` — the registry was not asked (an ecosystem it does not cover
-// yet, or a caller that never asks it, like the CLI).
-export type FixRegistryOutcome = 'ok' | 'stale' | 'not_found' | 'error' | 'skipped'
+// registry could not be reached; `skipped` — the registry was not asked because it does not cover the
+// ecosystem yet; `offline` — the registry was not asked because the run was told to make no network
+// request (the CLI's --offline).
+export type FixRegistryOutcome = 'ok' | 'stale' | 'not_found' | 'error' | 'skipped' | 'offline'
 
 // Why the evidence itself could not settle the fix, whatever the registry said: a source's affected
 // range could not be evaluated, an installed version did not parse, a patched range did not parse, or
@@ -14,7 +15,7 @@ export type FixUnevaluableReason = 'no_evidence' | 'installed_unknown' | 'affect
 
 export const FIX_UNEVALUABLE_REASONS: readonly FixUnevaluableReason[] = ['no_evidence', 'installed_unknown', 'affected_incomplete', 'patched_unparseable']
 
-const FIX_REGISTRY_OUTCOMES: readonly FixRegistryOutcome[] = ['ok', 'stale', 'not_found', 'error', 'skipped']
+const FIX_REGISTRY_OUTCOMES: readonly FixRegistryOutcome[] = ['ok', 'stale', 'not_found', 'error', 'skipped', 'offline']
 
 // What one source said about the fix: the installed copies it saw, its affected set as text, its patched
 // range, the fix it states, and whether it said outright that no patched version exists. Enough to
@@ -131,6 +132,7 @@ function unverifiedReason(check: FixCheck): string {
     if (check.unevaluable === 'no_evidence') return ' (no source evidence to check)'
     if (check.registry === 'error') return ' (registry not reachable)'
     if (check.registry === 'not_found') return ' (not on the npm registry)'
+    if (check.registry === 'offline') return ' (offline)'
     return ''
 }
 

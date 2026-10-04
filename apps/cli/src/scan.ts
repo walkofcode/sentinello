@@ -1,4 +1,4 @@
-import { DEFAULT_ECOSYSTEM, type EcosystemId } from '@sentinello/core'
+import { DEFAULT_ECOSYSTEM, type EcosystemId, type Remediation } from '@sentinello/core'
 import {
     createGemnasiumScanner,
     createOsvScanner,
@@ -10,12 +10,13 @@ import {
     resolveProjectGraphs,
     type ReportedAdvisory,
     type DiscoveredProject,
+    type FixEvidence,
     type RawFinding,
     type ResolvedGraph,
     type ResolverResult,
     type ScannerPlugin
 } from '@sentinello/scanners'
-import { settleFix, type FixSettlement } from '@sentinello/fixes'
+import { fixEvidenceKey, settleProject, type FixSettlement, type RegistryClient } from '@sentinello/fixes'
 import { cacheEcosystemKey, type LoadedCache } from './cache/lookup'
 import type { SourceId } from './cache/meta'
 
@@ -42,9 +43,13 @@ export type ProjectScanResult = {
     project: DiscoveredProject
     findings: RawFinding[]
     outcomes: ScannerOutcome[]
-    // Each surviving finding's fix, settled from every source's evidence without the registry (D3: the
-    // CLI never calls it), so every one is `unverified` with the fix its sources state.
+    // Each surviving finding's fix, settled from every source's evidence against the npm registry by the
+    // same settleProject the worker calls — `unverified`, marked offline, under --offline.
     fixes: Map<RawFinding, FixSettlement>
+    // The way out for each finding settled 'none_released'. Empty when it could not be computed.
+    remediations: Map<RawFinding, Remediation>
+    // Why the way out could not be computed, or null. The fixes stand regardless.
+    wayOutError: string | null
 }
 
 export type ResolvedProject = {
@@ -97,6 +102,9 @@ export type ScanSetup = {
     // The run's instant, stamped on every finding's fix snapshot as its settlement time, so one run's
     // findings all say the same thing about when they were settled.
     settledAt: number
+    // The npm registry, one client for the whole run so a package is fetched at most once across every
+    // project (as the worker's batch client is). Null under --offline: no request is made at all.
+    registry: RegistryClient | null
     abortSignal?: AbortSignal
 }
 
@@ -211,11 +219,32 @@ export async function scanProject(
             findings.push(finding)
         }
     }
-    const fixes = new Map<RawFinding, FixSettlement>()
+    // Settlement waits for every source, as in the worker: the fix has to clear every source's affected set
+    // and every installed copy. A survivor is registered under each of its identity keys, so the same
+    // ReportedAdvisory is visited more than once; settleProject settles each identity once.
+    const survivors = new Map<RawFinding, ReportedAdvisory>()
+    const evidence = new Map<string, FixEvidence[]>()
     for (const byKey of reportedByPackage.values()) {
         for (const reported of byKey.values()) {
-            fixes.set(reported.finding, settleFix({ evidence: reported.evidence, registry: null, checkedAt: setup.settledAt }))
+            survivors.set(reported.finding, reported)
+            evidence.set(fixEvidenceKey(reported), reported.evidence)
         }
     }
-    return { project: resolved.project, findings, outcomes, fixes }
+    const settled = await settleProject({
+        findings: [...survivors.values()],
+        evidence,
+        graph: resolved.npmGraph,
+        registry: setup.registry,
+        checkedAt: setup.settledAt
+    })
+    const fixes = new Map<RawFinding, FixSettlement>()
+    const remediations = new Map<RawFinding, Remediation>()
+    for (const [finding, reported] of survivors) {
+        const key = fixEvidenceKey(reported)
+        // settleProject settles every identity it is given.
+        fixes.set(finding, settled.settlements.get(key) as FixSettlement)
+        const remediation = settled.remediations.get(key)
+        if (remediation) remediations.set(finding, remediation)
+    }
+    return { project: resolved.project, findings, outcomes, fixes, remediations, wayOutError: settled.wayOutError }
 }

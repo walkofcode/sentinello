@@ -1,0 +1,27 @@
+{
+ "name": "minimist",
+ "dist-tags": {
+  "latest": "1.2.6"
+ },
+ "maintainers": [
+  {
+   "name": "fixture-maintainer"
+  }
+ ],
+ "repository": {
+  "type": "git",
+  "url": "git+https://example.invalid/minimist.git"
+ },
+ "time": {
+  "created": "2015-08-24T00:00:00.000Z",
+  "modified": "2022-03-21T00:00:00.000Z",
+  "1.2.0": "2015-08-24T00:00:00.000Z",
+  "1.2.5": "2020-03-12T00:00:00.000Z",
+  "1.2.6": "2022-03-21T00:00:00.000Z"
+ },
+ "versions": {
+  "1.2.0": {},
+  "1.2.5": {},
+  "1.2.6": {}
+ }
+}

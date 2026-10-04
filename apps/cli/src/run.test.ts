@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GEMNASIUM_NORMALIZER_VERSION, OSV_NORMALIZER_VERSION } from '@sentinello/core'
-import type { CacheMeta } from './cache/meta'
+import type { NpmDownloadsResult, NpmPackageResult } from '@sentinello/feeds'
+import { registryFilePath } from './cache/registry'
+import { tryAcquireLock, type CacheLock, type CacheMeta } from './cache/meta'
 import type { CliOptions } from './options'
 import type { Ui } from './ui'
 
@@ -27,7 +29,10 @@ const feeds = vi.hoisted(function makeFeedDoubles() {
         fetchGemnasiumFileRows: vi.fn(async function rows() { return [] }),
         streamGemnasiumArchive: vi.fn(),
         osvFeedDisabled: vi.fn(function disabled() { return false }),
-        gemnasiumFeedDisabled: vi.fn(function disabled() { return false })
+        gemnasiumFeedDisabled: vi.fn(function disabled() { return false }),
+        // The npm registry the fix check reads: down unless a test says otherwise.
+        fetchNpmPackage: vi.fn(async function down(): Promise<NpmPackageResult> { return { status: 'error', reason: 'HTTP 503' } }),
+        fetchNpmWeeklyDownloads: vi.fn(async function down(): Promise<NpmDownloadsResult> { return { status: 'error', reason: 'HTTP 503' } })
     }
 })
 
@@ -130,6 +135,7 @@ beforeEach(async function setup() {
     // switches a feed off would otherwise leak that into every test after it.
     feeds.osvFeedDisabled.mockReturnValue(false)
     feeds.gemnasiumFeedDisabled.mockReturnValue(false)
+    feeds.fetchNpmPackage.mockImplementation(async function down() { return { status: 'error', reason: 'HTTP 503' } })
 })
 
 afterEach(async function teardown() {
@@ -173,7 +179,7 @@ describe('terminal modes', function () {
         await makeProject('web')
         argv('--doctor', dir, '--cache-dir', join(dir, '.cache'))
         expect(await main()).toBe(EXIT_OK)
-        expect(out()).toContain('Advisory cache')
+        expect(out()).toContain('Cache')
         expect(out()).toContain('Projects')
     })
 })
@@ -451,36 +457,38 @@ describe('scanning', function () {
     })
 })
 
-describe('exit codes', function () {
-    // Seeds the real ndjson cache through the real seed path — only the network call is a double — so
-    // the scan below finds a genuine advisory rather than one injected past the matcher. Without this
-    // every test in this suite scans a clean tree, which is why the threshold code was never exercised
-    // end-to-end before: the gate can only fire when something is actually found.
-    async function seedVulnerableLodash(): Promise<void> {
-        feeds.streamOsvSeed.mockImplementation(async function* stream() {
-            yield {
-                rows: [{
-                    advisoryId: 'GHSA-vulnerable-lodash',
-                    ecosystem: 'npm',
-                    packageName: 'lodash',
-                    aliases: [],
-                    ranges: [{ type: 'SEMVER', introduced: '0', fixed: '4.17.21', lastAffected: null }],
-                    versions: [],
-                    severity: 'high',
-                    summary: 'Prototype pollution',
-                    url: 'https://example.test/GHSA-vulnerable-lodash',
-                    malicious: false,
-                    withdrawn: null
-                }],
-                lastModified: '2026-07-01T00:00:00Z'
-            }
-        })
-    }
+// Seeds the real ndjson cache through the real seed path — only the network call is a double — so
+// the scan below finds a genuine advisory rather than one injected past the matcher. Without this
+// every test in this suite scans a clean tree, which is why the threshold code was never exercised
+// end-to-end before: the gate can only fire when something is actually found.
+async function seedVulnerableLodash(): Promise<void> {
+    feeds.streamOsvSeed.mockImplementation(async function* stream() {
+        yield {
+            rows: [{
+                advisoryId: 'GHSA-vulnerable-lodash',
+                ecosystem: 'npm',
+                packageName: 'lodash',
+                aliases: [],
+                ranges: [{ type: 'SEMVER', introduced: '0', fixed: '4.17.21', lastAffected: null }],
+                versions: [],
+                severity: 'high',
+                summary: 'Prototype pollution',
+                url: 'https://example.test/GHSA-vulnerable-lodash',
+                malicious: false,
+                withdrawn: null
+            }],
+            lastModified: '2026-07-01T00:00:00Z'
+        }
+    })
+}
 
+// A scan against a seeded cache and the npm registry (no --offline).
+function seededScanArgs(...extra: string[]): string[] {
+    return [dir, '--cache-dir', join(dir, '.cache'), '--source', 'osv', '--yes', ...extra]
+}
+
+describe('exit codes', function () {
     // The gate is what makes the CLI usable in CI, so the distinct code matters more than the message.
-    function seededScanArgs(...extra: string[]): string[] {
-        return [dir, '--cache-dir', join(dir, '.cache'), '--source', 'osv', '--yes', ...extra]
-    }
 
     it('exits 0 for a clean scan with no gate configured', async function () {
         await makeProject('web')
@@ -721,5 +729,77 @@ describe('enabledSources', function () {
             sources: { osv: {}, gemnasium: { npm: { normalizerVersion: GEMNASIUM_NORMALIZER_VERSION - 1, recordCount: 1, refreshedAt: 0 } } }
         } as unknown as CacheMeta
         expect(enabledSources(['gemnasium'], stale)).toEqual([])
+    })
+})
+
+// The fix check reads the npm registry through one client per run, over a cache file saved once at the end.
+describe('the npm registry', function () {
+    function lodashPackument(): NpmPackageResult {
+        return {
+            status: 'ok',
+            summary: {
+                v: 1, name: 'lodash', latest: '4.17.21', modified: 1, maintainers: 1, repository: null,
+                versions: { '4.17.11': { publishedAt: 1, deprecated: null, edges: null }, '4.17.21': { publishedAt: 2, deprecated: null, edges: null } },
+                edges: []
+            }
+        }
+    }
+
+    it('settles the fix against the registry and saves what it fetched for the next run', async function () {
+        await makeProject('web')
+        await seedVulnerableLodash()
+        feeds.fetchNpmPackage.mockImplementation(async function answer() { return lodashPackument() })
+        argv(...seededScanArgs('--json'))
+
+        expect(await main()).toBe(EXIT_OK)
+        expect(JSON.parse(out()).findings[0]).toMatchObject({ fixStatus: 'released', fixVersion: '4.17.21', fixCheck: { registry: 'ok' } })
+        expect(feeds.fetchNpmPackage).toHaveBeenCalledTimes(1)
+        await expect(readFile(registryFilePath(join(dir, '.cache')))).resolves.toBeInstanceOf(Buffer)
+    })
+
+    it('asks the registry nothing under --offline', async function () {
+        await makeProject('web')
+        await seedVulnerableLodash()
+        argv(...seededScanArgs())
+        expect(await main()).toBe(EXIT_OK)
+        feeds.fetchNpmPackage.mockClear()
+        stdout.length = 0
+        argv(...seededScanArgs('--offline'))
+
+        expect(await main()).toBe(EXIT_OK)
+        expect(feeds.fetchNpmPackage).not.toHaveBeenCalled()
+        expect(out()).toContain('not checked against the registry (offline)')
+    })
+
+    it('reports a save skipped because another run holds the cache lock', async function () {
+        await makeProject('web')
+        await seedVulnerableLodash()
+        let held: CacheLock | null = null
+        // Taken while the scan runs, after the sync has released it: another run starting its sync.
+        feeds.fetchNpmPackage.mockImplementation(async function answerWhileLocked() {
+            held = await tryAcquireLock(join(dir, '.cache'))
+            return lodashPackument()
+        })
+        argv(...seededScanArgs())
+
+        expect(await main()).toBe(EXIT_OK)
+        expect(held).not.toBeNull()
+        await (held as unknown as CacheLock).release()
+        expect(err()).toContain('npm registry cache not saved (another sentinello run holds the cache lock)')
+    })
+
+    it('reports a save that failed, and still writes the advisory', async function () {
+        await makeProject('web')
+        await seedVulnerableLodash()
+        // A directory where the cache file belongs: the save's rename fails.
+        feeds.fetchNpmPackage.mockImplementation(async function answerThenBreakTheFile() {
+            await mkdir(registryFilePath(join(dir, '.cache')), { recursive: true })
+            return lodashPackument()
+        })
+        argv(...seededScanArgs())
+
+        expect(await main()).toBe(EXIT_OK)
+        expect(err()).toContain('npm registry cache not saved (')
+        expect(out()).toContain('GHSA-vulnerable-lodash')
     })
 })

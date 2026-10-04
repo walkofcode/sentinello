@@ -52,7 +52,17 @@ published, and gemnasium is gated on its repository's HEAD commit, so a routine 
 nothing and completes in about a second.
 
 The cache lives in `$XDG_CACHE_HOME/sentinello` or `~/.cache/sentinello`. It is the only thing written
-outside your project.
+outside your project. Beside the advisories it keeps the npm registry answers the fix check read
+(`registry-npm.ndjson.gz`), reused for 24 hours so a repeat scan asks the registry nothing.
+
+## Fixes are checked against npm
+
+A fix version an advisory states is not trusted on its word. For every npm finding the CLI asks the npm
+registry whether a version outside every source's affected range has actually been published, exactly
+as the Sentinello portal does: a published one reads "upgrade to", none reads "No fixed version
+released" with the way out (which dependency chain carries the package, whether a parent upgrade frees
+it, and curated alternatives), and one the registry could not settle reads "not checked against the
+registry" with the reason.
 
 ## Privacy
 
@@ -60,8 +70,11 @@ outside your project.
 history is kept between runs.
 
 Outbound requests go to `osv-vulnerabilities.storage.googleapis.com` and `gitlab.com` to download public
-advisory data, and `npm audit` talks to your configured npm registry exactly as it always does. Use
-`--source osv,gemnasium` to skip npm audit, or `--offline` to make no network requests at all.
+advisory data, to `registry.npmjs.org` and `api.npmjs.org` to read the public metadata and download counts
+of the packages with findings and of the chains the way out weighs (package names only), and `npm audit`
+talks to your configured npm registry exactly as it always does. Use `--source osv,gemnasium` to skip npm
+audit, or `--offline` to make no network requests at all — fixes then read "not checked against the
+registry (offline)".
 
 ## Options
 
@@ -77,7 +90,7 @@ Run `sentinello --help` for the full list. The ones people reach for:
 | `--out <file\|->` | where the advisory goes |
 | `--json` | machine-readable output |
 | `-y, --yes` | accept the first-run download without asking. Required on a non-TTY |
-| `--offline` | use the cache as-is, no network |
+| `--offline` | use the cache as-is, no network — fixes are not checked against npm |
 | `--doctor` | cache status, resolved settings, and what was skipped and why |
 
 Exit codes: `0` completed, `1` a scan or configuration error — including a `--fail-on` run that could

@@ -3,10 +3,12 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 
-// A deterministic npm registry for the --fixture smokes: a loopback HTTP server over recorded packuments
-// (apps/worker/test/fixtures/registry/). Layers are directories searched last-first, so a variant
-// directory overrides only the packages it contains. It also answers npm's download-count API
-// (`/downloads/point/last-week/<name>`) from each layer's `_downloads.json`. Point both
+// A deterministic npm registry: a loopback HTTP server over recorded packuments
+// (apps/worker/test/fixtures/registry/, plus the synthetic layers under tests/fixtures/registry/). Shared
+// by the worker's --fixture smokes, the CLI e2e and the worker/CLI parity test, so none of them ever
+// reaches the live registry, and each can count the requests it caused. Layers are directories searched
+// last-first, so a variant directory overrides only the packages it contains. It also answers npm's
+// download-count API (`/downloads/point/last-week/<name>`) from each layer's `_downloads.json`. Point both
 // SENTINELLO_NPM_REGISTRY_URL and SENTINELLO_NPM_DOWNLOADS_URL at `url`.
 
 export type StubRegistry = {

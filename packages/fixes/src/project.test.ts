@@ -55,6 +55,22 @@ describe('settleProject', function () {
         expect(out.wayOutError).toBeNull()
     })
 
+    it('offline: asks nothing, settles npm unverified marked offline, other ecosystems skipped, and has no way out', async function () {
+        const braces = identity()
+        const pypi = identity({ ecosystem: 'PyPI', advisoryId: 'PYSEC-1' })
+        const out = await settleProject({
+            findings: [braces, pypi],
+            evidence: evidenceFor([[braces, evidence('<=3.0.3', '3.0.3')], [pypi, evidence('<=3.0.3', '3.0.3')]]),
+            graph: null,
+            registry: null,
+            checkedAt: CHECKED_AT
+        })
+        expect(out.settlements.get(fixEvidenceKey(braces))).toMatchObject({ fixStatus: 'unverified', fixCheck: { registry: 'offline', packageDataAsOf: null } })
+        expect(out.settlements.get(fixEvidenceKey(pypi))).toMatchObject({ fixStatus: 'unverified', fixCheck: { registry: 'skipped' } })
+        expect(out.remediations.size).toBe(0)
+        expect(out.wayOutError).toBeNull()
+    })
+
     it('computes one way out for identities that carry the same evidence', async function () {
         const a = identity()
         const b = identity({ advisoryId: 'GHSA-other' })
