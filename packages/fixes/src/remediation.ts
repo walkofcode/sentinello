@@ -7,66 +7,21 @@ import {
     type AlternativeOption,
     type AlternativeReason,
     type ChainVerdict,
-    type Finding,
     type PackageSignals,
     type Remediation,
     type RemediationChain,
     type RemediationHealth
 } from '@sentinello/core'
-import { applyRemediation, type DrizzleDb } from '@sentinello/db'
 import type { NpmPackageSummary } from '@sentinello/feeds'
-import type { FixEvidence, LockRoot, NodeGraph, ResolvedGraph } from '@sentinello/scanners'
+import type { LockRoot, NodeGraph } from '@sentinello/scanners'
 import { createClosureWalker, effectiveDependencies, REMEDIATION_FETCH_BUDGET, unalias, type ClosureWalker, type ProofTarget, type SummaryAnswer } from './closure'
-import { fixEvidenceKey } from './fix-verification'
 import type { RegistryClient } from './registry-client'
 import { createReplacementDataset, type ReplacementDataset } from './replacements'
 
-// The way out for every 'none_released' npm finding of one project scan: package health, one verdict per
-// dependency path (walked through every ancestor, each escape proven over its full closure), curated
-// alternatives (closure-checked), and whether only dev tooling reaches the package. Runs once per project,
-// after settlement, beside it in runProjectScanners; writes remediation_json and folds it back onto the
-// in-memory findings the notifier reads.
-
-export type BuildRemediationsInput = {
-    db: DrizzleDb
-    findings: Finding[]
-    evidence: Map<string, FixEvidence[]>
-    // The project's npm graph; null when the project has none (no lockfile, or one we cannot parse).
-    graph: ResolvedGraph | null
-    registry: RegistryClient
-    checkedAt: number
-    dataset?: ReplacementDataset
-}
-
-const NPM = 'npm'
-
-export async function buildRemediations(input: BuildRemediationsInput): Promise<void> {
-    const wanting = input.findings.filter(function noFix(f) { return f.ecosystem === NPM && f.fixStatus === 'none_released' })
-    if (wanting.length === 0) return
-    // One advisory's guidance is the same for every row that carries the same evidence, so it is computed
-    // once per (package, affected sets, installed copies).
-    const requests: RemediationRequest[] = []
-    const requestOf = new Map<string, number>()
-    const forFinding: { id: string; index: number }[] = []
-    for (const finding of wanting) {
-        // A finding is only ever settled none_released from evidence, so its evidence is there.
-        const evidence = input.evidence.get(fixEvidenceKey(finding)) as FixEvidence[]
-        const target: ProofTarget = { name: finding.packageName, affected: evidence.map(function affectedOf(e) { return e.affected }) }
-        const installed = [...new Set(evidence.flatMap(function installedOf(e) { return e.installed }))].sort()
-        const key = JSON.stringify([target.name, target.affected, installed])
-        let index = requestOf.get(key)
-        if (index === undefined) {
-            index = requests.push({ target, installed }) - 1
-            requestOf.set(key, index)
-        }
-        forFinding.push({ id: finding.id, index })
-    }
-    const built = await computeRemediations(requests, { graph: input.graph?.nodeGraph ?? null, registry: input.registry, checkedAt: input.checkedAt, dataset: input.dataset })
-    const persisted = applyRemediation(input.db, forFinding.map(function write(f) { return { id: f.id, remediation: built[f.index] as Remediation } }))
-    // Settlement already cleared every in-memory way-out; only what was persisted is folded back.
-    const byId = new Map(wanting.map(function entry(f) { return [f.id, f] as const }))
-    for (const [id, remediation] of persisted) (byId.get(id) as Finding).remediation = remediation
-}
+// The way out for a finding settled 'none_released': package health, one verdict per dependency path
+// (walked through every ancestor, each escape proven over its full closure), curated alternatives
+// (closure-checked), and whether only dev tooling reaches the package. Pure: settleProject groups the
+// findings into requests and hands back what this computes; the caller persists it.
 
 export type RemediationRequest = { target: ProofTarget; installed: string[] }
 

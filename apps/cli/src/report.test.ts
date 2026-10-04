@@ -4,7 +4,8 @@ import { defaultOutputFilename, hasUnavailableSource, renderJson, renderMarkdown
 import { parseArgs } from './options'
 import type { CliOptions } from './options'
 import type { ProjectScanResult, ScannerOutcome } from './scan'
-import { settleFix, type RawFinding } from '@sentinello/scanners'
+import { settleFix } from '@sentinello/fixes'
+import type { RawFinding } from '@sentinello/scanners'
 import type { DiscoveredProject } from '@sentinello/scanners'
 
 // A fixed instant so every rendered document is byte-stable: 2026-03-04T05:06:07.000Z.

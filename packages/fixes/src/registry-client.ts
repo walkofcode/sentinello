@@ -1,10 +1,10 @@
 import { errText } from '@sentinello/core'
 import { fetchNpmPackage, fetchNpmWeeklyDownloads, type NpmDownloadsResult, type NpmPackageResult, type NpmPackageSummary } from '@sentinello/feeds'
-import { getRegistryPackages, setRegistryDownloads, upsertRegistryPackage, type DrizzleDb, type RegistryPackageRow } from '@sentinello/db'
 
 // The npm registry as the worker reads it: cache first, the network only on a miss. Shared by fix
 // settlement and the way-out guidance so a package is fetched at most once per scan and at most once per
-// freshness window across scans.
+// freshness window across scans. Where the cache lives is the caller's: the client reads and writes it
+// only through a RegistryStore.
 //
 // One client serves the whole worker batch (runBatch creates it), so its limits are the worker's:
 //   - at most REGISTRY_FETCH_CONCURRENCY requests in flight, across every project being scanned;
@@ -19,7 +19,30 @@ import { getRegistryPackages, setRegistryDownloads, upsertRegistryPackage, type 
 export const REGISTRY_FRESH_MS = 24 * 60 * 60 * 1000
 export const REGISTRY_FETCH_CONCURRENCY = 4
 export const FETCH_BUDGET_EXHAUSTED = 'fetch budget exhausted'
-const NPM = 'npm'
+
+// One cached npm answer, as a store keeps it. `summaryJson` is the reduced packument for 'ok' (parsed
+// here, which owns its shape) and null for 'not_found'. The download count is a separate, rarer fetch,
+// recorded beside the answer.
+export type RegistryRow = {
+    name: string
+    status: 'ok' | 'not_found'
+    summaryJson: string | null
+    checkedAt: number
+    weeklyDownloads: number | null
+    downloadsCheckedAt: number | null
+}
+
+// Where the client keeps its answers. The worker's store is the registry_packages table; the CLI's is a
+// file in its cache directory. Contract:
+//   - get: the stored row for each name it has; a name it does not have is absent from the result;
+//   - put: records an answer ('ok' or 'not_found'), leaving any download count as it is. Only ever called
+//     with an answer: a failed fetch is not one, so the last good row survives it;
+//   - setDownloads: records a count beside an existing answer; a name with no row is left alone.
+export type RegistryStore = {
+    get(names: readonly string[]): Map<string, RegistryRow>
+    put(row: { name: string; status: RegistryRow['status']; summaryJson: string | null; checkedAt: number }): void
+    setDownloads(name: string, weeklyDownloads: number, checkedAt: number): void
+}
 
 // One package's answer as served to a reader, with where it came from. `checkedAt` is when the registry
 // gave the data that is being served — not when it was served.
@@ -50,7 +73,7 @@ export type NpmRegistryClientOptions = {
     abortSignal?: AbortSignal
 }
 
-export function createNpmRegistryClient(db: DrizzleDb, options?: NpmRegistryClientOptions): RegistryClient {
+export function createNpmRegistryClient(store: RegistryStore, options?: NpmRegistryClientOptions): RegistryClient {
     const fetchPackage = options?.fetchPackage ?? function fetchLive(name: string, abortSignal?: AbortSignal) {
         return fetchNpmPackage(name, { abortSignal })
     }
@@ -62,7 +85,7 @@ export function createNpmRegistryClient(db: DrizzleDb, options?: NpmRegistryClie
     const packumentsInFlight = new Map<string, Promise<RegistryEntry>>()
     const downloadsInFlight = new Map<string, Promise<number | null>>()
 
-    function refresh(name: string, previous: RegistryPackageRow | undefined): Promise<RegistryEntry> {
+    function refresh(name: string, previous: RegistryRow | undefined): Promise<RegistryEntry> {
         const running = packumentsInFlight.get(name)
         if (running) return running
         const started = limit(async function fetchOne(): Promise<RegistryEntry> {
@@ -73,7 +96,7 @@ export function createNpmRegistryClient(db: DrizzleDb, options?: NpmRegistryClie
                 // The fetcher is meant to answer, not throw; if one does, it is an answer of "error".
                 result = { status: 'error', reason: errText(err) }
             }
-            return settleFetch(db, name, result, now(), previous)
+            return settleFetch(store, name, result, now(), previous)
         }).finally(function forget() {
             packumentsInFlight.delete(name)
         })
@@ -92,7 +115,7 @@ export function createNpmRegistryClient(db: DrizzleDb, options?: NpmRegistryClie
                 return null
             }
             if (result.status !== 'ok') return null
-            setRegistryDownloads(db, NPM, name, result.weeklyDownloads, now())
+            store.setDownloads(name, result.weeklyDownloads, now())
             return result.weeklyDownloads
         }).finally(function forget() {
             downloadsInFlight.delete(name)
@@ -105,7 +128,7 @@ export function createNpmRegistryClient(db: DrizzleDb, options?: NpmRegistryClie
         lookup: async function lookup(names, lookupOptions): Promise<Map<string, RegistryEntry>> {
             const unique = [...new Set(names)]
             const at = now()
-            const cached = getRegistryPackages(db, NPM, unique)
+            const cached = store.get(unique)
             const out = new Map<string, RegistryEntry>()
             const budget = lookupOptions?.budget
             const pending: Promise<void>[] = []
@@ -134,7 +157,7 @@ export function createNpmRegistryClient(db: DrizzleDb, options?: NpmRegistryClie
         weeklyDownloads: async function weeklyDownloads(names): Promise<Map<string, number | null>> {
             const unique = [...new Set(names)]
             const at = now()
-            const cached = getRegistryPackages(db, NPM, unique)
+            const cached = store.get(unique)
             const out = new Map<string, number | null>()
             const pending: Promise<void>[] = []
             for (const name of unique) {
@@ -154,20 +177,20 @@ export function createNpmRegistryClient(db: DrizzleDb, options?: NpmRegistryClie
     }
 }
 
-function fromCache(row: RegistryPackageRow): RegistryEntry | null {
+function fromCache(row: RegistryRow): RegistryEntry | null {
     if (row.status === 'not_found') return { status: 'not_found', checkedAt: row.checkedAt, origin: 'cache' }
     const summary = parseSummary(row.summaryJson)
     // An unreadable cached summary is no answer: refetch rather than serve it.
     return summary === null ? null : { status: 'ok', summary, checkedAt: row.checkedAt, origin: 'cache' }
 }
 
-function settleFetch(db: DrizzleDb, name: string, result: NpmPackageResult, fetchedAt: number, previous: RegistryPackageRow | undefined): RegistryEntry {
+function settleFetch(store: RegistryStore, name: string, result: NpmPackageResult, fetchedAt: number, previous: RegistryRow | undefined): RegistryEntry {
     if (result.status === 'ok') {
-        upsertRegistryPackage(db, { ecosystem: NPM, name, status: 'ok', summaryJson: JSON.stringify(result.summary), checkedAt: fetchedAt })
+        store.put({ name, status: 'ok', summaryJson: JSON.stringify(result.summary), checkedAt: fetchedAt })
         return { status: 'ok', summary: result.summary, checkedAt: fetchedAt, origin: 'fetched' }
     }
     if (result.status === 'not_found') {
-        upsertRegistryPackage(db, { ecosystem: NPM, name, status: 'not_found', summaryJson: null, checkedAt: fetchedAt })
+        store.put({ name, status: 'not_found', summaryJson: null, checkedAt: fetchedAt })
         return { status: 'not_found', checkedAt: fetchedAt, origin: 'fetched' }
     }
     // The refetch failed. The last good answer is still the best evidence there is, labelled as old.

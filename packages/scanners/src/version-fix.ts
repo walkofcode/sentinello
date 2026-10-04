@@ -1,6 +1,5 @@
-import { Range, satisfies, gte, gt, lt, valid, prerelease } from 'semver'
+import { Range, satisfies, gte, gt, valid } from 'semver'
 import { normalizeSemver } from '@sentinello/versions'
-import type { FixUnevaluableReason } from '@sentinello/core'
 
 // A fix version is a fact about the package registry, not arithmetic on a range. This module used to turn a
 // `<=X` bound into "X+1" and a `>X` bound into "X+1" and report the result as the fix — which is how braces
@@ -9,8 +8,8 @@ import type { FixUnevaluableReason } from '@sentinello/core'
 // invents a version:
 //
 //   - pickStatedFix: the fix a SOURCE states, read only from bounds literally present in its data.
-//   - pickReleasedFix: the fix the REGISTRY proves, given the published version list and every source's
-//     affected set. Pure; the caller fetches the version list.
+//   - the affected set, which @sentinello/fixes' pickReleasedFix tests registry versions against to find
+//     the fix the REGISTRY proves.
 
 // pnpm audit writes this as `patched_versions` to say "no patched version exists". It is a statement, not a
 // range: read as a range it would match nothing and so make every candidate unpatched.
@@ -43,19 +42,6 @@ export type FixEvidence = {
     fixViaParent: boolean
 }
 
-export type PublishedVersion = {
-    version: string
-    deprecated: boolean
-}
-
-// Declared in core, where the verification snapshot that records it lives.
-export type UnknownFixReason = FixUnevaluableReason
-
-export type ReleasedFixResult =
-    | { kind: 'released'; version: string }
-    | { kind: 'none' }
-    | { kind: 'unknown'; reason: UnknownFixReason }
-
 export type PickStatedFixArgs = {
     patched: string | null
     recommendation: string | null
@@ -65,11 +51,11 @@ export type PickStatedFixArgs = {
 
 const VERSION_LITERAL_RE = /\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/g
 
-function isNoPatchedSentinel(input: string): boolean {
+export function isNoPatchedSentinel(input: string): boolean {
     return input.trim() === NO_PATCHED_VERSION_SENTINEL
 }
 
-function parseRangeSafely(input: string | null): Range | null {
+export function parseRangeSafely(input: string | null): Range | null {
     if (!input) return null
     const trimmed = input.trim()
     if (!trimmed || isNoPatchedSentinel(trimmed)) return null
@@ -193,9 +179,9 @@ export function affectedSetFromRange(vulnerable: string): AffectedSet {
 // An affected set ready to test versions against. Null when it cannot be evaluated: incomplete, a range
 // that does not parse, or an exact version normalizeSemver cannot read (it might be the very version a
 // candidate spells differently).
-type EvaluableAffected = { range: Range | null; exact: Set<string> }
+export type EvaluableAffected = { range: Range | null; exact: Set<string> }
 
-function evaluable(affected: AffectedSet): EvaluableAffected | null {
+export function evaluableAffected(affected: AffectedSet): EvaluableAffected | null {
     if (!affected.complete) return null
     let range: Range | null = null
     if (affected.ranges !== null) {
@@ -219,69 +205,16 @@ function evaluable(affected: AffectedSet): EvaluableAffected | null {
 // Whether a set marks a version affected: true / false, or null when the set — or the version — cannot be
 // evaluated (which must never be read as "safe").
 export function affectedSetContains(affected: AffectedSet, version: string): boolean | null {
-    const ev = evaluable(affected)
+    const ev = evaluableAffected(affected)
     if (ev === null) return null
     const normalized = normalizeSemver(version)
     if (normalized === null) return null
-    return isIn(ev, normalized)
+    return evaluableContains(ev, normalized)
 }
 
 // `version` must already be normalized the way the exact entries were: `v1.2.1` and `1.2.1+build` are
 // the release 1.2.1, and an exact entry of 1.2.1 has to catch both spellings.
-function isIn(ev: EvaluableAffected, version: string): boolean {
+export function evaluableContains(ev: EvaluableAffected, version: string): boolean {
     if (ev.exact.has(version)) return true
     return ev.range !== null && ev.range.test(version)
-}
-
-export type PickReleasedFixArgs = {
-    // The registry's published versions. Prereleases and unparseable strings are ignored.
-    published: readonly PublishedVersion[]
-    evidence: readonly FixEvidence[]
-    // Every installed copy's version, across all evidence.
-    installed: readonly string[]
-}
-
-// The lowest version that is published, not a prerelease, not below the highest installed copy, outside
-// EVERY evidence's affected set and inside every stated patched range — a non-deprecated one when any
-// qualifies, else a deprecated one. `none` only when every input could be evaluated; anything that cannot
-// be evaluated is `unknown`, which the caller must never turn into "released" or "no fix released".
-export function pickReleasedFix(args: PickReleasedFixArgs): ReleasedFixResult {
-    if (args.evidence.length === 0) return { kind: 'unknown', reason: 'no_evidence' }
-    if (args.installed.length === 0) return { kind: 'unknown', reason: 'installed_unknown' }
-    let floor = '0.0.0'
-    for (const raw of args.installed) {
-        const v = normalizeSemver(raw)
-        if (v === null) return { kind: 'unknown', reason: 'installed_unknown' }
-        if (gt(v, floor)) floor = v
-    }
-
-    const affected: EvaluableAffected[] = []
-    const patched: Range[] = []
-    for (const e of args.evidence) {
-        const ev = evaluable(e.affected)
-        if (ev === null) return { kind: 'unknown', reason: 'affected_incomplete' }
-        affected.push(ev)
-        if (e.patched === null || e.patched.trim() === '' || isNoPatchedSentinel(e.patched)) continue
-        const range = parseRangeSafely(e.patched)
-        if (range === null) return { kind: 'unknown', reason: 'patched_unparseable' }
-        patched.push(range)
-    }
-
-    // Compared in normalized form, so an alternate spelling of an affected version is still affected;
-    // returned in the registry's own spelling, which is what an install names.
-    let lowest: { version: string; spelled: string } | null = null
-    let lowestCurrent: { version: string; spelled: string } | null = null
-    for (const p of args.published) {
-        const v = valid(p.version)
-        if (v === null || prerelease(v) !== null) continue
-        if (!gte(v, floor)) continue
-        if (affected.some(function hits(ev) { return isIn(ev, v) })) continue
-        if (!patched.every(function inside(range) { return satisfies(v, range) })) continue
-        const candidate = { version: v, spelled: p.version }
-        if (lowest === null || lt(v, lowest.version)) lowest = candidate
-        if (!p.deprecated && (lowestCurrent === null || lt(v, lowestCurrent.version))) lowestCurrent = candidate
-    }
-    const chosen = lowestCurrent ?? lowest
-    if (chosen === null) return { kind: 'none' }
-    return { kind: 'released', version: chosen.spelled }
 }

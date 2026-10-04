@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { affectedSetText, settleFix, type RegistryView } from './fix-settlement'
-import type { FixEvidence } from './version-fix'
+import type { FixEvidence } from '@sentinello/scanners'
+import { affectedSetText, settleFix, type RegistryView } from './settle'
 
 // settleFix maps pickReleasedFix's tri-state onto the persisted status and writes the snapshot that
 // explains it. The mapping's job is to keep the three answers apart: only the registry proving a version

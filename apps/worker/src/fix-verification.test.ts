@@ -2,8 +2,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+    applyFixSettlement,
+    applyRemediation,
     listCurrentFindingsForProject,
     listFindingsForProject,
     openDb,
@@ -21,8 +23,18 @@ import type { FixEvidence, RawFinding, ScannerPlugin, ScanResult } from '@sentin
 import { toWebhookVulnerability } from '@sentinello/notifications'
 import { toExportFinding } from './notifier'
 import { runProjectScanners, type ProjectScanOutcome } from './runner'
-import { publishedVersions, registryView, settleFixes } from './fix-verification'
-import type { RegistryClient, RegistryEntry } from './registry-client'
+import { fixEvidenceKey, settleProject, type RegistryClient, type RegistryEntry } from '@sentinello/fixes'
+import { verifyFixes } from './fix-verification'
+
+// Pass-throughs, so a test can see how often and in what order the adapter calls them.
+vi.mock('@sentinello/fixes', async function spyFixes(importOriginal) {
+    const actual = await importOriginal<typeof import('@sentinello/fixes')>()
+    return { ...actual, settleProject: vi.fn(actual.settleProject) }
+})
+vi.mock('@sentinello/db', async function spyDb(importOriginal) {
+    const actual = await importOriginal<typeof import('@sentinello/db')>()
+    return { ...actual, applyFixSettlement: vi.fn(actual.applyFixSettlement), applyRemediation: vi.fn(actual.applyRemediation) }
+})
 
 // Settlement runs once per project after every source, over every source's evidence. These drive the real
 // runner with fake scanners and a fake registry, and read the persisted row back — the row is what every
@@ -122,6 +134,7 @@ function activeRows() {
 }
 
 beforeEach(async function setup() {
+    vi.clearAllMocks()
     dir = await mkdtemp(join(tmpdir(), 'sentinello-fixver-'))
     const opened = openDb({ dbPath: join(dir, 'test.sqlite') })
     db = opened.db
@@ -319,30 +332,58 @@ describe('reading a settled or unsettled row', function () {
     })
 })
 
-describe('settleFixes / registryView', function () {
+describe('verifyFixes', function () {
+    const braces = raw('osv', 'GHSA-vfj7', '<=3.0.3', { packageName: 'braces', installedVersion: '3.0.3', fixInputs: evidence('osv', '<=3.0.3', '3.0.3') })
+    function bracesRegistry() {
+        return fakeRegistry({ braces: { status: 'ok', summary: summary('braces', ['3.0.3']), checkedAt: T0, origin: 'cache' } })
+    }
+
     it('does nothing for a scan with no findings', async function () {
         const registry = fakeRegistry({})
-        await settleFixes({ db, findings: [], evidence: new Map(), registry, checkedAt: T0 })
+        expect(await verifyFixes({ db, findings: [], evidence: new Map(), graph: null, registry, checkedAt: T0 })).toEqual({ wayOutError: null })
         expect(registry.asked).toEqual([])
     })
 
     it('settles a finding with no recorded evidence as unverified, never as a verdict', async function () {
         await scan([scanner('osv', [raw('osv', 'GHSA-pkg-1', '<1.1.0')])], fakeRegistry({ pkg: PKG_RELEASES }))
         const findings = listFindingsForProject(db, PROJECT_ID)
-        await settleFixes({ db, findings, evidence: new Map(), registry: fakeRegistry({ pkg: PKG_RELEASES }), checkedAt: T0 })
+        await verifyFixes({ db, findings, evidence: new Map(), graph: null, registry: fakeRegistry({ pkg: PKG_RELEASES }), checkedAt: T0 })
         expect(findings[0]).toMatchObject({ fixStatus: 'unverified', fixVersion: null })
         expect(findings[0]?.fixCheck?.unevaluable).toBe('no_evidence')
     })
 
-    it('maps every registry answer onto what settlement may conclude from it', function () {
-        expect(registryView(undefined)).toEqual({ status: 'error' })
-        expect(registryView({ status: 'error', reason: 'x' })).toEqual({ status: 'error' })
-        expect(registryView({ status: 'not_found', checkedAt: 5, origin: 'cache' })).toEqual({ status: 'not_found', dataAsOf: 5 })
-        expect(registryView({ status: 'ok', summary: summary('p', ['1.0.0'], ['1.0.0']), checkedAt: 7, origin: 'cache' }))
-            .toEqual({ status: 'ok', published: [{ version: '1.0.0', deprecated: true }], dataAsOf: 7 })
-        expect(publishedVersions(summary('p', ['1.0.0', '2.0.0']))).toEqual([
-            { version: '1.0.0', deprecated: false },
-            { version: '2.0.0', deprecated: false }
-        ])
+    // D-a: one settleProject call per project, then the settlements, then the way out — never the other
+    // way round, since only a row already settled none_released may carry a way out.
+    it('calls settleProject once per project scan and persists the settlements before the way out', async function () {
+        await scan([scanner('osv', [braces]), scanner('npm-audit', [raw('npm-audit', '1001', '<1.1.0')])], bracesRegistry())
+        expect(settleProject).toHaveBeenCalledTimes(1)
+        const settled = vi.mocked(applyFixSettlement).mock.invocationCallOrder
+        const wayOut = vi.mocked(applyRemediation).mock.invocationCallOrder
+        expect(settled).toHaveLength(1)
+        expect(wayOut).toHaveLength(1)
+        expect(settled[0]).toBeLessThan(wayOut[0] as number)
+        expect(activeRows().find(function b(r) { return r.packageName === 'braces' })?.remediationJson).not.toBeNull()
+    })
+
+    it('keeps the settlements and reports the error when the way out cannot be written', async function () {
+        await scan([scanner('osv', [braces])], bracesRegistry())
+        sqlite.exec("CREATE TRIGGER no_way_out BEFORE UPDATE OF remediation_json ON findings WHEN NEW.remediation_json IS NOT NULL BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END")
+        const findings = listFindingsForProject(db, PROJECT_ID)
+        const evidenceOf = new Map(findings.map(function own(f): [string, FixEvidence[]] { return [fixEvidenceKey(f), [braces.fixInputs]] }))
+        const result = await verifyFixes({ db, findings, evidence: evidenceOf, graph: null, registry: bracesRegistry(), checkedAt: T0 })
+        expect(result).toEqual({ wayOutError: 'disk I/O error' })
+        expect(activeRows()[0]).toMatchObject({ fixStatus: 'none_released', remediationJson: null })
+        expect(findings[0]).toMatchObject({ fixStatus: 'none_released', remediation: null })
+    })
+
+    it('logs a way out that could not be built, and still notifies', async function () {
+        const error = vi.spyOn(console, 'error').mockImplementation(function quiet() { return undefined })
+        const registry = bracesRegistry()
+        registry.weeklyDownloads = async function broken() { throw new Error('database is locked') }
+        const notified: ProjectScanOutcome[] = []
+        await scan([scanner('osv', [braces])], registry, notified)
+        expect(error).toHaveBeenCalledWith('[runner] way-out guidance failed for project ' + PROJECT_ID + ': database is locked')
+        expect(notified).toHaveLength(1)
+        error.mockRestore()
     })
 })

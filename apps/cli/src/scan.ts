@@ -7,8 +7,6 @@ import {
     mergeResolvedGraphs,
     npmAuditPlugin,
     reconcileAgainstReported,
-    settleFix,
-    type FixSettlement,
     resolveProjectGraphs,
     type ReportedAdvisory,
     type DiscoveredProject,
@@ -17,6 +15,7 @@ import {
     type ResolverResult,
     type ScannerPlugin
 } from '@sentinello/scanners'
+import { settleFix, type FixSettlement } from '@sentinello/fixes'
 import { cacheEcosystemKey, type LoadedCache } from './cache/lookup'
 import type { SourceId } from './cache/meta'
 

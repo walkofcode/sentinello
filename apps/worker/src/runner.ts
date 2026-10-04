@@ -29,12 +29,12 @@ import {
     type ScannerPlugin
 } from '@sentinello/scanners'
 import { errText } from '@sentinello/feeds'
+import { createNpmRegistryClient, fixEvidenceKey, type RegistryClient } from '@sentinello/fixes'
 import { CONFIG_KEYS } from './config-loader'
 import { readGitBranch } from './discovery'
-import { fixEvidenceKey, settleFixes } from './fix-verification'
+import { verifyFixes } from './fix-verification'
 import { notifyForCompletedScan } from './notifier'
-import { buildRemediations } from './remediation'
-import { createNpmRegistryClient, type RegistryClient } from './registry-client'
+import { createDbRegistryStore } from './registry-store'
 
 const SCANNER_TIMEOUT_MS = 90_000
 
@@ -77,7 +77,7 @@ export async function runBatch(input: RunBatchInput): Promise<ProjectScanOutcome
     const workerCount = Math.max(1, Math.min(input.parallelism, queue.length))
     // One registry client for the whole batch: its concurrency limit and in-flight map are per worker,
     // not per project, so parallel project scans share both.
-    const registry = createNpmRegistryClient(input.db, { abortSignal: input.abortSignal })
+    const registry = createNpmRegistryClient(createDbRegistryStore(input.db), { abortSignal: input.abortSignal })
     const workers: Promise<void>[] = []
     for (let i = 0; i < workerCount; i++) {
         workers.push(workerLoop(input, registry, queue, outcomes))
@@ -163,29 +163,21 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
     }
     recordCorroborations(input.db, outcomes, corroborations)
     // Fix settlement also waits for every source: the fix has to clear every source's affected set and
-    // every installed copy. A failure here (the database, not the registry — registry trouble already
-    // degrades to `unverified` inside) leaves the rows unsettled, which read as "rescan pending"; it never
-    // fails the scan or skips notification.
+    // every installed copy. With it comes the way out for every finding settled `none_released`, from the
+    // same registry data and the npm lockfile's node graph. Neither ever fails the scan or skips
+    // notification:
+    //   - a settlement failure (the database, not the registry — registry trouble already degrades to
+    //     `unverified` inside) leaves the rows unsettled, which read as "rescan pending", and no way out;
+    //   - a way-out failure keeps the settlements and leaves those findings without guidance (their Fix
+    //     line still says no fixed version is released).
     const settledFindings = outcomes.flatMap(function findingsOf(o) { return o.findings })
     const evidence = evidenceByFinding(reportedByPackage)
-    const registry = input.registry ?? createNpmRegistryClient(input.db, { abortSignal: input.abortSignal })
-    const checkedAt = Date.now()
-    let settled = false
+    const registry = input.registry ?? createNpmRegistryClient(createDbRegistryStore(input.db), { abortSignal: input.abortSignal })
     try {
-        await settleFixes({ db: input.db, findings: settledFindings, evidence, registry, checkedAt })
-        settled = true
+        const { wayOutError } = await verifyFixes({ db: input.db, findings: settledFindings, evidence, graph: npmGraph, registry, checkedAt: Date.now() })
+        if (wayOutError !== null) console.error('[runner] way-out guidance failed for project ' + project.id + ': ' + wayOutError)
     } catch (err) {
         console.error('[runner] fix settlement failed for project ' + project.id + ': ' + errText(err))
-    }
-    // The way out for every finding settled `none_released`, from the same registry data and the npm
-    // lockfile's node graph. A failure here leaves those findings without guidance (their Fix line still
-    // says no fixed version is released); like settlement, it never fails the scan or skips notification.
-    if (settled) {
-        try {
-            await buildRemediations({ db: input.db, findings: settledFindings, evidence, graph: npmGraph, registry, checkedAt })
-        } catch (err) {
-            console.error('[runner] way-out guidance failed for project ' + project.id + ': ' + errText(err))
-        }
     }
     // Notification comes AFTER corroboration and settlement, for the whole project at once, and this
     // ordering is load-bearing rather than tidy. Escalation to the worst grade any source gave a finding
@@ -212,7 +204,7 @@ function defaultNotifier(db: DrizzleDb): (outcome: ProjectScanOutcome) => Promis
     }
 }
 
-// Every survivor's accumulated evidence, keyed the way settleFixes looks findings up. A survivor is
+// Every survivor's accumulated evidence, keyed the way settleProject looks findings up. A survivor is
 // registered under each of its identity keys, so the same object is visited more than once.
 function evidenceByFinding(reportedByPackage: Map<string, Map<string, ReportedAdvisory>>): Map<string, FixEvidence[]> {
     const out = new Map<string, FixEvidence[]>()

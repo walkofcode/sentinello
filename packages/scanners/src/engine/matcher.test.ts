@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { matchAdvisories } from './matcher'
-import { affectedSetContains, pickReleasedFix } from '../version-fix'
+import { affectedSetContains } from '../version-fix'
 import { semverComparator } from '@sentinello/versions'
 import type { CanonicalAdvisory, VersionRange } from './types'
 import type { ResolvedPackage } from '../resolver/types'
@@ -372,8 +372,7 @@ describe('matchAdvisories — fix evidence keeps comparator semantics', function
         const inputs = evidenceFor('1.2.1', [{ type: 'SEMVER', introduced: '1.2', introducedExclusive: true, fixed: '2.0.0' }])
         expect(inputs?.affected).toEqual({ ranges: '>1.2.0 <2.0.0', exact: [], complete: true })
         expect(affectedSetContains(inputs!.affected, '1.2.1')).toBe(true)
-        expect(pickReleasedFix({ published: [{ version: '1.2.1', deprecated: false }, { version: '2.0.0', deprecated: false }], evidence: [inputs!], installed: ['1.2.1'] }))
-            .toEqual({ kind: 'released', version: '2.0.0' })
+        expect(affectedSetContains(inputs!.affected, '2.0.0')).toBe(false)
     })
 
     it('writes a partial inclusive upper bound as the full version the matcher compared', function () {
@@ -397,11 +396,10 @@ describe('matchAdvisories — fix evidence keeps comparator semantics', function
     it('keeps malware with no version data complete, and malware with only dropped ranges incomplete', function () {
         const none = evidenceFor('1.2.1', [], 'malware')
         expect(none?.affected).toEqual({ ranges: '*', exact: [], complete: true })
-        expect(pickReleasedFix({ published: [{ version: '2.0.0', deprecated: false }], evidence: [none!], installed: ['1.2.1'] })).toEqual({ kind: 'none' })
+        expect(affectedSetContains(none!.affected, '2.0.0')).toBe(true)
 
         const dropped = evidenceFor('1.2.1', [{ type: 'GIT', introduced: 'abc', fixed: 'def' }], 'malware')
         expect(dropped?.affected).toEqual({ ranges: '*', exact: [], complete: false })
-        expect(pickReleasedFix({ published: [{ version: '2.0.0', deprecated: false }], evidence: [dropped!], installed: ['1.2.1'] }))
-            .toEqual({ kind: 'unknown', reason: 'affected_incomplete' })
+        expect(affectedSetContains(dropped!.affected, '2.0.0')).toBeNull()
     })
 })

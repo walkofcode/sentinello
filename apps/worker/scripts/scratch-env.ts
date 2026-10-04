@@ -7,7 +7,7 @@ import type { Finding, Project } from '@sentinello/core'
 import type { NpmPackageSummary } from '@sentinello/feeds'
 import type { ScannerPlugin } from '@sentinello/scanners'
 import type { ProjectScanOutcome } from '../src/runner'
-import type { RegistryClient, RegistryEntry } from '../src/registry-client'
+import type { RegistryClient, RegistryEntry } from '@sentinello/fixes'
 
 // The one bootstrap every scratch tool goes through (the smoke scripts, and later print-advisory and the
 // fleet rescan). A scratch run rescans real projects against a COPY of the live database; this file is
@@ -111,7 +111,8 @@ export async function openScratchEnv(options: OpenScratchEnvOptions): Promise<Sc
     const { buildAdvisoryMarkdown } = await import('@sentinello/core')
     const { toWebhookVulnerability } = await import('@sentinello/notifications')
     const { runProjectScanners } = await import('../src/runner')
-    const { createNpmRegistryClient } = await import('../src/registry-client')
+    const { createNpmRegistryClient } = await import('@sentinello/fixes')
+    const { createDbRegistryStore } = await import('../src/registry-store')
     const { toExportFinding } = await import('../src/notifier')
     const { CONFIG_KEYS } = await import('../src/config-loader')
 
@@ -125,7 +126,7 @@ export async function openScratchEnv(options: OpenScratchEnvOptions): Promise<Sc
 
     const snapshot: RegistrySnapshotEntry[] = []
     const notifications: RecordedNotification[] = []
-    const live = createNpmRegistryClient(db)
+    const live = createNpmRegistryClient(createDbRegistryStore(db))
     const registry: RegistryClient = {
         lookup: async function recordedLookup(names, options) {
             const served = await live.lookup(names, options)

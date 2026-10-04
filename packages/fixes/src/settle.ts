@@ -1,6 +1,16 @@
-import type { FixCheck, FixCheckSource, FixStatus } from '@sentinello/core'
-import { highestVersion } from '@sentinello/versions'
-import { NO_PATCHED_VERSION_SENTINEL, pickReleasedFix, type AffectedSet, type FixEvidence, type PublishedVersion } from './version-fix'
+import { gt, gte, lt, prerelease, satisfies, valid, type Range } from 'semver'
+import type { FixCheck, FixCheckSource, FixStatus, FixUnevaluableReason } from '@sentinello/core'
+import {
+    evaluableAffected,
+    evaluableContains,
+    isNoPatchedSentinel,
+    NO_PATCHED_VERSION_SENTINEL,
+    parseRangeSafely,
+    type AffectedSet,
+    type EvaluableAffected,
+    type FixEvidence
+} from '@sentinello/scanners'
+import { highestVersion, normalizeSemver } from '@sentinello/versions'
 
 // What the registry had for the package, as the settlement needs it. `dataAsOf` is when that data was
 // fetched — recorded on the finding so its "checked" date never moves when the cache is refreshed later.
@@ -93,4 +103,70 @@ function sourcesOf(evidence: readonly FixEvidence[]): FixCheckSource[] {
         out.push(entry)
     }
     return out
+}
+
+export type PublishedVersion = {
+    version: string
+    deprecated: boolean
+}
+
+// Declared in core, where the verification snapshot that records it lives.
+export type UnknownFixReason = FixUnevaluableReason
+
+export type ReleasedFixResult =
+    | { kind: 'released'; version: string }
+    | { kind: 'none' }
+    | { kind: 'unknown'; reason: UnknownFixReason }
+
+export type PickReleasedFixArgs = {
+    // The registry's published versions. Prereleases and unparseable strings are ignored.
+    published: readonly PublishedVersion[]
+    evidence: readonly FixEvidence[]
+    // Every installed copy's version, across all evidence.
+    installed: readonly string[]
+}
+
+// The lowest version that is published, not a prerelease, not below the highest installed copy, outside
+// EVERY evidence's affected set and inside every stated patched range — a non-deprecated one when any
+// qualifies, else a deprecated one. `none` only when every input could be evaluated; anything that cannot
+// be evaluated is `unknown`, which the caller must never turn into "released" or "no fix released".
+export function pickReleasedFix(args: PickReleasedFixArgs): ReleasedFixResult {
+    if (args.evidence.length === 0) return { kind: 'unknown', reason: 'no_evidence' }
+    if (args.installed.length === 0) return { kind: 'unknown', reason: 'installed_unknown' }
+    let floor = '0.0.0'
+    for (const raw of args.installed) {
+        const v = normalizeSemver(raw)
+        if (v === null) return { kind: 'unknown', reason: 'installed_unknown' }
+        if (gt(v, floor)) floor = v
+    }
+
+    const affected: EvaluableAffected[] = []
+    const patched: Range[] = []
+    for (const e of args.evidence) {
+        const ev = evaluableAffected(e.affected)
+        if (ev === null) return { kind: 'unknown', reason: 'affected_incomplete' }
+        affected.push(ev)
+        if (e.patched === null || e.patched.trim() === '' || isNoPatchedSentinel(e.patched)) continue
+        const range = parseRangeSafely(e.patched)
+        if (range === null) return { kind: 'unknown', reason: 'patched_unparseable' }
+        patched.push(range)
+    }
+
+    // Compared in normalized form, so an alternate spelling of an affected version is still affected;
+    // returned in the registry's own spelling, which is what an install names.
+    let lowest: { version: string; spelled: string } | null = null
+    let lowestCurrent: { version: string; spelled: string } | null = null
+    for (const p of args.published) {
+        const v = valid(p.version)
+        if (v === null || prerelease(v) !== null) continue
+        if (!gte(v, floor)) continue
+        if (affected.some(function hits(ev) { return evaluableContains(ev, v) })) continue
+        if (!patched.every(function inside(range) { return satisfies(v, range) })) continue
+        const candidate = { version: v, spelled: p.version }
+        if (lowest === null || lt(v, lowest.version)) lowest = candidate
+        if (!p.deprecated && (lowestCurrent === null || lt(v, lowestCurrent.version))) lowestCurrent = candidate
+    }
+    const chosen = lowestCurrent ?? lowest
+    if (chosen === null) return { kind: 'none' }
+    return { kind: 'released', version: chosen.spelled }
 }

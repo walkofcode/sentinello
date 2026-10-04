@@ -1,10 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { semverComparator, type VersionRange } from '@sentinello/versions'
-import { matchAdvisories } from './engine/matcher'
-import { normalizeOneVulnerability, type DepClassifier, type Vulnerability } from './npm-audit-parse'
-import type { RawFinding } from './types'
-import { pickReleasedFix, type PublishedVersion } from './version-fix'
+import { matchAdvisories, normalizeOneVulnerability, type DepClassifier, type RawFinding, type Vulnerability } from '@sentinello/scanners'
+import { pickReleasedFix, type PublishedVersion } from './settle'
 
 // The 35 fixes the live instance was recommending on 2026-10-03 that npm never published — 296 active
 // findings. Each tuple is pushed back through the code path that produced it (npm-audit's normalizer or the

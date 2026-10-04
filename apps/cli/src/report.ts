@@ -9,7 +9,8 @@ import {
     type ExportScope,
     type Severity
 } from '@sentinello/core'
-import type { FixSettlement, RawFinding } from '@sentinello/scanners'
+import type { FixSettlement } from '@sentinello/fixes'
+import type { RawFinding } from '@sentinello/scanners'
 import type { CliOptions, DepTypeFilter } from './options'
 import type { ProjectScanResult } from './scan'
 

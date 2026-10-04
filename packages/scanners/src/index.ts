@@ -26,21 +26,22 @@ export type { OsvAdvisory, OsvLookup, OsvRange, OsvScannerDeps } from './osv'
 export { createGemnasiumScanner, GEMNASIUM_SCANNER_NAME } from './gemnasium'
 export type { GemnasiumAdvisory, GemnasiumLookup, GemnasiumRange, GemnasiumScannerDeps } from './gemnasium'
 export { matchAdvisories } from './engine/matcher'
+export { normalizeOneVulnerability, type DepClassifier, type Vulnerability } from './npm-audit-parse'
 // Version semantics live in @sentinello/versions; re-exported here so existing consumers keep one import.
 export { semverComparator, pep440Comparator } from '@sentinello/versions'
 export { reconcileAgainstReported, findingIdentityKeys, escalatedSeverity } from './engine/reconcile'
 export {
     pickStatedFix,
-    pickReleasedFix,
     affectedSetContains,
+    evaluableAffected,
+    evaluableContains,
+    isNoPatchedSentinel,
+    parseRangeSafely,
     NO_PATCHED_VERSION_SENTINEL,
     type AffectedSet,
-    type FixEvidence,
-    type PublishedVersion,
-    type ReleasedFixResult,
-    type UnknownFixReason
+    type EvaluableAffected,
+    type FixEvidence
 } from './version-fix'
-export { settleFix, affectedSetText, type FixSettlement, type RegistryView, type SettleFixArgs } from './fix-settlement'
 export type { CorroborationEvent, ReconcileResult, ReportedAdvisory } from './engine/reconcile'
 export type { CanonicalAdvisory, VersionRange, VersionComparator } from './engine/types'
 

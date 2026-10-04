@@ -1,54 +1,33 @@
-import { applyFixSettlement, type DrizzleDb, type FixSettlementWrite } from '@sentinello/db'
-import type { Finding, FixFields } from '@sentinello/core'
-import type { NpmPackageSummary } from '@sentinello/feeds'
-import { settleFix, type FixEvidence, type PublishedVersion, type RegistryView } from '@sentinello/scanners'
-import type { RegistryClient, RegistryEntry } from './registry-client'
+import { errText, type Finding, type FixFields } from '@sentinello/core'
+import { applyFixSettlement, applyRemediation, type DrizzleDb } from '@sentinello/db'
+import { fixEvidenceKey, settleProject, type FixSettlement, type RegistryClient } from '@sentinello/fixes'
+import type { FixEvidence, ResolvedGraph } from '@sentinello/scanners'
 
-// Settles every surviving finding of one project scan against the registry, after EVERY source has run.
-//
-// Why here and not inside each scanner's pass: the fix must be outside every source's affected set and at
-// or above every installed copy, and each scanner's own pass sees only the evidence gathered so far — its
-// row is written before later sources run. Settling once, over all evidence, is what makes the answer
-// independent of scanner order.
-//
-// Only npm is checked against a registry (D1); every other ecosystem settles as `unverified` with the
-// fix its sources state.
+// The worker's side of the shared fix logic: one settleProject call per project scan, after every source
+// has run, then what it returned is persisted — the settlements first, then the way out — and folded back
+// onto the in-memory findings, the objects the notifier reads, so a notification describes exactly what
+// the row now holds.
 
-export type SettleFixesInput = {
+export type VerifyFixesInput = {
     db: DrizzleDb
     findings: Finding[]
     // Every source's and every installed copy's evidence, keyed by fixEvidenceKey of the surviving finding.
     evidence: Map<string, FixEvidence[]>
+    // The project's npm graph; null when the project has none (no lockfile, or one we cannot parse).
+    graph: ResolvedGraph | null
     registry: RegistryClient
     checkedAt: number
 }
 
-export function fixEvidenceKey(identity: { source: string; ecosystem: string; advisoryId: string; packageName: string }): string {
-    return identity.source + '|' + identity.ecosystem + '|' + identity.advisoryId + '|' + identity.packageName
-}
-
-const REGISTRY_ECOSYSTEM = 'npm'
-
-// Writes fix_status, fix_version, fix_available and fix_check_json for every finding in one transaction,
-// then folds what was persisted back onto the in-memory findings — the objects the notifier reads — so a
-// notification describes exactly the fix the row now holds.
-export async function settleFixes(input: SettleFixesInput): Promise<void> {
-    if (input.findings.length === 0) return
-    const npmNames = input.findings
-        .filter(function onRegistry(f) { return f.ecosystem === REGISTRY_ECOSYSTEM })
-        .map(function nameOf(f) { return f.packageName })
-    const entries = npmNames.length > 0 ? await input.registry.lookup(npmNames) : new Map<string, RegistryEntry>()
-    const writes: FixSettlementWrite[] = []
-    for (const finding of input.findings) {
-        const view = finding.ecosystem === REGISTRY_ECOSYSTEM ? registryView(entries.get(finding.packageName)) : null
-        const settled = settleFix({
-            evidence: input.evidence.get(fixEvidenceKey(finding)) ?? [],
-            registry: view,
-            checkedAt: input.checkedAt
-        })
-        writes.push({ id: finding.id, ...settled })
-    }
-    const persisted = applyFixSettlement(input.db, writes)
+// Rejects when the settlements could not be computed or written: the rows stay unsettled, which reads
+// "rescan pending". A way out that could not be computed or written does not reject — the settlements are
+// already persisted and stand — it is returned as `wayOutError`, and those findings carry no way out.
+export async function verifyFixes(input: VerifyFixesInput): Promise<{ wayOutError: string | null }> {
+    const result = await settleProject(input)
+    const persisted = applyFixSettlement(input.db, input.findings.map(function write(finding) {
+        // settleProject settles every finding it is given.
+        return { id: finding.id, ...(result.settlements.get(fixEvidenceKey(finding)) as FixSettlement) }
+    }))
     for (const finding of input.findings) {
         // Every finding was written above, so every one has its persisted fields.
         const fields = persisted.get(finding.id) as FixFields
@@ -56,21 +35,22 @@ export async function settleFixes(input: SettleFixesInput): Promise<void> {
         finding.fixVersion = fields.fixVersion
         finding.fixAvailable = fields.fixAvailable
         finding.fixCheck = fields.fixCheck
-        // Always null here: the way-out, if any, is written after settlement (buildRemediations).
+        // Always null here: settlement clears the way out, which is written next.
         finding.remediation = fields.remediation
     }
-}
-
-// What the settlement may conclude from one registry answer. A missing entry (the lookup did not answer
-// for the package) is an error: unknown, never "no fix".
-export function registryView(entry: RegistryEntry | undefined): RegistryView {
-    if (!entry || entry.status === 'error') return { status: 'error' }
-    if (entry.status === 'not_found') return { status: 'not_found', dataAsOf: entry.checkedAt }
-    return { status: entry.status, published: publishedVersions(entry.summary), dataAsOf: entry.checkedAt }
-}
-
-export function publishedVersions(summary: NpmPackageSummary): PublishedVersion[] {
-    return Object.entries(summary.versions).map(function toPublished([version, meta]) {
-        return { version, deprecated: meta.deprecated !== null }
-    })
+    if (result.wayOutError !== null) return { wayOutError: result.wayOutError }
+    try {
+        const written = applyRemediation(input.db, input.findings.flatMap(function write(finding) {
+            const remediation = result.remediations.get(fixEvidenceKey(finding))
+            return remediation ? [{ id: finding.id, remediation }] : []
+        }))
+        // Only what was persisted is folded back.
+        for (const finding of input.findings) {
+            const remediation = written.get(finding.id)
+            if (remediation) finding.remediation = remediation
+        }
+    } catch (err) {
+        return { wayOutError: errText(err) }
+    }
+    return { wayOutError: null }
 }

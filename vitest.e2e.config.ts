@@ -13,7 +13,8 @@ export default defineConfig({
         alias: {
             '@sentinello/core': fileURLToPath(new URL('./packages/core/src/index.ts', import.meta.url)),
             '@sentinello/scanners': fileURLToPath(new URL('./packages/scanners/src/index.ts', import.meta.url)),
-            '@sentinello/feeds': fileURLToPath(new URL('./packages/feeds/src/index.ts', import.meta.url))
+            '@sentinello/feeds': fileURLToPath(new URL('./packages/feeds/src/index.ts', import.meta.url)),
+            '@sentinello/fixes': fileURLToPath(new URL('./packages/fixes/src/index.ts', import.meta.url))
         }
     },
     test: {

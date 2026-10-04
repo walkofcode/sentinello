@@ -81,6 +81,9 @@ importers:
       '@sentinello/feeds':
         specifier: workspace:*
         version: link:../../packages/feeds
+      '@sentinello/fixes':
+        specifier: workspace:*
+        version: link:../../packages/fixes
       '@sentinello/scanners':
         specifier: workspace:*
         version: link:../../packages/scanners
@@ -230,6 +233,9 @@ importers:
       '@sentinello/feeds':
         specifier: workspace:*
         version: link:../../packages/feeds
+      '@sentinello/fixes':
+        specifier: workspace:*
+        version: link:../../packages/fixes
       '@sentinello/notifications':
         specifier: workspace:*
         version: link:../../packages/notifications
@@ -248,9 +254,6 @@ importers:
       js-yaml:
         specifier: 4.3.2
         version: 4.3.2
-      module-replacements:
-        specifier: 3.4.0
-        version: 3.4.0
       node-cron:
         specifier: 4.2.1
         version: 4.2.1
@@ -359,6 +362,34 @@ importers:
       semver:
         specifier: 7.7.4
         version: 7.7.4
+
+  packages/fixes:
+    dependencies:
+      '@sentinello/core':
+        specifier: workspace:*
+        version: link:../core
+      '@sentinello/feeds':
+        specifier: workspace:*
+        version: link:../feeds
+      '@sentinello/scanners':
+        specifier: workspace:*
+        version: link:../scanners
+      '@sentinello/versions':
+        specifier: workspace:*
+        version: link:../versions
+      module-replacements:
+        specifier: 3.4.0
+        version: 3.4.0
+      semver:
+        specifier: 7.7.4
+        version: 7.7.4
+    devDependencies:
+      '@types/node':
+        specifier: 25.6.0
+        version: 25.6.0
+      '@types/semver':
+        specifier: 7.7.1
+        version: 7.7.1
 
   packages/notifications:
     dependencies:

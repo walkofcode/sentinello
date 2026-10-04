@@ -10,7 +10,7 @@ import { buildAdvisoryMarkdown, parseFixCheck, type FixCheck, type Project } fro
 import type { NpmPackageSummary } from '@sentinello/feeds'
 import type { RawFinding, ScannerPlugin, ScanResult } from '@sentinello/scanners'
 import { toExportFinding } from './notifier'
-import { REGISTRY_FRESH_MS } from './registry-client'
+import { REGISTRY_FRESH_MS } from '@sentinello/fixes'
 import { runProjectScanners, type ProjectScanOutcome } from './runner'
 
 // The offline matrix (plan → Verification → final milestone). The worker settles every npm finding
