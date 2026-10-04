@@ -112,6 +112,14 @@ type RowProps = {
     now: number
 }
 
+// What the upgrade column says when no row has a released fix: "no fixed version released" only when
+// some row proved it, otherwise that nothing was confirmed against the registry. Never a stated version.
+function NoReleasedUpgrade({ group }: { group: LibraryGroup }) {
+    const t = useTranslations('Findings')
+    if (group.noFixReleased) return <span className="font-medium text-destructive">{t('noFixReleased')}</span>
+    return <span className="text-muted-foreground">{t('fixUnverified')}</span>
+}
+
 function LibraryRows({ group, projectId, mutes, isOpen, onToggle, now }: RowProps) {
     const t = useTranslations('Findings')
     const unmutedAdvisories = group.findings
@@ -147,7 +155,7 @@ function LibraryRows({ group, projectId, mutes, isOpen, onToggle, now }: RowProp
                     {group.recommendedUpgrade ? (
                         <Badge variant="default" className="font-mono">{'>= ' + group.recommendedUpgrade}</Badge>
                     ) : (
-                        <span className="text-muted-foreground">{t('noPatchPublished')}</span>
+                        <NoReleasedUpgrade group={group} />
                     )}
                 </TableCell>
                 <TableCell className="text-right">
@@ -207,7 +215,7 @@ function LibraryCard({ group, projectId, mutes, isOpen, onToggle, now }: RowProp
                         {group.recommendedUpgrade ? (
                             <Badge variant="default" className="font-mono">{'>= ' + group.recommendedUpgrade}</Badge>
                         ) : (
-                            <span className="text-xs text-muted-foreground">{t('noPatchPublished')}</span>
+                            <span className="text-xs"><NoReleasedUpgrade group={group} /></span>
                         )}
                     </div>
                 </div>
@@ -249,9 +257,8 @@ function LibraryCard({ group, projectId, mutes, isOpen, onToggle, now }: RowProp
                                 <div className="mt-2">
                                     <VersionChain
                                         installed={f.installedVersion}
-                                        fix={f.fixVersion}
                                         vulnerableRange={f.vulnerableRange}
-                                        fixAvailable={f.fixAvailable}
+                                        fix={f}
                                     />
                                 </div>
                                 <div className="mt-2 font-mono text-muted-foreground" title={formatAbsoluteTime(f.firstDetectedAt)}>
@@ -340,9 +347,8 @@ function ExpandedAdvisories({ group, projectId, mutes, now }: { group: LibraryGr
                                 <td className="px-2 py-1.5 align-middle">
                                     <VersionChain
                                         installed={f.installedVersion}
-                                        fix={f.fixVersion}
                                         vulnerableRange={f.vulnerableRange}
-                                        fixAvailable={f.fixAvailable}
+                                        fix={f}
                                     />
                                 </td>
                                 <td className="px-2 py-1.5 align-middle font-mono text-muted-foreground" title={formatAbsoluteTime(f.firstDetectedAt)}>

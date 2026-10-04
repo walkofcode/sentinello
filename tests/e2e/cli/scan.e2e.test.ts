@@ -203,7 +203,7 @@ describe('advisories with no fixed version released', function () {
     // A version the advisory does state is still shown, but as the advisory's word, not as an instruction.
     it('labels a stated fix as unverified', async function () {
         const result = await scanFixture([])
-        expect(result.stdout).toContain('advisory names `4.17.21` · not checked against the registry')
+        expect(result.stdout).toContain('advisory names `4.17.21` as the fix · not checked against the registry')
         expect(result.stdout).not.toContain('upgrade to')
     })
 })
@@ -283,9 +283,16 @@ describe('hermetic guarantees', function () {
         await writeFile(join(outDir, 'placeholder'), '')
         const first = JSON.parse((await scanFixture(['--json'])).stdout)
         const second = JSON.parse((await scanFixture(['--json'])).stdout)
-        // generatedAt is a real clock, so compare everything else.
+        // generatedAt is a real clock, and every fix snapshot is stamped with it as its settlement time,
+        // so compare everything else.
         delete first.generatedAt
         delete second.generatedAt
+        for (const doc of [first, second]) {
+            for (const f of doc.findings) {
+                expect(f.fixCheck.registry).toBe('skipped')
+                delete f.fixCheck.checkedAt
+            }
+        }
         expect(first).toEqual(second)
         await rm(outDir, { recursive: true, force: true })
     })

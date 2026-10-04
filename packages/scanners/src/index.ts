@@ -40,6 +40,7 @@ export {
     type ReleasedFixResult,
     type UnknownFixReason
 } from './version-fix'
+export { settleFix, affectedSetText, type FixSettlement, type RegistryView, type SettleFixArgs } from './fix-settlement'
 export type { CorroborationEvent, ReconcileResult, ReportedAdvisory } from './engine/reconcile'
 export type { CanonicalAdvisory, VersionRange, VersionComparator } from './engine/types'
 

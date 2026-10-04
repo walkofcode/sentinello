@@ -7,6 +7,8 @@ import {
     mergeResolvedGraphs,
     npmAuditPlugin,
     reconcileAgainstReported,
+    settleFix,
+    type FixSettlement,
     resolveProjectGraphs,
     type ReportedAdvisory,
     type DiscoveredProject,
@@ -41,6 +43,9 @@ export type ProjectScanResult = {
     project: DiscoveredProject
     findings: RawFinding[]
     outcomes: ScannerOutcome[]
+    // Each surviving finding's fix, settled from every source's evidence without the registry (D3: the
+    // CLI never calls it), so every one is `unverified` with the fix its sources state.
+    fixes: Map<RawFinding, FixSettlement>
 }
 
 export type ResolvedProject = {
@@ -90,6 +95,9 @@ export type ScanSetup = {
     // "database not downloaded" about a cache holding 224k advisories — telling the user to fix something
     // that is not broken, and hiding the fact that the project was in fact scanned cleanly.
     seeded: Record<SourceId, boolean>
+    // The run's instant, stamped on every finding's fix snapshot as its settlement time, so one run's
+    // findings all say the same thing about when they were settled.
+    settledAt: number
     abortSignal?: AbortSignal
 }
 
@@ -204,5 +212,11 @@ export async function scanProject(
             findings.push(finding)
         }
     }
-    return { project: resolved.project, findings, outcomes }
+    const fixes = new Map<RawFinding, FixSettlement>()
+    for (const byKey of reportedByPackage.values()) {
+        for (const reported of byKey.values()) {
+            fixes.set(reported.finding, settleFix({ evidence: reported.evidence, registry: null, checkedAt: setup.settledAt }))
+        }
+    }
+    return { project: resolved.project, findings, outcomes, fixes }
 }

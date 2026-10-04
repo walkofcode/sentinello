@@ -54,6 +54,7 @@ function finding(overrides: Partial<Finding> = {}): Finding {
     return {
         packageName: 'lodash',
         installedVersion: '4.17.11',
+        fixStatus: 'released',
         fixAvailable: true,
         fixVersion: '4.17.21',
         severity: 'high',
@@ -179,8 +180,17 @@ describe('sendWebhook — body shape', function () {
             library: 'lodash',
             version: '4.17.11',
             recommendedVersion: '4.17.21',
+            fixStatus: 'released',
             advisory: { id: 'CVE-2024-1' }
         })
+    })
+
+    // recommendedVersion keeps its meaning: a version to install. A fix a source merely states is not one.
+    it('recommends no version for a fix that is not released', async function () {
+        const stated = finding({ fixStatus: 'unverified', fixVersion: '3.0.4' })
+        await sendWebhook(target(), message({ webhook: webhookContext({ findings: [stated] }) }))
+        const body = post.mock.calls[0]?.[1] as { vulnerabilities: Record<string, unknown>[] }
+        expect(body.vulnerabilities[0]).toMatchObject({ recommendedVersion: null, fixStatus: 'unverified' })
     })
 
     it('sends just the advisory text for the text flavor', async function () {

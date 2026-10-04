@@ -10,7 +10,7 @@ export * from './redact'
 export * from './resolve'
 export { sendSlack } from './slack'
 export { sendTelegram } from './telegram'
-export { sendWebhook } from './webhook'
+export { sendWebhook, toWebhookVulnerability } from './webhook'
 
 // Returns the sender function matching the target's kind. A single dispatch point so callers do not
 // need to know which sender module to import.

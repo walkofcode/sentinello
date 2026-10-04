@@ -50,3 +50,13 @@ export {
 } from './http'
 export { DEFAULT_RETRY_WAIT_MS } from './http'
 export type { ConditionalResult, DownloadStream, FetchOptions, ProgressReporter, RemoteFileInfo, RetryNotice } from './http'
+
+export {
+    DEFAULT_NPM_REGISTRY_URL,
+    NPM_REGISTRY_TIMEOUT_MS,
+    fetchNpmPackage,
+    npmPackageUrl,
+    npmRegistryUrl,
+    summarizePackument
+} from './registry/npm'
+export type { FetchNpmPackageOptions, NpmEdges, NpmPackageResult, NpmPackageSummary, NpmVersionSummary } from './registry/npm'

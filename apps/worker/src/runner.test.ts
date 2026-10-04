@@ -98,7 +98,8 @@ function rawFinding(overrides: Partial<RawFinding> = {}): RawFinding {
             installed: ['4.17.11'],
             affected: { ranges: '<4.17.21', exact: [], complete: true },
             patched: null,
-            statedFix: '4.17.21'
+            statedFix: '4.17.21',
+            fixViaParent: false
         },
         depPath: ['lodash'],
         isProd: true,

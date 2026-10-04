@@ -26,7 +26,7 @@ function affected(overrides: Partial<AffectedSet> = {}): AffectedSet {
 }
 
 function evidence(overrides: Partial<FixEvidence> = {}): FixEvidence {
-    return { source: 'osv', installed: ['1.0.0'], affected: affected(), patched: null, statedFix: null, ...overrides }
+    return { source: 'osv', installed: ['1.0.0'], affected: affected(), patched: null, statedFix: null, fixViaParent: false, ...overrides }
 }
 
 describe('pickReleasedFix — released', function () {
@@ -216,5 +216,30 @@ describe('splitInstalled', function () {
         expect(splitInstalled(' 1.0.0, 1.5.0  2.0.0 ,')).toEqual(['1.0.0', '1.5.0', '2.0.0'])
         expect(splitInstalled('')).toEqual([])
         expect(splitInstalled(null)).toEqual([])
+    })
+})
+
+// issue 011: a candidate is compared in normalized form, the way the exact entries were — `v1.2.1` and
+// `1.2.1+build` are the release 1.2.1 and must not slip past an exact entry for it.
+describe('pickReleasedFix — alternate spellings of an affected version', function () {
+    const exactOnly: AffectedSet = { ranges: null, exact: ['1.2.1'], complete: true }
+
+    it('affectedSetContains normalizes the candidate, and answers null for one it cannot read', function () {
+        expect(affectedSetContains(exactOnly, 'v1.2.1')).toBe(true)
+        expect(affectedSetContains(exactOnly, '1.2.1+build.7')).toBe(true)
+        expect(affectedSetContains(exactOnly, '1.2.2')).toBe(false)
+        expect(affectedSetContains(exactOnly, 'not a version >=')).toBeNull()
+    })
+
+    it('never returns a prefixed or build-tagged spelling of an affected version', function () {
+        const e = evidence({ installed: ['1.2.1'], affected: exactOnly })
+        expect(pickReleasedFix({ published: published('v1.2.1', '1.2.1+build.7', '1.2.2'), evidence: [e], installed: ['1.2.1'] }))
+            .toEqual({ kind: 'released', version: '1.2.2' })
+    })
+
+    it('returns the registry spelling of the version it chose', function () {
+        const e = evidence({ installed: ['1.2.1'], affected: exactOnly })
+        expect(pickReleasedFix({ published: published('v1.2.3'), evidence: [e], installed: ['1.2.1'] }))
+            .toEqual({ kind: 'released', version: 'v1.2.3' })
     })
 })

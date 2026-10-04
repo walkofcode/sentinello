@@ -9,9 +9,14 @@ export type LibraryGroup = {
     maxSeverity: Severity
     severities: string[]
     advisoryCount: number
+    // Rows whose fix is released, i.e. a version that exists and clears the row.
     fixedCount: number
+    // The highest RELEASED fix, never one a source merely states.
     recommendedUpgrade: string | null
+    // True when some row has no released fix. `noFixReleased` says whether any of them is proven to
+    // have none, which is what the column shows instead of an upgrade.
     partial: boolean
+    noFixReleased: boolean
     allMuted: boolean
     // True iff every finding for this library is reachable only from a dev dep — used to render
     // the "dev" chip at the group row. Matches the per-row chip rule (isDev && !isProd).
@@ -40,11 +45,11 @@ export function groupByLibrary(findings: CurrentFindingRow[]): LibraryGroup[] {
         const packageName = head.packageName
         const installedVersions = uniq(rows.map(function pickVer(r) { return r.installedVersion }))
         const severities = uniq(rows.map(function pickSev(r) { return r.severity }))
-        const fixVersions = rows
-            .map(function pickFix(r) { return r.fixVersion })
-            .filter(function nonNull(v): v is string { return Boolean(v) })
-        const fixedCount = rows.filter(function isFixed(r) { return r.fixAvailable && Boolean(r.fixVersion) }).length
-        const partial = rows.some(function unfixed(r) { return !r.fixAvailable || !r.fixVersion })
+        const released = rows.filter(function isReleased(r) { return r.fixStatus === 'released' && r.fixVersion !== null })
+        const fixVersions = released.map(function pickFix(r) { return r.fixVersion as string })
+        const fixedCount = released.length
+        const partial = fixedCount < rows.length
+        const noFixReleased = rows.some(function proven(r) { return r.fixStatus === 'none_released' })
         const allMuted = rows.length > 0 && rows.every(function muted(r) { return r.isMuted })
         const devOnly = rows.length > 0 && rows.every(function devish(r) { return r.isDev && !r.isProd })
         groups.push({
@@ -57,6 +62,7 @@ export function groupByLibrary(findings: CurrentFindingRow[]): LibraryGroup[] {
             fixedCount,
             recommendedUpgrade: highestVersion(fixVersions),
             partial,
+            noFixReleased,
             allMuted,
             devOnly,
             findings: rows

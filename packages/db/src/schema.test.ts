@@ -65,6 +65,7 @@ describe('exported tables', function () {
             'notificationTargetRoots',
             'notificationTargetProjects',
             'scanRequests',
+            'registryPackages',
             'appConfig',
             'workerSignals',
             'notificationEvents',

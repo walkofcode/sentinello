@@ -1,4 +1,4 @@
-import { reasonCodeLabel, REASON_CODE_VALUES, type Finding, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
+import { describeFix, PLAIN_FIX_STYLE, reasonCodeLabel, REASON_CODE_VALUES, type Finding, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
 import type { RenderedMessage } from './types'
 
 const REASON_CODE_SET = new Set<string>(REASON_CODE_VALUES)
@@ -70,7 +70,8 @@ function severityLabel(severity: string): string {
 
 export function renderSingleFinding(input: RenderFindingInput): RenderedMessage {
     const sev = severityLabel(input.finding.severity)
-    const fix = input.finding.fixAvailable && input.finding.fixVersion && (' → fix: ' + input.finding.fixVersion) || (input.finding.fixAvailable && ' → fix available' || ' → no fix available')
+    // The same wording as the advisory export's Fix line: only a released fix reads as an upgrade.
+    const fix = ' → ' + describeFix(input.finding, PLAIN_FIX_STYLE)
     const title = '[' + sev + '] ' + input.finding.packageName + '@' + input.finding.installedVersion + ' in ' + input.projectName
     const portalLink = buildProjectUrl(input.portalBaseUrl, input.finding.projectId)
     const lines: string[] = []
@@ -149,7 +150,7 @@ export function renderScanFailure(input: RenderScanFailureInput): RenderedMessag
 
 function formatLine(finding: Finding): string {
     const sev = severityLabel(finding.severity)
-    return '• [' + sev + '] ' + finding.packageName + '@' + finding.installedVersion + ' (' + finding.advisoryId + ')'
+    return '• [' + sev + '] ' + finding.packageName + '@' + finding.installedVersion + ' (' + finding.advisoryId + ') — ' + describeFix(finding, PLAIN_FIX_STYLE)
 }
 
 function buildProjectUrl(baseUrl: string | null, projectId: string): string | null {

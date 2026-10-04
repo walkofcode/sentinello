@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { gunzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { parse, prerelease, valid } from 'semver'
-import { formatRanges, type VersionRange } from '@sentinello/versions'
+import type { VersionRange } from '@sentinello/versions'
 import { acceptedRangeTypesForEcosystem, comparatorForEcosystem } from './engine/comparators'
 import { matchAdvisories } from './engine/matcher'
 import type { CanonicalAdvisory } from './engine/types'
@@ -155,14 +155,17 @@ describe('fix derivation over the frozen advisory corpus', function () {
                 const where = JSON.stringify(record) + ' @ ' + probe + ' -> ' + JSON.stringify(set)
                 const hasData = applicable.length > 0 || record.versions.length > 0
                 if (!hasData) {
-                    // Malware with no usable version data: every version is affected.
-                    if (set.ranges !== '*' || !set.complete) bad.push('malware without data: ' + where)
+                    // Malware with no usable version data: every version is affected — but only a record that
+                    // stated no ranges at all is complete; one whose ranges were all dropped is unknown.
+                    if (set.ranges !== '*' || set.complete !== (record.ranges.length === 0)) bad.push('malware without data: ' + where)
                     continue
                 }
                 if (record.versions.length > 0) withExact++
                 if (JSON.stringify(set.exact) !== JSON.stringify(record.versions)) bad.push('exact versions lost: ' + where)
                 if (dropped && set.complete) bad.push('dropped range but complete: ' + where)
-                if (applicable.length > 0 && set.ranges !== formatRanges(applicable, { zero: '0.0.0' })) bad.push('ranges differ: ' + where)
+                // The text itself is re-normalized per comparator (issue 009); what it MEANS is checked
+                // against the matcher by the differential sweep below.
+                if (applicable.length > 0 && set.ranges === null) bad.push('ranges lost: ' + where)
                 if (!set.complete) incomplete++
             }
         }

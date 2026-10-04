@@ -1,5 +1,6 @@
 import { Range, satisfies, gte, gt, lt, valid, prerelease } from 'semver'
 import { normalizeSemver } from '@sentinello/versions'
+import type { FixUnevaluableReason } from '@sentinello/core'
 
 // A fix version is a fact about the package registry, not arithmetic on a range. This module used to turn a
 // `<=X` bound into "X+1" and a `>X` bound into "X+1" and report the result as the fix — which is how braces
@@ -37,6 +38,9 @@ export type FixEvidence = {
     // The source's patched range, when it states one. NO_PATCHED_VERSION_SENTINEL is provenance only.
     patched: string | null
     statedFix: string | null
+    // npm audit says `npm audit fix` resolves the finding through a parent without naming a version of this
+    // package. Not a fix version; kept so the finding can still say a fix path exists.
+    fixViaParent: boolean
 }
 
 export type PublishedVersion = {
@@ -44,11 +48,8 @@ export type PublishedVersion = {
     deprecated: boolean
 }
 
-export type UnknownFixReason =
-    | 'no_evidence'
-    | 'installed_unknown'
-    | 'affected_incomplete'
-    | 'patched_unparseable'
+// Declared in core, where the verification snapshot that records it lives.
+export type UnknownFixReason = FixUnevaluableReason
 
 export type ReleasedFixResult =
     | { kind: 'released'; version: string }
@@ -215,14 +216,18 @@ function evaluable(affected: AffectedSet): EvaluableAffected | null {
     return { range, exact }
 }
 
-// Whether a set marks a version affected: true / false, or null when the set cannot be evaluated (which
-// must never be read as "safe").
+// Whether a set marks a version affected: true / false, or null when the set — or the version — cannot be
+// evaluated (which must never be read as "safe").
 export function affectedSetContains(affected: AffectedSet, version: string): boolean | null {
     const ev = evaluable(affected)
     if (ev === null) return null
-    return isIn(ev, version)
+    const normalized = normalizeSemver(version)
+    if (normalized === null) return null
+    return isIn(ev, normalized)
 }
 
+// `version` must already be normalized the way the exact entries were: `v1.2.1` and `1.2.1+build` are
+// the release 1.2.1, and an exact entry of 1.2.1 has to catch both spellings.
 function isIn(ev: EvaluableAffected, version: string): boolean {
     if (ev.exact.has(version)) return true
     return ev.range !== null && ev.range.test(version)
@@ -262,17 +267,21 @@ export function pickReleasedFix(args: PickReleasedFixArgs): ReleasedFixResult {
         patched.push(range)
     }
 
-    let lowest: string | null = null
-    let lowestCurrent: string | null = null
+    // Compared in normalized form, so an alternate spelling of an affected version is still affected;
+    // returned in the registry's own spelling, which is what an install names.
+    let lowest: { version: string; spelled: string } | null = null
+    let lowestCurrent: { version: string; spelled: string } | null = null
     for (const p of args.published) {
-        if (valid(p.version) === null || prerelease(p.version) !== null) continue
-        if (!gte(p.version, floor)) continue
-        if (affected.some(function hits(ev) { return isIn(ev, p.version) })) continue
-        if (!patched.every(function inside(range) { return satisfies(p.version, range) })) continue
-        if (lowest === null || lt(p.version, lowest)) lowest = p.version
-        if (!p.deprecated && (lowestCurrent === null || lt(p.version, lowestCurrent))) lowestCurrent = p.version
+        const v = valid(p.version)
+        if (v === null || prerelease(v) !== null) continue
+        if (!gte(v, floor)) continue
+        if (affected.some(function hits(ev) { return isIn(ev, v) })) continue
+        if (!patched.every(function inside(range) { return satisfies(v, range) })) continue
+        const candidate = { version: v, spelled: p.version }
+        if (lowest === null || lt(v, lowest.version)) lowest = candidate
+        if (!p.deprecated && (lowestCurrent === null || lt(v, lowestCurrent.version))) lowestCurrent = candidate
     }
     const chosen = lowestCurrent ?? lowest
     if (chosen === null) return { kind: 'none' }
-    return { kind: 'released', version: chosen }
+    return { kind: 'released', version: chosen.spelled }
 }

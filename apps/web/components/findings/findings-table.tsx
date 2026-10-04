@@ -61,9 +61,8 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                                 <dd>
                                     <VersionChain
                                         installed={f.installedVersion}
-                                        fix={f.fixVersion}
                                         vulnerableRange={f.vulnerableRange}
-                                        fixAvailable={f.fixAvailable}
+                                        fix={f}
                                     />
                                 </dd>
                                 <dt className="uppercase tracking-wide text-muted-foreground">{t('columns.advisory')}</dt>
@@ -128,9 +127,8 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                                     <TableCell>
                                         <VersionChain
                                             installed={f.installedVersion}
-                                            fix={f.fixVersion}
                                             vulnerableRange={f.vulnerableRange}
-                                            fixAvailable={f.fixAvailable}
+                                            fix={f}
                                         />
                                     </TableCell>
                                     <TableCell className="text-xs">

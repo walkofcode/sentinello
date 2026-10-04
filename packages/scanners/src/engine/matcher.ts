@@ -1,6 +1,6 @@
 import type { Severity } from '@sentinello/core'
-import { validRange } from 'semver'
-import { formatRange, formatRanges, versionInRange, type FormatOptions } from '@sentinello/versions'
+import { valid, validRange } from 'semver'
+import { formatRange, formatRanges, isZeroVersion, versionInRange, type FormatOptions, type VersionRange } from '@sentinello/versions'
 import type { ResolvedPackage } from '../resolver/types'
 import type { RawFinding } from '../types'
 import type { AffectedSet } from '../version-fix'
@@ -82,8 +82,12 @@ function matchOne(
         // can't responsibly claim a clean version is affected, so we skip. This branch should be rare —
         // real OSV malware records enumerate the compromised versions.
         if (advisory.kind !== 'malware') return null
-        // No version data on malware means every version is affected: the only way out is removal.
-        return buildFinding(pkg, advisory, 'critical', null, '*', { ranges: '*', exact: [], complete: true })
+        // No version data on malware means every version is affected: the only way out is removal. But
+        // "no data" is only true when the source supplied none. A record whose ranges were all dropped for
+        // this comparator (a GIT range, an unclassified one) did state versions we cannot read, so its
+        // evidence is incomplete — unknown, never "every version is affected, no fix".
+        const sourceStatedRanges = advisory.affected.ranges.length > 0
+        return buildFinding(pkg, advisory, 'critical', null, '*', { ranges: '*', exact: [], complete: !sourceStatedRanges })
     }
 
     if (!isAffected(pkg.version, ranges, exactVersions, comparator)) return null
@@ -91,7 +95,7 @@ function matchOne(
     const severity = advisory.kind === 'malware' ? 'critical' : mapSeverity(advisory.severity)
     const statedFix = statedFixFor(pkg.version, ranges, exactVersions, comparator)
     const dropped = ranges.length !== advisory.affected.ranges.length
-    return buildFinding(pkg, advisory, severity, statedFix, rangesToDisplay(ranges, exactVersions), affectedSetFor(ranges, exactVersions, dropped))
+    return buildFinding(pkg, advisory, severity, statedFix, rangesToDisplay(ranges, exactVersions), affectedSetFor(ranges, exactVersions, dropped, comparator))
 }
 
 // A version is affected when it equals an enumerated exact version OR falls inside any range. Each bound
@@ -146,16 +150,54 @@ function statedFixFor(
 }
 
 // The whole affected set, for settling the fix against the registry: the same filtered ranges and exact
-// versions this finding matched with. Incomplete when a range was dropped for this comparator or the
-// ranges do not render to a semver range node-semver can evaluate — unknown, never "safe".
+// versions this finding matched with. Incomplete when a range was dropped for this comparator, or when a
+// range cannot be written as a node-semver range that means what the comparator means — unknown, never
+// "safe".
 function affectedSetFor(
     ranges: CanonicalAdvisory['affected']['ranges'],
     exactVersions: string[],
-    dropped: boolean
+    dropped: boolean,
+    comparator: VersionComparator
 ): AffectedSet {
     if (ranges.length === 0) return { ranges: null, exact: [...exactVersions], complete: !dropped }
-    const text = formatRanges(ranges, SEMVER_FORMAT)
+    const rewritten: VersionRange[] = []
+    for (const range of ranges) {
+        const bounds = semverBounds(range, comparator)
+        if (bounds === null) return { ranges: formatRanges(ranges, SEMVER_FORMAT), exact: [...exactVersions], complete: false }
+        rewritten.push(bounds)
+    }
+    const text = formatRanges(rewritten, SEMVER_FORMAT)
     return { ranges: text, exact: [...exactVersions], complete: !dropped && validRange(text) !== null }
+}
+
+// A range with every bound replaced by the version the COMPARATOR reads it as, so node-semver evaluates
+// the same interval the matcher did. Written as-is, a partial bound changes meaning on the way: the
+// matcher reads `>1.2` as "above 1.2.0", node-semver as ">=1.3.0", and 1.2.1 — affected — would pass as a
+// fix. An inclusive zero lower bound stays the bottom of the version space, as versionInRange reads it.
+// Null when a bound does not normalize to a full semver version: the range cannot be carried faithfully.
+function semverBounds(range: VersionRange, comparator: VersionComparator): VersionRange | null {
+    const bottom = range.introducedExclusive !== true && isZeroVersion(range.introduced)
+    const introduced = bottom ? '0' : fullSemver(range.introduced, comparator)
+    if (introduced === null) return null
+    const out: VersionRange = { ...range, introduced }
+    if (range.fixed !== null && range.fixed !== undefined) {
+        const fixed = fullSemver(range.fixed, comparator)
+        if (fixed === null) return null
+        out.fixed = fixed
+        return out
+    }
+    if (range.lastAffected !== null && range.lastAffected !== undefined) {
+        const lastAffected = fullSemver(range.lastAffected, comparator)
+        if (lastAffected === null) return null
+        out.lastAffected = lastAffected
+    }
+    return out
+}
+
+function fullSemver(raw: string, comparator: VersionComparator): string | null {
+    const normalized = comparator.normalize(raw)
+    if (normalized === null || valid(normalized) !== normalized) return null
+    return normalized
 }
 
 function buildFinding(
@@ -183,7 +225,8 @@ function buildFinding(
             installed: [pkg.version],
             affected,
             patched: null,
-            statedFix: fixVersion
+            statedFix: fixVersion,
+            fixViaParent: false
         },
         depPath: pkg.depPaths,
         isProd: pkg.scope.isProd,

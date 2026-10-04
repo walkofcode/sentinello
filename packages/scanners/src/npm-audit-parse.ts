@@ -375,13 +375,14 @@ export function pickDepPath(vuln: Vulnerability): string[] {
 
 // The evidence an npm-audit finding hands to registry settlement. An installed value that is really a range
 // (pickInstalledVersion's fallback with no lockfile) stays as written, so settlement reads it as unknown.
-function npmAuditFixInputs(installed: string, vulnerable: string, patched: string | null, statedFix: string | null): FixEvidence {
+function npmAuditFixInputs(installed: string, vulnerable: string, patched: string | null, statedFix: string | null, fixViaParent: boolean): FixEvidence {
     return {
         source: NPM_AUDIT_SCANNER_NAME,
         installed: splitInstalled(installed),
         affected: affectedSetFromRange(vulnerable),
         patched,
-        statedFix
+        statedFix,
+        fixViaParent
     }
 }
 
@@ -417,7 +418,7 @@ export function normalizeOneVulnerability(vuln: Vulnerability, packageName: stri
             severity: pickSeverity(via, vuln),
             fixAvailable,
             fixVersion,
-            fixInputs: npmAuditFixInputs(installedVersion, vulnerableRange, null, fixVersion),
+            fixInputs: npmAuditFixInputs(installedVersion, vulnerableRange, null, fixVersion, fixVersion === null && raw.fixAvailable && ownVersion === null),
             depPath,
             isProd: cls.isProd,
             isDev: cls.isDev
@@ -495,7 +496,7 @@ export function normalizePnpmAuditOutput(parsed: PnpmAudit, classifier: DepClass
                 severity,
                 fixAvailable: fixVersion !== null,
                 fixVersion,
-                fixInputs: npmAuditFixInputs('', vulnRange, patched, fixVersion),
+                fixInputs: npmAuditFixInputs('', vulnRange, patched, fixVersion, false),
                 depPath: [],
                 isProd: cls.isProd,
                 isDev: cls.isDev
@@ -506,7 +507,7 @@ export function normalizePnpmAuditOutput(parsed: PnpmAudit, classifier: DepClass
             const installed = f.version || null
             const fixVersion = pickStatedFix({ patched, recommendation, vulnerable: vulnRange, installed })
             const fixAvailable = fixVersion !== null
-            const fixInputs = npmAuditFixInputs(f.version || '', vulnRange, patched, fixVersion)
+            const fixInputs = npmAuditFixInputs(f.version || '', vulnRange, patched, fixVersion, false)
             const paths = f.paths || []
             if (paths.length === 0) {
                 const cls = classifier.classify(packageName, f.version || null)

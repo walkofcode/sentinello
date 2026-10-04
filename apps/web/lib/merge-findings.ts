@@ -1,5 +1,5 @@
 import type { CurrentFindingRow } from '@sentinello/db'
-import { compareSeverity, severityWeight, type Severity } from '@sentinello/core'
+import { compareSeverity, severityWeight, type FixCheck, type FixStatus, type Severity } from '@sentinello/core'
 import { compareVersions } from '@sentinello/versions'
 import { parseJsonArray } from '@/lib/format'
 
@@ -7,7 +7,7 @@ import { parseJsonArray } from '@/lib/format'
 // (scanner, advisory, dep-path), so the same vulnerability shows up many times: once per route into the
 // tree, and again for each source that reports it (npm audit AND OSV). We merge by (ecosystem, package,
 // advisory identity) so each real vulnerability is ONE row carrying every source as a tag, the best
-// available fix (OSV often has none while npm audit does), the union of installed versions, and the union
+// settled fix (see betterFix), the union of installed versions, and the union
 // of dep paths. The ecosystem is part of the key so an npm `requests` and a PyPI `requests` sharing a
 // CVE/title never collapse into one row (issue-019).
 export type MergedFinding = {
@@ -22,8 +22,12 @@ export type MergedFinding = {
     advisoryTitle: string | null
     advisoryUrl: string | null
     vulnerableRange: string
+    // The best-settled fix among the merged rows (see betterFix): released over unverified over
+    // none_released.
+    fixStatus: FixStatus
     fixAvailable: boolean
     fixVersion: string | null
+    fixCheck: FixCheck | null
     // Non-empty by construction: a bucket always has at least one row, and every row carries a dep path.
     // Typed as a tuple so consumers reading depPaths[0] need no fallback for an empty case that the
     // merge cannot produce.
@@ -86,6 +90,28 @@ function preferAdvisory(candidate: CurrentFindingRow, current: CurrentFindingRow
     return false
 }
 
+// The order a merged row's fix is chosen in. A row no settlement has written yet ranks below every
+// settled one: its fix is withheld, and "rescan pending" must not hide what another row proved. Among
+// settled rows a released fix is a fact and wins, the highest one when rows disagree (it clears every
+// row's range). An unverified row beats none_released, because "no fixed version" is only true for the
+// row that proved it; among unverified rows a stated version beats "npm says a parent fixes it", which
+// beats nothing.
+const FIX_STATUS_RANK: Record<FixStatus, number> = { released: 3, unverified: 2, none_released: 1 }
+
+function fixRank(row: CurrentFindingRow): number {
+    return row.fixCheck === null ? 0 : FIX_STATUS_RANK[row.fixStatus]
+}
+
+function betterFix(candidate: CurrentFindingRow, current: CurrentFindingRow): boolean {
+    const byStatus = fixRank(candidate) - fixRank(current)
+    if (byStatus !== 0) return byStatus > 0
+    const byVersion = Number(candidate.fixVersion !== null) - Number(current.fixVersion !== null)
+    if (byVersion !== 0) return byVersion > 0
+    // Equal on the line above, so both carry a version or neither does.
+    if (candidate.fixVersion !== null) return compareVersions(candidate.fixVersion, current.fixVersion as string) > 0
+    return candidate.fixAvailable && !current.fixAvailable
+}
+
 // The bucket is typed non-empty, so `first` is definite and every field below reads from a real row
 // without an unreachable emptiness guard.
 function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingRow[]]): MergedFinding {
@@ -97,7 +123,7 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
     let firstDetectedAt: number | null = null
     let lastSeenAt: number | null = null
     let advisoryRow = first
-    let fixRow: CurrentFindingRow | null = null
+    let fixRow = first
     const scannerSet = new Set<string>()
     const identityKeys = new Set<string>()
     const identities: { source: string; ecosystem: string; scanner: string; advisoryId: string }[] = []
@@ -142,9 +168,7 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
             depPaths.push(parseJsonArray(r.depPathJson))
         }
         if (preferAdvisory(r, advisoryRow)) advisoryRow = r
-        if (r.fixAvailable && r.fixVersion) {
-            if (!fixRow || compareVersions(r.fixVersion, fixRow.fixVersion as string) > 0) fixRow = r
-        }
+        if (betterFix(r, fixRow)) fixRow = r
     }
     grades.sort(function worstFirst(a, b) {
         return compareSeverity(a.severity, b.severity) || a.source.localeCompare(b.source)
@@ -166,9 +190,12 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
         advisoryId: advisoryRow.advisoryId,
         advisoryTitle: advisoryRow.advisoryTitle,
         advisoryUrl: advisoryRow.advisoryUrl,
-        vulnerableRange: (fixRow ?? advisoryRow).vulnerableRange,
-        fixAvailable: Boolean(fixRow),
-        fixVersion: fixRow ? fixRow.fixVersion : null,
+        // The range the chosen fix was measured against, when there is a version to measure.
+        vulnerableRange: (fixRow.fixVersion !== null ? fixRow : advisoryRow).vulnerableRange,
+        fixStatus: fixRow.fixStatus,
+        fixAvailable: fixRow.fixAvailable,
+        fixVersion: fixRow.fixVersion,
+        fixCheck: fixRow.fixCheck,
         depPaths,
         isProd,
         isDev,

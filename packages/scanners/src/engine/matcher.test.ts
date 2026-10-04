@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { matchAdvisories } from './matcher'
+import { affectedSetContains, pickReleasedFix } from '../version-fix'
 import { semverComparator } from '@sentinello/versions'
 import type { CanonicalAdvisory, VersionRange } from './types'
 import type { ResolvedPackage } from '../resolver/types'
@@ -355,5 +356,52 @@ describe('matchAdvisories — iteration behaviour', function () {
     it('does not match when the installed version cannot be normalised', function () {
         const adv = advisory('GHSA-1', { affected: { ranges: [range('1.0.0', '2.0.0')], exactVersions: [] } })
         expect(match([pkg('lodash', 'not-a-version')], [adv])).toEqual([])
+    })
+})
+
+// The affected set handed to registry settlement must mean what the matcher meant. node-semver reads a
+// partial bound differently from the comparator (`>1.2` is >=1.3.0 to it, above 1.2.0 to the matcher), so
+// each bound is written out as the comparator normalized it (issue 009).
+describe('matchAdvisories — fix evidence keeps comparator semantics', function () {
+    function evidenceFor(version: string, ranges: VersionRange[], kind: CanonicalAdvisory['kind'] = 'vulnerability') {
+        const byPackage = new Map([['lodash', [advisory('A', { kind, affected: { ranges, exactVersions: [] } })]]])
+        return matchAdvisories([pkg('lodash', version)], byPackage, semverComparator, SEMVER_TYPES)[0]?.fixInputs
+    }
+
+    it('writes a partial exclusive lower bound as the full version the matcher compared', function () {
+        const inputs = evidenceFor('1.2.1', [{ type: 'SEMVER', introduced: '1.2', introducedExclusive: true, fixed: '2.0.0' }])
+        expect(inputs?.affected).toEqual({ ranges: '>1.2.0 <2.0.0', exact: [], complete: true })
+        expect(affectedSetContains(inputs!.affected, '1.2.1')).toBe(true)
+        expect(pickReleasedFix({ published: [{ version: '1.2.1', deprecated: false }, { version: '2.0.0', deprecated: false }], evidence: [inputs!], installed: ['1.2.1'] }))
+            .toEqual({ kind: 'released', version: '2.0.0' })
+    })
+
+    it('writes a partial inclusive upper bound as the full version the matcher compared', function () {
+        const inputs = evidenceFor('1.2.0', [{ type: 'SEMVER', introduced: '0', lastAffected: '1.2', fixed: null }])
+        expect(inputs?.affected).toEqual({ ranges: '>=0.0.0 <=1.2.0', exact: [], complete: true })
+        // node-semver alone reads `<=1.2` as <1.3.0-0 and would call 1.2.5 affected; the matcher does not.
+        expect(affectedSetContains(inputs!.affected, '1.2.5')).toBe(false)
+        expect(affectedSetContains(inputs!.affected, '1.2.0')).toBe(true)
+    })
+
+    it('marks the set incomplete when a bound does not normalize to a full version', function () {
+        const inputs = evidenceFor('1.5.0', [
+            { type: 'SEMVER', introduced: '1.0.0', fixed: '2.0.0' },
+            { type: 'SEMVER', introduced: '3.0.0', fixed: 'not-a-version' }
+        ])
+        expect(inputs?.affected.complete).toBe(false)
+    })
+
+    // issue 010: malware with genuinely no version data affects every version; malware whose only ranges
+    // were dropped stated versions we could not read, which is unknown — never "no fix".
+    it('keeps malware with no version data complete, and malware with only dropped ranges incomplete', function () {
+        const none = evidenceFor('1.2.1', [], 'malware')
+        expect(none?.affected).toEqual({ ranges: '*', exact: [], complete: true })
+        expect(pickReleasedFix({ published: [{ version: '2.0.0', deprecated: false }], evidence: [none!], installed: ['1.2.1'] })).toEqual({ kind: 'none' })
+
+        const dropped = evidenceFor('1.2.1', [{ type: 'GIT', introduced: 'abc', fixed: 'def' }], 'malware')
+        expect(dropped?.affected).toEqual({ ranges: '*', exact: [], complete: false })
+        expect(pickReleasedFix({ published: [{ version: '2.0.0', deprecated: false }], evidence: [dropped!], installed: ['1.2.1'] }))
+            .toEqual({ kind: 'unknown', reason: 'affected_incomplete' })
     })
 })

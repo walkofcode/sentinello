@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { Finding, NotificationEvent } from '@sentinello/core'
+import type { Finding, FixCheck, NotificationEvent } from '@sentinello/core'
 import { renderBatchedFindings, renderScanFailure, renderSingleFinding } from './render'
 
 // Notification bodies are the part of Sentinello a recipient sees without opening the portal, so the
 // interesting assertions are about what is INCLUDED and what is OMITTED — a missing branch line, a
 // swallowed "no fix available", or a truncated batch are all silent information loss.
+
+const CHECK: FixCheck = { v: 1, checkedAt: Date.UTC(2026, 9, 3), registry: 'ok', packageDataAsOf: Date.UTC(2026, 9, 3), unevaluable: null, sources: [] }
 
 function finding(overrides: Partial<Finding> = {}): Finding {
     return {
@@ -21,8 +23,10 @@ function finding(overrides: Partial<Finding> = {}): Finding {
         installedVersion: '4.17.20',
         vulnerableRange: '<4.17.21',
         severity: 'high',
+        fixStatus: 'none_released',
         fixAvailable: false,
         fixVersion: null,
+        fixCheck: CHECK,
         corroborations: [],
         depPath: [],
         isProd: true,
@@ -147,10 +151,10 @@ describe('renderSingleFinding', function () {
     })
 
     it.each([
-        [{ fixAvailable: true, fixVersion: '4.17.21' }, ' → fix: 4.17.21'],
-        [{ fixAvailable: true, fixVersion: null }, ' → fix available'],
-        [{ fixAvailable: false, fixVersion: null }, ' → no fix available'],
-        [{ fixAvailable: false, fixVersion: '4.17.21' }, ' → no fix available']
+        [{ fixStatus: 'released', fixAvailable: true, fixVersion: '4.17.21' }, ' → upgrade to 4.17.21'],
+        [{ fixStatus: 'none_released' }, ' → No fixed version released — no published version of lodash is outside the vulnerable range (registry checked 2026-10-03)'],
+        [{ fixStatus: 'unverified', fixAvailable: true, fixVersion: '4.17.21', fixCheck: { ...CHECK, registry: 'error' } }, ' → advisory names 4.17.21 as the fix · not checked against the registry (registry not reachable)'],
+        [{ fixStatus: 'unverified', fixCheck: null }, ' → fix not re-checked yet — rescan pending']
     ] as Array<[Partial<Finding>, string]>)('renders the fix suffix %j as %s', function (overrides, expected) {
         const out = renderSingleFinding({
             projectName: 'api',
@@ -261,7 +265,7 @@ describe('renderBatchedFindings', function () {
             isBaseline: false,
             portalBaseUrl: null
         })
-        expect(out.markdown).toContain('• [CRITICAL] lodash@4.17.20 (GHSA-1)')
+        expect(out.markdown).toContain('• [CRITICAL] lodash@4.17.20 (GHSA-1) — No fixed version released')
     })
 
     it('includes the branch line when set', function () {

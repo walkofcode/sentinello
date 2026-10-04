@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { NotificationTarget, WebhookTargetConfig } from '@sentinello/core'
+import type { Finding, NotificationTarget, WebhookTargetConfig } from '@sentinello/core'
 import { redactErrorText, redactTarget } from './redact'
 import { validateWebhookUrl } from './ssrf'
 import type { NotificationSender, RenderedMessage, SendResult, WebhookPayloadContext } from './types'
@@ -62,24 +62,31 @@ function buildJsonBody(ctx: WebhookPayloadContext, portalUrl: string | null): un
         project: ctx.project,
         portalUrl,
         failureSignature: ctx.event === 'scan_failure' ? ctx.failureSignature : undefined,
-        vulnerabilities: ctx.findings.map(function toVuln(f) {
-            return {
-                library: f.packageName,
-                version: f.installedVersion,
-                recommendedVersion: f.fixVersion,
-                fixAvailable: f.fixAvailable,
-                severity: f.severity,
-                advisory: {
-                    id: f.advisoryId,
-                    title: f.advisoryTitle,
-                    url: f.advisoryUrl
-                },
-                vulnerableRange: f.vulnerableRange,
-                isProd: f.isProd,
-                isDev: f.isDev,
-                depPath: f.depPath
-            }
-        })
+        vulnerabilities: ctx.findings.map(toWebhookVulnerability)
+    }
+}
+
+// One finding as the JSON flavor describes it. Exported so a recording notifier can show exactly what
+// would have been posted without posting it.
+export function toWebhookVulnerability(f: Finding): Record<string, unknown> {
+    return {
+        library: f.packageName,
+        version: f.installedVersion,
+        // Only ever a published version: a fix a source merely states is not a recommendation.
+        recommendedVersion: f.fixStatus === 'released' ? f.fixVersion : null,
+        fixAvailable: f.fixAvailable,
+        // 'released' | 'none_released' | 'unverified' — see FixStatus. Additive.
+        fixStatus: f.fixStatus,
+        severity: f.severity,
+        advisory: {
+            id: f.advisoryId,
+            title: f.advisoryTitle,
+            url: f.advisoryUrl
+        },
+        vulnerableRange: f.vulnerableRange,
+        isProd: f.isProd,
+        isDev: f.isDev,
+        depPath: f.depPath
     }
 }
 

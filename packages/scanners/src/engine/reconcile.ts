@@ -1,5 +1,6 @@
 import { DEFAULT_ECOSYSTEM, escalatedSeverity, type FindingCorroboration, type Severity } from '@sentinello/core'
 import type { RawFinding } from '../types'
+import type { FixEvidence } from '../version-fix'
 
 // Canonical identity for a finding: the advisory id plus any cross-reference aliases (CVE/GHSA),
 // lower-cased so casing never defeats a match. Two findings that share ANY key are the same advisory —
@@ -38,6 +39,11 @@ export type ReportedAdvisory = {
     // The kept finding itself, so agreement can be attached to the object a caller already holds. The
     // CLI reports straight from these and has no database to re-read.
     finding: RawFinding
+    // Every source's and every installed copy's fix evidence for this identity: the survivor's own first,
+    // then each finding reconciled into it. The fix is settled against ALL of it once every source has
+    // run, so it is outside every source's affected set and at or above every installed copy, whatever
+    // order the sources ran in. In memory only.
+    evidence: FixEvidence[]
 }
 
 // "Source X also reported the advisory that survived as Y."
@@ -90,6 +96,9 @@ export function reconcileAgainstReported(
             if (!attached.some(function already(c) { return c.source === by.source })) attached.push(by)
             target.finding.corroborations = attached
             target.finding.severity = escalatedSeverity(target.severity, attached)
+            // A second source, or a second installed copy from the same source: its evidence still bears
+            // on the fix even though it is not a second finding.
+            target.evidence.push(finding.fixInputs)
             continue
         }
         kept.push(finding)
@@ -99,7 +108,8 @@ export function reconcileAgainstReported(
             packageName: finding.packageName,
             ecosystem: finding.ecosystem ?? DEFAULT_ECOSYSTEM,
             severity: finding.severity,
-            finding
+            finding,
+            evidence: [finding.fixInputs]
         }
         // Registered under EVERY key it answers to, so a later source matching on any alias finds it.
         for (const key of keys) existing.set(key, reported)

@@ -19,8 +19,11 @@ import {
     listResolvedFindingsForLibrary,
     listResolvedFindingsForProject,
     mergeFindingsForScan,
-    applyFindingCorroborations
+    applyFindingCorroborations,
+    applyFixSettlement
 } from './findings'
+import { findings as findingsTable } from '../schema'
+import type { FixCheck } from '@sentinello/core'
 import type { IncomingFinding } from './findings'
 
 // Runs against a real SQLite file rather than ':memory:'. The client applies WAL pragmas and the
@@ -725,5 +728,48 @@ describe('applyFindingCorroborations', function () {
         const id = seed()
         sqlite.prepare('UPDATE findings SET corroborations_json = ? WHERE id = ?').run('{"source":"osv"}', id)
         expect(listFindingsForProject(db, PROJECT_ID)[0]?.corroborations).toEqual([])
+    })
+})
+
+// Settlement writes the verdict after every source has run; the lifecycle merge writes the row unsettled,
+// so a verdict from the previous scan can never outlive the evidence it was reached on.
+describe('applyFixSettlement and the unsettled merge', function () {
+    const CHECK: FixCheck = { v: 1, checkedAt: T0, registry: 'ok', packageDataAsOf: T0 - HOUR, unevaluable: null, sources: [] }
+
+    it('writes every settlement in one pass and returns what a reader will see', function () {
+        const [a, b] = merge('scan-1', T0, [incoming('GHSA-1'), incoming('GHSA-2')]).active
+        const persisted = applyFixSettlement(db, [
+            { id: a?.id as string, fixStatus: 'released', fixVersion: '4.17.21', fixAvailable: true, fixCheck: CHECK },
+            { id: b?.id as string, fixStatus: 'none_released', fixVersion: null, fixAvailable: false, fixCheck: CHECK }
+        ])
+        expect(persisted.get(a?.id as string)).toEqual({ fixStatus: 'released', fixVersion: '4.17.21', fixAvailable: true, fixCheck: CHECK })
+        const rows = listFindingsForProject(db, PROJECT_ID)
+        expect(rows.find(function one(r) { return r.id === b?.id })).toMatchObject({ fixStatus: 'none_released', fixVersion: null, fixCheck: CHECK })
+    })
+
+    it('writes nothing for an empty settlement', function () {
+        expect(applyFixSettlement(db, []).size).toBe(0)
+    })
+
+    it('reads a freshly merged row as unsettled, withholding its stated fix', function () {
+        const result = merge('scan-1', T0, [incoming('GHSA-1')])
+        expect(result.active[0]).toMatchObject({ fixStatus: 'unverified', fixVersion: null, fixAvailable: false, fixCheck: null })
+        const row = db.select().from(findingsTable).all()[0]
+        expect(row).toMatchObject({ fixStatus: null, fixCheckJson: null, fixVersion: '4.17.21', remediationJson: null })
+    })
+
+    it('clears the last verdict when a continuing episode is merged again', function () {
+        const [a] = merge('scan-1', T0, [incoming('GHSA-1')]).active
+        applyFixSettlement(db, [{ id: a?.id as string, fixStatus: 'released', fixVersion: '4.17.21', fixAvailable: true, fixCheck: CHECK }])
+        const again = merge('scan-2', T0 + HOUR, [incoming('GHSA-1')])
+        expect(again.active[0]).toMatchObject({ id: a?.id, fixStatus: 'unverified', fixCheck: null })
+        expect(db.select().from(findingsTable).all()[0]).toMatchObject({ fixStatus: null, fixCheckJson: null })
+    })
+
+    it('reads the settled fix on resolved library findings too', function () {
+        const [a] = merge('scan-1', T0, [incoming('GHSA-1')]).active
+        applyFixSettlement(db, [{ id: a?.id as string, fixStatus: 'released', fixVersion: '4.17.21', fixAvailable: true, fixCheck: CHECK }])
+        merge('scan-2', T0 + HOUR, [])
+        expect(listResolvedFindingsForLibrary(db, 'lodash')[0]).toMatchObject({ fixStatus: 'released', fixVersion: '4.17.21', fixCheck: CHECK })
     })
 })

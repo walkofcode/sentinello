@@ -373,7 +373,8 @@ describe('normalizeAuditOutput — the npm 7+ shape', function () {
             installed: ['<=5.2.1'],
             affected: { ranges: '<=5.2.1', exact: [], complete: true },
             patched: null,
-            statedFix: null
+            statedFix: null,
+            fixViaParent: false
         })
     })
 
@@ -418,6 +419,8 @@ describe('normalizeAuditOutput — the npm 7+ shape', function () {
         expect(result.findings[0]?.fixVersion).toBeNull()
         expect(result.findings[0]?.fixAvailable).toBe(true)
         expect(result.findings[0]?.fixInputs.installed).toEqual(['3.0.3'])
+        // Carried to settlement, which keeps "a parent upgrade resolves it" without a version.
+        expect(result.findings[0]?.fixInputs.fixViaParent).toBe(true)
     })
 
     // A same-package version the picker rejects (still inside the range) is not "via a parent".
@@ -805,7 +808,8 @@ describe('normalizePnpmAuditOutput — the remaining arms', function () {
             installed: ['3.0.3'],
             affected: { ranges: '<=3.0.3', exact: [], complete: true },
             patched: '<0.0.0',
-            statedFix: null
+            statedFix: null,
+            fixViaParent: false
         })
     })
 

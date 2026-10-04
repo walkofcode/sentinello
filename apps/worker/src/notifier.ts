@@ -344,12 +344,15 @@ function webhookProject(project: NonNullable<ReturnType<typeof getProjectById>>)
     }
 }
 
-function toExportFinding(f: Finding): ExportFinding {
+// Exported for the scratch tools' recording notifier, which renders exactly what this one would send.
+export function toExportFinding(f: Finding): ExportFinding {
     return {
         packageName: f.packageName,
         installedVersion: f.installedVersion,
         fixAvailable: f.fixAvailable,
         fixVersion: f.fixVersion,
+        fixStatus: f.fixStatus,
+        fixCheck: f.fixCheck,
         severity: f.severity,
         advisoryId: f.advisoryId,
         advisoryTitle: f.advisoryTitle,

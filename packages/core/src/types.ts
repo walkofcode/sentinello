@@ -1,5 +1,6 @@
 import type { EcosystemId } from './ecosystems'
 import type { NotificationSourceScope } from './sources'
+import type { FixCheck } from './fix-status'
 
 export type Severity = 'critical' | 'high' | 'moderate' | 'low' | 'info'
 
@@ -320,8 +321,13 @@ export type Finding = {
     // thirds of findings are corroborated, and without this they looked identical to the third that
     // are not.
     corroborations: FindingCorroboration[]
+    // The fix as settled against the registry after every source ran (see FixStatus). `fixVersion` is a
+    // published version only when `fixStatus` is 'released'. `fixCheck` is the verification snapshot;
+    // null on a row no settlement has written yet, whose fix value is withheld (readFixFields).
+    fixStatus: FixStatus
     fixAvailable: boolean
     fixVersion: string | null
+    fixCheck: FixCheck | null
     depPath: string[]
     // A transitive can be reached from both prod and dev direct deps — both flags can be true.
     // Unmappable findings default to isProd=true,isDev=false so they remain visible in the prod-only view.

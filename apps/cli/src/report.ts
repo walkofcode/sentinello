@@ -9,7 +9,7 @@ import {
     type ExportScope,
     type Severity
 } from '@sentinello/core'
-import type { RawFinding } from '@sentinello/scanners'
+import type { FixSettlement, RawFinding } from '@sentinello/scanners'
 import type { CliOptions, DepTypeFilter } from './options'
 import type { ProjectScanResult } from './scan'
 
@@ -68,14 +68,18 @@ export function summarize(results: readonly ProjectScanResult[], options: CliOpt
             total[finding.severity]++
             projectFindings++
             totalFindings++
+            // The CLI never asks the registry (it stays offline and dependency-free), so a fix version is
+            // only ever what the sources stated — settled `unverified` and rendered as such, never as
+            // "upgrade to".
+            // scanProject settles every finding it keeps, so the entry is always there.
+            const fix = result.fixes.get(finding) as FixSettlement
             findings.push({
                 packageName: finding.packageName,
                 installedVersion: finding.installedVersion,
-                fixAvailable: finding.fixAvailable,
-                fixVersion: finding.fixVersion,
-                // The CLI never asks the registry (it stays offline and dependency-free), so a fix version is
-                // only ever what the source stated — rendered as such, never as "upgrade to".
-                fixStatus: 'unverified',
+                fixAvailable: fix.fixAvailable,
+                fixVersion: fix.fixVersion,
+                fixStatus: fix.fixStatus,
+                fixCheck: fix.fixCheck,
                 severity: finding.severity,
                 advisoryId: finding.advisoryId,
                 advisoryTitle: finding.advisoryTitle,

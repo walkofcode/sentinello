@@ -22,6 +22,7 @@ import {
     type ReportedAdvisory,
     resolveProjectGraphs,
     type EcosystemCoverage,
+    type FixEvidence,
     type RawFinding,
     type ResolvedGraph,
     type ResolverResult,
@@ -30,7 +31,9 @@ import {
 import { errText } from '@sentinello/feeds'
 import { CONFIG_KEYS } from './config-loader'
 import { readGitBranch } from './discovery'
+import { fixEvidenceKey, settleFixes } from './fix-verification'
 import { notifyForCompletedScan } from './notifier'
+import { createNpmRegistryClient, type RegistryClient } from './registry-client'
 
 const SCANNER_TIMEOUT_MS = 90_000
 
@@ -89,15 +92,30 @@ async function workerLoop(
         const project = queue.shift()
         if (!project) return
         if (input.abortSignal && input.abortSignal.aborted) return
-        const projectOutcomes = await runProjectScanners(input, project)
+        const projectOutcomes = await runProjectScanners({ db: input.db, scanners: input.scanners, project, abortSignal: input.abortSignal })
         for (const outcome of projectOutcomes) outcomes.push(outcome)
     }
+}
+
+export type RunProjectScansInput = {
+    db: DrizzleDb
+    // Scanners to run, IN ORDER (see RunBatchInput.scanners).
+    scanners: ScannerPlugin[]
+    project: Project
+    abortSignal?: AbortSignal
+    // Called once per outcome after settlement. Defaults to the real notifier (honouring dryRunNotify);
+    // the scratch tools pass a recording one that never reaches a sender.
+    notify?: (outcome: ProjectScanOutcome) => Promise<void>
+    // The registry fix settlement reads through. Defaults to the cache-first npm client on this DB; the
+    // scratch tools wrap it to record every answer it serves.
+    registry?: RegistryClient
 }
 
 // Runs every scanner against one project, in order, and returns one outcome per scanner. The dedup set
 // accumulates the (package → advisory keys) reported by earlier scanners so a later scanner (OSV) drops
 // findings the authoritative scanner (npm-audit) already surfaced.
-async function runProjectScanners(input: RunBatchInput, project: Project): Promise<ProjectScanOutcome[]> {
+export async function runProjectScanners(input: RunProjectScansInput): Promise<ProjectScanOutcome[]> {
+    const project = input.project
     const root = getRootById(input.db, project.rootId)
     if (!root) {
         const outcome = makeErrorOutcome(project, 'project root not found in DB')
@@ -139,21 +157,54 @@ async function runProjectScanners(input: RunBatchInput, project: Project): Promi
         outcomes.push(outcome)
     }
     recordCorroborations(input.db, outcomes, corroborations)
-    // Notification comes AFTER corroboration, for the whole project at once, and this ordering is
-    // load-bearing rather than tidy. Escalation to the worst grade any source gave a finding is only
-    // knowable once every source has run, but notifying inside each scanner's own pass stamped the
+    // Fix settlement also waits for every source: the fix has to clear every source's affected set and
+    // every installed copy. A failure here (the database, not the registry — registry trouble already
+    // degrades to `unverified` inside) leaves the rows unsettled, which read as "rescan pending"; it never
+    // fails the scan or skips notification.
+    try {
+        await settleFixes({
+            db: input.db,
+            findings: outcomes.flatMap(function findingsOf(o) { return o.findings }),
+            evidence: evidenceByFinding(reportedByPackage),
+            registry: input.registry ?? createNpmRegistryClient(input.db, { abortSignal: input.abortSignal }),
+            checkedAt: Date.now()
+        })
+    } catch (err) {
+        console.error('[runner] fix settlement failed for project ' + project.id + ': ' + errText(err))
+    }
+    // Notification comes AFTER corroboration and settlement, for the whole project at once, and this
+    // ordering is load-bearing rather than tidy. Escalation to the worst grade any source gave a finding
+    // is only knowable once every source has run, but notifying inside each scanner's own pass stamped the
     // pre-escalation grade onto the notification event — the column selectDispatchablePairs filters on.
     // A finding npm-audit called moderate and gemnasium called critical was dispatched (or, under a
-    // critical-only filter, silently not dispatched) as moderate, and nothing ever revisited it.
-    const dryRun = getConfigValue<boolean>(input.db, CONFIG_KEYS.dryRunNotify) || false
+    // critical-only filter, silently not dispatched) as moderate, and nothing ever revisited it. The
+    // settled fix has the same shape of problem: the message must say what the row says.
+    const notify = input.notify ?? defaultNotifier(input.db)
     for (const outcome of outcomes) {
         try {
-            await notifyForCompletedScan({ db: input.db, outcome, dryRun })
+            await notify(outcome)
         } catch (err) {
             console.error('[runner] notifier failed for project ' + project.id + ': ' + errText(err))
         }
     }
     return outcomes
+}
+
+function defaultNotifier(db: DrizzleDb): (outcome: ProjectScanOutcome) => Promise<void> {
+    const dryRun = getConfigValue<boolean>(db, CONFIG_KEYS.dryRunNotify) || false
+    return function notify(outcome) {
+        return notifyForCompletedScan({ db, outcome, dryRun })
+    }
+}
+
+// Every survivor's accumulated evidence, keyed the way settleFixes looks findings up. A survivor is
+// registered under each of its identity keys, so the same object is visited more than once.
+function evidenceByFinding(reportedByPackage: Map<string, Map<string, ReportedAdvisory>>): Map<string, FixEvidence[]> {
+    const out = new Map<string, FixEvidence[]>()
+    for (const byKey of reportedByPackage.values()) {
+        for (const reported of byKey.values()) out.set(fixEvidenceKey(reported), reported.evidence)
+    }
+    return out
 }
 
 // Writes the corroboration set onto the findings that survived, and re-grades each corroborated one to
@@ -202,12 +253,13 @@ function recordCorroborations(db: DrizzleDb, outcomes: ProjectScanOutcome[], eve
     }
 }
 
+// Survivor identity: one key shape for a persisted finding and the in-memory record it survived as.
 function findingIdentity(finding: Finding): string {
-    return finding.source + '|' + finding.ecosystem + '|' + finding.advisoryId + '|' + finding.packageName
+    return fixEvidenceKey(finding)
 }
 
 function targetIdentity(target: ReportedAdvisory): string {
-    return target.source + '|' + target.ecosystem + '|' + target.advisoryId + '|' + target.packageName
+    return fixEvidenceKey(target)
 }
 
 // Flatten a classified ResolverResult into the compact per-ecosystem coverage the feed scanners record.
@@ -217,7 +269,7 @@ function toCoverage(result: ResolverResult): EcosystemCoverage {
 }
 
 async function runOneScanner(
-    input: RunBatchInput,
+    input: RunProjectScansInput,
     project: Project,
     projectPath: string,
     scanner: ScannerPlugin,

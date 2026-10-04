@@ -4,7 +4,7 @@ import { defaultOutputFilename, hasUnavailableSource, renderJson, renderMarkdown
 import { parseArgs } from './options'
 import type { CliOptions } from './options'
 import type { ProjectScanResult, ScannerOutcome } from './scan'
-import type { RawFinding } from '@sentinello/scanners'
+import { settleFix, type RawFinding } from '@sentinello/scanners'
 import type { DiscoveredProject } from '@sentinello/scanners'
 
 // A fixed instant so every rendered document is byte-stable: 2026-03-04T05:06:07.000Z.
@@ -44,7 +44,8 @@ function finding(overrides: Partial<RawFinding> = {}): RawFinding {
             installed: ['4.17.11'],
             affected: { ranges: '>=4.0.0 <4.17.21', exact: [], complete: true },
             patched: null,
-            statedFix: '4.17.21'
+            statedFix: '4.17.21',
+            fixViaParent: false
         },
         depPath: ['lodash'],
         isProd: true,
@@ -62,7 +63,10 @@ function result(
     findings: RawFinding[],
     outcomes: ScannerOutcome[] = [outcome()]
 ): ProjectScanResult {
-    return { project: proj, findings, outcomes }
+    const fixes = new Map(findings.map(function settle(f) {
+        return [f, settleFix({ evidence: [f.fixInputs], registry: null, checkedAt: 0 })] as const
+    }))
+    return { project: proj, findings, outcomes, fixes }
 }
 
 describe('summarize — counting', function () {
@@ -187,12 +191,14 @@ describe('summarize — fix status', function () {
     it('renders a stated fix as unverified and never as an upgrade instruction', function () {
         const summary = summarize([result(project('a', 'a'), [finding()])], optionsWith([]))
         const md = renderMarkdown(summary, optionsWith([]), '', 0)
-        expect(md).toContain('- **Fix:** advisory names `4.17.21` · not checked against the registry')
+        expect(md).toContain('- **Fix:** advisory names `4.17.21` as the fix · not checked against the registry')
         expect(md).not.toContain('upgrade to')
     })
 
     it('says no fix is stated when the source states none', function () {
-        const summary = summarize([result(project('a', 'a'), [finding({ fixAvailable: false, fixVersion: null })])], optionsWith([]))
+        const none = finding({ fixAvailable: false, fixVersion: null })
+        none.fixInputs = { ...none.fixInputs, statedFix: null }
+        const summary = summarize([result(project('a', 'a'), [none])], optionsWith([]))
         expect(renderMarkdown(summary, optionsWith([]), '', 0)).toContain('- **Fix:** no fix stated by the advisory · not checked against the registry')
     })
 })

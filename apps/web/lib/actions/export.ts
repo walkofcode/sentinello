@@ -46,11 +46,10 @@ export async function exportLibraryAdvisoryMarkdownAction(
         return {
             packageName: trimmed,
             installedVersion: r.installedVersion,
-            // Library usage rows don't carry fix metadata in the current query — the dep path and
-            // fix version columns aren't selected. Mark fixAvailable=false / fixVersion=null so the
-            // formatter renders the "check the advisory" guidance instead of inventing a target.
-            fixAvailable: false,
-            fixVersion: null,
+            fixAvailable: r.fixAvailable,
+            fixVersion: r.fixVersion,
+            fixStatus: r.fixStatus,
+            fixCheck: r.fixCheck,
             severity: r.severity as Severity,
             advisoryId: r.advisoryId,
             advisoryTitle: r.advisoryTitle,

@@ -1,0 +1,637 @@
+{
+ "name": "qs",
+ "dist-tags": {
+  "v5.x-latest": "5.2.1",
+  "v6.0-latest": "6.0.6",
+  "v6.1-latest": "6.1.4",
+  "v6.2-latest": "6.2.6",
+  "v6.3-latest": "6.3.5",
+  "v6.4-latest": "6.4.3",
+  "v6.5-latest": "6.5.5",
+  "v6.6-latest": "6.6.3",
+  "v6.7-latest": "6.7.5",
+  "v6.8-latest": "6.8.5",
+  "v6.9-latest": "6.9.9",
+  "v6.10-latest": "6.10.7",
+  "v6.11-latest": "6.11.4",
+  "v6.12-latest": "6.12.5",
+  "v6.13-latest": "6.13.3",
+  "latest": "6.16.0"
+ },
+ "maintainers": [
+  {
+   "name": "nlf"
+  },
+  {
+   "name": "ljharb"
+  }
+ ],
+ "repository": {
+  "url": "git+https://github.com/ljharb/qs.git",
+  "type": "git"
+ },
+ "time": {
+  "created": "2011-02-04T04:40:23.617Z",
+  "modified": "2026-08-29T23:50:15.913Z",
+  "0.0.1": "2011-02-04T04:40:23.984Z",
+  "0.0.2": "2011-02-07T16:45:02.442Z",
+  "0.0.3": "2011-02-09T00:52:16.616Z",
+  "0.0.4": "2011-02-09T20:45:35.890Z",
+  "0.0.5": "2011-02-10T23:45:02.307Z",
+  "0.0.6": "2011-02-14T22:27:23.241Z",
+  "0.0.7": "2011-03-13T17:20:41.673Z",
+  "0.1.0": "2011-04-13T18:07:22.394Z",
+  "0.2.0": "2011-06-29T16:33:55.231Z",
+  "0.3.0": "2011-07-19T19:07:48.886Z",
+  "0.3.1": "2011-11-04T16:33:52.613Z",
+  "0.3.2": "2011-11-09T03:42:13.569Z",
+  "0.4.0": "2011-11-22T02:27:15.971Z",
+  "0.4.1": "2012-01-26T13:40:54.775Z",
+  "0.4.2": "2012-02-08T21:10:43.986Z",
+  "0.5.0": "2012-05-04T21:42:09.623Z",
+  "0.5.1": "2012-09-18T18:43:17.048Z",
+  "0.5.2": "2012-11-14T19:56:00.323Z",
+  "0.5.3": "2012-12-10T00:18:05.350Z",
+  "0.5.4": "2013-03-15T23:33:06.012Z",
+  "0.5.5": "2013-03-20T19:37:04.472Z",
+  "0.5.6": "2013-04-09T17:16:57.783Z",
+  "0.6.0": "2013-04-23T15:59:26.281Z",
+  "0.6.1": "2013-04-26T20:11:41.989Z",
+  "0.6.2": "2013-05-02T20:58:43.034Z",
+  "0.6.3": "2013-05-03T20:05:29.458Z",
+  "0.6.4": "2013-05-07T14:51:56.116Z",
+  "0.6.5": "2013-05-13T15:40:34.969Z",
+  "0.6.6": "2013-12-03T16:46:29.059Z",
+  "1.0.0": "2014-08-04T22:27:58.076Z",
+  "1.0.1": "2014-08-05T21:32:57.002Z",
+  "1.0.2": "2014-08-06T00:17:36.599Z",
+  "1.1.0": "2014-08-06T17:42:49.341Z",
+  "1.2.0": "2014-08-07T14:01:10.992Z",
+  "1.2.1": "2014-08-09T01:37:21.982Z",
+  "1.2.2": "2014-08-14T20:14:29.160Z",
+  "2.0.0": "2014-08-25T20:02:15.954Z",
+  "2.1.0": "2014-08-25T22:43:41.944Z",
+  "2.2.0": "2014-08-27T16:34:02.261Z",
+  "2.2.1": "2014-08-28T20:36:15.270Z",
+  "2.2.2": "2014-08-29T20:34:11.657Z",
+  "2.2.3": "2014-09-05T18:30:40.705Z",
+  "2.2.4": "2014-09-18T22:58:21.311Z",
+  "2.2.5": "2014-10-22T21:38:19.356Z",
+  "2.3.0": "2014-10-22T21:47:54.756Z",
+  "2.3.1": "2014-10-23T16:26:22.009Z",
+  "2.3.2": "2014-10-28T00:07:01.669Z",
+  "2.3.3": "2014-11-14T00:54:19.016Z",
+  "2.4.0": "2015-03-12T17:22:55.602Z",
+  "2.4.1": "2015-03-13T23:38:45.229Z",
+  "2.4.2": "2015-05-09T20:55:52.199Z",
+  "3.0.0": "2015-05-22T19:34:21.873Z",
+  "3.1.0": "2015-05-27T16:11:47.363Z",
+  "4.0.0": "2015-07-02T18:33:51.252Z",
+  "5.0.0": "2015-08-27T17:43:00.325Z",
+  "5.1.0": "2015-09-11T17:10:21.549Z",
+  "5.2.0": "2015-10-07T17:36:24.037Z",
+  "6.0.0": "2015-11-03T03:02:36.639Z",
+  "6.0.1": "2015-11-24T17:04:02.325Z",
+  "6.0.2": "2016-01-17T22:58:43.204Z",
+  "6.1.0": "2016-02-04T05:59:45.711Z",
+  "6.2.0": "2016-05-08T23:15:52.801Z",
+  "5.2.1": "2016-07-20T19:37:41.185Z",
+  "6.2.1": "2016-07-20T20:02:09.943Z",
+  "6.3.0": "2016-10-17T00:26:31.012Z",
+  "6.3.1": "2017-02-16T04:40:59.014Z",
+  "6.1.1": "2017-02-16T06:41:46.130Z",
+  "6.0.3": "2017-02-16T07:05:51.249Z",
+  "6.2.2": "2017-02-16T07:44:35.992Z",
+  "6.4.0": "2017-03-06T07:03:28.551Z",
+  "6.3.2": "2017-03-06T09:02:15.066Z",
+  "6.2.3": "2017-03-06T16:50:31.546Z",
+  "6.1.2": "2017-03-06T16:50:51.782Z",
+  "6.0.4": "2017-03-06T16:51:48.044Z",
+  "6.5.0": "2017-06-28T07:08:19.489Z",
+  "6.5.1": "2017-09-09T07:54:59.287Z",
+  "6.5.2": "2018-05-04T06:06:13.890Z",
+  "6.6.0": "2018-11-25T06:44:41.677Z",
+  "6.7.0": "2019-03-22T20:48:51.184Z",
+  "6.8.0": "2019-08-17T02:45:35.763Z",
+  "6.9.0": "2019-09-21T22:26:19.096Z",
+  "6.9.1": "2019-11-08T06:46:35.355Z",
+  "6.9.2": "2020-03-22T15:39:34.376Z",
+  "6.8.1": "2020-03-24T04:47:49.232Z",
+  "6.7.1": "2020-03-24T15:25:23.409Z",
+  "6.7.2": "2020-03-25T19:17:23.223Z",
+  "6.8.2": "2020-03-25T19:47:25.334Z",
+  "6.9.3": "2020-03-25T20:35:57.060Z",
+  "6.9.4": "2020-05-03T21:52:50.717Z",
+  "6.9.5": "2021-01-13T16:29:50.613Z",
+  "6.9.6": "2021-01-14T04:53:48.650Z",
+  "6.10.0": "2021-03-18T19:39:17.956Z",
+  "6.10.1": "2021-03-22T03:53:52.823Z",
+  "6.10.2": "2021-12-06T05:47:27.638Z",
+  "6.2.4": "2022-01-11T05:57:35.218Z",
+  "6.3.3": "2022-01-11T05:59:16.690Z",
+  "6.4.1": "2022-01-11T05:59:22.055Z",
+  "6.5.3": "2022-01-11T05:59:27.508Z",
+  "6.6.1": "2022-01-11T05:59:34.289Z",
+  "6.7.3": "2022-01-11T05:59:39.213Z",
+  "6.8.3": "2022-01-11T05:59:46.325Z",
+  "6.9.7": "2022-01-11T05:59:51.851Z",
+  "6.10.3": "2022-01-11T06:00:21.635Z",
+  "6.10.4": "2022-06-06T19:07:09.851Z",
+  "6.10.5": "2022-06-06T22:52:18.062Z",
+  "6.11.0": "2022-06-27T04:49:53.976Z",
+  "6.11.1": "2023-03-06T22:25:03.220Z",
+  "6.11.2": "2023-05-15T16:08:31.665Z",
+  "6.12.0": "2024-03-06T18:13:47.987Z",
+  "6.12.1": "2024-04-12T22:24:25.107Z",
+  "6.12.2": "2024-07-01T18:11:15.337Z",
+  "6.12.3": "2024-07-08T23:54:45.404Z",
+  "6.13.0": "2024-08-01T17:19:03.605Z",
+  "6.13.1": "2024-11-17T18:33:07.980Z",
+  "6.14.0": "2025-01-14T18:02:18.697Z",
+  "6.14.1": "2025-12-29T22:05:45.479Z",
+  "6.14.2": "2026-02-11T23:39:28.828Z",
+  "6.13.2": "2026-02-12T08:09:33.312Z",
+  "6.12.4": "2026-02-12T08:10:06.495Z",
+  "6.11.3": "2026-02-12T08:10:29.301Z",
+  "6.10.6": "2026-02-12T08:10:48.799Z",
+  "6.9.8": "2026-02-12T08:10:59.407Z",
+  "6.8.4": "2026-02-12T08:11:10.589Z",
+  "6.7.4": "2026-02-12T08:11:24.601Z",
+  "6.6.2": "2026-02-12T08:11:35.725Z",
+  "6.5.4": "2026-02-12T08:11:49.692Z",
+  "6.4.2": "2026-02-12T08:12:00.853Z",
+  "6.3.4": "2026-02-12T08:12:10.328Z",
+  "6.2.5": "2026-02-12T08:12:20.709Z",
+  "6.1.3": "2026-02-12T08:12:31.574Z",
+  "6.0.5": "2026-02-12T08:12:43.529Z",
+  "6.0.6": "2026-02-13T00:41:06.253Z",
+  "6.1.4": "2026-02-13T00:41:23.090Z",
+  "6.2.6": "2026-02-13T00:41:49.825Z",
+  "6.3.5": "2026-02-13T00:41:53.740Z",
+  "6.4.3": "2026-02-13T00:42:07.407Z",
+  "6.5.5": "2026-02-13T00:42:29.092Z",
+  "6.6.3": "2026-02-13T00:42:34.237Z",
+  "6.7.5": "2026-02-13T00:42:38.912Z",
+  "6.8.5": "2026-02-13T00:42:44.050Z",
+  "6.9.9": "2026-02-13T00:42:49.518Z",
+  "6.10.7": "2026-02-13T00:42:57.548Z",
+  "6.11.4": "2026-02-13T00:43:02.782Z",
+  "6.12.5": "2026-02-13T00:43:12.005Z",
+  "6.13.3": "2026-02-13T00:43:50.039Z",
+  "6.15.0": "2026-02-15T06:54:45.700Z",
+  "6.15.1": "2026-04-08T19:37:55.541Z",
+  "6.15.2": "2026-05-16T23:19:19.539Z",
+  "6.15.3": "2026-06-24T20:03:49.752Z",
+  "6.16.0": "2026-08-29T23:50:15.803Z"
+ },
+ "versions": {
+  "0.0.1": {},
+  "0.0.2": {},
+  "0.0.3": {},
+  "0.0.4": {},
+  "0.0.5": {},
+  "0.0.6": {},
+  "0.0.7": {},
+  "0.1.0": {},
+  "0.2.0": {
+   "dependencies": {}
+  },
+  "0.3.0": {
+   "dependencies": {}
+  },
+  "0.3.1": {
+   "dependencies": {}
+  },
+  "0.3.2": {
+   "dependencies": {}
+  },
+  "0.4.0": {
+   "dependencies": {}
+  },
+  "0.4.1": {
+   "dependencies": {}
+  },
+  "0.4.2": {
+   "dependencies": {}
+  },
+  "0.5.0": {
+   "dependencies": {},
+   "optionalDependencies": {}
+  },
+  "0.5.1": {},
+  "0.5.2": {},
+  "0.5.3": {},
+  "0.5.4": {},
+  "0.5.5": {},
+  "0.5.6": {},
+  "0.6.0": {},
+  "0.6.1": {},
+  "0.6.2": {},
+  "0.6.3": {},
+  "0.6.4": {},
+  "0.6.5": {},
+  "0.6.6": {},
+  "1.0.0": {
+   "dependencies": {}
+  },
+  "1.0.1": {
+   "dependencies": {}
+  },
+  "1.0.2": {
+   "dependencies": {}
+  },
+  "1.1.0": {
+   "dependencies": {}
+  },
+  "1.2.0": {
+   "dependencies": {}
+  },
+  "1.2.1": {
+   "dependencies": {}
+  },
+  "1.2.2": {
+   "dependencies": {}
+  },
+  "2.0.0": {
+   "dependencies": {}
+  },
+  "2.1.0": {
+   "dependencies": {}
+  },
+  "2.2.0": {
+   "dependencies": {}
+  },
+  "2.2.1": {
+   "dependencies": {}
+  },
+  "2.2.2": {
+   "dependencies": {}
+  },
+  "2.2.3": {
+   "dependencies": {}
+  },
+  "2.2.4": {
+   "dependencies": {}
+  },
+  "2.2.5": {
+   "dependencies": {}
+  },
+  "2.3.0": {
+   "dependencies": {}
+  },
+  "2.3.1": {
+   "dependencies": {}
+  },
+  "2.3.2": {
+   "dependencies": {}
+  },
+  "2.3.3": {
+   "dependencies": {}
+  },
+  "2.4.0": {
+   "dependencies": {}
+  },
+  "2.4.1": {
+   "dependencies": {}
+  },
+  "2.4.2": {
+   "dependencies": {}
+  },
+  "3.0.0": {
+   "dependencies": {}
+  },
+  "3.1.0": {
+   "dependencies": {}
+  },
+  "4.0.0": {
+   "dependencies": {}
+  },
+  "5.0.0": {
+   "dependencies": {}
+  },
+  "5.1.0": {
+   "dependencies": {}
+  },
+  "5.2.0": {
+   "dependencies": {}
+  },
+  "6.0.0": {
+   "dependencies": {}
+  },
+  "6.0.1": {
+   "dependencies": {}
+  },
+  "6.0.2": {
+   "dependencies": {}
+  },
+  "6.1.0": {
+   "dependencies": {}
+  },
+  "6.2.0": {
+   "dependencies": {}
+  },
+  "5.2.1": {
+   "dependencies": {}
+  },
+  "6.2.1": {
+   "dependencies": {}
+  },
+  "6.3.0": {
+   "dependencies": {}
+  },
+  "6.3.1": {
+   "dependencies": {}
+  },
+  "6.1.1": {
+   "dependencies": {}
+  },
+  "6.0.3": {
+   "dependencies": {}
+  },
+  "6.2.2": {
+   "dependencies": {}
+  },
+  "6.4.0": {
+   "dependencies": {}
+  },
+  "6.3.2": {
+   "dependencies": {}
+  },
+  "6.2.3": {
+   "dependencies": {}
+  },
+  "6.1.2": {
+   "dependencies": {}
+  },
+  "6.0.4": {
+   "dependencies": {}
+  },
+  "6.5.0": {
+   "dependencies": {}
+  },
+  "6.5.1": {
+   "dependencies": {}
+  },
+  "6.5.2": {
+   "dependencies": {}
+  },
+  "6.6.0": {
+   "dependencies": {}
+  },
+  "6.7.0": {
+   "dependencies": {}
+  },
+  "6.8.0": {
+   "dependencies": {}
+  },
+  "6.9.0": {
+   "dependencies": {}
+  },
+  "6.9.1": {
+   "dependencies": {}
+  },
+  "6.9.2": {
+   "dependencies": {}
+  },
+  "6.8.1": {
+   "dependencies": {}
+  },
+  "6.7.1": {
+   "dependencies": {}
+  },
+  "6.7.2": {
+   "dependencies": {}
+  },
+  "6.8.2": {
+   "dependencies": {}
+  },
+  "6.9.3": {
+   "dependencies": {}
+  },
+  "6.9.4": {
+   "dependencies": {}
+  },
+  "6.9.5": {
+   "dependencies": {}
+  },
+  "6.9.6": {
+   "dependencies": {}
+  },
+  "6.10.0": {
+   "dependencies": {
+    "side-channel": "^1.0.4"
+   }
+  },
+  "6.10.1": {
+   "dependencies": {
+    "side-channel": "^1.0.4"
+   }
+  },
+  "6.10.2": {
+   "dependencies": {
+    "side-channel": "^1.0.4"
+   }
+  },
+  "6.2.4": {},
+  "6.3.3": {},
+  "6.4.1": {},
+  "6.5.3": {},
+  "6.6.1": {},
+  "6.7.3": {},
+  "6.8.3": {},
+  "6.9.7": {},
+  "6.10.3": {
+   "dependencies": {
+    "side-channel": "^1.0.4"
+   }
+  },
+  "6.10.4": {
+   "dependencies": {
+    "side-channel": "^1.0.4"
+   }
+  },
+  "6.10.5": {
+   "dependencies": {
+    "side-channel": "^1.0.4"
+   },
+   "deprecated": "when using stringify with arrayFormat comma, `[]` is appended on single-item arrays. Upgrade to v6.11.0 or downgrade to v6.10.4 to fix."
+  },
+  "6.11.0": {
+   "dependencies": {
+    "side-channel": "^1.0.4"
+   }
+  },
+  "6.11.1": {
+   "dependencies": {
+    "side-channel": "^1.0.4"
+   }
+  },
+  "6.11.2": {
+   "dependencies": {
+    "side-channel": "^1.0.4"
+   }
+  },
+  "6.12.0": {
+   "dependencies": {
+    "side-channel": "^1.0.6"
+   }
+  },
+  "6.12.1": {
+   "dependencies": {
+    "side-channel": "^1.0.6"
+   }
+  },
+  "6.12.2": {
+   "dependencies": {
+    "side-channel": "^1.0.6"
+   }
+  },
+  "6.12.3": {
+   "dependencies": {
+    "side-channel": "^1.0.6"
+   }
+  },
+  "6.13.0": {
+   "dependencies": {
+    "side-channel": "^1.0.6"
+   }
+  },
+  "6.13.1": {
+   "dependencies": {
+    "side-channel": "^1.0.6"
+   }
+  },
+  "6.14.0": {
+   "dependencies": {
+    "side-channel": "^1.1.0"
+   }
+  },
+  "6.14.1": {
+   "dependencies": {
+    "side-channel": "^1.1.0"
+   }
+  },
+  "6.14.2": {
+   "dependencies": {
+    "side-channel": "^1.1.0"
+   }
+  },
+  "6.13.2": {
+   "dependencies": {
+    "side-channel": "^1.0.6"
+   },
+   "deprecated": "This version has regressions from a robustness refactor: parse incorrectly handles keys exceeding the depth option, and stringify incorrectly percent-encodes low-byte characters. Upgrade to 6.13.3."
+  },
+  "6.12.4": {
+   "dependencies": {
+    "side-channel": "^1.0.6"
+   },
+   "deprecated": "This version has regressions from a robustness refactor: parse incorrectly handles keys exceeding the depth option, and stringify incorrectly percent-encodes low-byte characters. Upgrade to 6.12.5."
+  },
+  "6.11.3": {
+   "dependencies": {
+    "side-channel": "^1.0.4"
+   },
+   "deprecated": "This version has regressions from a robustness refactor: parse incorrectly handles keys exceeding the depth option, and stringify incorrectly percent-encodes low-byte characters. Upgrade to 6.11.4."
+  },
+  "6.10.6": {
+   "dependencies": {
+    "side-channel": "^1.0.4"
+   },
+   "deprecated": "This version has regressions from a robustness refactor: parse incorrectly handles keys exceeding the depth option, and stringify incorrectly percent-encodes low-byte characters. Upgrade to 6.10.7."
+  },
+  "6.9.8": {
+   "deprecated": "This version has regressions from a robustness refactor: parse incorrectly handles keys exceeding the depth option, and stringify incorrectly percent-encodes low-byte characters. Upgrade to 6.9.9."
+  },
+  "6.8.4": {
+   "deprecated": "This version has regressions from a robustness refactor: parse incorrectly handles keys exceeding the depth option, and stringify incorrectly percent-encodes low-byte characters. Upgrade to 6.8.5."
+  },
+  "6.7.4": {
+   "deprecated": "This version has regressions from a robustness refactor: parse incorrectly handles keys exceeding the depth option, and stringify incorrectly percent-encodes low-byte characters. Upgrade to 6.7.5."
+  },
+  "6.6.2": {
+   "deprecated": "This version has regressions from a robustness refactor: parse incorrectly handles keys exceeding the depth option, and stringify incorrectly percent-encodes low-byte characters. Upgrade to 6.6.3."
+  },
+  "6.5.4": {
+   "deprecated": "This version has regressions from a robustness refactor: parse incorrectly handles keys exceeding the depth option, and stringify incorrectly percent-encodes low-byte characters. Upgrade to 6.5.5."
+  },
+  "6.4.2": {
+   "deprecated": "This version has regressions from a robustness refactor: parse incorrectly handles keys exceeding the depth option, and stringify incorrectly percent-encodes low-byte characters. Upgrade to 6.4.3."
+  },
+  "6.3.4": {
+   "deprecated": "This version has regressions from a robustness refactor: parse incorrectly handles keys exceeding the depth option, and stringify incorrectly percent-encodes low-byte characters. Upgrade to 6.3.5."
+  },
+  "6.2.5": {
+   "deprecated": "This version has a regression from a robustness refactor: parse incorrectly handles keys exceeding the depth option. Upgrade to 6.2.6."
+  },
+  "6.1.3": {
+   "dependencies": {},
+   "deprecated": "This version has a regression from a robustness refactor: parse incorrectly handles keys exceeding the depth option. Upgrade to 6.1.4."
+  },
+  "6.0.5": {
+   "dependencies": {},
+   "deprecated": "This version has a regression from a robustness refactor: parse incorrectly handles keys exceeding the depth option. Upgrade to 6.0.6."
+  },
+  "6.0.6": {
+   "dependencies": {}
+  },
+  "6.1.4": {
+   "dependencies": {}
+  },
+  "6.2.6": {},
+  "6.3.5": {},
+  "6.4.3": {},
+  "6.5.5": {},
+  "6.6.3": {},
+  "6.7.5": {},
+  "6.8.5": {},
+  "6.9.9": {},
+  "6.10.7": {
+   "dependencies": {
+    "side-channel": "^1.0.4"
+   }
+  },
+  "6.11.4": {
+   "dependencies": {
+    "side-channel": "^1.0.4"
+   }
+  },
+  "6.12.5": {
+   "dependencies": {
+    "side-channel": "^1.0.6"
+   }
+  },
+  "6.13.3": {
+   "dependencies": {
+    "side-channel": "^1.0.6"
+   }
+  },
+  "6.15.0": {
+   "dependencies": {
+    "side-channel": "^1.1.0"
+   }
+  },
+  "6.15.1": {
+   "dependencies": {
+    "side-channel": "^1.1.0"
+   }
+  },
+  "6.15.2": {
+   "dependencies": {
+    "side-channel": "^1.1.0"
+   }
+  },
+  "6.15.3": {
+   "dependencies": {
+    "side-channel": "^1.1.1",
+    "es-define-property": "^1.0.1"
+   }
+  },
+  "6.16.0": {
+   "dependencies": {
+    "side-channel": "^1.1.1",
+    "es-define-property": "^1.0.1"
+   }
+  }
+ }
+}

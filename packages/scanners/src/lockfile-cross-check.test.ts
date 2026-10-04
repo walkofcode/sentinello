@@ -13,7 +13,7 @@ function finding(installedVersion: string, vulnerableRange: string, advisoryId =
         severity: 'high',
         fixAvailable: false,
         fixVersion: null,
-        fixInputs: { source: 'osv', installed: [installedVersion], affected: { ranges: vulnerableRange, exact: [], complete: true }, patched: null, statedFix: null },
+        fixInputs: { source: 'osv', installed: [installedVersion], affected: { ranges: vulnerableRange, exact: [], complete: true }, patched: null, statedFix: null, fixViaParent: false },
         depPath: [],
         isProd: true,
         isDev: false

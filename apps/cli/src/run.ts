@@ -167,6 +167,7 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
         sources,
         ecosystem: DEFAULT_ECOSYSTEM,
         includeNpmAudit: options.includeNpmAudit,
+        settledAt: generatedAt,
         seeded: {
             osv: isSeeded(meta, 'osv', DEFAULT_ECOSYSTEM, OSV_NORMALIZER_VERSION),
             gemnasium: isSeeded(meta, 'gemnasium', DEFAULT_ECOSYSTEM, GEMNASIUM_NORMALIZER_VERSION)

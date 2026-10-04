@@ -1,0 +1,13 @@
+{
+    "name": "fix-status",
+    "version": "1.0.0",
+    "private": true,
+    "description": "Frozen fixture for smoke-fix-status: braces 3.0.3 (dev, via nodemon > chokidar) and node-forge 1.4.0 have no fixed version released; qs 6.15.0 sits in >=6.14.2 <=6.15.3, whose real fix is 6.16.0 (6.15.4 was never published).",
+    "dependencies": {
+        "node-forge": "1.4.0",
+        "qs": "6.15.0"
+    },
+    "devDependencies": {
+        "nodemon": "3.1.14"
+    }
+}

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { revalidatePath } from 'next/cache'
-import { getConfigValue, setConfigValue } from '@sentinello/db'
+import { applyFixSettlement, getConfigValue, schema, setConfigValue } from '@sentinello/db'
 import { DEFAULT_EXPORT_PROMPT } from '@sentinello/core'
 import {
     closePortalTestDb,
@@ -148,17 +148,31 @@ describe('exportLibraryAdvisoryMarkdownAction', function () {
         expect(result.markdown).toContain('Fix these before Friday.')
     })
 
-    // The library-usage query does not select the dep path or fix columns, so the action marks every
-    // row as having no known fix. That makes the formatter print its "check the advisory" guidance
-    // rather than inventing an upgrade target the data cannot support.
-    // Note the finding fixture DOES carry fixVersion 4.17.21 — the project export renders it as an
-    // upgrade target, and this one still must not, because the data behind a library export cannot
-    // support the claim.
-    it('never claims a fix version is available', async function () {
+    // The library export renders each row's settled fix, read the same way as every other surface. The
+    // fixture's rows come straight from the lifecycle merge, unsettled, so their stated 4.17.21 is
+    // withheld: "rescan pending", never an upgrade target nobody checked.
+    it('withholds the fix of a row no settlement has written', async function () {
         const result = await exportLibraryAdvisoryMarkdownAction('lodash', 'all')
 
-        expect(result.markdown).toContain('no fix available yet')
+        expect(result.markdown).toContain('**Fix:** fix not re-checked yet — rescan pending')
         expect(result.markdown).not.toContain('**Fix:** upgrade to')
+    })
+
+    it('renders a settled row with its released fix', async function () {
+        const rows = handle.db.select().from(schema.findings).all()
+        applyFixSettlement(handle.db, rows.map(function released(r) {
+            return {
+                id: r.id,
+                fixStatus: 'released' as const,
+                fixVersion: '4.17.21',
+                fixAvailable: true,
+                fixCheck: { v: 1 as const, checkedAt: 1, registry: 'ok' as const, packageDataAsOf: 1, unevaluable: null, sources: [] }
+            }
+        }))
+
+        const result = await exportLibraryAdvisoryMarkdownAction('lodash', 'all')
+
+        expect(result.markdown).toContain('**Fix:** upgrade to `4.17.21`')
     })
 
     it('rejects a dependency-type value outside the allowed set', async function () {

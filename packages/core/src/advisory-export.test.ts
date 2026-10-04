@@ -8,10 +8,17 @@ import {
     type ExportFinding,
     type ExportScope
 } from './advisory-export'
+import type { FixCheck } from './fix-status'
 
 // The advisory export is handed straight to an LLM as a remediation work list, so two properties
 // matter: the prompt that frames the work must survive intact, and no finding may be silently dropped
 // or mis-attributed. The markdown shape itself is asserted only where it carries meaning.
+
+const CHECKED_AT = Date.UTC(2026, 9, 3)
+
+function check(overrides: Partial<FixCheck> = {}): FixCheck {
+    return { v: 1, checkedAt: CHECKED_AT, registry: 'ok', packageDataAsOf: CHECKED_AT, unevaluable: null, sources: [], ...overrides }
+}
 
 function exportFinding(overrides: Partial<ExportFinding> = {}): ExportFinding {
     return {
@@ -19,6 +26,8 @@ function exportFinding(overrides: Partial<ExportFinding> = {}): ExportFinding {
         installedVersion: '4.17.20',
         fixAvailable: false,
         fixVersion: null,
+        fixStatus: 'unverified',
+        fixCheck: check({ registry: 'skipped', packageDataAsOf: null }),
         severity: 'high',
         advisoryId: 'GHSA-1',
         advisoryTitle: null,
@@ -178,12 +187,12 @@ describe('buildAdvisoryMarkdown finding rendering', function () {
     })
 
     it.each([
-        [{ fixAvailable: true, fixVersion: '4.17.21' }, '- **Fix:** upgrade to `4.17.21`'],
-        [{ fixAvailable: true, fixVersion: null }, '- **Fix:** available (target version not specified — check the advisory)'],
-        [{ fixAvailable: false, fixVersion: null }, '- **Fix:** no fix available yet — track upstream or mitigate at the call site'],
-        [{ fixStatus: 'unverified', fixAvailable: true, fixVersion: '4.17.21' }, '- **Fix:** advisory names `4.17.21` · not checked against the registry'],
-        [{ fixStatus: 'unverified', fixAvailable: true, fixVersion: null }, '- **Fix:** npm reports `npm audit fix` resolves it (no version of this package stated) · not checked against the registry'],
-        [{ fixStatus: 'unverified', fixAvailable: false, fixVersion: null }, '- **Fix:** no fix stated by the advisory · not checked against the registry']
+        [{ fixStatus: 'released', fixAvailable: true, fixVersion: '4.17.21', fixCheck: check() }, '- **Fix:** upgrade to `4.17.21`'],
+        [{ fixStatus: 'none_released', fixCheck: check() }, '- **Fix:** **No fixed version released** — no published version of `lodash` is outside the vulnerable range (registry checked 2026-10-03)'],
+        [{ fixAvailable: true, fixVersion: '4.17.21' }, '- **Fix:** advisory names `4.17.21` as the fix · not checked against the registry'],
+        [{ fixAvailable: true, fixVersion: null }, '- **Fix:** npm reports `npm audit fix` resolves it (no version of this package stated) · not checked against the registry'],
+        [{ fixAvailable: false, fixVersion: null }, '- **Fix:** no fix stated by the advisory · not checked against the registry'],
+        [{ fixCheck: null }, '- **Fix:** fix not re-checked yet — rescan pending']
     ] as Array<[Partial<ExportFinding>, string]>)('renders the fix line for %j', function (overrides, expected) {
         expect(build(PROJECT_SCOPE, [exportFinding(overrides)])).toContain(expected)
     })
@@ -193,6 +202,26 @@ describe('buildAdvisoryMarkdown finding rendering', function () {
     it('never says "upgrade to" for an unverified fix', function () {
         const md = build(PROJECT_SCOPE, [exportFinding({ fixStatus: 'unverified', fixAvailable: true, fixVersion: '4.17.21' })])
         expect(md).not.toContain('upgrade to `4.17.21`')
+    })
+
+    it('names the sources when they disagree on the affected range', function () {
+        const md = build(PROJECT_SCOPE, [exportFinding({
+            fixStatus: 'released',
+            fixAvailable: true,
+            fixVersion: '1.2.0',
+            fixCheck: check({
+                sources: [
+                    { source: 'npm-audit', installed: ['1.0.0'], affected: '<1.1.0', patched: null, statedFix: '1.1.0', noPatchedSentinel: false },
+                    { source: 'osv', installed: ['1.0.0'], affected: '<1.2.0', patched: null, statedFix: '1.2.0', noPatchedSentinel: false }
+                ]
+            })
+        })])
+        expect(md).toContain('- **Fix evidence:** sources disagree: npm-audit `<1.1.0`, osv `<1.2.0` — `1.2.0` is outside both')
+    })
+
+    it('adds no evidence line when the sources agree', function () {
+        const agreeing = check({ sources: [{ source: 'osv', installed: ['1.0.0'], affected: '<1.1.0', patched: null, statedFix: null, noPatchedSentinel: false }] })
+        expect(build(PROJECT_SCOPE, [exportFinding({ fixCheck: agreeing })])).not.toContain('Fix evidence')
     })
 
     it.each([

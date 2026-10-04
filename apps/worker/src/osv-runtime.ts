@@ -167,14 +167,10 @@ export function extraSourceCells(deps: SourceControllers): SourceCell[] {
     ]
 }
 
-// Opens (and migrates) the OSV cache, builds the scanner bound to it, runs an initial sync if needed
-// (seed when unseeded, otherwise an incremental catch-up), and schedules the daily sync. Returns the
-// scanner so the scheduler can include it in the per-project run set.
-export function startOsvRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime): OsvRuntime {
-    const { db: osvDb } = openOsvDb()
-    runOsvMigrations(osvDb)
-
-    const scanner = createOsvScanner({
+// The OSV scanner bound to an opened cache, with no sync attached. The runtime below adds the sync; the
+// scratch tools use this alone, against a copy of osv.db, so a verification run never touches the feed.
+export function createOsvScannerFor(mainDb: DrizzleDb, osvDb: OsvDrizzleDb): ScannerPlugin {
+    return createOsvScanner({
         isEnabled: function isEnabled(ecosystem: string): boolean {
             // The operator's live (osv, ecosystem) cell flag, read each scan so a Settings toggle takes
             // effect on the next batch. A cell disabled after it was seeded still has rows in osv.db and
@@ -194,6 +190,16 @@ export function startOsvRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime): OsvR
             return out
         }
     })
+}
+
+// Opens (and migrates) the OSV cache, builds the scanner bound to it, runs an initial sync if needed
+// (seed when unseeded, otherwise an incremental catch-up), and schedules the daily sync. Returns the
+// scanner so the scheduler can include it in the per-project run set.
+export function startOsvRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime): OsvRuntime {
+    const { db: osvDb } = openOsvDb()
+    runOsvMigrations(osvDb)
+
+    const scanner = createOsvScannerFor(mainDb, osvDb)
 
     // Mirror an initial status snapshot immediately (even before the first sync) so the Settings panel
     // shows "not seeded yet" rather than nothing the moment the source is enabled.

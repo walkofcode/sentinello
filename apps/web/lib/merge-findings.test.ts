@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CurrentFindingRow } from '@sentinello/db'
+import type { FixCheck } from '@sentinello/core'
 import { advisoryIdentity, mergeFindings } from './merge-findings'
 
 // The raw table stores one row per (scanner, advisory, dep-path), so one real vulnerability appears
@@ -7,8 +8,14 @@ import { advisoryIdentity, mergeFindings } from './merge-findings'
 // vulnerability, merging too little shows the operator the same thing three times and erodes trust in
 // the count. The tests below therefore pin the identity rules from both sides.
 
+const CHECK: FixCheck = { v: 1, checkedAt: 1, registry: 'ok', packageDataAsOf: 1, unevaluable: null, sources: [] }
+
+// A row that names a version is a released fix unless the test says otherwise, which is what the
+// version-comparison cases below are about.
 function row(overrides: Partial<CurrentFindingRow> = {}): CurrentFindingRow {
     return {
+        fixStatus: overrides.fixVersion ? 'released' : 'unverified',
+        fixCheck: CHECK,
         id: 'finding-1',
         scanId: 'scan-1',
         projectId: 'project-1',
@@ -496,5 +503,60 @@ describe('mergeFindings — per-source grades', function () {
         expect(merged).toHaveLength(1)
         expect(merged[0]?.grades.filter(function n(g) { return g.source === 'npm-audit' })).toHaveLength(1)
         expect(merged[0]?.grades).toHaveLength(2)
+    })
+})
+
+describe('mergeFindings — picking the fix status', function () {
+    it('prefers a released fix over a stated one, and a stated one over none released', function () {
+        const merged = mergeFindings([
+            row({ id: 'a', scanner: 'npm-audit', source: 'npm-audit', fixStatus: 'none_released' }),
+            row({ id: 'b', scanner: 'osv', source: 'osv', fixStatus: 'unverified', fixAvailable: true, fixVersion: '9.0.0' }),
+            row({ id: 'c', scanner: 'gemnasium', source: 'gemnasium', fixStatus: 'released', fixAvailable: true, fixVersion: '4.17.21' })
+        ])
+        expect(merged[0]).toMatchObject({ fixStatus: 'released', fixVersion: '4.17.21' })
+        const withoutReleased = mergeFindings([
+            row({ id: 'a', scanner: 'npm-audit', source: 'npm-audit', fixStatus: 'none_released' }),
+            row({ id: 'b', scanner: 'osv', source: 'osv', fixStatus: 'unverified', fixAvailable: true, fixVersion: '9.0.0' })
+        ])
+        expect(withoutReleased[0]).toMatchObject({ fixStatus: 'unverified', fixVersion: '9.0.0' })
+    })
+
+    it('keeps "available, no version" over nothing, and a settled row over one awaiting a rescan', function () {
+        const merged = mergeFindings([
+            row({ id: 'a', scanner: 'npm-audit', source: 'npm-audit', fixStatus: 'unverified', fixCheck: null }),
+            row({ id: 'b', scanner: 'osv', source: 'osv', fixStatus: 'unverified', fixAvailable: true })
+        ])
+        expect(merged[0]).toMatchObject({ fixStatus: 'unverified', fixAvailable: true, fixVersion: null })
+        const settled = mergeFindings([
+            row({ id: 'a', scanner: 'npm-audit', source: 'npm-audit', fixStatus: 'unverified', fixCheck: null }),
+            row({ id: 'b', scanner: 'osv', source: 'osv', fixStatus: 'unverified' })
+        ])
+        expect(settled[0]?.fixCheck).toEqual(CHECK)
+        const legacyLast = mergeFindings([
+            row({ id: 'a', scanner: 'npm-audit', source: 'npm-audit', fixStatus: 'unverified' }),
+            row({ id: 'b', scanner: 'osv', source: 'osv', fixStatus: 'unverified', fixCheck: null })
+        ])
+        expect(legacyLast[0]?.fixCheck).toEqual(CHECK)
+    })
+
+    it('prefers a stated version over none among unverified rows, in either order', function () {
+        const stated = row({ id: 'a', scanner: 'npm-audit', source: 'npm-audit', fixStatus: 'unverified', fixAvailable: true, fixVersion: '9.0.0' })
+        const bare = row({ id: 'b', scanner: 'osv', source: 'osv', fixStatus: 'unverified', fixAvailable: true })
+        expect(mergeFindings([stated, bare])[0]?.fixVersion).toBe('9.0.0')
+        expect(mergeFindings([bare, stated])[0]?.fixVersion).toBe('9.0.0')
+    })
+
+    // "rescan pending" says nothing; a row that proved there is no fix said something.
+    it('never lets an unsettled row hide a settled none_released', function () {
+        const merged = mergeFindings([
+            row({ id: 'a', scanner: 'npm-audit', source: 'npm-audit', fixStatus: 'unverified', fixCheck: null }),
+            row({ id: 'b', scanner: 'osv', source: 'osv', fixStatus: 'none_released' })
+        ])
+        expect(merged[0]).toMatchObject({ fixStatus: 'none_released', fixCheck: CHECK })
+    })
+
+    it('shows no fixed version released only when no row has anything better', function () {
+        const merged = mergeFindings([row({ fixStatus: 'none_released' })])
+        expect(merged[0]).toMatchObject({ fixStatus: 'none_released', fixAvailable: false, fixVersion: null })
     })
 })
