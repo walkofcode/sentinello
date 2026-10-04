@@ -1,4 +1,4 @@
-import { compareSeverity, type Severity } from './types'
+import { compareSeverity, type FixStatus, type Severity } from './types'
 
 // The built-in remediation prompt prepended to every advisory export. Operators can override this
 // in Settings → Export; the override is stored in app_config under the key 'markdownExportPrompt'.
@@ -100,6 +100,10 @@ export type ExportFinding = {
     installedVersion: string
     fixAvailable: boolean
     fixVersion: string | null
+    // How far the fix version was verified. Absent means the caller predates fix verification and the
+    // Fix line renders from fixAvailable/fixVersion alone; `unverified` labels the version as the source's
+    // statement, not a registry fact.
+    fixStatus?: FixStatus
     severity: Severity
     advisoryId: string
     advisoryTitle: string | null
@@ -143,6 +147,20 @@ function depTypeLabel(depType: 'all' | 'prod' | 'dev'): string {
     return 'all (prod + dev)'
 }
 
+// The Fix line's text. An `unverified` fix is only what a source stated, so it is never phrased as an
+// instruction to upgrade: "upgrade to X" for a version nobody checked against the registry is how agents
+// came to chase releases that were never published.
+function fixLine(f: ExportFinding): string {
+    if (f.fixStatus === 'unverified') {
+        if (f.fixVersion) return 'advisory names `' + escapeForMarkdown(f.fixVersion) + '` · not checked against the registry'
+        if (f.fixAvailable) return 'npm reports `npm audit fix` resolves it (no version of this package stated) · not checked against the registry'
+        return 'no fix stated by the advisory · not checked against the registry'
+    }
+    if (f.fixAvailable && f.fixVersion) return 'upgrade to `' + escapeForMarkdown(f.fixVersion) + '`'
+    if (f.fixAvailable) return 'available (target version not specified — check the advisory)'
+    return 'no fix available yet — track upstream or mitigate at the call site'
+}
+
 function depTypeForFinding(f: ExportFinding): string {
     if (f.isProd && f.isDev) return 'prod + dev'
     if (f.isProd) return 'prod'
@@ -177,13 +195,7 @@ function formatFinding(index: number, f: ExportFinding): string {
     if (f.sources && f.sources.length > 0) {
         lines.push('- **Sources:** ' + f.sources.map(escapeForMarkdown).join(', '))
     }
-    if (f.fixAvailable && f.fixVersion) {
-        lines.push('- **Fix:** upgrade to `' + escapeForMarkdown(f.fixVersion) + '`')
-    } else if (f.fixAvailable) {
-        lines.push('- **Fix:** available (target version not specified — check the advisory)')
-    } else {
-        lines.push('- **Fix:** no fix available yet — track upstream or mitigate at the call site')
-    }
+    lines.push('- **Fix:** ' + fixLine(f))
     if (f.vulnerableRange) {
         lines.push('- **Vulnerable range:** `' + escapeForMarkdown(f.vulnerableRange) + '`')
     }

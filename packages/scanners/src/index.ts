@@ -29,6 +29,17 @@ export { matchAdvisories } from './engine/matcher'
 // Version semantics live in @sentinello/versions; re-exported here so existing consumers keep one import.
 export { semverComparator, pep440Comparator } from '@sentinello/versions'
 export { reconcileAgainstReported, findingIdentityKeys, escalatedSeverity } from './engine/reconcile'
+export {
+    pickStatedFix,
+    pickReleasedFix,
+    affectedSetContains,
+    NO_PATCHED_VERSION_SENTINEL,
+    type AffectedSet,
+    type FixEvidence,
+    type PublishedVersion,
+    type ReleasedFixResult,
+    type UnknownFixReason
+} from './version-fix'
 export type { CorroborationEvent, ReconcileResult, ReportedAdvisory } from './engine/reconcile'
 export type { CanonicalAdvisory, VersionRange, VersionComparator } from './engine/types'
 

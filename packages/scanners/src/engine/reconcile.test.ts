@@ -27,6 +27,7 @@ function finding(overrides: Partial<RawFinding> = {}): RawFinding {
         severity: 'high',
         fixAvailable: false,
         fixVersion: null,
+        fixInputs: { source: 'osv', installed: ['1.0.0'], affected: { ranges: '>=1.0.0 <2.0.0', exact: [], complete: true }, patched: null, statedFix: null },
         depPath: [],
         isProd: true,
         isDev: false,

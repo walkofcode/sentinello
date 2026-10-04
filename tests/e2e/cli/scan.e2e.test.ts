@@ -25,6 +25,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..', '..', '..')
 const CLI_BIN = join(REPO_ROOT, 'apps', 'cli', 'dist', 'cli.cjs')
 const FIXTURE_PROJECT = join(REPO_ROOT, 'tests', 'fixtures', 'projects', 'npm-basic')
+const FIXTURE_NO_FIX_PROJECT = join(REPO_ROOT, 'tests', 'fixtures', 'projects', 'npm-no-fix')
 const FIXTURE_ADVISORIES = join(REPO_ROOT, 'tests', 'fixtures', 'advisories', 'osv-npm.ndjson')
 
 const OFFLINE_ENV = {
@@ -165,6 +166,45 @@ describe('scanning the frozen fixture', function () {
         const doc = JSON.parse((await scanFixture(['--json', '--severity', 'high'])).stdout)
         expect(doc.totalFindings).toBe(1)
         expect(doc.findings[0].packageName).toBe('lodash')
+    })
+})
+
+// braces <=3.0.3 and node-forge <=1.4.0: every source says no fix, and npm has published neither 3.0.4 nor
+// 1.4.1. The CLI used to print "upgrade to 3.0.4" / "1.4.1" anyway — a version bumped out of the `<=` bound —
+// and five fix agents each lost a run chasing them. The findings must still be reported, with no version.
+describe('advisories with no fixed version released', function () {
+    async function scanNoFix(extraArgs: string[] = []): Promise<RunResult> {
+        return await runCli([FIXTURE_NO_FIX_PROJECT, '--source', 'osv,gemnasium', '--no-prompt', '--out', '-', ...extraArgs])
+    }
+
+    it('reports both findings with no fix version, in JSON and markdown', async function () {
+        const json = await scanNoFix(['--json'])
+        expect(json.code).toBe(0)
+        const doc = JSON.parse(json.stdout)
+        const byName = new Map(doc.findings.map(function entry(f: { packageName: string }) {
+            return [f.packageName, f] as const
+        }))
+        expect([...byName.keys()].sort()).toEqual(['braces', 'node-forge'])
+        for (const finding of byName.values()) {
+            expect(finding).toMatchObject({ severity: 'high', fixAvailable: false, fixVersion: null, fixStatus: 'unverified' })
+        }
+
+        const markdown = await scanNoFix([])
+        expect(markdown.code).toBe(0)
+        expect(markdown.stdout).toContain('no fix stated by the advisory · not checked against the registry')
+        expect(markdown.stdout).not.toContain('upgrade to')
+
+        for (const output of [json, markdown]) {
+            expect(output.stdout + output.stderr).not.toContain('3.0.4')
+            expect(output.stdout + output.stderr).not.toContain('1.4.1')
+        }
+    })
+
+    // A version the advisory does state is still shown, but as the advisory's word, not as an instruction.
+    it('labels a stated fix as unverified', async function () {
+        const result = await scanFixture([])
+        expect(result.stdout).toContain('advisory names `4.17.21` · not checked against the registry')
+        expect(result.stdout).not.toContain('upgrade to')
     })
 })
 

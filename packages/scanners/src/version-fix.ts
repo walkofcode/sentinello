@@ -1,6 +1,61 @@
-import { Range, satisfies, gte, gt, valid, coerce } from 'semver'
+import { Range, satisfies, gte, gt, lt, valid, prerelease } from 'semver'
+import { normalizeSemver } from '@sentinello/versions'
 
-export type PickSafeFixVersionArgs = {
+// A fix version is a fact about the package registry, not arithmetic on a range. This module used to turn a
+// `<=X` bound into "X+1" and a `>X` bound into "X+1" and report the result as the fix — which is how braces
+// 3.0.4 and node-forge 1.4.1 came to be recommended across the fleet although neither was ever published,
+// and how qs was sent to a non-existent 6.15.4 while 6.16.0 was out. Two things live here now, and neither
+// invents a version:
+//
+//   - pickStatedFix: the fix a SOURCE states, read only from bounds literally present in its data.
+//   - pickReleasedFix: the fix the REGISTRY proves, given the published version list and every source's
+//     affected set. Pure; the caller fetches the version list.
+
+// pnpm audit writes this as `patched_versions` to say "no patched version exists". It is a statement, not a
+// range: read as a range it would match nothing and so make every candidate unpatched.
+export const NO_PATCHED_VERSION_SENTINEL = '<0.0.0'
+
+// Everything a source said that bears on which version fixes a finding. One per reporting source/copy; the
+// worker settles a finding against all of them, so the answer does not depend on which source ran first.
+export type AffectedSet = {
+    // The applicable ranges as a semver range string ('||'-joined), null when the advisory has none
+    // (exact-only). '*' for malware with no version data: every version is affected.
+    ranges: string | null
+    // Enumerated affected versions, kept verbatim. Compared after normalizeSemver, the same normalization
+    // the matcher used, so `<1.1.0` plus exact `1.1.0` rejects 1.1.0.
+    exact: string[]
+    // False when some of the advisory's affected data could not be carried here — a range dropped for this
+    // comparator, or one that does not parse. An incomplete set can never prove a version safe.
+    complete: boolean
+}
+
+export type FixEvidence = {
+    source: string
+    // Every installed copy this source saw, as written (a comma-joined npm-audit value is split).
+    installed: string[]
+    affected: AffectedSet
+    // The source's patched range, when it states one. NO_PATCHED_VERSION_SENTINEL is provenance only.
+    patched: string | null
+    statedFix: string | null
+}
+
+export type PublishedVersion = {
+    version: string
+    deprecated: boolean
+}
+
+export type UnknownFixReason =
+    | 'no_evidence'
+    | 'installed_unknown'
+    | 'affected_incomplete'
+    | 'patched_unparseable'
+
+export type ReleasedFixResult =
+    | { kind: 'released'; version: string }
+    | { kind: 'none' }
+    | { kind: 'unknown'; reason: UnknownFixReason }
+
+export type PickStatedFixArgs = {
     patched: string | null
     recommendation: string | null
     vulnerable: string
@@ -9,12 +64,14 @@ export type PickSafeFixVersionArgs = {
 
 const VERSION_LITERAL_RE = /\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/g
 
+function isNoPatchedSentinel(input: string): boolean {
+    return input.trim() === NO_PATCHED_VERSION_SENTINEL
+}
+
 function parseRangeSafely(input: string | null): Range | null {
     if (!input) return null
     const trimmed = input.trim()
-    if (!trimmed) return null
-    // pnpm audit uses '<0.0.0' as a sentinel for "no fix available"
-    if (trimmed === '<0.0.0') return null
+    if (!trimmed || isNoPatchedSentinel(trimmed)) return null
     try {
         return new Range(trimmed, { includePrerelease: false })
     } catch {
@@ -33,106 +90,86 @@ function extractLiteralCandidates(input: string | null): string[] {
     return out
 }
 
-// Returns string, not string | null: coerce() only fails on input it cannot read as a version at all,
-// and both call sites pass a Comparator's own .semver.version — a string node-semver's own Range parser
-// produced. The old `if (!sv) return null` propagated a null every caller then had to re-check.
-function bumpPatch(v: string): string {
-    const sv = coerce(v)!
-    return sv.major + '.' + sv.minor + '.' + (sv.patch + 1)
-}
-
-// For a parsed semver Range, return the lower-bound version of each AND-conjunction
-// (Range.set is OR of ANDs). For '>=X' or '=X' the bound is X; for '>X' we bump the
-// patch by one as an approximation of "the next allowed version".
+// The `>=X` / `=X` lower bound of each AND-conjunction of a patched range (Range.set is OR of ANDs). A `>X`
+// bound names no version — the next one is whatever the registry has — so it contributes nothing.
 function extractRangeLowerBounds(range: Range): string[] {
     const out: string[] = []
     for (const conjuncts of range.set) {
         let candidate: string | null = null
         for (const c of conjuncts) {
-            // The `!c.semver.version` guard above is the only one needed: it catches the ANY comparator
-            // (version ''), and every other comparator in a parsed Range carries a version the parser
-            // already validated.
-            if (!c.semver || !c.semver.version) continue
-            const v = c.semver.version
+            // The ANY comparator carries version ''; every other comparator in a parsed Range carries a
+            // version the parser already validated.
+            if (!c.semver.version) continue
             const op = c.operator
-            if (op === '>=' || op === '=' || op === '') {
-                if (!candidate || gt(v, candidate)) candidate = v
-            } else if (op === '>') {
-                const inc = bumpPatch(v)
-                if (!candidate || gt(inc, candidate)) candidate = inc
-            }
+            if (op !== '>=' && op !== '=' && op !== '') continue
+            if (!candidate || gt(c.semver.version, candidate)) candidate = c.semver.version
         }
         if (candidate) out.push(candidate)
     }
     return out
 }
 
-// For a parsed VULNERABLE semver Range, derive candidate fix versions: for each '<X'
-// comparator X itself is the smallest version above the bound; for '<=X' we bump the
-// patch by one. These candidates are still validated against the full vulnerable range
-// in the main filter, so spurious values get rejected.
-function extractRangeUpperBoundsBeyond(range: Range): string[] {
+// The `<X` bounds of a vulnerable range: X is the first version past that branch, as the source states it.
+// A `<=X` bound says X is still vulnerable and names nothing beyond it.
+function extractExclusiveUpperBounds(range: Range): string[] {
     const out: string[] = []
     for (const conjuncts of range.set) {
         for (const c of conjuncts) {
-            if (!c.semver || !c.semver.version) continue
-            const v = c.semver.version
-            const op = c.operator
-            if (op === '<') {
-                out.push(v)
-            } else if (op === '<=') {
-                out.push(bumpPatch(v))
-            }
+            if (c.operator === '<' && c.semver.version) out.push(c.semver.version)
         }
     }
     return out
 }
 
-// The installed-version string can be a single version, or a comma-joined list of
-// versions when the same package is hoisted at multiple versions (see pickInstalledVersion
-// in npm-audit.ts). Use the highest as the floor so we never suggest a downgrade for
-// any of the installed copies.
+// node-semver desugars partial versions (`<1.2` becomes `<1.2.0-0`), so a bound read off a parsed Range is
+// not always text the source wrote. Only a version spelled out in the source counts as stated.
+function literallyIn(text: string, versions: string[]): string[] {
+    const literals = new Set(extractLiteralCandidates(text))
+    return versions.filter(function stated(v) {
+        return literals.has(v)
+    })
+}
+
+// The installed-version string can be a single version, or a comma-joined list of versions when the same
+// package is hoisted at multiple versions (see pickInstalledVersion in npm-audit-parse.ts).
+export function splitInstalled(installed: string | null): string[] {
+    if (!installed) return []
+    return installed.split(/[\s,]+/).filter(function nonEmpty(part) {
+        return part.length > 0
+    })
+}
+
+// The highest parseable installed copy, so no copy is ever told to downgrade.
 function pickHighestInstalled(installed: string | null): string | null {
-    if (!installed) return null
-    const parts = installed.split(/[\s,]+/)
     let highest: string | null = null
-    for (const raw of parts) {
-        const part = raw.trim()
-        if (!part) continue
+    for (const part of splitInstalled(installed)) {
         if (!valid(part)) continue
         if (!highest || gt(part, highest)) highest = part
     }
     return highest
 }
 
-// Pick the lowest version that:
-//   1. satisfies `patched` (if parseable)
-//   2. does NOT satisfy `vulnerable` (if parseable)
-//   3. is >= `installed` (if known)
-// Returns null when no candidate meets all three constraints — better to suggest
-// nothing than suggest a version that is still vulnerable or is a downgrade.
-export function pickSafeFixVersion(args: PickSafeFixVersionArgs): string | null {
-    const patchedRange = parseRangeSafely(args.patched)
+// The fix a source STATES — never one derived from a bound. Candidates are only versions written in the
+// source's own data: the `>=X`/`=X` lower bounds of the patched range (or the literals of an unparseable
+// one), the recommendation's literals, and the `<X` bounds of the vulnerable range. The lowest one that is
+// inside the patched range, outside the vulnerable range and not below the installed copy wins. Null when
+// the source states nothing usable: "no fix stated" is an answer, a guessed version is not.
+export function pickStatedFix(args: PickStatedFixArgs): string | null {
+    const patchedText = args.patched ?? ''
+    const patchedRange = parseRangeSafely(patchedText)
     const vulnRange = parseRangeSafely(args.vulnerable)
     const installedFloor = pickHighestInstalled(args.installed)
 
     const candidates = new Set<string>()
     if (patchedRange) {
-        for (const v of extractRangeLowerBounds(patchedRange)) candidates.add(v)
-    } else {
-        for (const v of extractLiteralCandidates(args.patched)) candidates.add(v)
+        for (const v of literallyIn(patchedText, extractRangeLowerBounds(patchedRange))) candidates.add(v)
+    } else if (!isNoPatchedSentinel(patchedText)) {
+        for (const v of extractLiteralCandidates(patchedText)) candidates.add(v)
     }
     for (const v of extractLiteralCandidates(args.recommendation)) candidates.add(v)
-    // The upper bound of the vulnerable range is often the actual fix. For '<X' that's
-    // X itself; for '<=X' that's X+1 patch. We also throw raw literals from the
-    // vulnerable string into the pool as a fallback for unparseable ranges — the main
-    // filter rejects anything still inside the vulnerable range.
     if (vulnRange) {
-        for (const v of extractRangeUpperBoundsBeyond(vulnRange)) candidates.add(v)
+        for (const v of literallyIn(args.vulnerable, extractExclusiveUpperBounds(vulnRange))) candidates.add(v)
     }
-    for (const v of extractLiteralCandidates(args.vulnerable)) candidates.add(v)
-
-    if (candidates.size === 0) return null
 
     let best: string | null = null
     for (const v of candidates) {
@@ -142,4 +179,100 @@ export function pickSafeFixVersion(args: PickSafeFixVersionArgs): string | null 
         if (!best || gt(best, v)) best = v
     }
     return best
+}
+
+// An affected set built from a range string a source handed over verbatim (npm audit's `range`, pnpm's
+// `vulnerable_versions`). Empty, unparseable, or the no-patch sentinel in the wrong field: incomplete.
+export function affectedSetFromRange(vulnerable: string): AffectedSet {
+    const trimmed = vulnerable.trim()
+    const parses = trimmed.length > 0 && !isNoPatchedSentinel(trimmed) && parseRangeSafely(trimmed) !== null
+    return { ranges: trimmed.length > 0 ? trimmed : null, exact: [], complete: parses }
+}
+
+// An affected set ready to test versions against. Null when it cannot be evaluated: incomplete, a range
+// that does not parse, or an exact version normalizeSemver cannot read (it might be the very version a
+// candidate spells differently).
+type EvaluableAffected = { range: Range | null; exact: Set<string> }
+
+function evaluable(affected: AffectedSet): EvaluableAffected | null {
+    if (!affected.complete) return null
+    let range: Range | null = null
+    if (affected.ranges !== null) {
+        try {
+            // includePrerelease: a version inside the bounds is affected whatever its tag, which is how the
+            // matcher's own ordering comparison reads the same bounds.
+            range = new Range(affected.ranges, { includePrerelease: true })
+        } catch {
+            return null
+        }
+    }
+    const exact = new Set<string>()
+    for (const raw of affected.exact) {
+        const v = normalizeSemver(raw)
+        if (v === null) return null
+        exact.add(v)
+    }
+    return { range, exact }
+}
+
+// Whether a set marks a version affected: true / false, or null when the set cannot be evaluated (which
+// must never be read as "safe").
+export function affectedSetContains(affected: AffectedSet, version: string): boolean | null {
+    const ev = evaluable(affected)
+    if (ev === null) return null
+    return isIn(ev, version)
+}
+
+function isIn(ev: EvaluableAffected, version: string): boolean {
+    if (ev.exact.has(version)) return true
+    return ev.range !== null && ev.range.test(version)
+}
+
+export type PickReleasedFixArgs = {
+    // The registry's published versions. Prereleases and unparseable strings are ignored.
+    published: readonly PublishedVersion[]
+    evidence: readonly FixEvidence[]
+    // Every installed copy's version, across all evidence.
+    installed: readonly string[]
+}
+
+// The lowest version that is published, not a prerelease, not below the highest installed copy, outside
+// EVERY evidence's affected set and inside every stated patched range — a non-deprecated one when any
+// qualifies, else a deprecated one. `none` only when every input could be evaluated; anything that cannot
+// be evaluated is `unknown`, which the caller must never turn into "released" or "no fix released".
+export function pickReleasedFix(args: PickReleasedFixArgs): ReleasedFixResult {
+    if (args.evidence.length === 0) return { kind: 'unknown', reason: 'no_evidence' }
+    if (args.installed.length === 0) return { kind: 'unknown', reason: 'installed_unknown' }
+    let floor = '0.0.0'
+    for (const raw of args.installed) {
+        const v = normalizeSemver(raw)
+        if (v === null) return { kind: 'unknown', reason: 'installed_unknown' }
+        if (gt(v, floor)) floor = v
+    }
+
+    const affected: EvaluableAffected[] = []
+    const patched: Range[] = []
+    for (const e of args.evidence) {
+        const ev = evaluable(e.affected)
+        if (ev === null) return { kind: 'unknown', reason: 'affected_incomplete' }
+        affected.push(ev)
+        if (e.patched === null || e.patched.trim() === '' || isNoPatchedSentinel(e.patched)) continue
+        const range = parseRangeSafely(e.patched)
+        if (range === null) return { kind: 'unknown', reason: 'patched_unparseable' }
+        patched.push(range)
+    }
+
+    let lowest: string | null = null
+    let lowestCurrent: string | null = null
+    for (const p of args.published) {
+        if (valid(p.version) === null || prerelease(p.version) !== null) continue
+        if (!gte(p.version, floor)) continue
+        if (affected.some(function hits(ev) { return isIn(ev, p.version) })) continue
+        if (!patched.every(function inside(range) { return satisfies(p.version, range) })) continue
+        if (lowest === null || lt(p.version, lowest)) lowest = p.version
+        if (!p.deprecated && (lowestCurrent === null || lt(p.version, lowestCurrent))) lowestCurrent = p.version
+    }
+    const chosen = lowestCurrent ?? lowest
+    if (chosen === null) return { kind: 'none' }
+    return { kind: 'released', version: chosen }
 }

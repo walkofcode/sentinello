@@ -93,6 +93,13 @@ function rawFinding(overrides: Partial<RawFinding> = {}): RawFinding {
         severity: 'high',
         fixAvailable: true,
         fixVersion: '4.17.21',
+        fixInputs: {
+            source: 'npm-audit',
+            installed: ['4.17.11'],
+            affected: { ranges: '<4.17.21', exact: [], complete: true },
+            patched: null,
+            statedFix: '4.17.21'
+        },
         depPath: ['lodash'],
         isProd: true,
         isDev: false,

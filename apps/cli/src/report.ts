@@ -73,6 +73,9 @@ export function summarize(results: readonly ProjectScanResult[], options: CliOpt
                 installedVersion: finding.installedVersion,
                 fixAvailable: finding.fixAvailable,
                 fixVersion: finding.fixVersion,
+                // The CLI never asks the registry (it stays offline and dependency-free), so a fix version is
+                // only ever what the source stated — rendered as such, never as "upgrade to".
+                fixStatus: 'unverified',
                 severity: finding.severity,
                 advisoryId: finding.advisoryId,
                 advisoryTitle: finding.advisoryTitle,

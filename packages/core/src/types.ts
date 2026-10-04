@@ -3,6 +3,14 @@ import type { NotificationSourceScope } from './sources'
 
 export type Severity = 'critical' | 'high' | 'moderate' | 'low' | 'info'
 
+// What is known about a finding's fix version, which is a fact about the package registry and never
+// arithmetic on a range. `released` — the fix version is published (and outside every source's affected
+// set); `none_released` — the registry answered and no published version qualifies; `unverified` — the
+// registry was not consulted, or some source's affected data could not be evaluated, so the version shown
+// is only what the source stated (or nothing). The CLI never consults the registry, so every CLI finding is
+// `unverified`.
+export type FixStatus = 'released' | 'none_released' | 'unverified'
+
 // One source independently reporting an advisory that another source already reported for the same
 // package. The scan keeps ONE finding per vulnerability — reporting the same flaw three times because
 // three databases know about it is noise, not information — but which sources agreed, and how each one

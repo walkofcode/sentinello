@@ -180,9 +180,19 @@ describe('buildAdvisoryMarkdown finding rendering', function () {
     it.each([
         [{ fixAvailable: true, fixVersion: '4.17.21' }, '- **Fix:** upgrade to `4.17.21`'],
         [{ fixAvailable: true, fixVersion: null }, '- **Fix:** available (target version not specified — check the advisory)'],
-        [{ fixAvailable: false, fixVersion: null }, '- **Fix:** no fix available yet — track upstream or mitigate at the call site']
+        [{ fixAvailable: false, fixVersion: null }, '- **Fix:** no fix available yet — track upstream or mitigate at the call site'],
+        [{ fixStatus: 'unverified', fixAvailable: true, fixVersion: '4.17.21' }, '- **Fix:** advisory names `4.17.21` · not checked against the registry'],
+        [{ fixStatus: 'unverified', fixAvailable: true, fixVersion: null }, '- **Fix:** npm reports `npm audit fix` resolves it (no version of this package stated) · not checked against the registry'],
+        [{ fixStatus: 'unverified', fixAvailable: false, fixVersion: null }, '- **Fix:** no fix stated by the advisory · not checked against the registry']
     ] as Array<[Partial<ExportFinding>, string]>)('renders the fix line for %j', function (overrides, expected) {
         expect(build(PROJECT_SCOPE, [exportFinding(overrides)])).toContain(expected)
+    })
+
+    // An unverified fix is the source's statement, not a registry fact, so it must never read as an
+    // instruction to upgrade.
+    it('never says "upgrade to" for an unverified fix', function () {
+        const md = build(PROJECT_SCOPE, [exportFinding({ fixStatus: 'unverified', fixAvailable: true, fixVersion: '4.17.21' })])
+        expect(md).not.toContain('upgrade to `4.17.21`')
     })
 
     it.each([

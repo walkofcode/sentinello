@@ -1,5 +1,6 @@
 import type { FindingCorroboration, Severity, ScanStatus, ReasonCode, PackageManager } from '@sentinello/core'
 import type { ResolvedGraph } from './resolver/types'
+import type { FixEvidence } from './version-fix'
 
 export type RawFinding = {
     advisoryId: string
@@ -14,7 +15,14 @@ export type RawFinding = {
     vulnerableRange: string
     severity: Severity
     fixAvailable: boolean
+    // The fix the source STATES (pickStatedFix / the matcher's `fixed` bounds), never a derived one. Whether
+    // it was ever published is the registry's question, settled from `fixInputs`; until then it is shown
+    // as unverified.
     fixVersion: string | null
+    // Everything this source said about the fix — its whole affected set, patched range and stated fix —
+    // so the worker can settle the finding against the registry and against every other source's evidence.
+    // In memory only; not persisted.
+    fixInputs: FixEvidence
     depPath: string[]
     isProd: boolean
     isDev: boolean

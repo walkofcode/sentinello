@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_EXPORT_PROMPT } from '@sentinello/core'
-import { defaultOutputFilename, hasUnavailableSource, renderJson, resolvePrompt, shouldFail, summarize } from './report'
+import { defaultOutputFilename, hasUnavailableSource, renderJson, renderMarkdown, resolvePrompt, shouldFail, summarize } from './report'
 import { parseArgs } from './options'
 import type { CliOptions } from './options'
 import type { ProjectScanResult, ScannerOutcome } from './scan'
@@ -39,6 +39,13 @@ function finding(overrides: Partial<RawFinding> = {}): RawFinding {
         severity: 'high',
         fixAvailable: true,
         fixVersion: '4.17.21',
+        fixInputs: {
+            source: 'osv',
+            installed: ['4.17.11'],
+            affected: { ranges: '>=4.0.0 <4.17.21', exact: [], complete: true },
+            patched: null,
+            statedFix: '4.17.21'
+        },
         depPath: ['lodash'],
         isProd: true,
         isDev: false,
@@ -165,6 +172,28 @@ describe('summarize — project attribution', function () {
     it('falls back to the project name when the project is the root itself', function () {
         const summary = summarize([result(project('myrepo', '.'), [finding()])], optionsWith([]))
         expect(summary.findings[0]?.projectName).toBe('myrepo')
+    })
+})
+
+// The CLI never asks the registry, so it cannot know whether a stated fix was ever published. Every fix
+// it shows is labelled as the source's statement — "upgrade to X" for an unchecked X is how agents came to
+// chase braces 3.0.4.
+describe('summarize — fix status', function () {
+    it('marks every finding unverified', function () {
+        const summary = summarize([result(project('a', 'a'), [finding(), finding({ fixAvailable: false, fixVersion: null })])], optionsWith([]))
+        expect(summary.findings.map(function status(f) { return f.fixStatus })).toEqual(['unverified', 'unverified'])
+    })
+
+    it('renders a stated fix as unverified and never as an upgrade instruction', function () {
+        const summary = summarize([result(project('a', 'a'), [finding()])], optionsWith([]))
+        const md = renderMarkdown(summary, optionsWith([]), '', 0)
+        expect(md).toContain('- **Fix:** advisory names `4.17.21` · not checked against the registry')
+        expect(md).not.toContain('upgrade to')
+    })
+
+    it('says no fix is stated when the source states none', function () {
+        const summary = summarize([result(project('a', 'a'), [finding({ fixAvailable: false, fixVersion: null })])], optionsWith([]))
+        expect(renderMarkdown(summary, optionsWith([]), '', 0)).toContain('- **Fix:** no fix stated by the advisory · not checked against the registry')
     })
 })
 

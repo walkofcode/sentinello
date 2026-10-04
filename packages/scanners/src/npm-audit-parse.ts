@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { Severity, ReasonCode } from '@sentinello/core'
 import type { DetectedLockfile, RawFinding, ScanResult } from './types'
-import { pickSafeFixVersion } from './version-fix'
+import { affectedSetFromRange, pickStatedFix, splitInstalled, type FixEvidence } from './version-fix'
 
 // The pure half of the npm-audit scanner: every schema for the JSON shapes the three package
 // managers emit, plus the normalization and stderr-classification logic that turns those shapes into
@@ -12,6 +12,8 @@ import { pickSafeFixVersion } from './version-fix'
 // finding gets, why a scan came back unauditable — are reachable without spawning a package manager.
 // npm-audit.ts keeps the process spawning, the nvm wrapper and the filesystem reads; nothing here
 // touches the network, the filesystem or a child process.
+
+export const NPM_AUDIT_SCANNER_NAME = 'npm-audit'
 
 const SEVERITY_VALUES = ['critical', 'high', 'moderate', 'low', 'info'] as const
 
@@ -324,11 +326,14 @@ export function pickSeverity(via: ViaObject, vuln: Vulnerability): Severity {
     return 'moderate'
 }
 
-export function pickFixAvailability(fix: FixAvailable | undefined): { fixAvailable: boolean; fixVersion: string | null } {
-    if (fix === undefined) return { fixAvailable: false, fixVersion: null }
-    if (fix === true) return { fixAvailable: true, fixVersion: null }
-    if (fix === false) return { fixAvailable: false, fixVersion: null }
-    return { fixAvailable: true, fixVersion: fix.version || null }
+// npm's `fixAvailable` as stated. In its object form the version belongs to `fixName`, which is the
+// package `npm audit fix` would change — very often a PARENT of the vulnerable one. Its version is a fix for
+// the vulnerable package only when the names match; reading a parent's version as the child's is how
+// minimatch came to be told to upgrade to "12.0.1" for `<3.0.5`.
+export function pickFixAvailability(fix: FixAvailable | undefined): { fixAvailable: boolean; fixVersion: string | null; fixName: string | null } {
+    if (fix === undefined || fix === false) return { fixAvailable: false, fixVersion: null, fixName: null }
+    if (fix === true) return { fixAvailable: true, fixVersion: null, fixName: null }
+    return { fixAvailable: true, fixVersion: fix.version || null, fixName: fix.name }
 }
 
 export function pickVulnerableRange(via: ViaObject, vuln: Vulnerability): string {
@@ -368,6 +373,18 @@ export function pickDepPath(vuln: Vulnerability): string[] {
     return out
 }
 
+// The evidence an npm-audit finding hands to registry settlement. An installed value that is really a range
+// (pickInstalledVersion's fallback with no lockfile) stays as written, so settlement reads it as unknown.
+function npmAuditFixInputs(installed: string, vulnerable: string, patched: string | null, statedFix: string | null): FixEvidence {
+    return {
+        source: NPM_AUDIT_SCANNER_NAME,
+        installed: splitInstalled(installed),
+        affected: affectedSetFromRange(vulnerable),
+        patched,
+        statedFix
+    }
+}
+
 export function normalizeOneVulnerability(vuln: Vulnerability, packageName: string, installedVersions: InstalledVersionMap, classifier: DepClassifier): { findings: RawFinding[]; hasConcreteAdvisory: boolean } {
     const findings: RawFinding[] = []
     for (const via of vuln.via) {
@@ -381,14 +398,12 @@ export function normalizeOneVulnerability(vuln: Vulnerability, packageName: stri
         const installedVersion = pickInstalledVersion(vuln, installedVersions)
         const vulnerableRange = pickVulnerableRange(via, vuln)
         const raw = pickFixAvailability(vuln.fixAvailable)
-        // Always run the picker: it sanity-checks npm's recommendation when present, AND
-        // derives a fix from the vulnerable range upper bound when npm didn't name one
-        // (e.g. vuln <=5.2.1 implies 5.2.2 even if npm audit said "no fix available").
-        const fixVersion = pickSafeFixVersion({ patched: null, recommendation: raw.fixVersion, vulnerable: vulnerableRange, installed: installedVersion })
-        let fixAvailable = fixVersion !== null
-        if (!fixAvailable && raw.fixAvailable && raw.fixVersion === null) {
-            fixAvailable = true
-        }
+        // Only a version npm names for THIS package is a stated fix; a parent's version is dropped.
+        const ownVersion = raw.fixName === packageName ? raw.fixVersion : null
+        const fixVersion = pickStatedFix({ patched: null, recommendation: ownVersion, vulnerable: vulnerableRange, installed: installedVersion })
+        // npm still says `npm audit fix` resolves it — through a parent, or with no version named — which is
+        // worth showing even though it names no version of this package.
+        const fixAvailable = fixVersion !== null || (raw.fixAvailable && ownVersion === null)
         const depPath = pickDepPath(vuln)
         const cls = classifier.classify(packageName, installedVersion)
         const finding: RawFinding = {
@@ -402,6 +417,7 @@ export function normalizeOneVulnerability(vuln: Vulnerability, packageName: stri
             severity: pickSeverity(via, vuln),
             fixAvailable,
             fixVersion,
+            fixInputs: npmAuditFixInputs(installedVersion, vulnerableRange, null, fixVersion),
             depPath,
             isProd: cls.isProd,
             isDev: cls.isDev
@@ -466,7 +482,7 @@ export function normalizePnpmAuditOutput(parsed: PnpmAudit, classifier: DepClass
         const packageName = adv.module_name
         const findings = adv.findings || []
         if (findings.length === 0) {
-            const fixVersion = pickSafeFixVersion({ patched, recommendation, vulnerable: vulnRange, installed: null })
+            const fixVersion = pickStatedFix({ patched, recommendation, vulnerable: vulnRange, installed: null })
             const cls = classifier.classify(packageName, null)
             out.push({
                 advisoryId,
@@ -479,6 +495,7 @@ export function normalizePnpmAuditOutput(parsed: PnpmAudit, classifier: DepClass
                 severity,
                 fixAvailable: fixVersion !== null,
                 fixVersion,
+                fixInputs: npmAuditFixInputs('', vulnRange, patched, fixVersion),
                 depPath: [],
                 isProd: cls.isProd,
                 isDev: cls.isDev
@@ -487,8 +504,9 @@ export function normalizePnpmAuditOutput(parsed: PnpmAudit, classifier: DepClass
         }
         for (const f of findings) {
             const installed = f.version || null
-            const fixVersion = pickSafeFixVersion({ patched, recommendation, vulnerable: vulnRange, installed })
+            const fixVersion = pickStatedFix({ patched, recommendation, vulnerable: vulnRange, installed })
             const fixAvailable = fixVersion !== null
+            const fixInputs = npmAuditFixInputs(f.version || '', vulnRange, patched, fixVersion)
             const paths = f.paths || []
             if (paths.length === 0) {
                 const cls = classifier.classify(packageName, f.version || null)
@@ -503,6 +521,7 @@ export function normalizePnpmAuditOutput(parsed: PnpmAudit, classifier: DepClass
                     severity,
                     fixAvailable,
                     fixVersion,
+                    fixInputs,
                     depPath: [],
                     isProd: cls.isProd,
                     isDev: cls.isDev
@@ -523,6 +542,7 @@ export function normalizePnpmAuditOutput(parsed: PnpmAudit, classifier: DepClass
                     severity,
                     fixAvailable,
                     fixVersion,
+                    fixInputs,
                     depPath,
                     isProd: cls.isProd,
                     isDev: cls.isDev
