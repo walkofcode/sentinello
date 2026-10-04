@@ -54,8 +54,16 @@ describe('readFixFields', function () {
     const json = JSON.stringify(check())
 
     it('passes a settled row through', function () {
-        expect(readFixFields({ fixStatus: 'released', fixVersion: '3.0.4', fixAvailable: true, fixCheckJson: json }))
-            .toEqual({ fixStatus: 'released', fixVersion: '3.0.4', fixAvailable: true, fixCheck: check() })
+        expect(readFixFields({ fixStatus: 'released', fixVersion: '3.0.4', fixAvailable: true, fixCheckJson: json, remediationJson: null }))
+            .toEqual({ fixStatus: 'released', fixVersion: '3.0.4', fixAvailable: true, fixCheck: check(), remediation: null })
+    })
+
+    // A way-out exists only for a settled none_released finding: one left on any other row is never read.
+    it('reads the way-out of a none_released row only', function () {
+        const way = JSON.stringify({ v: 1, checkedAt: 1, package: 'braces', health: { name: 'braces', unmaintained: true }, chains: [], moreChains: 0, alternatives: [], devOnly: null, partial: false })
+        expect(readFixFields({ fixStatus: 'none_released', fixVersion: null, fixAvailable: false, fixCheckJson: json, remediationJson: way }).remediation).toMatchObject({ package: 'braces' })
+        expect(readFixFields({ fixStatus: 'released', fixVersion: '3.0.4', fixAvailable: true, fixCheckJson: json, remediationJson: way }).remediation).toBeNull()
+        expect(readFixFields({ fixStatus: 'none_released', fixVersion: null, fixAvailable: false, fixCheckJson: null, remediationJson: way }).remediation).toBeNull()
     })
 
     // A row written before settlement existed holds a fix nobody checked — braces 3.0.4 on the live
@@ -66,8 +74,8 @@ describe('readFixFields', function () {
         ['no snapshot', { fixStatus: 'released', fixCheckJson: null }],
         ['released without a version', { fixStatus: 'released', fixCheckJson: json, fixVersion: null }]
     ])('withholds the fix of a row with %s', function (_label, row) {
-        expect(readFixFields({ fixVersion: '3.0.4', fixAvailable: true, ...row }))
-            .toEqual({ fixStatus: 'unverified', fixVersion: null, fixAvailable: false, fixCheck: null })
+        expect(readFixFields({ fixVersion: '3.0.4', fixAvailable: true, remediationJson: null, ...row }))
+            .toEqual({ fixStatus: 'unverified', fixVersion: null, fixAvailable: false, fixCheck: null, remediation: null })
     })
 
     it('recognises exactly the three statuses', function () {
@@ -92,7 +100,8 @@ describe('describeFix', function () {
         ['incomplete range', facts({ fixCheck: check({ unevaluable: 'affected_incomplete' }) }), 'no fix stated by the advisory · not checked against the registry (affected range could not be evaluated)'],
         ['unreadable install', facts({ fixCheck: check({ unevaluable: 'installed_unknown' }) }), 'no fix stated by the advisory · not checked against the registry (installed version could not be read)'],
         ['unreadable patch', facts({ fixCheck: check({ unevaluable: 'patched_unparseable' }) }), 'no fix stated by the advisory · not checked against the registry (patched range could not be evaluated)'],
-        ['no evidence', facts({ fixCheck: check({ unevaluable: 'no_evidence' }) }), 'no fix stated by the advisory · not checked against the registry (no source evidence to check)']
+        ['no evidence', facts({ fixCheck: check({ unevaluable: 'no_evidence' }) }), 'no fix stated by the advisory · not checked against the registry (no source evidence to check)'],
+        ['incomplete range on stale data', facts({ fixVersion: '3.0.4', fixCheck: check({ registry: 'stale', unevaluable: 'affected_incomplete' }) }), 'advisory names 3.0.4 as the fix · not checked against the registry (affected range could not be evaluated) · cached data from 2026-10-01']
     ])('words %s', function (_label, f, expected) {
         expect(describeFix(f, PLAIN_FIX_STYLE)).toBe(expected)
     })

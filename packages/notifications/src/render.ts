@@ -1,4 +1,4 @@
-import { describeFix, PLAIN_FIX_STYLE, reasonCodeLabel, REASON_CODE_VALUES, type Finding, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
+import { describeFix, PLAIN_FIX_STYLE, summarizeRemediation, reasonCodeLabel, REASON_CODE_VALUES, type Finding, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
 import type { RenderedMessage } from './types'
 
 const REASON_CODE_SET = new Set<string>(REASON_CODE_VALUES)
@@ -81,6 +81,9 @@ export function renderSingleFinding(input: RenderFindingInput): RenderedMessage 
     lines.push('*Package:* ' + input.finding.packageName + '@' + input.finding.installedVersion)
     lines.push('*Vulnerable range:* ' + input.finding.vulnerableRange)
     lines.push('*Severity:* ' + sev + fix)
+    if (input.finding.fixStatus === 'none_released' && input.finding.remediation) {
+        lines.push('*Way out:* ' + summarizeRemediation(input.finding.remediation, PLAIN_FIX_STYLE))
+    }
     if (input.finding.advisoryTitle) {
         lines.push('*Advisory:* ' + input.finding.advisoryTitle)
     }
@@ -150,7 +153,9 @@ export function renderScanFailure(input: RenderScanFailureInput): RenderedMessag
 
 function formatLine(finding: Finding): string {
     const sev = severityLabel(finding.severity)
-    return '• [' + sev + '] ' + finding.packageName + '@' + finding.installedVersion + ' (' + finding.advisoryId + ') — ' + describeFix(finding, PLAIN_FIX_STYLE)
+    const line = '• [' + sev + '] ' + finding.packageName + '@' + finding.installedVersion + ' (' + finding.advisoryId + ') — ' + describeFix(finding, PLAIN_FIX_STYLE)
+    if (finding.fixStatus !== 'none_released' || !finding.remediation) return line
+    return line + '\n    Way out: ' + summarizeRemediation(finding.remediation, PLAIN_FIX_STYLE)
 }
 
 function buildProjectUrl(baseUrl: string | null, projectId: string): string | null {

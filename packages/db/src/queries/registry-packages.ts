@@ -49,3 +49,13 @@ export function upsertRegistryPackage(
         })
         .run()
 }
+
+// Records a package's weekly download count beside its cached answer. Only a package that already has a
+// cached answer is updated: counts are fetched for packages whose summary was just read, and a count
+// with no answer to belong to is not worth a row.
+export function setRegistryDownloads(db: DrizzleDb, ecosystem: string, name: string, weeklyDownloads: number, checkedAt: number): void {
+    db.update(registryPackages)
+        .set({ weeklyDownloads, downloadsCheckedAt: checkedAt })
+        .where(and(eq(registryPackages.ecosystem, ecosystem), eq(registryPackages.name, name)))
+        .run()
+}

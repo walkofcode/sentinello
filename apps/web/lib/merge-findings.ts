@@ -1,5 +1,5 @@
 import type { CurrentFindingRow } from '@sentinello/db'
-import { compareSeverity, severityWeight, type FixCheck, type FixStatus, type Severity } from '@sentinello/core'
+import { compareSeverity, severityWeight, type FixCheck, type FixStatus, type Remediation, type Severity } from '@sentinello/core'
 import { compareVersions } from '@sentinello/versions'
 import { parseJsonArray } from '@/lib/format'
 
@@ -28,6 +28,8 @@ export type MergedFinding = {
     fixAvailable: boolean
     fixVersion: string | null
     fixCheck: FixCheck | null
+    // The way out, carried with the chosen fix: set only when that fix is 'none_released'.
+    remediation: Remediation | null
     // Non-empty by construction: a bucket always has at least one row, and every row carries a dep path.
     // Typed as a tuple so consumers reading depPaths[0] need no fallback for an empty case that the
     // merge cannot produce.
@@ -196,6 +198,7 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
         fixAvailable: fixRow.fixAvailable,
         fixVersion: fixRow.fixVersion,
         fixCheck: fixRow.fixCheck,
+        remediation: fixRow.remediation,
         depPaths,
         isProd,
         isDev,

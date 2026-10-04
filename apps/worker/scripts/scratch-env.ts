@@ -127,10 +127,13 @@ export async function openScratchEnv(options: OpenScratchEnvOptions): Promise<Sc
     const notifications: RecordedNotification[] = []
     const live = createNpmRegistryClient(db)
     const registry: RegistryClient = {
-        lookup: async function recordedLookup(names) {
-            const served = await live.lookup(names)
+        lookup: async function recordedLookup(names, options) {
+            const served = await live.lookup(names, options)
             for (const [name, entry] of served) snapshot.push(snapshotEntry(name, entry))
             return served
+        },
+        weeklyDownloads: function weeklyDownloads(names) {
+            return live.weeklyDownloads(names)
         }
     }
     async function recordNotification(outcome: ProjectScanOutcome): Promise<void> {

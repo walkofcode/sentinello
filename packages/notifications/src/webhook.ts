@@ -77,6 +77,9 @@ export function toWebhookVulnerability(f: Finding): Record<string, unknown> {
         fixAvailable: f.fixAvailable,
         // 'released' | 'none_released' | 'unverified' — see FixStatus. Additive.
         fixStatus: f.fixStatus,
+        // The way out for a 'none_released' finding (see Remediation in @sentinello/core); null otherwise.
+        // Additive.
+        remediation: f.fixStatus === 'none_released' ? f.remediation : null,
         severity: f.severity,
         advisory: {
             id: f.advisoryId,

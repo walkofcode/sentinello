@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { readFixFields, type DepTypeFilter, type FixCheck, type FixStatus } from '@sentinello/core'
+import { readFixFields, type DepTypeFilter, type FixCheck, type FixStatus, type Remediation } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { depTypeClause } from './dep-type'
 import { activeSourceCellClause } from './sources'
@@ -42,6 +42,8 @@ export type LibraryProjectUsage = {
     fixAvailable: boolean
     fixVersion: string | null
     fixCheck: FixCheck | null
+    // The way out, set only when fixStatus is 'none_released'.
+    remediation: Remediation | null
     isProd: boolean
     isDev: boolean
     firstDetectedAt: number | null
@@ -136,6 +138,7 @@ export function listLibraryUsage(
         fix_available: number
         fix_version: string | null
         fix_check_json: string | null
+        remediation_json: string | null
         is_prod: number
         is_dev: number
         first_detected_at: number | null
@@ -157,6 +160,7 @@ export function listLibraryUsage(
             f.fix_available AS fix_available,
             f.fix_version AS fix_version,
             f.fix_check_json AS fix_check_json,
+            f.remediation_json AS remediation_json,
             f.is_prod AS is_prod,
             f.is_dev AS is_dev,
             f.first_detected_at AS first_detected_at,
@@ -198,7 +202,7 @@ export function listLibraryUsage(
             advisoryTitle: row.advisory_title,
             advisoryUrl: row.advisory_url,
             severity: row.severity,
-            ...readFixFields({ fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json }),
+            ...readFixFields({ fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json, remediationJson: row.remediation_json }),
             isProd: row.is_prod === 1,
             isDev: row.is_dev === 1,
             firstDetectedAt: row.first_detected_at,

@@ -251,3 +251,51 @@ describe('parseNpmLock graph wiring', function () {
         expect(graph?.byName('a').map(function v(p) { return p.version }).sort()).toEqual(['1.0.0', '2.0.0'])
     })
 })
+
+describe('parseNpmLock node graph', function () {
+    it('resolves each dependency Node-style, keeps hoisted and nested copies apart, and roots every importer', async function () {
+        const graph = await parseNpmLock(dir, await writeLock({
+            lockfileVersion: 3,
+            packages: {
+                '': { name: 'app', dependencies: { a: '^1.0.0', ws: '*' }, devDependencies: { t: '^1.0.0' }, optionalDependencies: { o: '^1.0.0' }, peerDependencies: { p: '^1.0.0' } },
+                'packages/ws': { name: 'ws', version: '0.0.0', dependencies: { b: '^2.0.0' }, devDependencies: { gone: '^1.0.0' } },
+                'node_modules/ws': { resolved: 'packages/ws', link: true },
+                'node_modules/a': { version: '1.0.0', dependencies: { b: '^1.0.0', ws: '*' }, optionalDependencies: { missing: '^1.0.0' }, peerDependencies: { p: '^1.0.0' } },
+                'node_modules/a/node_modules/b': { version: '1.0.0', dependencies: { c: '^1.0.0' } },
+                'node_modules/b': { version: '2.0.0' },
+                'node_modules/c': { version: '1.0.0' },
+                'node_modules/t': { version: '1.0.0', dev: true },
+                'node_modules/o': { version: '1.0.0', optional: true },
+                'node_modules/p': { version: '1.0.0' },
+                'node_modules/@s/x': { version: '3.0.0' }
+            }
+        }))
+        const nodeGraph = graph?.nodeGraph
+        expect(nodeGraph?.nodes.map(function id(n) { return n.id + '=' + n.name + '@' + n.version })).toEqual([
+            'node_modules/a=a@1.0.0', 'node_modules/a/node_modules/b=b@1.0.0', 'node_modules/b=b@2.0.0', 'node_modules/c=c@1.0.0',
+            'node_modules/t=t@1.0.0', 'node_modules/o=o@1.0.0', 'node_modules/p=p@1.0.0', 'node_modules/@s/x=@s/x@3.0.0'
+        ])
+        expect(nodeGraph?.edges).toEqual([
+            { from: 'node_modules/a', to: 'node_modules/a/node_modules/b', kind: 'prod' },
+            { from: 'node_modules/a', to: 'node_modules/p', kind: 'peer' },
+            { from: 'node_modules/a/node_modules/b', to: 'node_modules/c', kind: 'prod' }
+        ])
+        expect(nodeGraph?.roots).toEqual([
+            { importer: '.', nodeId: 'node_modules/a', kind: 'prod' },
+            { importer: '.', nodeId: 'node_modules/p', kind: 'prod' },
+            { importer: '.', nodeId: 'node_modules/o', kind: 'optional' },
+            { importer: '.', nodeId: 'node_modules/t', kind: 'dev' },
+            { importer: 'packages/ws', nodeId: 'node_modules/b', kind: 'prod' }
+        ])
+    })
+
+    it('skips a null entry', async function () {
+        const graph = await parseNpmLock(dir, await writeLock({ lockfileVersion: 3, packages: { '': { dependencies: { a: '1' } }, 'node_modules/a': null, 'node_modules/b': { version: '1.0.0' } } }))
+        expect(graph?.nodeGraph).toEqual({ nodes: [{ id: 'node_modules/b', name: 'b', version: '1.0.0' }], edges: [], roots: [] })
+    })
+
+    it('has no node graph for a lockfile without a packages map', async function () {
+        const graph = await parseNpmLock(dir, await writeLock({ lockfileVersion: 1, dependencies: {} }))
+        expect(graph?.nodeGraph).toBeNull()
+    })
+})

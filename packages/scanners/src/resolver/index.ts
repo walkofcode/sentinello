@@ -10,7 +10,7 @@ import { parsePythonLock } from './python'
 import { parseCargoLock } from './rust'
 import type { DetectedManifest, ResolvedGraph, ResolvedPackage, ResolverResult } from './types'
 
-export type { DepScope, DetectedManifest, ResolvedGraph, ResolvedPackage, ResolverResult } from './types'
+export type { DepScope, DetectedManifest, LockEdge, LockEdgeKind, LockNode, LockRoot, LockRootKind, NodeGraph, ResolvedGraph, ResolvedPackage, ResolverResult } from './types'
 
 // Resolves a project's lockfile into the canonical ResolvedGraph once per scan. Every advisory source
 // shares the result, so prod/dev classification is computed a single way. yarn.lock and any unparseable
@@ -93,6 +93,8 @@ export function mergeResolvedGraphs(results: ResolverResult[]): ResolvedGraph | 
         }
     }
     if (packages.length === 0) return null
+    // No node graph: node ids are per lockfile, and the feed scanners this view is for never walk one.
+    // The way-out guidance reads the npm graph itself (graphForEcosystem).
     return makeGraph(packages)
 }
 

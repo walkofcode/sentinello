@@ -650,3 +650,76 @@ describe('parsePnpmLock legacy — the per-entry flags', function () {
         expect(graph?.packages).toEqual([])
     })
 })
+
+describe('parsePnpmLock v9 — node graph', function () {
+    it('keeps every snapshot key as its own node, peer variants included, with typed edges and per-importer roots', async function () {
+        const graph = await parsePnpmLock(await write(`lockfileVersion: '9.0'
+
+importers:
+  .:
+    dependencies:
+      app-lib:
+        version: 1.0.0(react@18.0.0)
+    devDependencies:
+      tool:
+        version: 2.0.0
+  packages/web:
+    dependencies:
+      app-lib:
+        version: 1.0.0(react@19.0.0)
+    optionalDependencies:
+      fsevents:
+        version: 2.3.3
+    devDependencies:
+      sibling:
+        version: link:../sibling
+
+snapshots:
+  app-lib@1.0.0(react@18.0.0):
+    dependencies:
+      react: 18.0.0
+      strip-cjs: strip-ansi@6.0.1
+    optionalDependencies:
+      opt: 1.0.0
+  app-lib@1.0.0(react@19.0.0):
+    dependencies:
+      react: 19.0.0
+  react@18.0.0: {}
+  react@19.0.0: {}
+  strip-ansi@6.0.1: {}
+  opt@1.0.0: {}
+  tool@2.0.0: {}
+  fsevents@2.3.3: {}
+`))
+        const nodeGraph = graph?.nodeGraph
+        expect(nodeGraph?.nodes.map(function id(n) { return n.id }).sort()).toEqual([
+            'app-lib@1.0.0(react@18.0.0)', 'app-lib@1.0.0(react@19.0.0)', 'fsevents@2.3.3', 'opt@1.0.0', 'react@18.0.0', 'react@19.0.0', 'strip-ansi@6.0.1', 'tool@2.0.0'
+        ])
+        expect(nodeGraph?.nodes.find(function peer(n) { return n.id === 'app-lib@1.0.0(react@19.0.0)' })).toEqual({ id: 'app-lib@1.0.0(react@19.0.0)', name: 'app-lib', version: '1.0.0' })
+        expect(nodeGraph?.edges).toEqual([
+            { from: 'app-lib@1.0.0(react@18.0.0)', to: 'react@18.0.0', kind: 'prod' },
+            { from: 'app-lib@1.0.0(react@18.0.0)', to: 'strip-ansi@6.0.1', kind: 'prod' },
+            { from: 'app-lib@1.0.0(react@18.0.0)', to: 'opt@1.0.0', kind: 'optional' },
+            { from: 'app-lib@1.0.0(react@19.0.0)', to: 'react@19.0.0', kind: 'prod' }
+        ])
+        expect(nodeGraph?.roots).toEqual([
+            { importer: '.', nodeId: 'app-lib@1.0.0(react@18.0.0)', kind: 'prod' },
+            { importer: '.', nodeId: 'tool@2.0.0', kind: 'dev' },
+            { importer: 'packages/web', nodeId: 'app-lib@1.0.0(react@19.0.0)', kind: 'prod' },
+            { importer: 'packages/web', nodeId: 'fsevents@2.3.3', kind: 'optional' }
+        ])
+        // The aliased dependency now resolves to its real snapshot, so it is reachable from production.
+        expect(graph?.classify('strip-ansi', '6.0.1')).toEqual({ isProd: true, isDev: false, isOptional: false })
+        // The display still collapses the two peer variants.
+        expect(graph?.byName('app-lib').map(function paths(p) { return p.depPaths })).toEqual([['app-lib@1.0.0(react@18.0.0)', 'app-lib@1.0.0(react@19.0.0)']])
+    })
+
+    it('has no node graph for a legacy lockfile', async function () {
+        const graph = await parsePnpmLock(await write(`lockfileVersion: 5.4
+packages:
+  /a/1.0.0:
+    dev: false
+`))
+        expect(graph?.nodeGraph).toBeNull()
+    })
+})

@@ -10,6 +10,7 @@ import { upsertRoot } from './config'
 import { upsertProject } from './projects'
 import { insertScan } from './scans'
 import {
+    applyRemediation,
     backfillFindingsLifecycle,
     countResolvedFindingsForProject,
     findFindingByIdentity,
@@ -23,7 +24,7 @@ import {
     applyFixSettlement
 } from './findings'
 import { findings as findingsTable } from '../schema'
-import type { FixCheck } from '@sentinello/core'
+import type { FixCheck, Remediation } from '@sentinello/core'
 import type { IncomingFinding } from './findings'
 
 // Runs against a real SQLite file rather than ':memory:'. The client applies WAL pragmas and the
@@ -742,7 +743,7 @@ describe('applyFixSettlement and the unsettled merge', function () {
             { id: a?.id as string, fixStatus: 'released', fixVersion: '4.17.21', fixAvailable: true, fixCheck: CHECK },
             { id: b?.id as string, fixStatus: 'none_released', fixVersion: null, fixAvailable: false, fixCheck: CHECK }
         ])
-        expect(persisted.get(a?.id as string)).toEqual({ fixStatus: 'released', fixVersion: '4.17.21', fixAvailable: true, fixCheck: CHECK })
+        expect(persisted.get(a?.id as string)).toEqual({ fixStatus: 'released', fixVersion: '4.17.21', fixAvailable: true, fixCheck: CHECK, remediation: null })
         const rows = listFindingsForProject(db, PROJECT_ID)
         expect(rows.find(function one(r) { return r.id === b?.id })).toMatchObject({ fixStatus: 'none_released', fixVersion: null, fixCheck: CHECK })
     })
@@ -764,6 +765,23 @@ describe('applyFixSettlement and the unsettled merge', function () {
         const again = merge('scan-2', T0 + HOUR, [incoming('GHSA-1')])
         expect(again.active[0]).toMatchObject({ id: a?.id, fixStatus: 'unverified', fixCheck: null })
         expect(db.select().from(findingsTable).all()[0]).toMatchObject({ fixStatus: null, fixCheckJson: null })
+    })
+
+    it('clears a past way-out on every settlement, and writes one only onto a none_released row', function () {
+        const [a, b] = merge('scan-1', T0, [incoming('GHSA-1'), incoming('GHSA-2')]).active
+        applyFixSettlement(db, [
+            { id: a?.id as string, fixStatus: 'none_released', fixVersion: null, fixAvailable: false, fixCheck: CHECK },
+            { id: b?.id as string, fixStatus: 'released', fixVersion: '4.17.21', fixAvailable: true, fixCheck: CHECK }
+        ])
+        const way: Remediation = { v: 1, checkedAt: T0, package: 'lodash', health: { name: 'lodash', latest: null, lastPublishAt: null, maintainers: 0, weeklyDownloads: null, deprecated: null, daysSinceLastPublish: null, unmaintained: false }, chains: [], moreChains: 0, alternatives: [], devOnly: null, partial: false }
+        const written = applyRemediation(db, [{ id: a?.id as string, remediation: way }, { id: b?.id as string, remediation: way }])
+        expect([...written.keys()]).toEqual([a?.id])
+        expect(written.get(a?.id as string)).toEqual(way)
+        expect(listFindingsForProject(db, PROJECT_ID).find(function one(r) { return r.id === a?.id })?.remediation).toEqual(way)
+        // The next settlement — say the fix has since been published — takes the way-out away with it.
+        applyFixSettlement(db, [{ id: a?.id as string, fixStatus: 'released', fixVersion: '4.17.22', fixAvailable: true, fixCheck: CHECK }])
+        expect(db.select().from(findingsTable).all().every(function cleared(r) { return r.remediationJson === null })).toBe(true)
+        expect(applyRemediation(db, []).size).toBe(0)
     })
 
     it('reads the settled fix on resolved library findings too', function () {

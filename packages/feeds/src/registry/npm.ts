@@ -70,38 +70,76 @@ export type FetchNpmPackageOptions = {
 
 // `@scope/name` travels as `@scope%2Fname`; the registry routes the encoded form.
 export function npmPackageUrl(registryUrl: string, name: string): string {
-    return registryUrl + '/' + encodeURIComponent(name).replace(/^%40/, '@')
+    return registryUrl + '/' + encodeName(name)
 }
 
-export async function fetchNpmPackage(name: string, options?: FetchNpmPackageOptions): Promise<NpmPackageResult> {
-    const url = npmPackageUrl(options?.registryUrl ?? npmRegistryUrl(), name)
+function encodeName(name: string): string {
+    return encodeURIComponent(name).replace(/^%40/, '@')
+}
+
+type JsonResult = { status: 'ok'; body: unknown } | { status: 'not_found' } | { status: 'error'; reason: string }
+
+// One GET with the shared user-agent, a timeout and no retries: the scan path must not stall on a registry
+// outage, and a failure is never cached, so the next scan asks again. A 404 or another status is answered
+// from the status line alone; its body is only released, never read — reading it could stall or fail
+// after the headers (a proxy that sends a 503 and hangs) and would throw past every fallback.
+async function getJson(url: string, options: FetchNpmPackageOptions | undefined, what: string): Promise<JsonResult> {
     const timeout = AbortSignal.timeout(options?.timeoutMs ?? NPM_REGISTRY_TIMEOUT_MS)
     const signal = options?.abortSignal ? AbortSignal.any([options.abortSignal, timeout]) : timeout
     let response: Response
     try {
-        // No retries: the scan path must not stall on a registry outage, and a failure is never cached,
-        // so the next scan asks again.
         response = await fetch(url, { headers: { ...baseHeaders(), Accept: 'application/json' }, signal })
     } catch (err) {
         return { status: 'error', reason: errorReason(err) }
     }
-    if (response.status === 404) {
-        await response.arrayBuffer()
-        return { status: 'not_found' }
-    }
     if (response.status !== 200) {
-        await response.arrayBuffer()
-        return { status: 'error', reason: 'HTTP ' + response.status }
+        await discardBody(response)
+        return response.status === 404 ? { status: 'not_found' } : { status: 'error', reason: 'HTTP ' + response.status }
     }
-    let body: unknown
     try {
-        body = await response.json()
+        return { status: 'ok', body: await response.json() }
     } catch (err) {
-        return { status: 'error', reason: 'unreadable packument: ' + errorReason(err) }
+        return { status: 'error', reason: 'unreadable ' + what + ': ' + errorReason(err) }
     }
-    const summary = summarizePackument(name, body)
+}
+
+export async function fetchNpmPackage(name: string, options?: FetchNpmPackageOptions): Promise<NpmPackageResult> {
+    const result = await getJson(npmPackageUrl(options?.registryUrl ?? npmRegistryUrl(), name), options, 'packument')
+    if (result.status !== 'ok') return result
+    const summary = summarizePackument(name, result.body)
     if (summary === null) return { status: 'error', reason: 'packument has no versions map' }
     return { status: 'ok', summary }
+}
+
+// Releases an unread body without waiting for it. Cancelling cannot meaningfully fail here, and nothing
+// about the answer depends on it, so its rejection is deliberately ignored.
+async function discardBody(response: Response): Promise<void> {
+    await response.body?.cancel().catch(function ignore() { return undefined })
+}
+
+export const DEFAULT_NPM_DOWNLOADS_URL = 'https://api.npmjs.org'
+
+// npm's download counts live on a separate service from the registry, and a registry mirror does not serve
+// them. Same plumbing rule as the registry URL: env-only, for tests and unusual networks.
+export function npmDownloadsUrl(): string {
+    const fromEnv = process.env.SENTINELLO_NPM_DOWNLOADS_URL
+    const raw = fromEnv && fromEnv.trim().length > 0 ? fromEnv.trim() : DEFAULT_NPM_DOWNLOADS_URL
+    return raw.replace(/\/+$/, '')
+}
+
+export type NpmDownloadsResult =
+    | { status: 'ok'; weeklyDownloads: number }
+    | { status: 'not_found' }
+    | { status: 'error'; reason: string }
+
+// Last week's download count for one package (`GET {api}/downloads/point/last-week/{name}`). A signal shown
+// beside a package, never an input to a verdict.
+export async function fetchNpmWeeklyDownloads(name: string, options?: FetchNpmPackageOptions): Promise<NpmDownloadsResult> {
+    const result = await getJson((options?.registryUrl ?? npmDownloadsUrl()) + '/downloads/point/last-week/' + encodeName(name), options, 'download count')
+    if (result.status !== 'ok') return result
+    const downloads = isRecord(result.body) ? result.body.downloads : undefined
+    if (typeof downloads !== 'number' || !Number.isFinite(downloads) || downloads < 0) return { status: 'error', reason: 'download count missing' }
+    return { status: 'ok', weeklyDownloads: downloads }
 }
 
 // fetch throws `TypeError: fetch failed` and keeps the reason (ECONNREFUSED, a DNS failure, a timeout)

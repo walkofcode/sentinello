@@ -56,6 +56,8 @@ export async function settleFixes(input: SettleFixesInput): Promise<void> {
         finding.fixVersion = fields.fixVersion
         finding.fixAvailable = fields.fixAvailable
         finding.fixCheck = fields.fixCheck
+        // Always null here: the way-out, if any, is written after settlement (buildRemediations).
+        finding.remediation = fields.remediation
     }
 }
 

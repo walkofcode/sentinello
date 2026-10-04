@@ -4,8 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { getRegistryPackages, openDb, runMigrations, upsertRegistryPackage, type DrizzleDb, type SqliteDb } from '@sentinello/db'
-import type { NpmPackageResult, NpmPackageSummary } from '@sentinello/feeds'
-import { createNpmRegistryClient, parseSummary, REGISTRY_FETCH_CONCURRENCY, REGISTRY_FRESH_MS } from './registry-client'
+import type { NpmDownloadsResult, NpmPackageResult, NpmPackageSummary } from '@sentinello/feeds'
+import { createNpmRegistryClient, FETCH_BUDGET_EXHAUSTED, parseSummary, REGISTRY_FETCH_CONCURRENCY, REGISTRY_FRESH_MS, type FetchBudget } from './registry-client'
 
 const MIGRATIONS = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'packages', 'db', 'drizzle')
 const NOW = Date.UTC(2026, 9, 3, 12)
@@ -127,10 +127,111 @@ describe('createNpmRegistryClient — concurrency', function () {
         expect(peak).toBe(REGISTRY_FETCH_CONCURRENCY)
     })
 
+    it('shares one limit and one fetch per package across simultaneous lookups (two projects at once)', async function () {
+        let inFlight = 0
+        let peak = 0
+        const calls: string[] = []
+        const client = createNpmRegistryClient(db, {
+            now: () => NOW,
+            fetchPackage: async function slow(name): Promise<NpmPackageResult> {
+                calls.push(name)
+                inFlight++
+                peak = Math.max(peak, inFlight)
+                await new Promise(function wait(r) { setTimeout(r, 10) })
+                inFlight--
+                return { status: 'ok', summary: summary(name) }
+            }
+        })
+        const names = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6']
+        const [a, b] = await Promise.all([client.lookup(names), client.lookup([...names].reverse())])
+        expect(peak).toBeLessThanOrEqual(REGISTRY_FETCH_CONCURRENCY)
+        expect(calls.sort()).toEqual(names)
+        expect(a.get('p6')).toEqual(b.get('p6'))
+    })
+
+    it('answers a throwing fetcher as an error', async function () {
+        const client = createNpmRegistryClient(db, { now: () => NOW, fetchPackage: async function boom(): Promise<NpmPackageResult> { throw new Error('socket hang up') } })
+        expect((await client.lookup(['a'])).get('a')).toEqual({ status: 'error', reason: 'socket hang up' })
+    })
+
     it('fetches nothing for an empty lookup', async function () {
         const f = fetcher({})
         expect((await createNpmRegistryClient(db, { fetchPackage: f.fetchPackage }).lookup([])).size).toBe(0)
         expect(f.calls).toEqual([])
+    })
+})
+
+describe('createNpmRegistryClient — fetch budget', function () {
+    it('charges only real fetches, refuses misses past the budget, and says so', async function () {
+        cache('hit', 'ok', NOW)
+        const f = fetcher({ a: { status: 'ok', summary: summary('a') }, b: { status: 'ok', summary: summary('b') } })
+        const client = createNpmRegistryClient(db, { fetchPackage: f.fetchPackage, now: () => NOW })
+        const budget: FetchBudget = { remaining: 1, exhausted: false }
+        const out = await client.lookup(['hit', 'a', 'b'], { budget })
+        expect(out.get('hit')).toMatchObject({ origin: 'cache' })
+        expect(out.get('a')).toMatchObject({ origin: 'fetched' })
+        expect(out.get('b')).toEqual({ status: 'error', reason: FETCH_BUDGET_EXHAUSTED })
+        expect(budget).toEqual({ remaining: 0, exhausted: true })
+        expect(f.calls).toEqual(['a'])
+    })
+
+    it('lets a budgeted lookup join a fetch already in flight for free', async function () {
+        let release: () => void = function none() { return undefined }
+        const gate = new Promise<void>(function hold(resolve) { release = resolve })
+        const client = createNpmRegistryClient(db, {
+            now: () => NOW,
+            fetchPackage: async function held(name): Promise<NpmPackageResult> {
+                await gate
+                return { status: 'ok', summary: summary(name) }
+            }
+        })
+        const first = client.lookup(['a'])
+        const budget: FetchBudget = { remaining: 0, exhausted: false }
+        const joined = client.lookup(['a'], { budget })
+        release()
+        expect((await joined).get('a')).toMatchObject({ status: 'ok', origin: 'fetched' })
+        expect(budget.exhausted).toBe(false)
+        await first
+    })
+})
+
+describe('createNpmRegistryClient — weekly downloads', function () {
+    it('serves a fresh cached count, fetches and records a missing one, and degrades a failure to the last count or null', async function () {
+        cache('fresh', 'ok', NOW)
+        cache('old', 'ok', NOW)
+        cache('fetched', 'ok', NOW)
+        sqlite.prepare("UPDATE registry_packages SET weekly_downloads = 7, downloads_checked_at = ? WHERE name = 'fresh'").run(NOW - 1000)
+        sqlite.prepare("UPDATE registry_packages SET weekly_downloads = 3, downloads_checked_at = ? WHERE name = 'old'").run(NOW - REGISTRY_FRESH_MS - 1)
+        const calls: string[] = []
+        const client = createNpmRegistryClient(db, {
+            now: () => NOW,
+            fetchDownloads: async function count(name): Promise<NpmDownloadsResult> {
+                calls.push(name)
+                if (name === 'fetched') return { status: 'ok', weeklyDownloads: 42 }
+                if (name === 'throws') throw new Error('boom')
+                return { status: 'error', reason: 'HTTP 500' }
+            }
+        })
+        const out = await client.weeklyDownloads(['fresh', 'old', 'fetched', 'missing', 'throws', 'fetched'])
+        expect(Object.fromEntries(out)).toEqual({ fresh: 7, old: 3, fetched: 42, missing: null, throws: null })
+        expect(calls.sort()).toEqual(['fetched', 'missing', 'old', 'throws'])
+        expect(getRegistryPackages(db, 'npm', ['fetched']).get('fetched')).toMatchObject({ weeklyDownloads: 42, downloadsCheckedAt: NOW })
+    })
+
+    it('fetches one count once when two callers ask at the same time, and reaches the live service by default', async function () {
+        let calls = 0
+        const client = createNpmRegistryClient(db, {
+            now: () => NOW,
+            fetchDownloads: async function count(): Promise<NpmDownloadsResult> {
+                calls++
+                await new Promise(function wait(r) { setTimeout(r, 5) })
+                return { status: 'ok', weeklyDownloads: 1 }
+            }
+        })
+        await Promise.all([client.weeklyDownloads(['a']), client.weeklyDownloads(['a'])])
+        expect(calls).toBe(1)
+        // vitest.config.ts points SENTINELLO_NPM_DOWNLOADS_URL at a refusing port.
+        expect((await createNpmRegistryClient(db).weeklyDownloads(['braces'])).get('braces')).toBeNull()
     })
 })
 

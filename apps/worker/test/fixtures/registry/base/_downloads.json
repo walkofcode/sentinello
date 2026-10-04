@@ -1,0 +1,13 @@
+{
+ "braces": 204706783,
+ "node-forge": 47486688,
+ "qs": 221355597,
+ "nodemon": 16739598,
+ "chokidar": 258688589,
+ "fast-glob": 186107902,
+ "micromatch": 195263261,
+ "@next/eslint-plugin-next": 45923307,
+ "picomatch": 607426983,
+ "tinyglobby": 249981726,
+ "zeptomatch": 8562299
+}

@@ -33,6 +33,7 @@ import { CONFIG_KEYS } from './config-loader'
 import { readGitBranch } from './discovery'
 import { fixEvidenceKey, settleFixes } from './fix-verification'
 import { notifyForCompletedScan } from './notifier'
+import { buildRemediations } from './remediation'
 import { createNpmRegistryClient, type RegistryClient } from './registry-client'
 
 const SCANNER_TIMEOUT_MS = 90_000
@@ -74,9 +75,12 @@ export async function runBatch(input: RunBatchInput): Promise<ProjectScanOutcome
     const outcomes: ProjectScanOutcome[] = []
     const queue = input.projects.slice()
     const workerCount = Math.max(1, Math.min(input.parallelism, queue.length))
+    // One registry client for the whole batch: its concurrency limit and in-flight map are per worker,
+    // not per project, so parallel project scans share both.
+    const registry = createNpmRegistryClient(input.db, { abortSignal: input.abortSignal })
     const workers: Promise<void>[] = []
     for (let i = 0; i < workerCount; i++) {
-        workers.push(workerLoop(input, queue, outcomes))
+        workers.push(workerLoop(input, registry, queue, outcomes))
     }
     await Promise.all(workers)
     walCheckpoint(input.sqlite)
@@ -85,6 +89,7 @@ export async function runBatch(input: RunBatchInput): Promise<ProjectScanOutcome
 
 async function workerLoop(
     input: RunBatchInput,
+    registry: RegistryClient,
     queue: Project[],
     outcomes: ProjectScanOutcome[]
 ): Promise<void> {
@@ -92,7 +97,7 @@ async function workerLoop(
         const project = queue.shift()
         if (!project) return
         if (input.abortSignal && input.abortSignal.aborted) return
-        const projectOutcomes = await runProjectScanners({ db: input.db, scanners: input.scanners, project, abortSignal: input.abortSignal })
+        const projectOutcomes = await runProjectScanners({ db: input.db, scanners: input.scanners, project, abortSignal: input.abortSignal, registry })
         for (const outcome of projectOutcomes) outcomes.push(outcome)
     }
 }
@@ -161,16 +166,26 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
     // every installed copy. A failure here (the database, not the registry — registry trouble already
     // degrades to `unverified` inside) leaves the rows unsettled, which read as "rescan pending"; it never
     // fails the scan or skips notification.
+    const settledFindings = outcomes.flatMap(function findingsOf(o) { return o.findings })
+    const evidence = evidenceByFinding(reportedByPackage)
+    const registry = input.registry ?? createNpmRegistryClient(input.db, { abortSignal: input.abortSignal })
+    const checkedAt = Date.now()
+    let settled = false
     try {
-        await settleFixes({
-            db: input.db,
-            findings: outcomes.flatMap(function findingsOf(o) { return o.findings }),
-            evidence: evidenceByFinding(reportedByPackage),
-            registry: input.registry ?? createNpmRegistryClient(input.db, { abortSignal: input.abortSignal }),
-            checkedAt: Date.now()
-        })
+        await settleFixes({ db: input.db, findings: settledFindings, evidence, registry, checkedAt })
+        settled = true
     } catch (err) {
         console.error('[runner] fix settlement failed for project ' + project.id + ': ' + errText(err))
+    }
+    // The way out for every finding settled `none_released`, from the same registry data and the npm
+    // lockfile's node graph. A failure here leaves those findings without guidance (their Fix line still
+    // says no fixed version is released); like settlement, it never fails the scan or skips notification.
+    if (settled) {
+        try {
+            await buildRemediations({ db: input.db, findings: settledFindings, evidence, graph: npmGraph, registry, checkedAt })
+        } catch (err) {
+            console.error('[runner] way-out guidance failed for project ' + project.id + ': ' + errText(err))
+        }
     }
     // Notification comes AFTER corroboration and settlement, for the whole project at once, and this
     // ordering is load-bearing rather than tidy. Escalation to the worst grade any source gave a finding

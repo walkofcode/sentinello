@@ -9,6 +9,7 @@ import {
     type ExportScope
 } from './advisory-export'
 import type { FixCheck } from './fix-status'
+import type { Remediation } from './remediation'
 
 // The advisory export is handed straight to an LLM as a remediation work list, so two properties
 // matter: the prompt that frames the work must survive intact, and no finding may be silently dropped
@@ -28,6 +29,7 @@ function exportFinding(overrides: Partial<ExportFinding> = {}): ExportFinding {
         fixVersion: null,
         fixStatus: 'unverified',
         fixCheck: check({ registry: 'skipped', packageDataAsOf: null }),
+        remediation: null,
         severity: 'high',
         advisoryId: 'GHSA-1',
         advisoryTitle: null,
@@ -448,5 +450,45 @@ describe('buildExportFilename', function () {
         expect(buildExportFilename({ ...PROJECT_SCOPE, projectName: '🙂' }, AT)).toBe(
             'sentinello-unnamed-advisories-2026-07-27.md'
         )
+    })
+})
+
+describe('the way out of a none_released finding', function () {
+    const remediation: Remediation = {
+        v: 1,
+        checkedAt: CHECKED_AT,
+        package: 'braces',
+        health: { name: 'braces', latest: '3.0.3', lastPublishAt: Date.UTC(2024, 4, 21), maintainers: 2, weeklyDownloads: 204706783, deprecated: null, daysSinceLastPublish: 865, unmaintained: true },
+        chains: [
+            { importer: '.', rootKind: 'dev', path: ['nodemon@3.1.14', 'chokidar@3.6.0', 'braces@3.0.3'], verdict: { kind: 'blocked', escapePackage: 'chokidar', escapeVersion: '4.0.0', blockedBy: 'nodemon', blockedByLatest: '3.1.14', blockedRange: '^3.5.2', proof: { release: 'chokidar@4.0.0', closureSize: 2 } } }
+        ],
+        moreChains: 0,
+        alternatives: [{ replaces: 'nodemon', reason: 'blocked', signals: null, options: [], url: null }],
+        devOnly: true,
+        partial: false
+    }
+
+    it('renders the block under the Fix line for none_released, and never for another status', function () {
+        const none = buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [exportFinding({ packageName: 'braces', installedVersion: '3.0.3', fixStatus: 'none_released', fixCheck: check(), remediation })] })
+        expect(none).toContain('- **Fix:** **No fixed version released**')
+        expect(none).toContain('- **Way out:**\n    - **Health:** `braces`: last publish 2024-05-21 (28 months ago) · 2 maintainers · 204,706,783 weekly downloads — **unmaintained** (no publish for 6+ months) → replace it')
+        expect(none).toContain('        - `nodemon@3.1.14 › chokidar@3.6.0 › braces@3.0.3` [dev tooling only]: `chokidar` ≥ `4.0.0` drops `braces`, but no released `nodemon` admits it (latest 3.1.14 requires `^3.5.2`)')
+        expect(none).toContain('    - **Dev tooling:** Every path to `braces` reaches only dev tooling')
+        expect(none).toContain('    - **Alternatives:** no curated alternative known for `nodemon`')
+        const released = buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [exportFinding({ fixStatus: 'released', fixVersion: '3.0.4', fixCheck: check(), remediation })] })
+        expect(released).not.toContain('Way out')
+    })
+
+    it('omits the paths list when there are none, and says when the guidance is partial', function () {
+        const md = buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [exportFinding({ packageName: 'braces', installedVersion: '3.0.3', fixStatus: 'none_released', fixCheck: check(), remediation: { ...remediation, chains: [], partial: true } })] })
+        expect(md).not.toContain('**Paths:**')
+        expect(md).toContain('    - Partial: the registry lookup budget ran out')
+    })
+
+    it('tells the reader, in the default prompt, not to chase a version that is not released', function () {
+        expect(DEFAULT_EXPORT_PROMPT).toContain('## When no fixed version is released')
+        expect(DEFAULT_EXPORT_PROMPT).toContain('Do not search for one, do not pin, install or override to a version the Fix line does not name')
+        expect(DEFAULT_EXPORT_PROMPT).toContain('dev tooling only')
+        expect(DEFAULT_EXPORT_PROMPT).toContain('"no upstream fix released"')
     })
 })

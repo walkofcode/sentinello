@@ -1,5 +1,6 @@
 import { compareSeverity, type FixStatus, type Severity } from './types'
 import { describeFix, describeFixDisagreement, type FixCheck, type FixTextStyle } from './fix-status'
+import { describeRemediation, type Remediation } from './remediation'
 
 // The built-in remediation prompt prepended to every advisory export. Operators can override this
 // in Settings → Export; the override is stored in app_config under the key 'markdownExportPrompt'.
@@ -24,6 +25,9 @@ import { describeFix, describeFixDisagreement, type FixCheck, type FixTextStyle 
 //     clean board. Muting is a human's accepted-risk call; the same goes for widening a range or
 //     narrowing the scan's scope until the advisory stops matching. The residual table is the honest
 //     alternative: it makes "not fixed" visible and dated instead of absent.
+//   - "When no fixed version is released": agents handed a fix version that was never published lost
+//     whole runs searching for it, pinning it, or forcing it with an override. A finding whose Fix line
+//     says no fixed version is released has no version to chase; its "Way out" block is the plan.
 export const DEFAULT_EXPORT_PROMPT = `You are helping a development team triage and fix the vulnerabilities listed at the bottom of this document. Treat this as a remediation work list, not a checklist to rubber-stamp. Work in a planning posture from the start: if your tooling has a read-only planning mode (Claude Code's plan mode, for example), enter it now and stay in it until the human has approved the triage below. Nothing in this document authorises you to edit a file before then.
 
 ## Audit existing overrides first — they may be the cause
@@ -65,6 +69,18 @@ Where you do control the specifier, prefer an exact version for direct dependenc
 
 No justification block, no override.
 
+## When no fixed version is released
+
+Some findings say **No fixed version released**: Sentinello checked the package registry and no published version of the package is outside the vulnerable range. For those, there is no version to find. Do not search for one, do not pin, install or override to a version the Fix line does not name, and do not trust a version suggested elsewhere — it does not exist yet. Follow the finding's **Way out** block instead, in this order:
+
+- **The package is deprecated or unmaintained** (no publish for six months or more): plan to replace it, using the alternatives listed when there are any.
+- **"Upgrade X to ≥ v"**: upgrade that ancestor. The block has already checked that the named release's whole resolved dependency closure no longer reaches the vulnerable package — verify it in the lockfile afterwards like any other fix.
+- **"X ≥ v drops it, but no released P admits it"**: choose between overriding X to that version inside P (only with the full four-part justification above) and replacing P.
+- **"No released … drops it"**: no upgrade anywhere on that path helps. Adopt a listed alternative for one of the packages on the path, or replace the direct dependency the path starts from.
+- **Unknown** verdicts mean the registry evidence ran out; investigate that path by hand and say what you found.
+
+A path marked **dev tooling only** is still fixed, but rank it after every production path. When nothing in the block applies, record the finding in the residual table as "no upstream fix released", with the trigger to revisit (a release of the package, or of the ancestor named in the block).
+
 ## Then fix incrementally and verify
 
 - **Group findings by their fix before you sequence anything.** Several findings frequently collapse into one change — a single parent upgrade can clear four transitive advisories at once. Work out that mapping first and order the work by findings-cleared-per-change, so the cheapest high-yield fixes land first and whatever residue is left is genuinely irreducible rather than an artefact of fixing things one at a time.
@@ -105,6 +121,8 @@ export type ExportFinding = {
     // fixCheck is a row no settlement has written yet: the Fix line says "rescan pending".
     fixStatus: FixStatus
     fixCheck: FixCheck | null
+    // The way out for a 'none_released' finding; null for every other status.
+    remediation: Remediation | null
     severity: Severity
     advisoryId: string
     advisoryTitle: string | null
@@ -190,6 +208,9 @@ function formatFinding(index: number, f: ExportFinding): string {
     lines.push('- **Fix:** ' + describeFix(f, MARKDOWN_FIX_STYLE))
     const disagreement = describeFixDisagreement(f, MARKDOWN_FIX_STYLE)
     if (disagreement) lines.push('- **Fix evidence:** ' + disagreement)
+    if (f.fixStatus === 'none_released' && f.remediation) {
+        for (const line of wayOutLines(f.remediation)) lines.push(line)
+    }
     if (f.vulnerableRange) {
         lines.push('- **Vulnerable range:** `' + escapeForMarkdown(f.vulnerableRange) + '`')
     }
@@ -213,6 +234,21 @@ function formatFinding(index: number, f: ExportFinding): string {
         lines.push('- **Project:** ' + f.projectName)
     }
     return lines.join('\n')
+}
+
+// The "Way out" block under the Fix line: the package's health, one verdict per dependency path, whether
+// only dev tooling reaches it, and the curated alternatives with their signals.
+function wayOutLines(r: Remediation): string[] {
+    const text = describeRemediation(r, MARKDOWN_FIX_STYLE)
+    const lines = ['- **Way out:**', '    - **Health:** ' + text.health]
+    if (text.chains.length > 0) {
+        lines.push('    - **Paths:**')
+        for (const c of text.chains) lines.push('        - ' + c)
+    }
+    lines.push('    - **Dev tooling:** ' + text.devOnly)
+    for (const a of text.alternatives) lines.push('    - **Alternatives:** ' + a)
+    if (text.partial) lines.push('    - ' + text.partial)
+    return lines
 }
 
 // The document's finding order. Total and deterministic — severity, then package, then advisory id —

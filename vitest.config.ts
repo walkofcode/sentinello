@@ -33,7 +33,7 @@ export default defineConfig({
         // No unit test may reach the real npm registry: a scan settles every npm finding against it, so
         // anything that drives the runner without injecting a registry would otherwise fetch live
         // packuments. Port 9 (discard) refuses at once, which settles the finding `unverified`.
-        env: { SENTINELLO_NPM_REGISTRY_URL: 'http://127.0.0.1:9' },
+        env: { SENTINELLO_NPM_REGISTRY_URL: 'http://127.0.0.1:9', SENTINELLO_NPM_DOWNLOADS_URL: 'http://127.0.0.1:9' },
         coverage: {
             provider: 'v8',
             reporter: ['text', 'lcov'],

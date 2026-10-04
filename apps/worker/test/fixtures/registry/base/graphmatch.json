@@ -1,0 +1,35 @@
+{
+ "name": "graphmatch",
+ "dist-tags": {
+  "latest": "1.1.1"
+ },
+ "maintainers": [
+  {
+   "name": "fabiospampinato"
+  }
+ ],
+ "repository": {
+  "type": "git",
+  "url": "git+https://github.com/fabiospampinato/graphmatch.git"
+ },
+ "time": {
+  "created": "2025-10-11T19:20:37.986Z",
+  "modified": "2026-02-14T15:59:06.675Z",
+  "1.0.0": "2025-10-11T19:20:38.165Z",
+  "1.0.1": "2025-10-11T19:21:09.563Z",
+  "1.0.2": "2025-10-19T12:29:59.412Z",
+  "1.1.0": "2025-10-19T18:23:10.448Z",
+  "1.1.1": "2026-02-14T15:59:06.563Z"
+ },
+ "versions": {
+  "1.0.0": {
+   "dependencies": {
+    "lodash": "^4.17.21"
+   }
+  },
+  "1.0.1": {},
+  "1.0.2": {},
+  "1.1.0": {},
+  "1.1.1": {}
+ }
+}

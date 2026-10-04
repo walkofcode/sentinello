@@ -1,0 +1,264 @@
+{
+ "name": "fdir",
+ "dist-tags": {
+  "latest": "6.5.0"
+ },
+ "maintainers": [
+  {
+   "name": "thecodrr"
+  }
+ ],
+ "repository": {
+  "type": "git",
+  "url": "git+https://github.com/thecodrr/fdir.git"
+ },
+ "time": {
+  "created": "2020-03-13T20:58:27.336Z",
+  "modified": "2025-08-14T16:56:04.110Z",
+  "1.0.0": "2020-03-13T20:58:27.499Z",
+  "1.0.1": "2020-03-13T21:04:07.491Z",
+  "1.0.2": "2020-03-13T21:09:08.046Z",
+  "1.0.3": "2020-03-14T10:30:32.415Z",
+  "1.1.0": "2020-03-14T17:01:35.435Z",
+  "1.1.1": "2020-03-14T17:03:15.410Z",
+  "1.2.0": "2020-03-15T16:31:28.798Z",
+  "2.0.0": "2020-03-16T08:15:37.209Z",
+  "2.0.1": "2020-03-16T08:16:15.281Z",
+  "2.0.2": "2020-03-18T18:33:29.730Z",
+  "2.0.3": "2020-03-18T18:34:02.161Z",
+  "2.1.0": "2020-03-21T18:52:56.998Z",
+  "2.1.1": "2020-04-27T07:29:41.173Z",
+  "3.0.0": "2020-05-10T18:42:45.986Z",
+  "3.1.0": "2020-05-11T00:09:41.544Z",
+  "3.1.1": "2020-05-11T00:20:27.307Z",
+  "3.2.0": "2020-05-12T15:56:29.990Z",
+  "3.2.1": "2020-05-12T18:16:57.094Z",
+  "3.3.0": "2020-05-13T09:19:45.050Z",
+  "3.4.0": "2020-05-15T17:35:09.369Z",
+  "3.4.1": "2020-05-17T09:33:32.624Z",
+  "3.4.2": "2020-05-18T00:39:20.041Z",
+  "3.4.3": "2020-06-02T23:07:47.019Z",
+  "4.0.0": "2020-07-27T18:26:11.618Z",
+  "4.1.0": "2020-08-04T15:24:03.809Z",
+  "5.0.0": "2021-01-12T17:23:39.278Z",
+  "5.1.0": "2021-05-21T13:03:57.727Z",
+  "5.2.0": "2022-01-18T06:13:39.331Z",
+  "5.2.1": "2022-10-17T18:37:41.998Z",
+  "5.3.0": "2022-10-18T17:39:22.736Z",
+  "6.0.0": "2023-02-08T18:05:42.434Z",
+  "6.0.1": "2023-02-09T07:45:47.214Z",
+  "6.0.2": "2023-07-31T21:17:35.824Z",
+  "6.1.0": "2023-08-13T18:29:08.556Z",
+  "6.1.1": "2023-11-05T17:26:07.154Z",
+  "6.2.0": "2024-07-22T04:22:13.742Z",
+  "6.3.0": "2024-08-25T13:54:08.680Z",
+  "6.4.0": "2024-09-30T07:25:11.390Z",
+  "6.4.1": "2024-10-16T18:14:23.917Z",
+  "6.4.2": "2024-10-16T19:34:48.255Z",
+  "6.4.3": "2025-01-17T05:54:05.708Z",
+  "6.4.4": "2025-04-19T04:41:43.916Z",
+  "6.4.5": "2025-05-28T05:07:10.182Z",
+  "6.4.6": "2025-06-10T07:20:54.902Z",
+  "6.5.0": "2025-08-14T16:56:03.948Z"
+ },
+ "versions": {
+  "1.0.0": {},
+  "1.0.1": {},
+  "1.0.2": {},
+  "1.0.3": {},
+  "1.1.0": {},
+  "1.1.1": {},
+  "1.2.0": {},
+  "2.0.0": {},
+  "2.0.1": {},
+  "2.0.2": {},
+  "2.0.3": {},
+  "2.1.0": {},
+  "2.1.1": {},
+  "3.0.0": {},
+  "3.1.0": {},
+  "3.1.1": {},
+  "3.2.0": {},
+  "3.2.1": {},
+  "3.3.0": {},
+  "3.4.0": {},
+  "3.4.1": {},
+  "3.4.2": {},
+  "3.4.3": {},
+  "4.0.0": {},
+  "4.1.0": {},
+  "5.0.0": {},
+  "5.1.0": {},
+  "5.2.0": {},
+  "5.2.1": {
+   "peerDependencies": {
+    "picomatch": "2.x"
+   },
+   "peerDependenciesMeta": {
+    "picomatch": {
+     "optional": true
+    }
+   }
+  },
+  "5.3.0": {
+   "peerDependencies": {
+    "picomatch": "2.x"
+   },
+   "peerDependenciesMeta": {
+    "picomatch": {
+     "optional": true
+    }
+   }
+  },
+  "6.0.0": {
+   "peerDependencies": {
+    "picomatch": "2.x"
+   },
+   "peerDependenciesMeta": {
+    "picomatch": {
+     "optional": true
+    }
+   }
+  },
+  "6.0.1": {
+   "peerDependencies": {
+    "picomatch": "2.x"
+   },
+   "peerDependenciesMeta": {
+    "picomatch": {
+     "optional": true
+    }
+   }
+  },
+  "6.0.2": {
+   "peerDependencies": {
+    "picomatch": "2.x"
+   },
+   "peerDependenciesMeta": {
+    "picomatch": {
+     "optional": true
+    }
+   }
+  },
+  "6.1.0": {
+   "peerDependencies": {
+    "picomatch": "2.x"
+   },
+   "peerDependenciesMeta": {
+    "picomatch": {
+     "optional": true
+    }
+   }
+  },
+  "6.1.1": {
+   "peerDependencies": {
+    "picomatch": "3.x"
+   },
+   "peerDependenciesMeta": {
+    "picomatch": {
+     "optional": true
+    }
+   }
+  },
+  "6.2.0": {
+   "peerDependencies": {
+    "picomatch": "^3 || ^4"
+   },
+   "peerDependenciesMeta": {
+    "picomatch": {
+     "optional": true
+    }
+   }
+  },
+  "6.3.0": {
+   "peerDependencies": {
+    "picomatch": "^3 || ^4"
+   },
+   "peerDependenciesMeta": {
+    "picomatch": {
+     "optional": true
+    }
+   }
+  },
+  "6.4.0": {
+   "peerDependencies": {
+    "picomatch": "^3 || ^4"
+   },
+   "peerDependenciesMeta": {
+    "picomatch": {
+     "optional": true
+    }
+   }
+  },
+  "6.4.1": {
+   "peerDependencies": {
+    "picomatch": "^3 || ^4"
+   },
+   "peerDependenciesMeta": {
+    "picomatch": {
+     "optional": true
+    }
+   }
+  },
+  "6.4.2": {
+   "peerDependencies": {
+    "picomatch": "^3 || ^4"
+   },
+   "peerDependenciesMeta": {
+    "picomatch": {
+     "optional": true
+    }
+   }
+  },
+  "6.4.3": {
+   "peerDependencies": {
+    "picomatch": "^3 || ^4"
+   },
+   "peerDependenciesMeta": {
+    "picomatch": {
+     "optional": true
+    }
+   }
+  },
+  "6.4.4": {
+   "peerDependencies": {
+    "picomatch": "^3 || ^4"
+   },
+   "peerDependenciesMeta": {
+    "picomatch": {
+     "optional": true
+    }
+   }
+  },
+  "6.4.5": {
+   "peerDependencies": {
+    "picomatch": "^3 || ^4"
+   },
+   "peerDependenciesMeta": {
+    "picomatch": {
+     "optional": true
+    }
+   }
+  },
+  "6.4.6": {
+   "peerDependencies": {
+    "picomatch": "^3 || ^4"
+   },
+   "peerDependenciesMeta": {
+    "picomatch": {
+     "optional": true
+    }
+   }
+  },
+  "6.5.0": {
+   "peerDependencies": {
+    "picomatch": "^3 || ^4"
+   },
+   "peerDependenciesMeta": {
+    "picomatch": {
+     "optional": true
+    }
+   }
+  }
+ }
+}

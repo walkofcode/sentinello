@@ -1,4 +1,4 @@
-import type { DepScope, ResolvedGraph, ResolvedPackage } from './types'
+import type { DepScope, NodeGraph, ResolvedGraph, ResolvedPackage } from './types'
 
 // Generic forward reachability over a string-keyed adjacency map: returns every node reachable from any
 // of `roots`, the roots themselves included. Used to mark which lockfile nodes are pulled in by prod vs
@@ -44,7 +44,7 @@ export function splitVersions(version: string | null): string[] {
 // Builds the ResolvedGraph lookups over a flat package list. classify(name, version) unions the scope
 // across every matching package row; an unknown package (not in the lockfile) defaults to prod so a real
 // finding is never hidden, mirroring the prior fail-open default.
-export function makeGraph(packages: ResolvedPackage[]): ResolvedGraph {
+export function makeGraph(packages: ResolvedPackage[], nodeGraph: NodeGraph | null = null): ResolvedGraph {
     const byNameMap = new Map<string, ResolvedPackage[]>()
     for (const pkg of packages) {
         const list = byNameMap.get(pkg.name)
@@ -81,7 +81,7 @@ export function makeGraph(packages: ResolvedPackage[]): ResolvedGraph {
         if (!isProd && !isDev) isProd = true
         return { isProd, isDev, isOptional }
     }
-    return { packages, classify, byName }
+    return { packages, classify, byName, nodeGraph }
 }
 
 // Parses a pnpm/npm dependency key into { name, version } with peer suffixes and a leading slash

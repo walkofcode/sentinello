@@ -21,8 +21,10 @@
         "chokidar": "5.0.0",
         "ignore": "7.0.5",
         "js-yaml": "4.3.2",
+        "module-replacements": "3.4.0",
         "node-cron": "4.2.1",
         "proper-lockfile": "4.1.2",
+        "semver": "7.7.4",
         "ulid": "3.0.2",
         "unzipper": "0.12.3",
         "zod": "4.4.1"
@@ -35,7 +37,6 @@
         "@types/semver": "7.7.1",
         "@types/unzipper": "0.10.11",
         "nodemon": "3.1.14",
-        "semver": "7.7.4",
         "tsx": "4.21.0"
     }
 }

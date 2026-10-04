@@ -1,5 +1,5 @@
 import { sql, type SQL } from 'drizzle-orm'
-import { parseFindingCorroborations, readFixFields, SCAN_HEARTBEAT_STALE_MS, SOURCE_IDS, type DepTypeFilter, type FindingCorroboration, type FixCheck, type FixStatus } from '@sentinello/core'
+import { parseFindingCorroborations, readFixFields, SCAN_HEARTBEAT_STALE_MS, SOURCE_IDS, type DepTypeFilter, type FindingCorroboration, type FixCheck, type FixStatus, type Remediation } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { depTypeClause } from './dep-type'
 import { activeSourceCellClause } from './sources'
@@ -396,6 +396,8 @@ export type CurrentFindingRow = {
     fixAvailable: boolean
     fixVersion: string | null
     fixCheck: FixCheck | null
+    // The way out, set only when fixStatus is 'none_released'.
+    remediation: Remediation | null
     depPathJson: string
     // Other sources that independently reported this same advisory for this same package, each with the
     // id IT uses and the grade IT assigned. `severity` above is already the worst of them.
@@ -435,6 +437,7 @@ export function listCurrentFindingsForProject(
         fix_version: string | null
         fix_status: string | null
         fix_check_json: string | null
+        remediation_json: string | null
         dep_path_json: string
         corroborations_json: string
         muted: number | null
@@ -446,7 +449,7 @@ export function listCurrentFindingsForProject(
         SELECT
             f.id, f.scan_id, f.project_id, f.scanner, f.source, f.ecosystem, f.advisory_id, f.advisory_title, f.advisory_url,
             f.package_name, f.installed_version, f.vulnerable_range, f.severity, f.fix_available,
-            f.fix_version, f.fix_status, f.fix_check_json, f.dep_path_json, f.corroborations_json, f.is_prod, f.is_dev,
+            f.fix_version, f.fix_status, f.fix_check_json, f.remediation_json, f.dep_path_json, f.corroborations_json, f.is_prod, f.is_dev,
             f.first_detected_at, f.last_seen_at,
             (SELECT 1 FROM mutes m
                 WHERE (m.expires_at IS NULL OR m.expires_at > ${at})
@@ -487,7 +490,7 @@ export function listCurrentFindingsForProject(
             installedVersion: row.installed_version,
             vulnerableRange: row.vulnerable_range,
             severity: row.severity,
-            ...readFixFields({ fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json }),
+            ...readFixFields({ fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json, remediationJson: row.remediation_json }),
             depPathJson: row.dep_path_json,
             corroborations: parseFindingCorroborations(row.corroborations_json),
             isMuted: row.muted === 1,

@@ -80,6 +80,8 @@ export function summarize(results: readonly ProjectScanResult[], options: CliOpt
                 fixVersion: fix.fixVersion,
                 fixStatus: fix.fixStatus,
                 fixCheck: fix.fixCheck,
+                // The way out needs the registry, which the CLI does not ask (D3).
+                remediation: null,
                 severity: finding.severity,
                 advisoryId: finding.advisoryId,
                 advisoryTitle: finding.advisoryTitle,

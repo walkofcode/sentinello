@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { makeGraph } from './graph'
-import type { ResolvedGraph, ResolvedPackage } from './types'
+import type { LockEdge, LockEdgeKind, LockNode, LockRoot, LockRootKind, NodeGraph, ResolvedGraph, ResolvedPackage } from './types'
 
 const NPM_ECOSYSTEM = 'npm'
 
@@ -11,6 +11,11 @@ type NpmLockEntry = {
     dev?: boolean
     devOptional?: boolean
     optional?: boolean
+    link?: boolean
+    dependencies?: Record<string, string>
+    optionalDependencies?: Record<string, string>
+    peerDependencies?: Record<string, string>
+    devDependencies?: Record<string, string>
 }
 type NpmLockDoc = {
     packages?: Record<string, NpmLockEntry>
@@ -71,7 +76,70 @@ export async function parseNpmLock(projectPath: string, absolutePath: string): P
             depPaths: [nodePath]
         })
     }
-    return makeGraph(out)
+    return makeGraph(out, doc.packages ? buildNodeGraph(packages) : null)
+}
+
+// The lock's node graph. Every `node_modules/...` entry is a node keyed by its lock path; the project
+// ("" → importer '.') and each workspace folder are importers. A dependency resolves the way Node
+// resolves it — the nearest `node_modules/<child>` walking up from the dependent's own path — so a
+// nested copy is the one its parent really loads. A link entry is a workspace, whose own dependencies are
+// counted from its importer entry, so edges into it are not followed (the pnpm resolver does the same).
+function buildNodeGraph(packages: Record<string, NpmLockEntry>): NodeGraph {
+    const nodes: LockNode[] = []
+    const edges: LockEdge[] = []
+    const roots: LockRoot[] = []
+    for (const path of Object.keys(packages)) {
+        const entry = packages[path]
+        if (!entry) continue
+        if (!isNodePath(path)) {
+            const importer = path === '' ? '.' : path
+            addRoots(importer, path, entry.dependencies, 'prod', packages, roots)
+            addRoots(importer, path, entry.peerDependencies, 'prod', packages, roots)
+            addRoots(importer, path, entry.optionalDependencies, 'optional', packages, roots)
+            addRoots(importer, path, entry.devDependencies, 'dev', packages, roots)
+            continue
+        }
+        const name = entry.name || nameFromNodePath(path)
+        if (entry.link === true || !entry.version || !name) continue
+        nodes.push({ id: path, name, version: entry.version })
+        addEdges(path, entry.dependencies, 'prod', packages, edges)
+        addEdges(path, entry.optionalDependencies, 'optional', packages, edges)
+        addEdges(path, entry.peerDependencies, 'peer', packages, edges)
+    }
+    return { nodes, edges, roots }
+}
+
+function isNodePath(path: string): boolean {
+    return path.startsWith('node_modules/') || path.includes('/node_modules/')
+}
+
+function addRoots(importer: string, from: string, deps: Record<string, string> | undefined, kind: LockRootKind, packages: Record<string, NpmLockEntry>, out: LockRoot[]): void {
+    for (const child of Object.keys(deps || {})) {
+        const nodeId = resolveFrom(from, child, packages)
+        if (nodeId !== null) out.push({ importer, nodeId, kind })
+    }
+}
+
+function addEdges(from: string, deps: Record<string, string> | undefined, kind: LockEdgeKind, packages: Record<string, NpmLockEntry>, out: LockEdge[]): void {
+    for (const child of Object.keys(deps || {})) {
+        const to = resolveFrom(from, child, packages)
+        if (to !== null) out.push({ from, to, kind })
+    }
+}
+
+// Node's lookup: `<dir>/node_modules/<child>`, then the same from each enclosing package directory, up to
+// the project root. Null when the child is not installed (an absent optional or peer) or is a workspace
+// link.
+function resolveFrom(location: string, child: string, packages: Record<string, NpmLockEntry>): string | null {
+    let base = location
+    for (;;) {
+        const candidate = (base === '' ? '' : base + '/') + 'node_modules/' + child
+        const entry = packages[candidate]
+        if (entry) return entry.link === true ? null : candidate
+        if (base === '') return null
+        const idx = base.lastIndexOf('node_modules/')
+        base = idx < 0 ? '' : base.slice(0, idx).replace(/\/$/, '')
+    }
 }
 
 type DirectDeps = {

@@ -94,6 +94,7 @@ export function buildProjectAdvisoryParts(
             fixVersion: m.fixVersion,
             fixStatus: m.fixStatus,
             fixCheck: m.fixCheck,
+            remediation: m.remediation,
             severity: m.severity,
             advisoryId: m.advisoryId,
             advisoryTitle: m.advisoryTitle,

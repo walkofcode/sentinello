@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Finding, FixCheck, NotificationEvent } from '@sentinello/core'
+import type { Finding, FixCheck, NotificationEvent, Remediation } from '@sentinello/core'
 import { renderBatchedFindings, renderScanFailure, renderSingleFinding } from './render'
 
 // Notification bodies are the part of Sentinello a recipient sees without opening the portal, so the
@@ -27,6 +27,7 @@ function finding(overrides: Partial<Finding> = {}): Finding {
         fixAvailable: false,
         fixVersion: null,
         fixCheck: CHECK,
+        remediation: null,
         corroborations: [],
         depPath: [],
         isProd: true,
@@ -414,5 +415,28 @@ describe('renderScanFailure', function () {
             portalBaseUrl: null
         })
         expect(out.text).not.toContain('*')
+    })
+})
+
+describe('the way out in a notification', function () {
+    const remediation: Remediation = {
+        v: 1, checkedAt: Date.UTC(2026, 9, 3), package: 'braces',
+        health: { name: 'braces', latest: '3.0.3', lastPublishAt: Date.UTC(2024, 4, 21), maintainers: 2, weeklyDownloads: 1, deprecated: null, daysSinceLastPublish: 865, unmaintained: true },
+        chains: [{ importer: '.', rootKind: 'dev', path: ['nodemon@3.1.14', 'chokidar@3.6.0', 'braces@3.0.3'], verdict: { kind: 'blocked', escapePackage: 'chokidar', escapeVersion: '4.0.0', blockedBy: 'nodemon', blockedByLatest: '3.1.14', blockedRange: '^3.5.2', proof: { release: 'chokidar@4.0.0', closureSize: 2 } } }],
+        moreChains: 0, alternatives: [], devOnly: true, partial: false
+    }
+    const expected = 'braces is unmaintained → replace it; chokidar ≥ 4.0.0 drops braces, but no released nodemon admits it (latest 3.1.14 requires ^3.5.2); dev tooling only'
+
+    it('adds one way-out line to a single none_released finding, and none otherwise', function () {
+        const single = renderSingleFinding({ projectName: 'api', gitBranch: null, finding: finding({ packageName: 'braces', remediation }), isBaseline: false, portalBaseUrl: null })
+        expect(single.markdown).toContain('*Way out:* ' + expected)
+        const released = renderSingleFinding({ projectName: 'api', gitBranch: null, finding: finding({ fixStatus: 'released', fixVersion: '4.17.21', remediation }), isBaseline: false, portalBaseUrl: null })
+        expect(released.markdown).not.toContain('Way out')
+    })
+
+    it('indents the way-out under its line in a batch', function () {
+        const out = renderBatchedFindings({ projectName: 'api', projectId: 'project-1', gitBranch: null, findings: [finding({ packageName: 'braces', remediation }), finding({ id: 'f2' })], isBaseline: false, portalBaseUrl: null })
+        expect(out.markdown).toContain('\n    Way out: ' + expected)
+        expect(out.markdown.match(/Way out/g)).toHaveLength(1)
     })
 })

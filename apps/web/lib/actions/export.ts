@@ -50,6 +50,7 @@ export async function exportLibraryAdvisoryMarkdownAction(
             fixVersion: r.fixVersion,
             fixStatus: r.fixStatus,
             fixCheck: r.fixCheck,
+            remediation: r.remediation,
             severity: r.severity as Severity,
             advisoryId: r.advisoryId,
             advisoryTitle: r.advisoryTitle,

@@ -18,6 +18,8 @@ import {
 import { buildAdvisoryMarkdown, type Finding, type Project } from '@sentinello/core'
 import type { NpmPackageSummary } from '@sentinello/feeds'
 import type { FixEvidence, RawFinding, ScannerPlugin, ScanResult } from '@sentinello/scanners'
+import { toWebhookVulnerability } from '@sentinello/notifications'
+import { toExportFinding } from './notifier'
 import { runProjectScanners, type ProjectScanOutcome } from './runner'
 import { publishedVersions, registryView, settleFixes } from './fix-verification'
 import type { RegistryClient, RegistryEntry } from './registry-client'
@@ -61,6 +63,9 @@ function fakeRegistry(entries: Record<string, RegistryEntry>): RegistryClient & 
                 if (entry) out.set(name, entry)
             }
             return out
+        },
+        weeklyDownloads: async function weeklyDownloads(names) {
+            return new Map(names.map(function none(n) { return [n, null] as const }))
         }
     }
 }
@@ -177,6 +182,55 @@ describe('settlement over every source', function () {
     })
 })
 
+// The way out is written by the same project pass and handed to the notifier with the settled fix, so the
+// row, the message and the advisory all say the same thing — and it goes away with the status.
+describe('the way out travels with the finding', function () {
+    const braces = raw('osv', 'GHSA-vfj7', '<=3.0.3', { packageName: 'braces', installedVersion: '3.0.3', fixInputs: evidence('osv', '<=3.0.3', '3.0.3') })
+
+    it('is on the row, the notified finding, the webhook payload and the export while none_released, and gone once a fix is released', async function () {
+        const first: ProjectScanOutcome[] = []
+        await scan([scanner('osv', [braces])], fakeRegistry({ braces: { status: 'ok', summary: summary('braces', ['3.0.2', '3.0.3']), checkedAt: T0, origin: 'cache' } }), first)
+        const [row] = listFindingsForProject(db, PROJECT_ID)
+        expect(row?.fixStatus).toBe('none_released')
+        expect(row?.remediation).toMatchObject({ v: 1, package: 'braces', devOnly: null, chains: [{ verdict: { kind: 'unknown', reason: 'no lockfile dependency graph' } }] })
+        const handed = first[0]?.findings[0] as Finding
+        expect(handed.remediation).toEqual(row?.remediation)
+        expect(toWebhookVulnerability(handed).remediation).toEqual(row?.remediation)
+        const exported = buildAdvisoryMarkdown({ scope: { kind: 'project', projectName: 'app', projectPath: 'app', depType: 'all' }, prompt: '', findings: [toExportFinding(handed)], generatedAt: T0 })
+        expect(exported).toContain('- **Way out:**')
+
+        const second: ProjectScanOutcome[] = []
+        await scan([scanner('osv', [braces])], fakeRegistry({ braces: { status: 'ok', summary: summary('braces', ['3.0.3', '3.0.4']), checkedAt: T0, origin: 'fetched' } }), second)
+        expect(activeRows()[0]).toMatchObject({ fixStatus: 'released', fixVersion: '3.0.4', remediationJson: null })
+        const again = second[0]?.findings[0] as Finding
+        expect(again.remediation).toBeNull()
+        expect(toWebhookVulnerability(again).remediation).toBeNull()
+        expect(buildAdvisoryMarkdown({ scope: { kind: 'project', projectName: 'app', projectPath: 'app', depType: 'all' }, prompt: '', findings: [toExportFinding(again)], generatedAt: T0 })).not.toContain('Way out')
+    })
+
+    it('computes one way out for rows with the same evidence, and none for other ecosystems', async function () {
+        const pypi = raw('osv', 'PYSEC-1', '<=1.0.0', { packageName: 'pkg', ecosystem: 'PyPI', fixInputs: evidence('osv', '<=1.0.0') })
+        const sameEvidence = raw('osv', 'GHSA-other', '<=3.0.3', { aliases: [], packageName: 'braces', installedVersion: '3.0.3', fixInputs: evidence('osv', '<=3.0.3', '3.0.3') })
+        const registry = fakeRegistry({ braces: { status: 'ok', summary: summary('braces', ['3.0.3']), checkedAt: T0, origin: 'cache' } })
+        await scan([scanner('osv', [{ ...braces, aliases: [] }, sameEvidence, pypi])], registry)
+        const rows = activeRows()
+        const bracesRows = rows.filter(function b(r) { return r.packageName === 'braces' })
+        expect(bracesRows).toHaveLength(2)
+        expect(bracesRows[0]?.remediationJson).not.toBeNull()
+        expect(bracesRows[0]?.remediationJson).toBe(bracesRows[1]?.remediationJson)
+        expect(rows.find(function p(r) { return r.ecosystem === 'PyPI' })?.remediationJson).toBeNull()
+    })
+
+    it('never fails the scan when the way out cannot be built', async function () {
+        const notified: ProjectScanOutcome[] = []
+        const registry = fakeRegistry({ braces: { status: 'ok', summary: summary('braces', ['3.0.3']), checkedAt: T0, origin: 'cache' } })
+        registry.weeklyDownloads = async function broken() { throw new Error('database is locked') }
+        await scan([scanner('osv', [braces])], registry, notified)
+        expect(activeRows()[0]).toMatchObject({ fixStatus: 'none_released', remediationJson: null })
+        expect(notified[0]?.findings[0]).toMatchObject({ fixStatus: 'none_released', remediation: null })
+    })
+})
+
 describe('settlement without a registry answer', function () {
     it('is unverified with the stated fix when the registry is unreachable — never none_released', async function () {
         await scan([scanner('osv', [raw('osv', 'GHSA-pkg-1', '<1.1.0')])], fakeRegistry({ pkg: { status: 'error', reason: 'ECONNREFUSED' } }))
@@ -215,7 +269,10 @@ describe('settlement without a registry answer', function () {
 
     // A broken settlement leaves the rows unsettled ("rescan pending") and the scan still notifies.
     it('never fails the scan when settlement throws', async function () {
-        const broken: RegistryClient = { lookup: async function lookup() { throw new Error('database is locked') } }
+        const broken: RegistryClient = {
+            lookup: async function lookup() { throw new Error('database is locked') },
+            weeklyDownloads: async function weeklyDownloads() { throw new Error('database is locked') }
+        }
         const notified: ProjectScanOutcome[] = []
         await scan([scanner('osv', [raw('osv', 'GHSA-pkg-1', '<1.1.0')])], broken, notified)
         expect(activeRows()[0]).toMatchObject({ fixStatus: null, fixCheckJson: null })

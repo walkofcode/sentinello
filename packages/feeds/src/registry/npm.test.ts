@@ -1,6 +1,36 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { startDownloadServer, type DownloadServer } from '../download-server.fixture'
-import { DEFAULT_NPM_REGISTRY_URL, fetchNpmPackage, npmPackageUrl, npmRegistryUrl, summarizePackument } from './npm'
+import {
+    DEFAULT_NPM_DOWNLOADS_URL,
+    DEFAULT_NPM_REGISTRY_URL,
+    fetchNpmPackage,
+    fetchNpmWeeklyDownloads,
+    npmDownloadsUrl,
+    npmPackageUrl,
+    npmRegistryUrl,
+    summarizePackument
+} from './npm'
+
+// A server that sends the status line and part of a body, then never finishes it: a proxy that stalls
+// after its headers.
+async function startStallingServer(status: number): Promise<{ origin: string; close(): Promise<void> }> {
+    const server: Server = createServer(function stall(_request, response) {
+        response.writeHead(status)
+        response.write('partial body')
+    })
+    await new Promise<void>(function listen(resolve) { server.listen(0, '127.0.0.1', resolve) })
+    return {
+        origin: 'http://127.0.0.1:' + (server.address() as AddressInfo).port,
+        close: function close() {
+            return new Promise(function shut(resolve) {
+                server.closeAllConnections()
+                server.close(function done() { resolve() })
+            })
+        }
+    }
+}
 
 const PACKUMENT = {
     name: 'braces',
@@ -165,5 +195,93 @@ describe('fetchNpmPackage', function () {
         controller.abort()
         const result = await fetchNpmPackage('braces', { registryUrl: server.origin, abortSignal: controller.signal })
         expect(result.status).toBe('error')
+    })
+})
+
+describe('fetchNpmPackage — a body that stalls after the status line', function () {
+    it.each([[503, { status: 'error', reason: 'HTTP 503' }], [404, { status: 'not_found' }]] as const)('answers %i from the status alone, without throwing', async function (status, expected) {
+        const server = await startStallingServer(status)
+        try {
+            expect(await fetchNpmPackage('a', { registryUrl: server.origin, timeoutMs: 200 })).toEqual(expected)
+            expect(await fetchNpmWeeklyDownloads('a', { registryUrl: server.origin, timeoutMs: 200 })).toEqual(expected)
+        } finally {
+            await server.close()
+        }
+    })
+
+    it('reports a 200 whose body stalls past the timeout as an error', async function () {
+        const server = await startStallingServer(200)
+        try {
+            const result = await fetchNpmPackage('a', { registryUrl: server.origin, timeoutMs: 200 })
+            expect(result.status === 'error' && result.reason).toMatch(/^unreadable packument/)
+        } finally {
+            await server.close()
+        }
+    })
+})
+
+describe('fetchNpmWeeklyDownloads', function () {
+    let server: DownloadServer | null = null
+    const saved = process.env.SENTINELLO_NPM_DOWNLOADS_URL
+    afterEach(async function () {
+        if (server) await server.close()
+        server = null
+        if (saved === undefined) delete process.env.SENTINELLO_NPM_DOWNLOADS_URL
+        else process.env.SENTINELLO_NPM_DOWNLOADS_URL = saved
+    })
+
+    it('defaults to api.npmjs.org and honours the env override', function () {
+        delete process.env.SENTINELLO_NPM_DOWNLOADS_URL
+        expect(npmDownloadsUrl()).toBe(DEFAULT_NPM_DOWNLOADS_URL)
+        process.env.SENTINELLO_NPM_DOWNLOADS_URL = ' http://127.0.0.1:9// '
+        expect(npmDownloadsUrl()).toBe('http://127.0.0.1:9')
+        process.env.SENTINELLO_NPM_DOWNLOADS_URL = ''
+        expect(npmDownloadsUrl()).toBe(DEFAULT_NPM_DOWNLOADS_URL)
+    })
+
+    it('reads last week\'s count for a scoped package', async function () {
+        server = await startDownloadServer({ body: '{"downloads":45923307,"start":"2026-09-25","end":"2026-10-01","package":"@next/eslint-plugin-next"}' })
+        process.env.SENTINELLO_NPM_DOWNLOADS_URL = server.origin
+        expect(await fetchNpmWeeklyDownloads('@next/eslint-plugin-next')).toEqual({ status: 'ok', weeklyDownloads: 45923307 })
+        expect(server.requests[0]?.url).toBe('/downloads/point/last-week/@next%2Feslint-plugin-next')
+    })
+
+    it('reports a missing package, an outage, an unreadable body and a missing count', async function () {
+        server = await startDownloadServer(function respond(request) {
+            if (request.url?.endsWith('/gone')) return { status: 404, body: '{"error":"not found"}' }
+            if (request.url?.endsWith('/down')) return { status: 500, body: 'x' }
+            if (request.url?.endsWith('/bad')) return { body: 'not json' }
+            return { body: '{"downloads":-1}' }
+        })
+        expect(await fetchNpmWeeklyDownloads('gone', { registryUrl: server.origin })).toEqual({ status: 'not_found' })
+        expect(await fetchNpmWeeklyDownloads('down', { registryUrl: server.origin })).toEqual({ status: 'error', reason: 'HTTP 500' })
+        const bad = await fetchNpmWeeklyDownloads('bad', { registryUrl: server.origin })
+        expect(bad.status === 'error' && bad.reason).toMatch(/^unreadable download count/)
+        expect(await fetchNpmWeeklyDownloads('negative', { registryUrl: server.origin })).toEqual({ status: 'error', reason: 'download count missing' })
+    })
+
+    it('reads a body that is not an object as a missing count', async function () {
+        server = await startDownloadServer({ body: '[1]' })
+        expect(await fetchNpmWeeklyDownloads('x', { registryUrl: server.origin })).toEqual({ status: 'error', reason: 'download count missing' })
+    })
+
+    it('answers from the status alone when the unread body has already failed, or there is none', async function () {
+        const errored = new ReadableStream({ start(controller) { controller.error(new Error('connection reset')) } })
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(errored, { status: 503 })).mockResolvedValueOnce(new Response(null, { status: 404 })))
+        try {
+            expect(await fetchNpmWeeklyDownloads('x', { registryUrl: 'http://registry.test' })).toEqual({ status: 'error', reason: 'HTTP 503' })
+            expect(await fetchNpmPackage('x', { registryUrl: 'http://registry.test' })).toEqual({ status: 'not_found' })
+        } finally {
+            vi.unstubAllGlobals()
+        }
+    })
+
+    it('reports an unreachable service as an error and honours the caller abort', async function () {
+        const result = await fetchNpmWeeklyDownloads('braces', { registryUrl: 'http://127.0.0.1:9', timeoutMs: 2000 })
+        expect(result.status).toBe('error')
+        server = await startDownloadServer({ body: '{"downloads":1}' })
+        const controller = new AbortController()
+        controller.abort()
+        expect((await fetchNpmWeeklyDownloads('braces', { registryUrl: server.origin, abortSignal: controller.signal })).status).toBe('error')
     })
 })

@@ -1,6 +1,7 @@
 import type { EcosystemId } from './ecosystems'
 import type { NotificationSourceScope } from './sources'
 import type { FixCheck } from './fix-status'
+import type { Remediation } from './remediation'
 
 export type Severity = 'critical' | 'high' | 'moderate' | 'low' | 'info'
 
@@ -328,6 +329,9 @@ export type Finding = {
     fixAvailable: boolean
     fixVersion: string | null
     fixCheck: FixCheck | null
+    // The way out, set only on a 'none_released' finding (null otherwise, and on any row whose way-out
+    // could not be computed).
+    remediation: Remediation | null
     depPath: string[]
     // A transitive can be reached from both prod and dev direct deps — both flags can be true.
     // Unmappable findings default to isProd=true,isDev=false so they remain visible in the prod-only view.

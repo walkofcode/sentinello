@@ -13,7 +13,7 @@ export {
     mergeResolvedGraphs,
     graphForEcosystem
 } from './resolver'
-export type { DepScope, DetectedManifest, ResolvedGraph, ResolvedPackage, ResolverResult } from './resolver'
+export type { DepScope, DetectedManifest, LockEdge, LockEdgeKind, LockNode, LockRoot, LockRootKind, NodeGraph, ResolvedGraph, ResolvedPackage, ResolverResult } from './resolver'
 export {
     detectEcosystems,
     detectPackageManager,

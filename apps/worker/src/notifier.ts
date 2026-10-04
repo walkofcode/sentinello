@@ -353,6 +353,7 @@ export function toExportFinding(f: Finding): ExportFinding {
         fixVersion: f.fixVersion,
         fixStatus: f.fixStatus,
         fixCheck: f.fixCheck,
+        remediation: f.remediation,
         severity: f.severity,
         advisoryId: f.advisoryId,
         advisoryTitle: f.advisoryTitle,

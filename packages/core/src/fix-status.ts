@@ -1,3 +1,4 @@
+import { parseRemediation, type Remediation } from './remediation'
 import type { FixStatus } from './types'
 
 // What the registry said when a finding's fix was settled. `ok` — fresh package data; `stale` — a refetch
@@ -83,24 +84,29 @@ export function isFixStatus(value: unknown): value is FixStatus {
 // before this release, or by a scan that stopped between merge and settlement) has a fix value nobody
 // checked: it is withheld, never shown and never attributed to the advisory, until the next scan
 // settles the row. `fixCheck: null` is what marks it, so it renders "rescan pending".
+//
+// The way out travels with them: it exists only for a settled 'none_released' finding, so a remediation
+// left on a row of any other status (or an unsettled one) is never read.
 export type FixFields = {
     fixStatus: FixStatus
     fixVersion: string | null
     fixAvailable: boolean
     fixCheck: FixCheck | null
+    remediation: Remediation | null
 }
 
-export function readFixFields(row: { fixStatus: string | null; fixVersion: string | null; fixAvailable: boolean; fixCheckJson: string | null }): FixFields {
+export function readFixFields(row: { fixStatus: string | null; fixVersion: string | null; fixAvailable: boolean; fixCheckJson: string | null; remediationJson: string | null }): FixFields {
     const fixCheck = parseFixCheck(row.fixCheckJson)
     // A `released` row without its version is not something settlement writes; read it as unsettled too.
     const releasedWithoutVersion = row.fixStatus === 'released' && !row.fixVersion
     if (!isFixStatus(row.fixStatus) || fixCheck === null || releasedWithoutVersion) {
-        return { fixStatus: 'unverified', fixVersion: null, fixAvailable: false, fixCheck: null }
+        return { fixStatus: 'unverified', fixVersion: null, fixAvailable: false, fixCheck: null, remediation: null }
     }
-    return { fixStatus: row.fixStatus, fixVersion: row.fixVersion, fixAvailable: row.fixAvailable, fixCheck }
+    const remediation = row.fixStatus === 'none_released' ? parseRemediation(row.remediationJson) : null
+    return { fixStatus: row.fixStatus, fixVersion: row.fixVersion, fixAvailable: row.fixAvailable, fixCheck, remediation }
 }
 
-export type FixFacts = FixFields & { packageName: string }
+export type FixFacts = Pick<FixFields, 'fixStatus' | 'fixVersion' | 'fixAvailable' | 'fixCheck'> & { packageName: string }
 
 export type FixTextStyle = {
     // How a version or package name is set off: a markdown code span in the export, bare in a chat message.
@@ -146,7 +152,7 @@ export function describeFix(f: FixFacts, style: FixTextStyle): string {
         return style.strong('No fixed version released') + ' — no published version of ' + style.code(f.packageName) +
             ' is outside the vulnerable range (registry checked ' + isoDate(check.checkedAt) + ')' + staleSuffix(check)
     }
-    const tail = ' · not checked against the registry' + unverifiedReason(check)
+    const tail = ' · not checked against the registry' + unverifiedReason(check) + staleSuffix(check)
     if (f.fixVersion) return 'advisory names ' + style.code(f.fixVersion) + ' as the fix' + tail
     if (f.fixAvailable) return 'npm reports ' + style.code('npm audit fix') + ' resolves it (no version of this package stated)' + tail
     return 'no fix stated by the advisory' + tail

@@ -1,0 +1,388 @@
+{
+ "name": "fsevents",
+ "dist-tags": {
+  "latest": "2.3.3"
+ },
+ "maintainers": [
+  {
+   "name": "paulmillr"
+  },
+  {
+   "name": "pipobscure"
+  }
+ ],
+ "repository": {
+  "url": "git+https://github.com/fsevents/fsevents.git",
+  "type": "git"
+ },
+ "time": {
+  "created": "2013-07-06T22:03:58.681Z",
+  "modified": "2024-09-18T05:34:02.904Z",
+  "0.1.1": "2013-07-06T22:04:02.366Z",
+  "0.1.3": "2013-07-06T22:26:35.459Z",
+  "0.1.4": "2013-07-06T22:47:07.832Z",
+  "0.1.5": "2013-07-08T12:58:59.106Z",
+  "0.1.6": "2013-11-28T11:01:53.138Z",
+  "0.2.0": "2014-01-31T22:45:31.014Z",
+  "0.3.0": "2014-08-19T22:00:57.872Z",
+  "0.3.1": "2014-11-04T23:57:07.078Z",
+  "0.3.2": "2015-01-15T18:16:40.178Z",
+  "0.3.3": "2015-01-15T18:25:40.249Z",
+  "0.3.4": "2015-01-15T18:47:56.914Z",
+  "0.3.5": "2015-01-27T17:33:56.632Z",
+  "0.3.6": "2015-05-05T11:40:56.957Z",
+  "0.3.7": "2015-07-30T21:22:55.082Z",
+  "0.3.8": "2015-08-06T20:53:40.505Z",
+  "1.0.0": "2015-09-09T16:28:53.632Z",
+  "1.0.1": "2015-09-29T13:33:22.418Z",
+  "1.0.2": "2015-10-06T16:54:19.342Z",
+  "1.0.3": "2015-11-03T17:42:34.374Z",
+  "1.0.4": "2015-11-04T17:44:36.966Z",
+  "1.0.5": "2015-11-05T00:03:45.065Z",
+  "1.0.6": "2015-12-10T14:02:06.618Z",
+  "1.0.7": "2016-02-03T15:12:36.865Z",
+  "1.0.8": "2016-02-23T10:24:36.327Z",
+  "1.0.9": "2016-03-23T20:30:48.264Z",
+  "1.0.10": "2016-03-31T18:16:24.110Z",
+  "1.0.11": "2016-03-31T19:18:02.557Z",
+  "1.0.12": "2016-04-29T14:34:06.131Z",
+  "1.0.14": "2016-07-18T12:56:52.080Z",
+  "1.0.15": "2016-11-02T23:38:09.421Z",
+  "1.0.17": "2017-01-04T22:25:53.376Z",
+  "1.1.0": "2017-02-19T17:47:36.660Z",
+  "1.1.1": "2017-02-20T05:18:05.877Z",
+  "1.1.2": "2017-06-13T04:40:40.543Z",
+  "1.1.3": "2017-11-10T22:23:22.311Z",
+  "1.2.0": "2018-04-20T14:59:24.344Z",
+  "1.2.2": "2018-04-23T15:58:15.735Z",
+  "1.2.3": "2018-04-27T17:30:08.673Z",
+  "1.2.4": "2018-05-15T14:49:30.090Z",
+  "2.0.0": "2018-11-10T13:45:29.438Z",
+  "2.0.1": "2018-11-10T14:25:27.802Z",
+  "1.2.6": "2019-01-15T19:22:35.178Z",
+  "1.2.7": "2019-01-18T15:54:27.775Z",
+  "2.0.3": "2019-04-01T13:51:03.216Z",
+  "2.0.4": "2019-04-16T15:19:08.646Z",
+  "1.2.8": "2019-04-16T16:45:14.068Z",
+  "2.0.5": "2019-04-16T16:50:24.835Z",
+  "2.0.6": "2019-04-16T19:19:31.595Z",
+  "1.2.9": "2019-04-29T16:17:22.547Z",
+  "2.0.7": "2019-05-16T13:07:15.212Z",
+  "2.1.0": "2019-10-01T00:52:09.822Z",
+  "2.1.1": "2019-10-14T00:14:41.467Z",
+  "2.1.2": "2019-11-09T17:08:30.550Z",
+  "1.2.10": "2019-12-13T11:25:04.547Z",
+  "1.2.11": "2019-12-14T11:28:18.959Z",
+  "1.2.12": "2020-03-19T09:14:58.168Z",
+  "2.1.3": "2020-04-22T08:48:23.251Z",
+  "1.2.13": "2020-05-05T21:06:30.384Z",
+  "2.2.0": "2020-11-03T12:58:19.820Z",
+  "2.2.1": "2020-11-05T16:51:19.929Z",
+  "2.2.2": "2021-01-05T02:47:04.296Z",
+  "2.3.0": "2021-01-05T11:06:52.663Z",
+  "2.3.1": "2021-01-05T15:23:19.751Z",
+  "2.3.2": "2021-02-05T14:46:33.925Z",
+  "2.3.3": "2023-08-21T16:24:22.854Z"
+ },
+ "versions": {
+  "0.1.1": {},
+  "0.1.3": {},
+  "0.1.4": {},
+  "0.1.5": {},
+  "0.1.6": {},
+  "0.2.0": {
+   "dependencies": {
+    "nan": "~0.8.0"
+   }
+  },
+  "0.3.0": {
+   "dependencies": {
+    "nan": "~1.2.0"
+   }
+  },
+  "0.3.1": {
+   "dependencies": {
+    "nan": "~1.3.0"
+   }
+  },
+  "0.3.2": {
+   "dependencies": {
+    "nan": "~1.5.0"
+   }
+  },
+  "0.3.3": {
+   "dependencies": {
+    "nan": "~1.5.0"
+   }
+  },
+  "0.3.4": {
+   "dependencies": {
+    "nan": "~1.5.0"
+   }
+  },
+  "0.3.5": {
+   "dependencies": {
+    "nan": "~1.5.0"
+   }
+  },
+  "0.3.6": {
+   "dependencies": {
+    "nan": "^1.8.0"
+   }
+  },
+  "0.3.7": {
+   "dependencies": {
+    "nan": "^1.8.0"
+   }
+  },
+  "0.3.8": {
+   "dependencies": {
+    "nan": "^2.0.2"
+   }
+  },
+  "1.0.0": {
+   "dependencies": {
+    "nan": "^2.0.2",
+    "node-pre-gyp": "^0.6.8"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.0.1": {
+   "dependencies": {
+    "nan": "^2.0.2",
+    "node-pre-gyp": "^0.6.11"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.0.2": {
+   "dependencies": {
+    "nan": "^2.0.2",
+    "node-pre-gyp": "^0.6.12"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.0.3": {
+   "dependencies": {
+    "nan": "^2.0.2",
+    "node-pre-gyp": "^0.6.14"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.0.4": {
+   "dependencies": {
+    "nan": "^2.0.2",
+    "node-pre-gyp": "^0.6.14"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.0.5": {
+   "dependencies": {
+    "nan": "^2.0.2",
+    "node-pre-gyp": "^0.6.15"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.0.6": {
+   "dependencies": {
+    "nan": "^2.1.0",
+    "node-pre-gyp": "^0.6.17"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.0.7": {
+   "dependencies": {
+    "nan": "^2.1.0",
+    "node-pre-gyp": "^0.6.19"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.0.8": {
+   "dependencies": {
+    "nan": "^2.1.0",
+    "node-pre-gyp": "^0.6.21"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.0.9": {
+   "dependencies": {
+    "nan": "^2.1.0",
+    "node-pre-gyp": "^0.6.24"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.0.10": {
+   "dependencies": {
+    "nan": "^2.1.0",
+    "node-pre-gyp": "^0.6.24"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.0.11": {
+   "dependencies": {
+    "nan": "^2.1.0",
+    "node-pre-gyp": "^0.6.25"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.0.12": {
+   "dependencies": {
+    "nan": "^2.3.0",
+    "node-pre-gyp": "^0.6.25"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.0.14": {
+   "dependencies": {
+    "nan": "^2.3.0",
+    "node-pre-gyp": "^0.6.29"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.0.15": {
+   "dependencies": {
+    "nan": "^2.3.0",
+    "node-pre-gyp": "^0.6.29"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.0.17": {
+   "dependencies": {
+    "nan": "^2.3.0",
+    "node-pre-gyp": "^0.6.29"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.1.0": {
+   "dependencies": {
+    "nan": "^2.3.0",
+    "node-pre-gyp": "^0.6.29"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.1.1": {
+   "dependencies": {
+    "nan": "^2.3.0",
+    "node-pre-gyp": "^0.6.29"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.1.2": {
+   "dependencies": {
+    "nan": "^2.3.0",
+    "node-pre-gyp": "^0.6.36"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.1.3": {
+   "dependencies": {
+    "nan": "^2.3.0",
+    "node-pre-gyp": "^0.6.39"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.2.0": {
+   "dependencies": {
+    "nan": "^2.9.2",
+    "node-pre-gyp": "^0.9.0"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.2.2": {
+   "dependencies": {
+    "nan": "^2.9.2",
+    "node-pre-gyp": "^0.9.0"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.2.3": {
+   "dependencies": {
+    "nan": "^2.9.2",
+    "node-pre-gyp": "^0.9.0"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.2.4": {
+   "dependencies": {
+    "nan": "^2.9.2",
+    "node-pre-gyp": "^0.10.0"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "2.0.0": {},
+  "2.0.1": {},
+  "1.2.6": {
+   "dependencies": {
+    "nan": "^2.9.2",
+    "node-pre-gyp": "^0.10.0"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.2.7": {
+   "dependencies": {
+    "nan": "^2.9.2",
+    "node-pre-gyp": "^0.10.0"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "2.0.3": {},
+  "2.0.4": {},
+  "1.2.8": {
+   "dependencies": {
+    "nan": "^2.12.1",
+    "node-pre-gyp": "^0.12.0"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "2.0.5": {},
+  "2.0.6": {},
+  "1.2.9": {
+   "dependencies": {
+    "nan": "^2.12.1",
+    "node-pre-gyp": "^0.12.0"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "2.0.7": {},
+  "2.1.0": {},
+  "2.1.1": {},
+  "2.1.2": {},
+  "1.2.10": {
+   "dependencies": {
+    "nan": "^2.12.1",
+    "node-pre-gyp": "^0.12.0"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.2.11": {
+   "dependencies": {
+    "nan": "^2.12.1",
+    "bindings": "^1.5.0",
+    "node-pre-gyp": "*"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "1.2.12": {
+   "dependencies": {
+    "nan": "^2.12.1",
+    "bindings": "^1.5.0",
+    "node-pre-gyp": "*"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "2.1.3": {},
+  "1.2.13": {
+   "dependencies": {
+    "nan": "^2.12.1",
+    "bindings": "^1.5.0"
+   },
+   "deprecated": "Upgrade to fsevents v2 to mitigate potential security issues"
+  },
+  "2.2.0": {},
+  "2.2.1": {},
+  "2.2.2": {},
+  "2.3.0": {},
+  "2.3.1": {},
+  "2.3.2": {},
+  "2.3.3": {}
+ }
+}
