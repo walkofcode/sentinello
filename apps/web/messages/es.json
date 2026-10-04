@@ -620,7 +620,7 @@
             "npmRegistry": {
                 "purpose": "Comprobar que una versión con la corrección se publicó de verdad y, si no hay ninguna, leer los metadatos del paquete con los que se arma la salida (versiones, dependencias, avisos de obsolescencia, mantenedores). Paquetes con hallazgos y sus cadenas de dependencias y, cuando no hay corrección publicada, las versiones candidatas y las alternativas que evalúa la salida, con sus árboles de dependencias, dentro de un límite por escaneo",
                 "when": "Después de cada escaneo, para paquetes sin una respuesta correcta en las últimas 24 horas; una petición fallida no se guarda, así que puede repetirse antes",
-                "disable": "No se puede desactivar: SENTINELLO_NPM_REGISTRY_URL lo apunta a un mirror. Si no se puede alcanzar, un paquete comprobado antes conserva su última respuesta, con la fecha en que se comprobó; uno nunca comprobado se muestra como no comprobado en el registro"
+                "disable": "No se puede desactivar: SENTINELLO_NPM_REGISTRY_URL lo apunta a un mirror. Si no se puede alcanzar, se reutilizan los metadatos de paquete obtenidos antes, si siguen siendo utilizables, y los hallazgos actuales se evalúan con ellos, con la fecha en que se obtuvieron; sin ellos, la corrección se muestra como no comprobado en el registro"
             },
             "npmDownloads": {
                 "purpose": "Descargas semanales que se muestran junto a los paquetes y alternativas de una salida",
@@ -673,7 +673,7 @@
             "osvDbPath": "Ubicación de la caché reconstruible de avisos OSV; por defecto se ubica junto a la base de datos principal.",
             "gemnasiumFeedUrl": "URL del archivo de avisos gemnasium de GitLab, usada solo cuando la fuente gemnasium está habilitada; poné off para desactivar todo el acceso de red de gemnasium.",
             "gemnasiumDbPath": "Ubicación de la caché reconstruible de avisos gemnasium; por defecto se ubica junto a la base de datos principal.",
-            "npmRegistryUrl": "Registro de npm con el que se comprueban las versiones corregidas después de cada escaneo y del que se leen los metadatos de los paquetes para la salida; apúntalo a un mirror si usas uno. Si no se puede alcanzar, un paquete comprobado antes conserva su última respuesta, con la fecha en que se comprobó; uno nunca comprobado se muestra como no verificado en el registro.",
+            "npmRegistryUrl": "Registro de npm con el que se comprueban las versiones corregidas después de cada escaneo y del que se leen los metadatos de los paquetes para la salida; apúntalo a un mirror si usas uno. Si no se puede alcanzar, se reutilizan los metadatos de paquete obtenidos antes, si siguen siendo utilizables, y los hallazgos actuales se evalúan con ellos, con la fecha en que se obtuvieron; sin ellos, la corrección se muestra como no verificado en el registro.",
             "npmDownloadsUrl": "API de descargas de npm, de la que se leen las descargas semanales que se muestran en una salida. Si no se puede alcanzar, se muestra la última cifra conocida, o desconocida si no hay ninguna."
         },
         "builtWithTitle": "Construido con",

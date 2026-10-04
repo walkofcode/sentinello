@@ -620,7 +620,7 @@
             "npmRegistry": {
                 "purpose": "Check that a fix version was actually published, and — when none was — read the package metadata the way out is built from (releases, dependencies, deprecation notices, maintainers). Packages with findings and their dependency chains and, when no fix is released, the candidate releases and alternatives the way out weighs, with their dependency trees — within a budget per scan",
                 "when": "After each scan, for packages without a successful answer in the last 24 hours; a failed request is not stored, so it can be retried sooner",
-                "disable": "Not disableable — SENTINELLO_NPM_REGISTRY_URL points it at a mirror. When it cannot be reached, a package checked earlier keeps its last answer, with the date it was checked; one never checked shows as not checked against the registry"
+                "disable": "Not disableable — SENTINELLO_NPM_REGISTRY_URL points it at a mirror. When it cannot be reached, package metadata fetched earlier is reused if it is still usable, and current findings are evaluated against it, with the date it was fetched; without it, the fix shows as not checked against the registry"
             },
             "npmDownloads": {
                 "purpose": "Weekly download counts shown beside the packages and alternatives in a way out",
@@ -673,7 +673,7 @@
             "osvDbPath": "Location of the rebuildable OSV advisory cache; defaults next to the main database.",
             "gemnasiumFeedUrl": "URL for the GitLab gemnasium advisory archive, used only when the gemnasium source is enabled; set to off to disable all gemnasium network access.",
             "gemnasiumDbPath": "Location of the rebuildable gemnasium advisory cache; defaults next to the main database.",
-            "npmRegistryUrl": "npm registry that fix versions are checked against after each scan, and that package metadata for the way out is read from; point it at a mirror if you use one. When it cannot be reached, a package checked earlier keeps its last answer, with the date it was checked; one never checked shows as not checked against the registry.",
+            "npmRegistryUrl": "npm registry that fix versions are checked against after each scan, and that package metadata for the way out is read from; point it at a mirror if you use one. When it cannot be reached, package metadata fetched earlier is reused if it is still usable, and current findings are evaluated against it, with the date it was fetched; without it, the fix shows as not checked against the registry.",
             "npmDownloadsUrl": "npm download-count API, read for the weekly downloads shown in a way out. When it cannot be reached, the last known count is shown, or unknown when there is none."
         },
         "builtWithTitle": "Built with",

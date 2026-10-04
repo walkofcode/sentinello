@@ -620,7 +620,7 @@
             "npmRegistry": {
                 "purpose": "Verificar se uma versão com a correção foi realmente publicada e, quando não há nenhuma, ler os metadados do pacote usados para montar a saída (versões, dependências, avisos de descontinuação, mantenedores). Pacotes com vulnerabilidades e suas cadeias de dependências e, quando nenhuma correção foi publicada, as versões candidatas e as alternativas que a saída avalia, com suas árvores de dependências, dentro de um limite por varredura",
                 "when": "Após cada varredura, para pacotes sem resposta bem-sucedida nas últimas 24 horas; uma requisição que falhou não é guardada, então pode ser repetida antes disso",
-                "disable": "Não pode ser desativado — SENTINELLO_NPM_REGISTRY_URL aponta para um mirror. Se estiver inacessível, um pacote verificado antes mantém sua última resposta, com a data dessa verificação; um nunca verificado aparece como não verificado no registro"
+                "disable": "Não pode ser desativado — SENTINELLO_NPM_REGISTRY_URL aponta para um mirror. Se estiver inacessível, os metadados de pacote obtidos antes são reutilizados, se ainda forem utilizáveis, e as vulnerabilidades atuais são avaliadas com eles, com a data em que foram obtidos; sem eles, a correção aparece como não verificada no registro"
             },
             "npmDownloads": {
                 "purpose": "Downloads semanais exibidos ao lado dos pacotes e alternativas de uma saída",
@@ -673,7 +673,7 @@
             "osvDbPath": "Local do cache reconstruível de avisos OSV; por padrão, fica ao lado do banco de dados principal.",
             "gemnasiumFeedUrl": "URL do arquivo de avisos gemnasium do GitLab, usado apenas quando a fonte gemnasium está ativada; defina como off para desativar todo o acesso de rede do gemnasium.",
             "gemnasiumDbPath": "Local do cache reconstruível de avisos gemnasium; por padrão, fica ao lado do banco de dados principal.",
-            "npmRegistryUrl": "Registro do npm usado para verificar as versões corrigidas após cada varredura e para ler os metadados dos pacotes da saída; aponte-o para um mirror se usar um. Se estiver inacessível, um pacote verificado antes mantém sua última resposta, com a data dessa verificação; um nunca verificado aparece como não verificado no registro.",
+            "npmRegistryUrl": "Registro do npm usado para verificar as versões corrigidas após cada varredura e para ler os metadados dos pacotes da saída; aponte-o para um mirror se usar um. Se estiver inacessível, os metadados de pacote obtidos antes são reutilizados, se ainda forem utilizáveis, e as vulnerabilidades atuais são avaliadas com eles, com a data em que foram obtidos; sem eles, a correção aparece como não verificada no registro.",
             "npmDownloadsUrl": "API de downloads do npm, lida para os downloads semanais exibidos em uma saída. Se estiver inacessível, aparece a última contagem conhecida, ou desconhecido se não houver nenhuma."
         },
         "builtWithTitle": "Construído com",
