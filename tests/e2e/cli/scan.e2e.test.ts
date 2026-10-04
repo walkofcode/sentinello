@@ -17,10 +17,11 @@ import type { OsvAdvisoryRow } from '@sentinello/core'
 // a broken shebang, an import that only resolves in the workspace).
 //
 // The run is hermetic by construction. Both feed URLs are set to 'off', which makes planSync skip
-// every source, and --source osv,gemnasium sets includeNpmAudit=false so nothing is ever spawned.
-// The advisory cache is pre-seeded from the frozen fixture, so findings are exact and permanent. The fix
-// check reads the npm registry, so every run points it at a loopback stub over recorded packuments: this
-// suite never reaches the live registry, and it counts every request the CLI makes.
+// every source, and most scans pass --source osv,gemnasium so npm audit is never spawned. The advisory
+// cache is pre-seeded from the frozen fixture, so findings are exact and permanent. The fix check reads
+// the npm registry, and npm audit reads the configured one (npm_config_registry), so every run points
+// both at a loopback stub over recorded packuments: this suite never reaches the live registry, and it
+// counts every request the CLI and its npm child make.
 
 const execFileAsync = promisify(execFile)
 
@@ -49,7 +50,7 @@ type RunResult = { code: number; stdout: string; stderr: string }
 async function runCli(args: string[], cache: string = cacheDir): Promise<RunResult> {
     try {
         const { stdout, stderr } = await execFileAsync('node', [CLI_BIN, ...args], {
-            env: { ...process.env, ...OFFLINE_ENV, SENTINELLO_CACHE_DIR: cache, SENTINELLO_NPM_REGISTRY_URL: stub.url, SENTINELLO_NPM_DOWNLOADS_URL: stub.url },
+            env: { ...process.env, ...OFFLINE_ENV, SENTINELLO_CACHE_DIR: cache, SENTINELLO_NPM_REGISTRY_URL: stub.url, SENTINELLO_NPM_DOWNLOADS_URL: stub.url, npm_config_registry: stub.url },
             maxBuffer: 32 * 1024 * 1024
         })
         return { code: 0, stdout, stderr }
@@ -245,13 +246,14 @@ describe('advisories with no fixed version released', function () {
         expect(JSON.parse(result.stdout).findings.map(function s(f: { fixStatus: string }) { return f.fixStatus })).toEqual(['none_released', 'none_released'])
     })
 
+    // Default sources, so npm audit is in the run unless --offline takes it out.
     it('makes no request at all under --offline, and says the fix was not checked because of it', async function () {
         const packuments = stub.requests.length
         const counts = stub.downloadRequests.length
-        const result = await scanNoFix(['--offline'])
+        const result = await runCli([FIXTURE_NO_FIX_PROJECT, '--no-prompt', '--out', '-', '--offline'], noFixCache)
         expect(result.code).toBe(0)
-        expect(stub.requests.length).toBe(packuments)
-        expect(stub.downloadRequests.length).toBe(counts)
+        expect(stub.requests.slice(packuments)).toEqual([])
+        expect(stub.downloadRequests.slice(counts)).toEqual([])
         expect(result.stdout).toContain('no fix stated by the advisory · not checked against the registry (offline)')
         expect(result.stdout).not.toContain('- **Way out:**')
         expect(result.stdout).not.toContain('3.0.4')
@@ -267,9 +269,66 @@ describe('fixes the registry confirms', function () {
     })
 
     it('labels the same fix as unverified under --offline', async function () {
-        const result = await scanFixture(['--offline'])
+        const result = await runCli([FIXTURE_PROJECT, '--no-prompt', '--out', '-', '--offline'])
         expect(result.stdout).toContain('advisory names `4.17.21` as the fix · not checked against the registry (offline)')
         expect(result.stdout).not.toContain('upgrade to')
+    })
+})
+
+// --offline is the documented no-network switch, so it outranks every way npm audit can be asked for: the
+// default sources, --source, and a committed sentinello.config.json. npm audit submits the dependency tree
+// to the configured registry, which here is the stub, so any audit it ran would show up in stub.requests.
+describe('--offline makes no request from any source', function () {
+    async function requestsDuring(run: () => Promise<RunResult>): Promise<{ result: RunResult; requests: string[] }> {
+        const packuments = stub.requests.length
+        const counts = stub.downloadRequests.length
+        const result = await run()
+        return { result, requests: [...stub.requests.slice(packuments), ...stub.downloadRequests.slice(counts)] }
+    }
+
+    // The control: without --offline the same run does audit through the stub, so an empty list below means
+    // npm audit did not run, not that its traffic went somewhere this suite cannot see.
+    it('runs npm audit against the configured registry without --offline', async function () {
+        const { requests } = await requestsDuring(function run() {
+            return runCli([FIXTURE_PROJECT, '--no-prompt', '--out', '-'])
+        })
+        expect(requests).toContain('/-/npm/v1/security/advisories/bulk')
+    })
+
+    it('with the default sources', async function () {
+        const { result, requests } = await requestsDuring(function run() {
+            return runCli([FIXTURE_PROJECT, '--no-prompt', '--json', '--out', '-', '--offline'])
+        })
+        expect(result.code).toBe(0)
+        expect(requests).toEqual([])
+        expect(result.stderr).toContain('npm audit not run')
+        // Taken out by the operator's own switch, so it is not reported as a source that failed.
+        expect(JSON.parse(result.stdout).projects[0].unauditable).toEqual([])
+    })
+
+    it('with npm-audit named on the command line', async function () {
+        const { result, requests } = await requestsDuring(function run() {
+            return runCli([FIXTURE_PROJECT, '--source', 'npm-audit,osv', '--no-prompt', '--out', '-', '--offline'])
+        })
+        expect(result.code).toBe(0)
+        expect(requests).toEqual([])
+    })
+
+    it('with npm-audit selected by sentinello.config.json', async function () {
+        const project = await mkdtemp(join(tmpdir(), 'sentinello-offline-config-'))
+        try {
+            for (const file of ['package.json', 'package-lock.json']) {
+                await writeFile(join(project, file), await readFile(join(FIXTURE_PROJECT, file)))
+            }
+            await writeFile(join(project, 'sentinello.config.json'), JSON.stringify({ sources: ['npm-audit', 'osv'] }))
+            const { result, requests } = await requestsDuring(function run() {
+                return runCli([project, '--no-prompt', '--out', '-', '--offline'])
+            })
+            expect(result.code).toBe(0)
+            expect(requests).toEqual([])
+        } finally {
+            await rm(project, { recursive: true, force: true })
+        }
     })
 })
 

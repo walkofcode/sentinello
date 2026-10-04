@@ -268,6 +268,23 @@ describe('scanning', function () {
         expect(feeds.fetchOsvChangedIds).not.toHaveBeenCalled()
     })
 
+    // npm audit submits the dependency tree to the registry, so --offline leaves it out however it was
+    // asked for — and says so, rather than reporting it as a source that failed.
+    it('does not run npm audit when offline, even when it is named', async function () {
+        await makeProject('web')
+        argv(dir, '--cache-dir', join(dir, '.cache'), '--source', 'npm-audit,osv', '--offline')
+        expect(await main()).toBe(EXIT_OK)
+        expect(npmAudit.npmAuditPlugin.scan).not.toHaveBeenCalled()
+        expect(err()).toContain('npm audit not run')
+    })
+
+    it('does not run npm audit when offline with the default sources', async function () {
+        await makeProject('web')
+        argv(dir, '--cache-dir', join(dir, '.cache'), '--offline')
+        expect(await main()).toBe(EXIT_OK)
+        expect(npmAudit.npmAuditPlugin.scan).not.toHaveBeenCalled()
+    })
+
     // `--source npm-audit` selects the subprocess scanner and NO advisory feed, because the source list
     // replaces rather than appends. There is then nothing to sync: the run must go straight to scanning
     // without touching the network and without printing the offline notice, which belongs to --offline

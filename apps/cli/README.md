@@ -73,8 +73,8 @@ Outbound requests go to `osv-vulnerabilities.storage.googleapis.com` and `gitlab
 advisory data, to `registry.npmjs.org` and `api.npmjs.org` to read the public metadata and download counts
 of the packages with findings and of the chains the way out weighs (package names only), and `npm audit`
 talks to your configured npm registry exactly as it always does. Use `--source osv,gemnasium` to skip npm
-audit, or `--offline` to make no network requests at all — fixes then read "not checked against the
-registry (offline)".
+audit, or `--offline` to make no network requests at all — npm audit is then skipped and fixes read "not
+checked against the registry (offline)".
 
 ## Options
 
@@ -90,7 +90,7 @@ Run `sentinello --help` for the full list. The ones people reach for:
 | `--out <file\|->` | where the advisory goes |
 | `--json` | machine-readable output |
 | `-y, --yes` | accept the first-run download without asking. Required on a non-TTY |
-| `--offline` | use the cache as-is, no network — fixes are not checked against npm |
+| `--offline` | use the cache as-is, no network — npm audit is skipped and fixes are not checked against npm |
 | `--doctor` | cache status, resolved settings, and what was skipped and why |
 
 Exit codes: `0` completed, `1` a scan or configuration error — including a `--fail-on` run that could

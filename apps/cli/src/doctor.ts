@@ -3,7 +3,7 @@ import { discoverProjectsInTree } from '@sentinello/scanners'
 import { advisoryFilePath, getSourceState, readCacheMeta, type SourceId } from './cache/meta'
 import { registryCacheSummary, registryFilePath } from './cache/registry'
 import { cacheRowCount } from './cache/sync'
-import type { CliOptions } from './options'
+import { runsNpmAudit, type CliOptions } from './options'
 import { CLI_VERSION } from './help'
 
 // `--doctor` answers the question that otherwise turns into a support thread: why did this run find
@@ -90,7 +90,7 @@ export async function runDoctor(options: CliOptions, cacheDir: string): Promise<
 
 function describeSources(options: CliOptions): string {
     const names: string[] = []
-    if (options.includeNpmAudit) names.push('npm-audit')
+    if (runsNpmAudit(options)) names.push('npm-audit')
     for (const source of options.sources) names.push(source)
     return names.length > 0 ? names.join(', ') : '(none)'
 }

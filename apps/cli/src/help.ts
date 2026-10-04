@@ -35,8 +35,8 @@ SCOPE
 
 SOURCES
   --source <list>       npm-audit, osv, gemnasium. Default: all three.
-  --offline             Make no network request: use the cached advisories as-is and
-                        do not check fixes against the npm registry.
+  --offline             Make no network request: use the cached advisories as-is, skip
+                        npm audit, and do not check fixes against the npm registry.
   --cache-dir <path>    Where the advisory cache lives.
                         Default: $XDG_CACHE_HOME/sentinello or ~/.cache/sentinello.
   --feed-wait <secs>    How long to keep retrying a feed that declines a download.

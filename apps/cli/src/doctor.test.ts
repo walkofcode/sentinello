@@ -148,6 +148,12 @@ describe('runDoctor — environment and settings', function () {
         expect(report()).toContain('sources      gemnasium')
     })
 
+    it('omits npm-audit under --offline, which never runs it', async function () {
+        await makeProject('.')
+        await runDoctor(options({ includeNpmAudit: true, offline: true, sources: ['osv'] }), cacheDir)
+        expect(report()).toContain('sources      osv')
+    })
+
     it('reports "(none)" when every source is switched off', async function () {
         await makeProject('.')
         await runDoctor(options({ includeNpmAudit: false, sources: [] }), cacheDir)

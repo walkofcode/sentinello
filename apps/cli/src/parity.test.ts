@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { OSV_NORMALIZER_VERSION, type Remediation } from '@sentinello/core'
 import { createOsvScanner, discoverProjectsInTree, type OsvAdvisory } from '@sentinello/scanners'
 import { createNpmRegistryClient } from '@sentinello/fixes'
@@ -26,6 +26,11 @@ const PROJECTS = join(REPO_ROOT, 'tests', 'fixtures', 'projects')
 const ADVISORIES = join(REPO_ROOT, 'tests', 'fixtures', 'advisories', 'osv-npm.ndjson')
 const REGISTRY_BASE = join(REPO_ROOT, 'apps', 'worker', 'test', 'fixtures', 'registry', 'base')
 const PROJECT = 'npm-no-fix'
+// One instant for both sides. The way out's health ages (daysSinceLastPublish) are derived from the run's
+// clock, so two scans a moment apart can straddle a day boundary — braces' last publish turns 867 days old
+// at 08:59:11.390Z — and differ for no reason in the logic. Only Date.now is pinned: it is the clock both
+// runs read, and leaving the timers real keeps the HTTP to the stub working.
+const INSTANT = Date.UTC(2026, 9, 1, 12, 0, 0)
 
 type Settled = { fixStatus: string; fixVersion: string | null; registry: string | null; remediation: Omit<Remediation, 'checkedAt'> | null }
 
@@ -116,6 +121,7 @@ async function scanWithCli(): Promise<Map<string, Settled>> {
 }
 
 beforeAll(async function setup() {
+    vi.spyOn(Date, 'now').mockReturnValue(INSTANT)
     stub = await startStubRegistry([REGISTRY_BASE])
     process.env.SENTINELLO_NPM_REGISTRY_URL = stub.url
     process.env.SENTINELLO_NPM_DOWNLOADS_URL = stub.url
@@ -124,6 +130,7 @@ beforeAll(async function setup() {
 })
 
 afterAll(async function teardown() {
+    vi.restoreAllMocks()
     restore('SENTINELLO_NPM_REGISTRY_URL', savedEnv.registry)
     restore('SENTINELLO_NPM_DOWNLOADS_URL', savedEnv.downloads)
     await stub.close()
@@ -147,5 +154,7 @@ describe('worker / CLI parity', function () {
         expect(braces).toMatchObject({ fixStatus: 'none_released', fixVersion: null, registry: 'ok' })
         expect(braces?.remediation?.chains.some(function blocked(c) { return c.verdict.kind === 'blocked' })).toBe(true)
         expect(fromCli.get('GHSA-86w9-cpqp-85rv node-forge')).toMatchObject({ fixStatus: 'none_released', fixVersion: null, registry: 'ok' })
+        // The health ages come from the pinned instant, not from whenever the suite happened to run.
+        expect(braces?.remediation?.health.daysSinceLastPublish).toBe(863)
     })
 })

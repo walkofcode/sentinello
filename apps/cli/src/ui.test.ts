@@ -307,7 +307,7 @@ describe('stream discipline', function () {
         u.banner()
         u.scanStart(1)
         u.seedDeclined(false)
-        u.offlineNotice()
+        u.offlineNotice(true)
         u.summary(summary(), null)
         expect(written).toEqual([])
     })
@@ -562,8 +562,14 @@ describe('sync reporting', function () {
     })
 
     it('notes an offline run reuses the cache as-is', function () {
-        ui().offlineNotice()
+        ui().offlineNotice(false)
         expect(out()).toContain('offline — using the cached advisory data as-is')
+        expect(out()).not.toContain('npm audit')
+    })
+
+    it('says npm audit was left out when an offline run asked for it', function () {
+        ui().offlineNotice(true)
+        expect(out()).toContain('npm audit not run — it queries the npm registry')
     })
 
     it('explains how to enable the sources after a decline', function () {

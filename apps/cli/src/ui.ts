@@ -82,7 +82,8 @@ export type Ui = {
     confirmRetry(failed: readonly SyncOutcome[]): Promise<boolean>
     sourcesSwitchedOff(sources: readonly string[]): void
     seedDeclined(gated: boolean): void
-    offlineNotice(): void
+    // npmAuditSkipped: npm audit was asked for, and --offline left it out.
+    offlineNotice(npmAuditSkipped: boolean): void
     syncStatus(item: SyncPlanItem, phase: 'start' | 'done'): void
     syncProgress(item: SyncPlanItem, bytesRead: number, totalBytes: number | null): void
     syncRetry(item: SyncPlanItem, notice: RetryNotice): void
@@ -227,8 +228,9 @@ export function createUi(options: CliOptions): Ui {
         write('')
     }
 
-    function offlineNotice(): void {
+    function offlineNotice(npmAuditSkipped: boolean): void {
         write('  ' + c.dim + 'offline — using the cached advisory data as-is' + c.reset)
+        if (npmAuditSkipped) write('    ' + c.dim + '· npm audit not run — it queries the npm registry' + c.reset)
     }
 
     function syncStatus(item: SyncPlanItem, phase: 'start' | 'done'): void {

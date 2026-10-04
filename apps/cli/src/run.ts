@@ -14,7 +14,7 @@ import { isSeeded, readCacheMeta, resolveCacheDir, type CacheMeta, type SourceId
 import { loadCacheForPackages } from './cache/lookup'
 import { loadRegistryStore, saveRegistryStore } from './cache/registry'
 import { planSync, runSync, type SyncOutcome, type SyncPlan, type SyncPlanItem } from './cache/sync'
-import { applyConfigFile, explicitFlagNames, parseArgs, type CliOptions } from './options'
+import { applyConfigFile, explicitFlagNames, parseArgs, runsNpmAudit, type CliOptions } from './options'
 import {
     defaultOutputFilename,
     hasUnavailableSource,
@@ -152,7 +152,7 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
             ui.syncDone(outcomes)
         }
     } else if (options.offline) {
-        ui.offlineNotice()
+        ui.offlineNotice(options.includeNpmAudit)
     }
 
     // 3. Resolve every project's dependency graph, then read the cache ONCE for the union of their
@@ -171,7 +171,7 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
         cacheDir,
         sources,
         ecosystem: DEFAULT_ECOSYSTEM,
-        includeNpmAudit: options.includeNpmAudit,
+        includeNpmAudit: runsNpmAudit(options),
         settledAt: generatedAt,
         registry: registryStore === null ? null : createNpmRegistryClient(registryStore),
         seeded: {

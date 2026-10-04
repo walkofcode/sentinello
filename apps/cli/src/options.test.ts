@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ALL_SOURCES, applyConfigFile, explicitFlagNames, parseArgs } from './options'
+import { ALL_SOURCES, applyConfigFile, explicitFlagNames, parseArgs, runsNpmAudit } from './options'
 import type { CliOptions } from './options'
 
 const STDOUT_TTY_DESCRIPTOR = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY')
@@ -220,6 +220,26 @@ describe('parseArgs — --source', function () {
         expect(errorOf(['--source='])).toBe('--source expects at least one source')
         expect(errorOf(['--source=,,'])).toBe('--source expects at least one source')
         expect(errorOf(['--source=snyk'])).toBe('unknown source "snyk" (expected npm-audit, osv, or gemnasium)')
+    })
+})
+
+// --offline is the no-network switch, and npm audit talks to the registry, so offline wins however npm
+// audit was asked for. includeNpmAudit keeps the request, so the run can say what it left out.
+describe('runsNpmAudit', function () {
+    it('runs npm audit by default and when named', function () {
+        expect(runsNpmAudit(optionsOf([]))).toBe(true)
+        expect(runsNpmAudit(optionsOf(['--source=npm-audit']))).toBe(true)
+    })
+
+    it('never runs it under --offline, whichever order the flags come in', function () {
+        expect(runsNpmAudit(optionsOf(['--offline']))).toBe(false)
+        expect(runsNpmAudit(optionsOf(['--offline', '--source=npm-audit']))).toBe(false)
+        expect(runsNpmAudit(optionsOf(['--source=npm-audit', '--offline']))).toBe(false)
+        expect(optionsOf(['--offline']).includeNpmAudit).toBe(true)
+    })
+
+    it('does not run it when it is not a source', function () {
+        expect(runsNpmAudit(optionsOf(['--source=osv']))).toBe(false)
     })
 })
 
@@ -477,6 +497,15 @@ describe('applyConfigFile', function () {
             const { options } = await apply({ sources: ['osv', 'npm-audit'] })
             expect(options.sources).toEqual(['osv'])
             expect(options.includeNpmAudit).toBe(true)
+        })
+
+        it('cannot turn npm audit back on under --offline', async function () {
+            await writeConfig({ sources: ['npm-audit'] })
+            const options = optionsAt()
+            options.offline = true
+            expect(await applyConfigFile(options, new Set(['--offline']))).toBeNull()
+            expect(options.includeNpmAudit).toBe(true)
+            expect(runsNpmAudit(options)).toBe(false)
         })
 
         it('reports an unknown source with the file prefix', async function () {

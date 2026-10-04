@@ -166,12 +166,13 @@ retained between runs.
 |---|---|---|---|
 | `osv-vulnerabilities.storage.googleapis.com` | download the public OSV advisory export | on sync | `--source npm-audit` / `--offline` |
 | `gitlab.com` | download the public gemnasium-db advisories | on sync | `--source npm-audit,osv` / `--offline` |
-| your npm registry | `npm audit` submits the dependency tree, exactly as `npm audit` always does | on scan | `--source osv,gemnasium` |
+| your npm registry | `npm audit` submits the dependency tree, exactly as `npm audit` always does | on scan | `--source osv,gemnasium` / `--offline` |
 | `registry.npmjs.org` | read the public metadata of the packages with findings, and of the dependency chains, candidate releases and alternatives the way out weighs — package names only, cached 24 hours | on scan, for packages not cached | `--offline` |
 | `api.npmjs.org` | read last week's download count of the packages a way out shows | on scan, for packages not cached | `--offline` |
 
-`--offline` makes no network requests at all and uses whatever is cached; fixes then read "not checked
-against the registry (offline)" and carry no way out.
+`--offline` makes no network requests at all and uses whatever is cached: npm audit does not run, even
+when `--source` or `sentinello.config.json` names it, and fixes read "not checked against the registry
+(offline)" and carry no way out.
 
 ## Troubleshooting
 
