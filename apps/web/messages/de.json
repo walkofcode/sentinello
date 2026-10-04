@@ -618,14 +618,14 @@
                 "disable": "Kernfunktion — nicht deaktivierbar"
             },
             "npmRegistry": {
-                "purpose": "Prüfen, ob eine Fix-Version tatsächlich veröffentlicht wurde, und – falls keine existiert – die Paketmetadaten lesen, aus denen der Ausweg erstellt wird (Releases, Abhängigkeiten, Deprecation-Hinweise, Maintainer). Nur Pakete mit Befunden und ihre Abhängigkeitsketten",
-                "when": "Nach jedem Scan, für Pakete, die in den letzten 24 Stunden nicht geprüft wurden",
-                "disable": "Nicht abschaltbar – SENTINELLO_NPM_REGISTRY_URL verweist auf einen Mirror. Ist er nicht erreichbar, werden Fixes als nicht gegen die Registry geprüft angezeigt"
+                "purpose": "Prüfen, ob eine Fix-Version tatsächlich veröffentlicht wurde, und – falls keine existiert – die Paketmetadaten lesen, aus denen der Ausweg erstellt wird (Releases, Abhängigkeiten, Deprecation-Hinweise, Maintainer). Pakete mit Befunden und ihre Abhängigkeitsketten und, wenn kein Fix veröffentlicht ist, die Kandidaten-Releases und Alternativen, die der Ausweg abwägt, samt ihren Abhängigkeitsbäumen – innerhalb eines Budgets pro Scan",
+                "when": "Nach jedem Scan, für Pakete ohne erfolgreiche Antwort in den letzten 24 Stunden; eine fehlgeschlagene Anfrage wird nicht gespeichert und kann daher früher wiederholt werden",
+                "disable": "Nicht abschaltbar – SENTINELLO_NPM_REGISTRY_URL verweist auf einen Mirror. Ist er nicht erreichbar, behält ein früher geprüftes Paket seine letzte Antwort mit dem Datum dieser Prüfung; ein nie geprüftes wird als nicht gegen die Registry geprüft angezeigt"
             },
             "npmDownloads": {
                 "purpose": "Wöchentliche Downloadzahlen neben den Paketen und Alternativen eines Auswegs",
                 "when": "Nach einem Scan, der keine veröffentlichte Fix-Version findet, für Pakete, die in den letzten 24 Stunden nicht gezählt wurden",
-                "disable": "Nicht abschaltbar – SENTINELLO_NPM_DOWNLOADS_URL verweist anderswohin. Ist er nicht erreichbar, werden die Downloads als unbekannt angezeigt"
+                "disable": "Nicht abschaltbar – SENTINELLO_NPM_DOWNLOADS_URL verweist anderswohin. Ist er nicht erreichbar, wird die letzte bekannte Zahl angezeigt, oder unbekannt, wenn es keine gibt"
             },
             "osv": {
                 "purpose": "Den öffentlichen OSV-Advisory-Export für das npm-Ökosystem herunterladen",
@@ -673,8 +673,8 @@
             "osvDbPath": "Speicherort des neu aufbaubaren OSV-Advisory-Caches; liegt standardmäßig neben der Hauptdatenbank.",
             "gemnasiumFeedUrl": "URL für GitLabs gemnasium-Advisory-Archiv, nur verwendet, wenn die gemnasium-Quelle aktiviert ist; auf off setzen, um jeglichen gemnasium-Netzwerkzugriff zu deaktivieren.",
             "gemnasiumDbPath": "Speicherort des neu aufbaubaren gemnasium-Advisory-Caches; liegt standardmäßig neben der Hauptdatenbank.",
-            "npmRegistryUrl": "npm-Registry, gegen die Fix-Versionen nach jedem Scan geprüft werden und aus der die Paketmetadaten für den Ausweg gelesen werden; bei Bedarf auf einen Mirror zeigen lassen. Ist sie nicht erreichbar, werden Fixes als nicht gegen die Registry geprüft angezeigt.",
-            "npmDownloadsUrl": "npm-Download-API, aus der die wöchentlichen Downloads in einem Ausweg gelesen werden. Ist sie nicht erreichbar, werden die Downloads als unbekannt angezeigt."
+            "npmRegistryUrl": "npm-Registry, gegen die Fix-Versionen nach jedem Scan geprüft werden und aus der die Paketmetadaten für den Ausweg gelesen werden; bei Bedarf auf einen Mirror zeigen lassen. Ist sie nicht erreichbar, behält ein früher geprüftes Paket seine letzte Antwort mit dem Datum dieser Prüfung; ein nie geprüftes wird als nicht gegen die Registry geprüft angezeigt.",
+            "npmDownloadsUrl": "npm-Download-API, aus der die wöchentlichen Downloads in einem Ausweg gelesen werden. Ist sie nicht erreichbar, wird die letzte bekannte Zahl angezeigt, oder unbekannt, wenn es keine gibt."
         },
         "builtWithTitle": "Erstellt mit",
         "reportingTitle": "Eine Schwachstelle in Sentinello melden",

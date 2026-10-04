@@ -493,6 +493,13 @@ describe('the way out of a none_released finding', function () {
         expect(DEFAULT_EXPORT_PROMPT).toContain('This applies to the vulnerable package only')
         expect(DEFAULT_EXPORT_PROMPT).not.toContain('a version the Fix line does not name')
         expect(DEFAULT_EXPORT_PROMPT).not.toContain('it does not exist yet')
+        // A version another source names can be published and still not settle the finding (the sources
+        // disagree), so the prompt must not say it was absent from the registry.
+        expect(DEFAULT_EXPORT_PROMPT).not.toContain('was not on the registry')
+        expect(DEFAULT_EXPORT_PROMPT).toContain('may well be published, but it is not a verified fix for this finding')
+        // A replacement whose closure could not be checked is a lead to investigate, not an endorsed route.
+        expect(DEFAULT_EXPORT_PROMPT).toContain('A replacement marked **not verified** is a lead, not a fix')
+        expect(DEFAULT_EXPORT_PROMPT).not.toContain('a listed alternative — were each checked against the registry')
         expect(DEFAULT_EXPORT_PROMPT).toContain('dev tooling only')
         expect(DEFAULT_EXPORT_PROMPT).toContain('"no upstream fix released"')
     })

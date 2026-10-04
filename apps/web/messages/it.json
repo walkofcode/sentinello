@@ -618,14 +618,14 @@
                 "disable": "Funzione principale — non disabilitabile"
             },
             "npmRegistry": {
-                "purpose": "Verificare che una versione con la correzione sia stata davvero pubblicata e, se non ce n’è nessuna, leggere i metadati del pacchetto da cui si costruisce la via d’uscita (release, dipendenze, avvisi di deprecazione, maintainer). Solo i pacchetti con vulnerabilità e le loro catene di dipendenze",
-                "when": "Dopo ogni scansione, per i pacchetti non verificati nelle ultime 24 ore",
-                "disable": "Non disattivabile — SENTINELLO_NPM_REGISTRY_URL lo indirizza a un mirror. Se non è raggiungibile, le correzioni risultano non verificate sul registry"
+                "purpose": "Verificare che una versione con la correzione sia stata davvero pubblicata e, se non ce n’è nessuna, leggere i metadati del pacchetto da cui si costruisce la via d’uscita (release, dipendenze, avvisi di deprecazione, maintainer). I pacchetti con vulnerabilità e le loro catene di dipendenze e, quando non è pubblicata nessuna correzione, le release candidate e le alternative che la via d’uscita valuta, con i loro alberi di dipendenze, entro un budget per scansione",
+                "when": "Dopo ogni scansione, per i pacchetti senza una risposta riuscita nelle ultime 24 ore; una richiesta fallita non viene conservata, quindi può essere ripetuta prima",
+                "disable": "Non disattivabile — SENTINELLO_NPM_REGISTRY_URL lo indirizza a un mirror. Se non è raggiungibile, un pacchetto verificato in precedenza conserva l’ultima risposta, con la data di quella verifica; uno mai verificato risulta non verificato sul registry"
             },
             "npmDownloads": {
                 "purpose": "Download settimanali mostrati accanto ai pacchetti e alle alternative di una via d’uscita",
                 "when": "Dopo una scansione che non trova nessuna versione corretta pubblicata, per i pacchetti non contati nelle ultime 24 ore",
-                "disable": "Non disattivabile — SENTINELLO_NPM_DOWNLOADS_URL lo indirizza altrove. Se non è raggiungibile, i download risultano sconosciuti"
+                "disable": "Non disattivabile — SENTINELLO_NPM_DOWNLOADS_URL lo indirizza altrove. Se non è raggiungibile, viene mostrato l’ultimo conteggio noto, o sconosciuto se non ce n’è nessuno"
             },
             "osv": {
                 "purpose": "Scaricare l’export pubblico di advisory OSV dell’ecosistema npm",
@@ -673,8 +673,8 @@
             "osvDbPath": "Posizione della cache ricostruibile di advisory OSV; per impostazione predefinita si trova accanto al database principale.",
             "gemnasiumFeedUrl": "URL dell’archivio di advisory gemnasium di GitLab, usato solo quando la fonte gemnasium è abilitata; imposta off per disabilitare ogni accesso di rete a gemnasium.",
             "gemnasiumDbPath": "Posizione della cache ricostruibile di advisory gemnasium; per impostazione predefinita si trova accanto al database principale.",
-            "npmRegistryUrl": "Registry npm su cui si verificano le versioni corrette dopo ogni scansione e da cui si leggono i metadati dei pacchetti per la via d’uscita; puntalo a un mirror se ne usi uno. Se non è raggiungibile, le correzioni risultano non verificate sul registry.",
-            "npmDownloadsUrl": "API dei download di npm, letta per i download settimanali mostrati in una via d’uscita. Se non è raggiungibile, i download risultano sconosciuti."
+            "npmRegistryUrl": "Registry npm su cui si verificano le versioni corrette dopo ogni scansione e da cui si leggono i metadati dei pacchetti per la via d’uscita; puntalo a un mirror se ne usi uno. Se non è raggiungibile, un pacchetto verificato in precedenza conserva l’ultima risposta, con la data di quella verifica; uno mai verificato risulta non verificato sul registry.",
+            "npmDownloadsUrl": "API dei download di npm, letta per i download settimanali mostrati in una via d’uscita. Se non è raggiungibile, viene mostrato l’ultimo conteggio noto, o sconosciuto se non ce n’è nessuno."
         },
         "builtWithTitle": "Realizzato con",
         "reportingTitle": "Segnalare una vulnerabilità in Sentinello",
