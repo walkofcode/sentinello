@@ -64,6 +64,10 @@ released" with the way out (which dependency chain carries the package, whether 
 it, and curated alternatives), and one the registry could not settle reads "not checked against the
 registry" with the reason.
 
+A project that cannot be read — a `package.json` with no lockfile, say — is reported as **cannot be
+scanned**, with the reason and whose fix it is, in the summary, the markdown and the JSON
+(`projects[].scanState`). It is never counted as clean.
+
 ## Privacy
 
 **Nothing about your code is uploaded.** No source, no paths, no dependency list, no telemetry, and no

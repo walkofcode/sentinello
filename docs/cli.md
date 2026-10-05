@@ -108,6 +108,33 @@ npm is checked; other ecosystems are not offered yet.
 `SENTINELLO_NPM_REGISTRY_URL` and `SENTINELLO_NPM_DOWNLOADS_URL` point the check at a mirror, as they do
 for the portal's worker.
 
+There is no lookup cap: every package the fix check and the way out need is read, 16 at a time, so a way
+out is never left partial. A registry cache written by a pre-release build of 3.7.0 is refetched once
+on the first run — its entries lack the prereleases the check now needs — and reused after that.
+
+## Projects that cannot be scanned
+
+Every project gets a scan state over the sources enabled for the run, the same states the portal shows:
+fully scanned, **cannot be fully scanned** (some source answered, another did not, or the dependencies
+were only partly read), or **cannot be scanned** (nothing could read it). Each comes with its reasons and
+whose fix each one is — *the project* (a `package.json` with no lockfile, an unsupported lockfile, Yarn 1)
+or *this Sentinello install* (an advisory database not downloaded, a missing package manager):
+
+```
+    ✗ ddns  cannot be scanned — No lockfile (the project)
+
+  1 project cannot be scanned
+    ✗ ddns  cannot be scanned — No lockfile (the project)
+```
+
+Such a project is never counted as clean: a run whose only projects could not be checked prints "No
+findings — but not everything could be checked." The markdown advisory gets a **Projects that could not
+be fully scanned** section, and the JSON carries `projects[].scanState` —
+`{ state, reasons: [{ source, ecosystem, reasonCode, label, side }] }`, `state` one of `scanned`,
+`partial`, `cannot_scan`, `not_scanned_yet`, labels in English, the same shape MCP returns. Exit codes
+are unchanged: a reason on the project's side, such as a missing lockfile, never exits `1` by itself,
+while a gated run that lost a source still does (see [CI](#ci)).
+
 ## Scope control
 
 ```bash
