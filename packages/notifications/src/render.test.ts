@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { Finding, FixCheck, NotificationEvent, Remediation } from '@sentinello/core'
-import { renderBatchedFindings, renderScanFailure, renderSingleFinding } from './render'
+import { reasonCodeLabel, type Finding, type FixCheck, type Locale, type NotificationEvent, type Remediation } from '@sentinello/core'
+import { renderBatchedFindings, renderScanFailure, renderSingleFinding, type RenderBatchedFindingsInput } from './render'
 
 // Notification bodies are the part of Sentinello a recipient sees without opening the portal, so the
 // interesting assertions are about what is INCLUDED and what is OMITTED — a missing branch line, a
@@ -308,6 +308,29 @@ describe('renderBatchedFindings', function () {
         })
         expect(out.portalUrl).toBe(BASE_URL + '/projects/project-1')
         expect(out.markdown).toContain('Portal: ' + BASE_URL + '/projects/project-1')
+    })
+
+    // Some findings of a project that cannot be (fully) scanned are what an earlier scan left; the message
+    // says so above them, in the notification locale.
+    describe('the project\'s scan state', function () {
+        function render(scanState: RenderBatchedFindingsInput['scanState'], locale?: Locale) {
+            return renderBatchedFindings({ projectName: 'api', projectId: 'project-1', gitBranch: null, findings: [finding()], isBaseline: false, portalBaseUrl: null, scanState, locale })
+        }
+
+        it('heads a project that cannot be scanned with its reasons and whose fix they are', function () {
+            const out = render({ state: 'cannot_scan', reasons: [{ source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' }] })
+            expect(out.markdown).toContain('*Project cannot be scanned:* No lockfile (the project) — findings an earlier scan recorded are marked "not re-checked"')
+        })
+
+        it('heads a partially scanned project in the notification locale', function () {
+            const out = render({ state: 'partial', reasons: [{ source: 'osv', ecosystem: null, reasonCode: 'osv_db_unavailable', side: 'environment', label: 'x' }] }, 'es')
+            expect(out.markdown).toContain('*Project cannot be fully scanned:* ' + reasonCodeLabel('osv_db_unavailable', 'es') + ' (this Sentinello install)')
+        })
+
+        it('adds nothing for a scanned project or when no state is given', function () {
+            expect(render({ state: 'scanned', reasons: [] }).markdown).not.toContain('Project ')
+            expect(render(undefined).markdown).not.toContain('Project ')
+        })
     })
 })
 

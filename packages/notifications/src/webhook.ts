@@ -83,6 +83,10 @@ export function toWebhookVulnerability(f: Finding): Record<string, unknown> {
         // The way out for a 'none_released' finding (see Remediation in @sentinello/core); null otherwise.
         // Additive.
         remediation: f.fixStatus === 'none_released' ? f.remediation : null,
+        // Set when the finding's source last failed to scan the project, so an earlier scan left this row and
+        // nothing re-checked it: { reasonCode, side, projectState, lastOkScanAt } (NotRecheckedBecause in
+        // @sentinello/core). The fix fields above are then as of that earlier scan. Null otherwise. Additive.
+        notRecheckedBecause: f.notRecheckedBecause ?? null,
         severity: f.severity,
         advisory: {
             id: f.advisoryId,

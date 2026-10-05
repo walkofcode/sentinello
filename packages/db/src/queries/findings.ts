@@ -1,9 +1,10 @@
 import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import { ulid } from 'ulid'
-import { escalatedSeverity, parseFindingCorroborations, parseRemediation, readFixFields, type FixCheck, type FixFields, type FixStatus, type Finding, type FindingCorroboration, type Remediation } from '@sentinello/core'
+import { escalatedSeverity, parseFindingCorroborations, parseRemediation, readFixFields, type FixCheck, type FixFields, type FixStatus, type Finding, type FindingCorroboration, type FindingScanContext, type Remediation } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { findings } from '../schema'
 import { sumCount } from './count'
+import type { FindingScanContextLookup } from './scan-state'
 
 type FindingRow = typeof findings.$inferSelect
 type FindingInsert = typeof findings.$inferInsert
@@ -384,9 +385,13 @@ export function listResolvedFindingsForLibrary(
     })
 }
 
+// The notifier's read of a finding a pending event names. `scanContext` is required because the row may be
+// one a failed scan retained — a retried or backfilled delivery after the project lost its lockfile — and
+// without its source's scan context the message would present the old fix as current ("rescan pending").
 export function findFindingByIdentity(
     db: DrizzleDb,
-    identity: { projectId: string; source: string; ecosystem: string; advisoryId: string; packageName: string }
+    identity: { projectId: string; source: string; ecosystem: string; advisoryId: string; packageName: string },
+    scanContext: FindingScanContextLookup
 ): Finding | null {
     const row = db
         .select()
@@ -405,7 +410,7 @@ export function findFindingByIdentity(
         )
         .get()
     if (!row) return null
-    return rowToFinding(row)
+    return rowToFindingInContext(row, scanContext(row.projectId, row.source ?? row.scanner))
 }
 
 // In-memory dedup key for the lifecycle merge. First component is the persisted source identity, not
@@ -415,6 +420,11 @@ function identityKey(source: string, ecosystem: string, advisoryId: string, pack
 }
 
 function rowToFinding(row: FindingRow): Finding {
+    return rowToFindingInContext(row, null)
+}
+
+// `scanContext` is what the row's source last did on its project (readFixFields); null reads it as re-checked.
+function rowToFindingInContext(row: FindingRow, scanContext: FindingScanContext | null): Finding {
     return {
         id: row.id,
         scanId: row.scanId,
@@ -433,7 +443,7 @@ function rowToFinding(row: FindingRow): Finding {
         vulnerableRange: row.vulnerableRange,
         severity: row.severity,
         corroborations: parseFindingCorroborations(row.corroborationsJson),
-        ...readFixFields(row),
+        ...readFixFields(row, scanContext),
         depPath: parseDepPath(row.depPathJson),
         isProd: row.isProd,
         isDev: row.isDev,

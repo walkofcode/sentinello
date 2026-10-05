@@ -65,8 +65,14 @@ test.describe('search', function () {
         // the page is still pulling in on its own, and counting framenavigated events would not work
         // either — Chromium fires those for same-document history.replaceState, so they cannot tell a
         // client-side filter from a router push.
+        //
+        // A Link prefetch is left out: the project rows on the page prefetch their own routes whenever
+        // the router gets round to it, which is not the filter asking anything. Next marks every prefetch
+        // with the Next-Router-Prefetch header; a router.refresh/push/replace never carries it, so the
+        // request a filter would cause is still counted.
         const fetched: string[] = []
         page.on('request', function record(r) {
+            if (r.headers()['next-router-prefetch'] !== undefined) return
             if (r.resourceType() === 'document' || r.url().includes('_rsc=')) fetched.push(r.url())
         })
 

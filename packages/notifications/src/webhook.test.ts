@@ -194,6 +194,15 @@ describe('sendWebhook — body shape', function () {
         expect(body.vulnerabilities[0]).toMatchObject({ recommendedVersion: null, fixStatus: 'unverified' })
     })
 
+    // A finding an earlier scan left, whose source's latest scan failed: the receiver gets why it was not
+    // re-checked, beside fix fields that are as of that earlier scan.
+    it('carries each finding\'s not-re-checked context, null for a re-checked one', async function () {
+        const reason = { reasonCode: 'no_lockfile' as const, side: 'project' as const, projectState: 'cannot_scan' as const, lastOkScanAt: 1 }
+        await sendWebhook(target(), message({ webhook: webhookContext({ findings: [finding(), finding({ notRecheckedBecause: reason })] }) }))
+        const body = post.mock.calls[0]?.[1] as { vulnerabilities: Record<string, unknown>[] }
+        expect(body.vulnerabilities.map(function context(v) { return v.notRecheckedBecause })).toEqual([null, reason])
+    })
+
     it('sends just the advisory text for the text flavor', async function () {
         await sendWebhook(target({ flavor: 'text' }), message({ webhook: webhookContext() }))
         expect(post.mock.calls[0]?.[1]).toEqual({ text: '# Advisory export' })

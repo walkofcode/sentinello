@@ -1,4 +1,4 @@
-import { describeFix, PLAIN_FIX_STYLE, reasonSide, summarizeRemediation, reasonCodeLabel, REASON_CODE_VALUES, SCAN_STATE_SIDE_SHORT, type Finding, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
+import { describeFix, describeScanReasons, PLAIN_FIX_STYLE, scanStateHeadline, reasonSide, summarizeRemediation, reasonCodeLabel, REASON_CODE_VALUES, SCAN_STATE_SIDE_SHORT, type Finding, type LabelledScanState, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
 import type { RenderedMessage } from './types'
 
 const REASON_CODE_SET = new Set<string>(REASON_CODE_VALUES)
@@ -37,6 +37,11 @@ export type RenderBatchedFindingsInput = {
     findings: Finding[]
     isBaseline: boolean
     portalBaseUrl: string | null
+    // The project's scan state after the scan that triggered the message. A project that cannot be (fully)
+    // scanned says so above its findings: some of them are what an earlier scan left. Optional for a
+    // caller with no scan behind it.
+    scanState?: LabelledScanState | null
+    locale?: Locale
 }
 
 export type RenderScanFailureInput = {
@@ -117,6 +122,7 @@ export function renderBatchedFindings(input: RenderBatchedFindingsInput): Render
     const markdownLines: string[] = []
     markdownLines.push(headline)
     pushBranchLine(markdownLines, input.gitBranch)
+    pushScanStateLine(markdownLines, input.scanState ?? null, input.locale || 'en')
     markdownLines.push(top + more)
     if (portalLink) {
         markdownLines.push('')
@@ -162,6 +168,14 @@ export function renderScanFailure(input: RenderScanFailureInput): RenderedMessag
         markdown,
         portalUrl: portalLink
     }
+}
+
+// "*Project cannot be scanned:* No lockfile (the project) — …". Only for the two states that mean a scan
+// failed: `not_scanned_yet` cannot carry findings, and `scanned` needs no line.
+function pushScanStateLine(lines: string[], scanState: LabelledScanState | null, locale: Locale): void {
+    if (scanState === null || (scanState.state !== 'cannot_scan' && scanState.state !== 'partial')) return
+    lines.push('*' + scanStateHeadline(scanState.state) + ':* ' + describeScanReasons(scanState.reasons, locale) +
+        ' — findings an earlier scan recorded are marked "not re-checked"')
 }
 
 function formatLine(finding: Finding): string {

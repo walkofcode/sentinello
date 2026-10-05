@@ -2,8 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
-import { getConfigValue, listLibraryUsage, setConfigValue } from '@sentinello/db'
-import type { DepTypeFilter, Severity } from '@sentinello/core'
+import { getConfigValue, listLibraryUsage, listScanStatesForProjects, setConfigValue } from '@sentinello/db'
+import type { DepTypeFilter, ExportScanState, Severity } from '@sentinello/core'
 import { getDb } from '@/lib/db'
 import { run, type ActionResult } from '@/lib/actions/action-result'
 import { buildProjectAdvisoryExport } from '@/lib/project-advisory-export'
@@ -69,9 +69,21 @@ export async function exportLibraryAdvisoryMarkdownAction(
         depType: parsedDep
     }
     const prompt = resolveExportPrompt(getConfigValue<string>(db, 'markdownExportPrompt'))
-    const markdown = buildAdvisoryMarkdown({ scope, prompt, findings, generatedAt: now })
+    const markdown = buildAdvisoryMarkdown({ scope, prompt, findings, generatedAt: now, scanStates: libraryScanStates(db, rows) })
     const filename = buildExportFilename(scope, now)
     return { filename, markdown }
+}
+
+// The state of every project the export lists a finding of, and no other. A row's own annotation covers only
+// its source: a partial project whose failed source is not the one reporting this library would otherwise
+// lose its warning entirely.
+function libraryScanStates(db: ReturnType<typeof getDb>, rows: ReturnType<typeof listLibraryUsage>): ExportScanState[] {
+    const names = new Map<string, string>()
+    for (const r of rows) if (!names.has(r.projectId)) names.set(r.projectId, r.projectName)
+    const states = Array.from(listScanStatesForProjects(db, Array.from(names.keys())), function entry([projectId, scanState]): ExportScanState {
+        return { projectName: names.get(projectId) as string, projectPath: null, scanState }
+    })
+    return states.sort(function byName(a, b) { return a.projectName.localeCompare(b.projectName) })
 }
 
 const promptSchema = z.string().trim().min(1, 'prompt cannot be empty').max(20000)

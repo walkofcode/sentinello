@@ -25,7 +25,9 @@ import {
     getRootById,
     getConfigValue,
     getProjectScanState,
+    findingScanContexts,
     type DispatchablePair,
+    type FindingScanContextLookup,
     type DrizzleDb
 } from '@sentinello/db'
 import {
@@ -95,6 +97,7 @@ export async function notifyForCompletedScan(input: NotifyForCompletedScanInput)
     const exportPrompt = resolveExportPrompt(getConfigValue<string>(input.db, 'markdownExportPrompt'))
     // Read after this scan's row is recorded, so it includes it: the project as the portal shows it now.
     const scanState = labelScanState(getProjectScanState(input.db, project.id), notificationLocale)
+    const scanContext = findingScanContexts(input.db, [project.id])
     const grouped = groupByTarget(pairs)
     for (const group of grouped) {
         await dispatchGroup({
@@ -107,6 +110,7 @@ export async function notifyForCompletedScan(input: NotifyForCompletedScanInput)
             portalBaseUrl,
             notificationLocale,
             scanState,
+            scanContext,
             scanErrorText: input.outcome.scan.errorText,
             dryRun: input.dryRun,
             at
@@ -132,6 +136,7 @@ type DispatchGroupInput = {
     portalBaseUrl: string | null
     notificationLocale: Locale
     scanState: LabelledScanState
+    scanContext: FindingScanContextLookup
     scanErrorText: string | null
     dryRun: boolean
     at: number
@@ -154,7 +159,7 @@ async function dispatchGroup(input: DispatchGroupInput): Promise<void> {
     // pass routinely receives events belonging to a source that has not run yet (or ran and failed to
     // deliver). Those are hydrated from the findings table rather than dropped: the alternative leaves a
     // real finding waiting for its own source's next pass, which never comes if that source is disabled.
-    const matched = matchEventsToFindings(input.db, findingEvents, input.findingsByEventId)
+    const matched = matchEventsToFindings(input.db, findingEvents, input.findingsByEventId, input.scanContext)
     if (matched.length > 0) {
         const matchedFindings = matched.map(function pickFinding(m) { return m.finding })
         const matchedEvents = matched.map(function pickEvent(m) { return m.event })
@@ -170,7 +175,9 @@ async function dispatchGroup(input: DispatchGroupInput): Promise<void> {
             projectId: project.id,
             findings: matchedFindings,
             isBaseline,
-            portalBaseUrl: input.portalBaseUrl
+            portalBaseUrl: input.portalBaseUrl,
+            scanState: input.scanState,
+            locale: input.notificationLocale
         })
         if (input.group.target.kind === 'webhook') {
             message.webhook = {
@@ -304,10 +311,15 @@ type MatchedEvent = { event: NotificationEvent; finding: Finding }
 // table. An event with no open finding — resolved since it was recorded, or belonging to a source whose
 // rows are gone — yields no pair, so it is neither described nor consumed: it simply stays pending and is
 // reconsidered next scan, which is what makes a regression re-notify.
+//
+// A finding from this scan was just re-checked by its own source. One hydrated from the table may be what a
+// failed scan retained — the event was pending when the project lost its lockfile — so it carries its
+// source's scan context and says it was not re-checked, as the portal says it.
 function matchEventsToFindings(
     db: DrizzleDb,
     events: NotificationEvent[],
-    findingsByKey: Map<string, Finding>
+    findingsByKey: Map<string, Finding>,
+    scanContext: FindingScanContextLookup
 ): MatchedEvent[] {
     const out: MatchedEvent[] = []
     for (const event of events) {
@@ -330,7 +342,7 @@ function matchEventsToFindings(
             ecosystem: event.ecosystem ?? DEFAULT_ECOSYSTEM,
             advisoryId: event.advisoryId,
             packageName: event.packageName
-        })
+        }, scanContext)
         if (persisted) out.push({ event, finding: persisted })
     }
     return out
@@ -364,6 +376,7 @@ export function toExportFinding(f: Finding): ExportFinding {
         fixStatus: f.fixStatus,
         fixCheck: f.fixCheck,
         remediation: f.remediation,
+        notRecheckedBecause: f.notRecheckedBecause ?? null,
         severity: f.severity,
         advisoryId: f.advisoryId,
         advisoryTitle: f.advisoryTitle,

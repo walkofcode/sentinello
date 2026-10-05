@@ -369,8 +369,9 @@ export function buildAdvisoryMarkdown(args: {
     prompt: string
     findings: ExportFinding[]
     generatedAt: number
-    // The covered projects' scan states; those not fully scanned get their own section. Optional: a caller
-    // with no state to give (the worker's per-scan webhook) renders exactly as before.
+    // The covered projects' scan states; those not fully scanned get their own section. Every caller that
+    // reads findings from the database passes them (the portal, MCP, the CLI and the worker's webhook);
+    // omitted, the document has no such section and is otherwise unchanged.
     scanStates?: readonly ExportScanState[]
 }): string {
     const { scope, prompt, findings, generatedAt } = args

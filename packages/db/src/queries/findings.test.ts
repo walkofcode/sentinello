@@ -30,6 +30,9 @@ import type { IncomingFinding } from './findings'
 // Runs against a real SQLite file rather than ':memory:'. The client applies WAL pragmas and the
 // worker's own flow opens the database by path, so a file exercises the same configuration
 // production uses; an in-memory database would quietly skip WAL and cannot be reopened.
+// A notifier lookup that knows no scan of any source: the row reads as re-checked.
+const NO_SCAN_CONTEXT = function noContext() { return null }
+
 const MIGRATIONS = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'drizzle')
 
 const ROOT_ID = 'root-1'
@@ -415,8 +418,26 @@ describe('legacy row fallbacks', function () {
             ecosystem: 'npm',
             advisoryId: 'GHSA-legacy',
             packageName: 'lodash'
-        })
+        }, NO_SCAN_CONTEXT)
         expect(found?.id).toBe('legacy-1')
+    })
+
+    // A pending event retried after its source's latest scan failed: the row says why it was not re-checked.
+    it('reads the row with its source\'s scan context', function () {
+        insertLegacyRow()
+        const asked: string[] = []
+        const found = findFindingByIdentity(db, {
+            projectId: PROJECT_ID,
+            source: 'npm-audit',
+            ecosystem: 'npm',
+            advisoryId: 'GHSA-legacy',
+            packageName: 'lodash'
+        }, function failedScan(projectId, source) {
+            asked.push(projectId + '|' + source)
+            return { latestStatus: 'unauditable', latestReasonCode: 'no_lockfile', lastOkScanAt: T0, projectState: 'cannot_scan' }
+        })
+        expect(asked).toEqual([PROJECT_ID + '|npm-audit'])
+        expect(found?.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: T0 })
     })
 })
 
@@ -506,7 +527,7 @@ describe('list queries', function () {
             ecosystem: 'npm',
             advisoryId: 'GHSA-nope',
             packageName: 'lodash'
-        })).toBeNull()
+        }, NO_SCAN_CONTEXT)).toBeNull()
     })
 
     // Only OPEN episodes have an identity to find; a resolved one must not be returned or the next scan
@@ -521,7 +542,7 @@ describe('list queries', function () {
             ecosystem: 'npm',
             advisoryId: 'GHSA-1',
             packageName: 'lodash'
-        })).toBeNull()
+        }, NO_SCAN_CONTEXT)).toBeNull()
     })
 })
 
@@ -624,7 +645,7 @@ describe('depPath decoding', function () {
             ecosystem: 'npm',
             advisoryId: 'GHSA-legacy',
             packageName: 'lodash'
-        })
+        }, NO_SCAN_CONTEXT)
         expect(found?.depPath).toEqual([])
     })
 })

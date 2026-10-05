@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { expect, fillStable, test, visible } from './test-fixtures'
-import { E2E_FIXTURE_ROOT, SEEDED } from './paths'
+import { E2E_FIXTURE_ROOT, readFixtureManifest, SEEDED } from './paths'
 
 // Settings → Roots.
 //
@@ -9,6 +9,12 @@ import { E2E_FIXTURE_ROOT, SEEDED } from './paths'
 // real worker then performs — the assertions below stay on what the page shows so they do not race it.
 
 const CLEAN_PROJECT_DIR = join(E2E_FIXTURE_ROOT, SEEDED.cleanProjectName)
+
+// How many projects the seeded root holds: every one the fixture tree has, as the seed recorded them. Read
+// when a test runs, never at load, which can come before the seed.
+function fixtureProjectCount(): number {
+    return Object.keys(readFixtureManifest().projects).length
+}
 
 // Opens the browser and does not return until its FIRST listing has landed.
 //
@@ -39,8 +45,8 @@ test.describe('the roots table', function () {
 
         await expect(visible(page, E2E_FIXTURE_ROOT)).toBeVisible()
         await expect(visible(page, SEEDED.rootLabel)).toBeVisible()
-        // Five projects: the worker's boot sweep discovered every directory in the fixture tree.
-        await expect(page.getByRole('cell', { name: '5', exact: true })).toBeVisible()
+        // Every project in the fixture tree: the worker's boot sweep discovered each of its directories.
+        await expect(page.getByRole('cell', { name: String(fixtureProjectCount()), exact: true })).toBeVisible()
     })
 
     test('offers per-row scan, rename and remove controls', async function ({ page }) {
@@ -173,9 +179,9 @@ test.describe('removing a root', function () {
         const confirm = page.getByRole('dialog', { name: 'Remove root?' })
         await expect(confirm).toBeVisible()
         await expect(confirm).toContainText(E2E_FIXTURE_ROOT)
-        // The count matters: this is the sentence that tells an operator they are about to delete four
-        // projects' worth of scans and findings, not just a path.
-        await expect(confirm).toContainText('6 projects')
+        // The count matters: this is the sentence that tells an operator they are about to delete every
+        // project's scans and findings under the root, not just a path.
+        await expect(confirm).toContainText(fixtureProjectCount() + ' projects')
         await expect(confirm).toContainText('This cannot be undone.')
     })
 

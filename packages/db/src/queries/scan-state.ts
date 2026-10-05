@@ -272,6 +272,14 @@ export function listProjectScanStates(db: DrizzleDb, latest: readonly LatestSour
     return out
 }
 
+// The scan states of the named projects only — the ones an export covers. A project id that does not exist
+// is absent from the map.
+export function listScanStatesForProjects(db: DrizzleDb, projectIds: readonly string[]): Map<string, ScanState> {
+    const out = new Map<string, ScanState>()
+    for (const [id, read] of readScanInputs(db, projectIds)) out.set(id, projectScanState(read.inputs))
+    return out
+}
+
 // The scan state of one project; `not_scanned_yet` for a project id that does not exist.
 export function getProjectScanState(db: DrizzleDb, projectId: string): ScanState {
     const inputs = expectedScanInputs(db, [projectId]).get(projectId)

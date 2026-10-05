@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { revalidatePath } from 'next/cache'
 import { applyFixSettlement, getConfigValue, schema, setConfigValue } from '@sentinello/db'
-import { DEFAULT_EXPORT_PROMPT } from '@sentinello/core'
+import { DEFAULT_EXPORT_PROMPT, sourceEnabledKey } from '@sentinello/core'
 import {
     closePortalTestDb,
     finding,
@@ -88,8 +88,10 @@ describe('exportProjectAdvisoryMarkdownAction', function () {
 
 describe('exportLibraryAdvisoryMarkdownAction', function () {
     beforeEach(function seedFindings() {
-        scanProject(handle.db, 'project-1', [finding({ packageName: 'lodash', advisoryId: 'CVE-2024-1' })])
-        scanProject(handle.db, 'project-2', [finding({ packageName: 'lodash', advisoryId: 'CVE-2024-9' })])
+        // npm coverage recorded, as the worker records it: without it a project reads "not fully scanned".
+        const covered = { rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'ok' }] }) }
+        scanProject(handle.db, 'project-1', [finding({ packageName: 'lodash', advisoryId: 'CVE-2024-1' })], covered)
+        scanProject(handle.db, 'project-2', [finding({ packageName: 'lodash', advisoryId: 'CVE-2024-9' })], covered)
     })
 
     it('gathers the package usage across every project', async function () {
@@ -126,6 +128,57 @@ describe('exportLibraryAdvisoryMarkdownAction', function () {
 
         expect(npmOnly.markdown).toContain('CVE-2024-1')
         expect(npmOnly.markdown).not.toContain('PYSEC-1')
+    })
+
+    // The section the project export has, for the projects this library's findings come from and no others.
+    describe('projects that could not be fully scanned', function () {
+        const NO_LOCKFILE = JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile' }] })
+
+        it('lists a project that cannot be scanned, with its reason and whose side it is on', async function () {
+            scanProject(handle.db, 'project-1', [], { status: 'unauditable', reasonCode: 'no_lockfile', rawJson: NO_LOCKFILE })
+
+            const { markdown } = await exportLibraryAdvisoryMarkdownAction('lodash', 'all')
+
+            expect(markdown).toContain('## Projects that could not be fully scanned')
+            expect(markdown).toContain('- **Billing API** — Project cannot be scanned')
+            expect(markdown).toContain("No lockfile — npm audit, npm — on the project's side")
+            expect(markdown).not.toContain('**Web Store** —')
+        })
+
+        // A partial project whose failed source is not the one reporting lodash: the row's own annotation is
+        // rightly null, so only this section warns about it.
+        it('lists a partially scanned project whose lodash row was re-checked', async function () {
+            setConfigValue(handle.db, sourceEnabledKey('osv', 'npm'), true)
+            scanProject(handle.db, 'project-2', [], { scanner: 'osv', status: 'error', reasonCode: 'osv_db_unavailable' })
+
+            const { markdown } = await exportLibraryAdvisoryMarkdownAction('lodash', 'all')
+
+            expect(markdown).toContain('- **Web Store** — Project cannot be fully scanned')
+            expect(markdown).toContain("on this Sentinello install's side")
+            expect(markdown).not.toContain('not re-checked —')
+        })
+
+        it('lists a project once, however many of its findings the export carries', async function () {
+            scanProject(handle.db, 'project-1', [
+                finding({ packageName: 'lodash', advisoryId: 'CVE-2024-1' }),
+                finding({ packageName: 'lodash', advisoryId: 'CVE-2024-3' })
+            ], { rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'ok' }] }) })
+            scanProject(handle.db, 'project-1', [], { status: 'unauditable', reasonCode: 'no_lockfile', rawJson: NO_LOCKFILE })
+
+            const { markdown } = await exportLibraryAdvisoryMarkdownAction('lodash', 'all')
+
+            expect(markdown).toContain('CVE-2024-3')
+            expect(markdown.split('- **Billing API** —')).toHaveLength(2)
+        })
+
+        it('leaves out a project none of the library\'s findings come from', async function () {
+            seedProject(handle.db, 'project-3', { name: 'Unrelated' })
+            scanProject(handle.db, 'project-3', [], { status: 'unauditable', reasonCode: 'no_lockfile', rawJson: NO_LOCKFILE })
+
+            const { markdown } = await exportLibraryAdvisoryMarkdownAction('lodash', 'all')
+
+            expect(markdown).not.toContain('## Projects that could not be fully scanned')
+        })
     })
 
     it('produces a document even when the package has no findings', async function () {

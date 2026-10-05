@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { senderFor, type NotificationSender } from '@sentinello/notifications'
+import { senderFor, toWebhookVulnerability, type NotificationSender } from '@sentinello/notifications'
 import type { NotificationTarget, Finding, Project, Scan } from '@sentinello/core'
 import {
     getDelivery,
@@ -335,6 +335,94 @@ describe('notifyForCompletedScan — a project that cannot be scanned', function
         expect(message?.webhook.event).toBe('findings')
         expect(message?.webhook.scanState.state).toBe('cannot_scan')
         expect(message?.webhook.advisoryText).toContain('## Projects that could not be fully scanned')
+    })
+
+    // The finding npm audit recorded while the lockfile was there; its delivery failed, so the event is still
+    // pending when the lockfile goes and the next scan fails. That scan has no findings of its own: the
+    // retried message describes the row hydrated from the table, which must say it was not re-checked.
+    describe('a pending finding retried after the project became unscannable', function () {
+        const NPM_OK: Partial<Scan> = {
+            id: 'scan-npm-ok',
+            scanner: 'npm-audit',
+            source: 'npm-audit',
+            finishedAt: T0,
+            rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'ok' }] })
+        }
+        const NOT_RECHECKED = 'not re-checked — the project cannot be scanned: No lockfile (last scanned successfully 2026-01-01)'
+
+        async function retryAfterLockfileLoss(settle: boolean): Promise<void> {
+            insertNotificationTarget(db, target())
+            insertScan(db, scan(NPM_OK))
+            mergeFindingsForScan(db, {
+                projectId: PROJECT_ID,
+                scanner: 'npm-audit',
+                scanId: 'scan-npm-ok',
+                scanFinishedAt: T0,
+                incoming: [{
+                    projectId: PROJECT_ID,
+                    scanner: 'npm-audit',
+                    source: 'npm-audit',
+                    ecosystem: 'npm',
+                    advisoryId: 'CVE-2024-1',
+                    advisoryTitle: 'Prototype pollution',
+                    advisoryUrl: 'https://example.test/1',
+                    packageName: 'lodash',
+                    installedVersion: '4.17.11',
+                    vulnerableRange: '<4.17.21',
+                    severity: 'high',
+                    fixAvailable: true,
+                    fixVersion: '4.17.21',
+                    depPath: ['lodash'],
+                    isProd: true,
+                    isDev: false
+                }]
+            })
+            if (settle) {
+                const check = JSON.stringify({ v: 1, checkedAt: T0, registry: 'ok', packageDataAsOf: T0, unevaluable: null, sources: [] })
+                sqlite.prepare("UPDATE findings SET fix_status = 'released', fix_version = '4.17.21', fix_check_json = ?").run(check)
+            }
+            send.mockResolvedValueOnce({ ok: false, errorText: 'network down' })
+            await notify(outcome([finding({ scanner: 'npm-audit', source: 'npm-audit' })], NPM_OK))
+            send.mockClear()
+            insertScan(db, scan(NO_LOCKFILE))
+            await notify(outcome([], NO_LOCKFILE))
+        }
+
+        function findingsMessage() {
+            return send.mock.calls.map(function message(call) { return call[1] }).find(function isFindings(m) { return m.webhook?.event === 'findings' })
+        }
+
+        it('says a never-settled row was not re-checked, never "rescan pending", in the text and the export', async function () {
+            await retryAfterLockfileLoss(false)
+
+            const message = findingsMessage()
+            expect(message?.text).toContain('lodash@4.17.11 (CVE-2024-1) — ' + NOT_RECHECKED)
+            expect(message?.text).not.toContain('rescan pending')
+            expect(message?.webhook.advisoryText).toContain('- **Fix:** ' + NOT_RECHECKED)
+            expect(message?.webhook.advisoryText).not.toContain('rescan pending')
+        })
+
+        it('keeps a settled row\'s historical fix and marks it not re-checked', async function () {
+            await retryAfterLockfileLoss(true)
+
+            const message = findingsMessage()
+            expect(message?.text).toContain('— upgrade to 4.17.21 · ' + NOT_RECHECKED)
+            expect(message?.webhook.advisoryText).toContain('- **Fix:** upgrade to `4.17.21` · ' + NOT_RECHECKED)
+        })
+
+        it('heads the findings message with the project\'s state', async function () {
+            await retryAfterLockfileLoss(false)
+
+            expect(findingsMessage()?.text).toContain('Project cannot be scanned: No lockfile (the project) — findings an earlier scan recorded are marked "not re-checked"')
+        })
+
+        it('carries each finding\'s historical context in the webhook JSON', async function () {
+            await retryAfterLockfileLoss(true)
+
+            const vulnerability = toWebhookVulnerability(findingsMessage()?.webhook.findings[0])
+            expect(vulnerability.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: T0 })
+            expect(vulnerability.recommendedVersion).toBe('4.17.21')
+        })
     })
 })
 

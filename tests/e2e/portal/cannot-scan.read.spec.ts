@@ -1,4 +1,4 @@
-import type { Locator, Page } from '@playwright/test'
+import type { Download, Locator, Page } from '@playwright/test'
 import { expect, readTest as test } from './test-fixtures'
 import { readFixtureManifest, SEEDED } from './paths'
 
@@ -49,5 +49,59 @@ test.describe('a project that cannot be scanned', function () {
         const row = page.locator('tr, li, article').filter({ hasText: SEEDED.cannotScanProjectName }).filter({ visible: true }).first()
         await expect(row).toContainText('Cannot be scanned')
         await expect(row).toContainText('No lockfile (the project)')
+    })
+})
+
+// The library page lists lost-lockfile's lodash beside checkout-service's, at the same severity. Only the
+// annotation tells the retained one apart from the one a scan just re-checked.
+const LIBRARY = '/libraries/npm/lodash?dep=all'
+const NOT_RECHECKED = /not re-checked — the project cannot be scanned: No lockfile \(last scanned successfully /
+
+// The expanded per-project row: after the container row in document order, so the last match is the inner one.
+function usageRow(page: Page, projectName: string): Locator {
+    return page.locator('tr').filter({ hasText: projectName }).filter({ visible: true }).last()
+}
+
+async function readDownload(download: Download): Promise<string> {
+    const stream = await download.createReadStream()
+    const chunks: Buffer[] = []
+    for await (const chunk of stream) chunks.push(chunk as Buffer)
+    return Buffer.concat(chunks).toString('utf8')
+}
+
+test.describe('a project that cannot be scanned, on a library page', function () {
+    test('marks its usage not re-checked in the By advisory grouping', async function ({ page }) {
+        await page.goto(LIBRARY)
+
+        await page.getByRole('button', { name: /Show details/ }).filter({ visible: true }).first().click()
+
+        await expect(usageRow(page, SEEDED.cannotScanProjectName)).toContainText(NOT_RECHECKED)
+        await expect(usageRow(page, SEEDED.projectName)).toBeVisible()
+        await expect(usageRow(page, SEEDED.projectName)).not.toContainText('not re-checked')
+    })
+
+    test('marks its advisory not re-checked in the By project grouping', async function ({ page }) {
+        await page.goto(LIBRARY)
+        await page.getByRole('tablist', { name: 'Library findings grouping' }).getByRole('tab', { name: /By project/ }).click()
+
+        await usageRow(page, SEEDED.cannotScanProjectName).getByRole('button', { name: /Show details/ }).click()
+
+        const annotations = page.getByTestId('not-rechecked').filter({ visible: true })
+        await expect(annotations).toHaveCount(1)
+        await expect(annotations).toHaveText(NOT_RECHECKED)
+    })
+
+    test('lists it in the advisory export\'s "could not be fully scanned" section', async function ({ page }) {
+        await page.goto(LIBRARY)
+
+        await page.getByRole('button', { name: 'Advisory', exact: true }).click()
+        const downloading = page.waitForEvent('download')
+        await page.getByRole('menuitem', { name: 'Download .md' }).click()
+        const markdown = await readDownload(await downloading)
+
+        expect(markdown).toContain('## Projects that could not be fully scanned')
+        expect(markdown).toContain('- **' + SEEDED.cannotScanProjectName + '** — Project cannot be scanned')
+        expect(markdown).toContain("on the project's side")
+        expect(markdown).not.toContain('- **' + SEEDED.projectName + '** —')
     })
 })
