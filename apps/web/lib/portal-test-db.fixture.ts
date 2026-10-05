@@ -121,6 +121,8 @@ export type ScanOpts = {
     reasonCode?: string
     errorText?: string | null
     finishedAt?: number | null
+    // The scan's summary, e.g. the coverage the runner records on every scan. Empty by default.
+    rawJson?: string
 }
 
 // Records a scan and merges its findings, mirroring what the worker's runner does. A finding's own
@@ -148,7 +150,7 @@ export function scanProject(
         reasonCode: (opts.reasonCode || 'ok') as never,
         durationMs: 1000,
         errorText: opts.errorText ?? null,
-        rawJson: ''
+        rawJson: opts.rawJson ?? ''
     } as Parameters<typeof insertScan>[1])
     if ((opts.status || 'ok') === 'ok' && finishedAt !== null) {
         mergeFindingsForScan(db, {

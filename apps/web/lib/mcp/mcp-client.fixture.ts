@@ -17,6 +17,8 @@ export type ToolResult = {
 export type McpHarness = {
     call: (name: string, args?: Record<string, unknown>) => Promise<ToolResult>
     listToolNames: () => Promise<string[]>
+    // The registered description of one tool, as a client reads it; undefined for an unknown tool.
+    describeTool: (name: string) => Promise<string | undefined>
     close: () => Promise<void>
 }
 
@@ -33,6 +35,10 @@ export async function connectMcp(): Promise<McpHarness> {
         async listToolNames() {
             const { tools } = await client.listTools()
             return tools.map(function name(t) { return t.name }).sort()
+        },
+        async describeTool(name) {
+            const { tools } = await client.listTools()
+            return tools.find(function named(t) { return t.name === name })?.description
         },
         async close() {
             await client.close()

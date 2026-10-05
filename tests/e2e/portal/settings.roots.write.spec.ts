@@ -175,7 +175,7 @@ test.describe('removing a root', function () {
         await expect(confirm).toContainText(E2E_FIXTURE_ROOT)
         // The count matters: this is the sentence that tells an operator they are about to delete four
         // projects' worth of scans and findings, not just a path.
-        await expect(confirm).toContainText('5 projects')
+        await expect(confirm).toContainText('6 projects')
         await expect(confirm).toContainText('This cannot be undone.')
     })
 

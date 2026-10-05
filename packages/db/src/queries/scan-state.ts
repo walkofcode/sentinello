@@ -220,14 +220,16 @@ type ProjectScanInputs = {
     latestBySource: Map<string, LatestSourceScanRow>
 }
 
-function readScanInputs(db: DrizzleDb, projectIds: readonly string[] | null): Map<string, ProjectScanInputs> {
+// `latest` is listLatestSourceScans(db, projectIds), when the caller has already read it for its own use:
+// the read is the expensive part of the scan state, and the projects list needs it twice otherwise.
+function readScanInputs(db: DrizzleDb, projectIds: readonly string[] | null, latest: readonly LatestSourceScanRow[] | null = null): Map<string, ProjectScanInputs> {
     const out = new Map<string, ProjectScanInputs>()
     if (projectIds !== null && projectIds.length === 0) return out
     const runnable = getRunnableSourceCells(db)
     const projectFilter = projectIds === null ? sql`` : sql`WHERE p.id IN (${sql.join(projectIds.map(function id(p) { return sql`${p}` }), sql`, `)})`
     const projects = db.all<{ id: string; ecosystems_json: string }>(sql`SELECT p.id AS id, p.ecosystems_json AS ecosystems_json FROM projects p ${projectFilter}`)
     const rowsByProject = new Map<string, LatestSourceScanRow[]>()
-    for (const row of listLatestSourceScans(db, projectIds)) {
+    for (const row of latest ?? listLatestSourceScans(db, projectIds)) {
         const list = rowsByProject.get(row.projectId) ?? []
         list.push(row)
         rowsByProject.set(row.projectId, list)
@@ -262,9 +264,11 @@ export function expectedScanInputs(db: DrizzleDb, projectIds: readonly string[] 
     return out
 }
 
-export function listProjectScanStates(db: DrizzleDb): Map<string, ScanState> {
+// Every project's scan state. `latest` is the fleet-wide listLatestSourceScans(db), when the caller read it
+// already.
+export function listProjectScanStates(db: DrizzleDb, latest: readonly LatestSourceScanRow[] | null = null): Map<string, ScanState> {
     const out = new Map<string, ScanState>()
-    for (const [id, inputs] of expectedScanInputs(db)) out.set(id, projectScanState(inputs))
+    for (const [id, read] of readScanInputs(db, null, latest)) out.set(id, projectScanState(read.inputs))
     return out
 }
 

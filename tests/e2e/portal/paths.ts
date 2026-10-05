@@ -60,7 +60,7 @@ export const E2E_PORTAL_TOKEN = 'e2e-portal-token'
 
 // Bumped whenever seed.ts changes what it produces, so a stale temp directory from an older checkout
 // fails the content guard in global-setup.ts loudly instead of running tests against the wrong shape.
-export const FIXTURE_VERSION = 3
+export const FIXTURE_VERSION = 4
 
 // Printed by apps/worker/src/worker.ts once the scheduler, poller and mute-expiry sweep are armed.
 // Playwright waits on this line to know the worker is up — it exposes no HTTP to probe. A contract
@@ -84,7 +84,11 @@ export const SEEDED = {
     bulkProjectName: 'bulk-deps',
     // braces 3.0.3 (dev, through nodemon › chokidar) and node-forge 1.4.0 (prod, direct): advisories with
     // no fixed version released, so the portal shows "No fixed version released" and the way out.
-    noFixProjectName: 'watch-tools'
+    noFixProjectName: 'watch-tools',
+    // A package.json with no lockfile, holding findings an earlier scan recorded (seed.ts): one settled,
+    // one legacy. The boot sweep cannot scan it, so the portal says "Project cannot be scanned" and marks
+    // both findings not re-checked.
+    cannotScanProjectName: 'lost-lockfile'
 }
 
 // Every dependency of bulk-deps is a PRODUCTION dependency, and that is load-bearing rather than

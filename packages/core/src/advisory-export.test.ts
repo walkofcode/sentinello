@@ -6,6 +6,7 @@ import {
     DEFAULT_EXPORT_PROMPT,
     resolveExportPrompt,
     type ExportFinding,
+    type ExportScanState,
     type ExportScope
 } from './advisory-export'
 import type { FixCheck } from './fix-status'
@@ -501,5 +502,66 @@ describe('the way out of a none_released finding', function () {
         expect(DEFAULT_EXPORT_PROMPT).not.toContain('a listed alternative — were each checked against the registry')
         expect(DEFAULT_EXPORT_PROMPT).toContain('dev tooling only')
         expect(DEFAULT_EXPORT_PROMPT).toContain('"no upstream fix released"')
+    })
+})
+
+describe('projects that cannot be scanned, and findings not re-checked', function () {
+    const cannot: ExportScanState = {
+        projectName: 'ddns',
+        projectPath: 'apps/ddns',
+        scanState: { state: 'cannot_scan', reasons: [{ source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project' }, { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project' }] }
+    }
+    const partial: ExportScanState = {
+        projectName: 'api',
+        projectPath: null,
+        scanState: { state: 'partial', reasons: [{ source: null, ecosystem: 'npm', reasonCode: 'not_yet_run', side: null }] }
+    }
+    const fine: ExportScanState = { projectName: 'web', projectPath: null, scanState: { state: 'scanned', reasons: [] } }
+    const never: ExportScanState = { projectName: 'new', projectPath: null, scanState: { state: 'not_scanned_yet', reasons: [] } }
+    const retained = { reasonCode: 'no_lockfile' as const, side: 'project' as const, projectState: 'cannot_scan' as const, lastOkScanAt: Date.UTC(2026, 9, 1) }
+
+    it('lists each project that cannot be (fully) scanned with its reasons and their side, before the findings', function () {
+        const md = buildAdvisoryMarkdown({ scope: WORKSPACE_SCOPE, prompt: 'PROMPT', generatedAt: CHECKED_AT, findings: [exportFinding()], scanStates: [cannot, partial, fine, never] })
+        expect(md).toContain('## Projects that could not be fully scanned\n\nZero findings from these projects means unknown, not safe.')
+        expect(md).toContain('- **ddns** (`apps/ddns`) — Project cannot be scanned\n    - No lockfile — npm audit, npm — on the project\'s side')
+        expect(md).toContain('- **api** — Project cannot be fully scanned\n    - Has not run yet — npm — nobody\'s fix')
+        expect(md).not.toContain('**web**')
+        expect(md).not.toContain('**new**')
+        expect(md.indexOf('PROMPT')).toBeLessThan(md.indexOf('## Projects that could not'))
+        expect(md.indexOf('## Projects that could not')).toBeLessThan(md.indexOf('## Findings'))
+    })
+
+    it('has no section when every project was fully scanned, or no state was given', function () {
+        expect(buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [], scanStates: [fine] })).not.toContain('could not be fully scanned')
+        expect(buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [] })).not.toContain('could not be fully scanned')
+    })
+
+    it('puts the section on the first page of a paginated document only', function () {
+        const findings = [exportFinding({ advisoryId: 'GHSA-1' }), exportFinding({ advisoryId: 'GHSA-2' })]
+        const first = buildPaginatedAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings, offset: 0, byteBudget: 1, scanStates: [cannot] })
+        expect(first.markdown).toContain('## Projects that could not be fully scanned')
+        expect(first.nextOffset).toBe(1)
+        const second = buildPaginatedAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings, offset: 1, byteBudget: 1, scanStates: [cannot] })
+        expect(second.markdown).not.toContain('could not be fully scanned')
+        expect(buildPaginatedAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings, offset: 0, byteBudget: 1 }).markdown).not.toContain('could not be fully scanned')
+    })
+
+    it('marks a retained finding not re-checked on its Fix line and at the head of its way out', function () {
+        const remediation: Remediation = {
+            v: 1,
+            checkedAt: CHECKED_AT,
+            package: 'braces',
+            health: { name: 'braces', latest: '3.0.3', lastPublishAt: null, maintainers: 2, weeklyDownloads: null, deprecated: null, daysSinceLastPublish: null, unmaintained: false },
+            chains: [],
+            moreChains: 0, moreChainsAtLeast: false,
+            alternatives: [],
+            devOnly: null
+        }
+        const md = buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [exportFinding({ packageName: 'braces', fixStatus: 'none_released', fixCheck: check(), remediation, notRecheckedBecause: retained })] })
+        expect(md).toContain('- **Fix:** **No fixed version released** — no published version of `braces` is outside the vulnerable range (registry checked 2026-10-03) · not re-checked — the project cannot be scanned: No lockfile (last scanned successfully 2026-10-01)')
+        expect(md).toContain('- **Way out:**\n    - **As of the last successful scan:** not re-checked — the project cannot be scanned: No lockfile (last scanned successfully 2026-10-01)\n    - **Health:**')
+        const legacy = buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [exportFinding({ fixCheck: null, notRecheckedBecause: { ...retained, lastOkScanAt: null } })] })
+        expect(legacy).toContain('- **Fix:** not re-checked — the project cannot be scanned: No lockfile (never scanned successfully)')
+        expect(legacy).not.toContain('rescan pending')
     })
 })

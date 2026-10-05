@@ -156,7 +156,12 @@
         "nodeAmbient": "ambient",
         "badgeMuted": "muted",
         "badgeMissing": "missing",
-        "colLanguage": "Language"
+        "colLanguage": "Language",
+        "stateCannotScan": "Cannot be scanned",
+        "statePartial": "Cannot be fully scanned",
+        "stateNotScannedYet": "Not scanned yet",
+        "stateSideProject": "the project",
+        "stateSideEnvironment": "this Sentinello install"
     },
     "WhatsNew": {
         "pillLabel": "What's new",
@@ -490,7 +495,8 @@
             "notVerified": "not verified — its dependency closure could not be checked",
             "builtIn": "built-in {id}",
             "snippet": "inline code",
-            "removal": "remove it"
+            "removal": "remove it",
+            "asOfLastScan": "As of the last successful scan:"
         },
         "vulnPrefix": "vuln:",
         "groupingAriaLabel": "Findings grouping",
@@ -513,7 +519,11 @@
         "grades": {
             "label": "How each source graded this",
             "explain": "Sentinello reports the worst grade any source gave, so a vulnerability is never under-stated."
-        }
+        },
+        "notRecheckedCannotScan": "not re-checked — the project cannot be scanned: {reason}",
+        "notRecheckedPartial": "not re-checked — the project cannot be fully scanned: {reason}",
+        "lastScannedSuccessfully": "last scanned successfully {date}",
+        "neverScannedSuccessfully": "never scanned successfully"
     },
     "Triage": {
         "alias": {
@@ -715,10 +725,16 @@
                 "discovered": "Discovered",
                 "resolved": "Resolved"
             },
-            "coverageTitle": "Coverage gaps",
-            "coverageBody": "Some languages in this project could not be fully audited offline, so findings may be incomplete for them.",
-            "coveragePartial": "Partial",
-            "coverageUnauditable": "Unauditable"
+            "cannotScanTitle": "Project cannot be scanned",
+            "cannotScanBody": "No source could read this project. The findings below are what an earlier scan recorded and were not re-checked; zero findings here means unknown, not safe.",
+            "partialScanTitle": "Project cannot be fully scanned",
+            "partialScanBody": "Part of this project could not be scanned, so its findings may be incomplete. Findings from a source that could not scan it were not re-checked.",
+            "scanReasonSideProject": "on the project's side: a file in the project stops it from being read, and changing it there is the fix",
+            "scanReasonSideEnvironment": "on this Sentinello install's side: the install could not do the scan, and it is the operator's fix",
+            "scanReasonNotYetRun": "nothing has looked yet: the next scan does",
+            "noFindingsUnknownTitle": "No findings recorded",
+            "noFindingsUnknownBody": "Nothing was found, but this project could not be fully scanned: that is unknown, not safe.",
+            "noFindingsNotScannedBody": "This project has not been scanned yet."
         },
         "library": {
             "eyebrow": "Library",

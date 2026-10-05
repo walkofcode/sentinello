@@ -156,7 +156,12 @@
         "nodeAmbient": "주변 환경",
         "badgeMuted": "음소거됨",
         "badgeMissing": "누락됨",
-        "colLanguage": "언어"
+        "colLanguage": "언어",
+        "stateCannotScan": "스캔할 수 없음",
+        "statePartial": "완전히 스캔할 수 없음",
+        "stateNotScannedYet": "아직 스캔되지 않음",
+        "stateSideProject": "프로젝트 측",
+        "stateSideEnvironment": "이 Sentinello 설치 측"
     },
     "WhatsNew": {
         "pillLabel": "새로운 기능",
@@ -490,7 +495,8 @@
             "notVerified": "확인되지 않음 — 의존성 클로저를 확인할 수 없었습니다",
             "builtIn": "내장: {id}",
             "snippet": "인라인 코드",
-            "removal": "제거하세요"
+            "removal": "제거하세요",
+            "asOfLastScan": "마지막 성공 스캔 기준:"
         },
         "vulnPrefix": "취약점:",
         "groupingAriaLabel": "발견 항목 그룹화",
@@ -513,7 +519,11 @@
         "grades": {
             "label": "소스별 심각도 평가",
             "explain": "Sentinello는 어떤 소스든 부여한 가장 높은 심각도로 보고하여 취약점을 과소평가하지 않습니다."
-        }
+        },
+        "notRecheckedCannotScan": "다시 확인되지 않음 — 프로젝트를 스캔할 수 없음: {reason}",
+        "notRecheckedPartial": "다시 확인되지 않음 — 프로젝트를 완전히 스캔할 수 없음: {reason}",
+        "lastScannedSuccessfully": "마지막 성공 스캔 {date}",
+        "neverScannedSuccessfully": "스캔에 성공한 적 없음"
     },
     "Triage": {
         "alias": {
@@ -715,10 +725,16 @@
                 "discovered": "발견",
                 "resolved": "해결됨"
             },
-            "coverageTitle": "범위 격차",
-            "coverageBody": "이 프로젝트의 일부 언어는 오프라인에서 완전히 감사할 수 없어 해당 언어의 findings가 불완전할 수 있습니다.",
-            "coveragePartial": "부분적",
-            "coverageUnauditable": "감사 불가"
+            "cannotScanTitle": "프로젝트를 스캔할 수 없습니다",
+            "cannotScanBody": "어떤 소스도 이 프로젝트를 읽을 수 없었습니다. 아래 발견 항목은 이전 스캔에서 기록된 것이며 다시 확인되지 않았습니다. 여기서 발견 항목이 0개라는 것은 안전이 아니라 알 수 없음을 의미합니다.",
+            "partialScanTitle": "프로젝트를 완전히 스캔할 수 없습니다",
+            "partialScanBody": "이 프로젝트의 일부를 스캔할 수 없어 발견 항목이 불완전할 수 있습니다. 스캔하지 못한 소스의 발견 항목은 다시 확인되지 않았습니다.",
+            "scanReasonSideProject": "프로젝트 측 문제: 프로젝트의 파일이 읽기를 막고 있으며, 그 파일을 고치는 것이 해결책입니다",
+            "scanReasonSideEnvironment": "이 Sentinello 설치 측 문제: 설치가 스캔을 수행하지 못했으며, 운영자가 해결해야 합니다",
+            "scanReasonNotYetRun": "아직 아무것도 확인하지 않았습니다: 다음 스캔에서 확인합니다",
+            "noFindingsUnknownTitle": "기록된 발견 항목 없음",
+            "noFindingsUnknownBody": "아무것도 발견되지 않았지만 이 프로젝트는 완전히 스캔되지 않았습니다: 안전이 아니라 알 수 없음입니다.",
+            "noFindingsNotScannedBody": "이 프로젝트는 아직 스캔되지 않았습니다."
         },
         "library": {
             "eyebrow": "라이브러리",

@@ -1,4 +1,4 @@
-import { describeFix, PLAIN_FIX_STYLE, summarizeRemediation, reasonCodeLabel, REASON_CODE_VALUES, type Finding, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
+import { describeFix, PLAIN_FIX_STYLE, reasonSide, summarizeRemediation, reasonCodeLabel, REASON_CODE_VALUES, SCAN_STATE_SIDE_SHORT, type Finding, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
 import type { RenderedMessage } from './types'
 
 const REASON_CODE_SET = new Set<string>(REASON_CODE_VALUES)
@@ -7,11 +7,17 @@ const REASON_CODE_SET = new Set<string>(REASON_CODE_VALUES)
 // "error:no_lockfile"); legacy events store a scrubbed errorText one-liner. We humanise the
 // structured form (in the configured notification locale) and pass the legacy form through unchanged.
 function humaniseFailureSignature(sig: string, locale: Locale): string {
+    const code = signatureReasonCode(sig)
+    return code === null ? sig : reasonCodeLabel(code, locale)
+}
+
+// The reason code a structured signature carries, or null for a legacy one-liner.
+function signatureReasonCode(sig: string): ReasonCode | null {
     const parts = sig.split(':')
-    if (parts.length !== 2) return sig
+    if (parts.length !== 2) return null
     const code = parts[1] || ''
-    if (!REASON_CODE_SET.has(code)) return sig
-    return reasonCodeLabel(code as ReasonCode, locale)
+    if (!REASON_CODE_SET.has(code)) return null
+    return code as ReasonCode
 }
 
 // Builds notification message bodies. Pure functions — render is stateless and side-effect free.
@@ -126,16 +132,23 @@ export function renderBatchedFindings(input: RenderBatchedFindingsInput): Render
     }
 }
 
+// A failure whose cause is on the project's side (no lockfile, an unsupported lockfile, …) is not a scan
+// that broke: the project cannot be scanned until someone changes it, and the message says so. A failure
+// on this install's side (a tool missing, a database not downloaded, a timeout) keeps "[SCAN FAILED]": the
+// operator's fix. A legacy signature with no reason code cannot be placed, so it keeps the old wording.
 export function renderScanFailure(input: RenderScanFailureInput): RenderedMessage {
     const rawSig = input.event.failureSignature || 'unknown failure'
     const sig = humaniseFailureSignature(rawSig, input.locale || 'en')
-    const title = '[SCAN FAILED] ' + input.projectName + ' — ' + sig
+    const code = signatureReasonCode(rawSig)
+    const projectSide = code !== null && reasonSide(code) === 'project'
+    const title = (projectSide ? '[CANNOT BE SCANNED] ' : '[SCAN FAILED] ') + input.projectName + ' — ' + sig
     const portalLink = buildProjectUrl(input.portalBaseUrl, input.projectId)
     const lines: string[] = []
-    lines.push('*Scan failed* for *' + input.projectName + '*')
+    lines.push(projectSide ? '*Cannot be scanned:* *' + input.projectName + '*' : '*Scan failed* for *' + input.projectName + '*')
     pushBranchLine(lines, input.gitBranch)
     lines.push('*Scanner:* ' + input.event.scanner)
-    lines.push('*Failure:* ' + sig)
+    lines.push((projectSide ? '*Reason:* ' : '*Failure:* ') + sig)
+    if (code !== null) lines.push('*Whose fix:* ' + SCAN_STATE_SIDE_SHORT[reasonSide(code)])
     if (input.errorText) {
         lines.push('*Error:* ' + input.errorText)
     }

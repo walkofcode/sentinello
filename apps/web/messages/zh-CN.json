@@ -156,7 +156,12 @@
         "nodeAmbient": "环境默认",
         "badgeMuted": "已静默",
         "badgeMissing": "缺失",
-        "colLanguage": "语言"
+        "colLanguage": "语言",
+        "stateCannotScan": "无法扫描",
+        "statePartial": "无法完整扫描",
+        "stateNotScannedYet": "尚未扫描",
+        "stateSideProject": "项目方",
+        "stateSideEnvironment": "此 Sentinello 安装方"
     },
     "WhatsNew": {
         "pillLabel": "新功能",
@@ -490,7 +495,8 @@
             "notVerified": "未验证 — 无法检查其依赖闭包",
             "builtIn": "内置：{id}",
             "snippet": "内联代码",
-            "removal": "移除它"
+            "removal": "移除它",
+            "asOfLastScan": "截至上次成功扫描："
         },
         "vulnPrefix": "漏洞：",
         "groupingAriaLabel": "发现分组",
@@ -513,7 +519,11 @@
         "grades": {
             "label": "各来源的评级",
             "explain": "Sentinello 采用所有来源中最严重的评级，以免低估漏洞。"
-        }
+        },
+        "notRecheckedCannotScan": "未重新检查 — 项目无法扫描：{reason}",
+        "notRecheckedPartial": "未重新检查 — 项目无法完整扫描：{reason}",
+        "lastScannedSuccessfully": "上次成功扫描于 {date}",
+        "neverScannedSuccessfully": "从未成功扫描"
     },
     "Triage": {
         "alias": {
@@ -715,10 +725,16 @@
                 "discovered": "发现",
                 "resolved": "已解决"
             },
-            "coverageTitle": "覆盖缺口",
-            "coverageBody": "本项目中的某些语言无法在离线状态下完整审计，因此对它们的发现可能不完整。",
-            "coveragePartial": "部分",
-            "coverageUnauditable": "无法审计"
+            "cannotScanTitle": "项目无法扫描",
+            "cannotScanBody": "没有任何来源能读取此项目。下面的发现是之前的扫描记录的，未经重新检查；此处零发现意味着未知，而非安全。",
+            "partialScanTitle": "项目无法完整扫描",
+            "partialScanBody": "此项目的一部分无法扫描，因此其发现可能不完整。无法扫描它的来源所给出的发现未经重新检查。",
+            "scanReasonSideProject": "项目方的问题：项目中的某个文件导致无法读取，修改该文件即可解决",
+            "scanReasonSideEnvironment": "此 Sentinello 安装方的问题：安装无法执行扫描，需由运维人员解决",
+            "scanReasonNotYetRun": "尚无任何检查：下一次扫描会进行",
+            "noFindingsUnknownTitle": "没有记录的发现",
+            "noFindingsUnknownBody": "没有发现任何问题，但此项目无法完整扫描：这是未知，而非安全。",
+            "noFindingsNotScannedBody": "此项目尚未扫描。"
         },
         "library": {
             "eyebrow": "依赖库",

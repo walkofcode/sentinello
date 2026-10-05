@@ -62,6 +62,9 @@ function buildJsonBody(ctx: WebhookPayloadContext, portalUrl: string | null): un
         project: ctx.project,
         portalUrl,
         failureSignature: ctx.event === 'scan_failure' ? ctx.failureSignature : undefined,
+        // { state, reasons: [{ source, ecosystem, reasonCode, label, side }] } — see ScanState in
+        // @sentinello/core. Additive.
+        scanState: ctx.scanState,
         vulnerabilities: ctx.findings.map(toWebhookVulnerability)
     }
 }

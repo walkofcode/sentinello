@@ -77,6 +77,7 @@ function webhookContext(overrides: Partial<WebhookPayloadContext> = {}): Webhook
         project: { id: 'project-1', name: 'app', relPath: 'app', packageManager: 'npm' },
         findings: [finding()],
         failureSignature: null,
+        scanState: { state: 'scanned', reasons: [] },
         advisoryText: '# Advisory export',
         ...overrides
     }
@@ -196,6 +197,12 @@ describe('sendWebhook — body shape', function () {
     it('sends just the advisory text for the text flavor', async function () {
         await sendWebhook(target({ flavor: 'text' }), message({ webhook: webhookContext() }))
         expect(post.mock.calls[0]?.[1]).toEqual({ text: '# Advisory export' })
+    })
+
+    it('carries the project scan state, so a receiver can tell cannot be scanned from clean', async function () {
+        const scanState = { state: 'cannot_scan' as const, reasons: [{ source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile' as const, side: 'project' as const, label: 'No lockfile' }] }
+        await sendWebhook(target(), message({ webhook: webhookContext({ event: 'scan_failure', findings: [], scanState }) }))
+        expect((post.mock.calls[0]?.[1] as Record<string, unknown>).scanState).toEqual(scanState)
     })
 
     it('carries the failure signature only for a scan_failure event', async function () {

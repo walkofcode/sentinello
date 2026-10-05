@@ -1,11 +1,12 @@
 import {
     getConfigValue,
     getProjectById,
+    getProjectScanState,
     getRootById,
     listCurrentFindingsForProject,
     type DrizzleDb
 } from '@sentinello/db'
-import type { DepTypeFilter } from '@sentinello/core'
+import type { DepTypeFilter, ExportScanState } from '@sentinello/core'
 import { mergeFindings } from '@/lib/merge-findings'
 import {
     buildAdvisoryMarkdown,
@@ -53,6 +54,9 @@ export type ProjectAdvisoryParts = {
     scope: ExportScope
     prompt: string
     findings: ExportFinding[]
+    // The project's scan state, for the "Projects that could not be fully scanned" section. Rendered only
+    // when the project is not fully scanned.
+    scanStates: ExportScanState[]
     projectId: string
     projectName: string
     depType: DepTypeFilter
@@ -95,6 +99,7 @@ export function buildProjectAdvisoryParts(
             fixStatus: m.fixStatus,
             fixCheck: m.fixCheck,
             remediation: m.remediation,
+            notRecheckedBecause: m.notRecheckedBecause,
             severity: m.severity,
             advisoryId: m.advisoryId,
             advisoryTitle: m.advisoryTitle,
@@ -124,6 +129,7 @@ export function buildProjectAdvisoryParts(
         scope,
         prompt,
         findings,
+        scanStates: [{ projectName: displayName, projectPath: null, scanState: getProjectScanState(db, project.id) }],
         projectId: project.id,
         projectName: displayName,
         depType,
@@ -149,7 +155,8 @@ export function buildProjectAdvisoryExport(
             scope: parts.scope,
             prompt: parts.prompt,
             findings: parts.findings,
-            generatedAt
+            generatedAt,
+            scanStates: parts.scanStates
         }),
         projectId: parts.projectId,
         projectName: parts.projectName,

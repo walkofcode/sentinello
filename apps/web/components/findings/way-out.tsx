@@ -1,18 +1,21 @@
 'use client'
 
 import { useFormatter, useTranslations } from 'next-intl'
-import type { Alternative, AlternativeOption, ChainVerdict, Remediation, RemediationChain, RemediationHealth } from '@sentinello/core'
+import type { Alternative, AlternativeOption, ChainVerdict, NotRecheckedBecause, Remediation, RemediationChain, RemediationHealth } from '@sentinello/core'
 import { Badge } from '@/components/ui/badge'
+import { NotRechecked } from './version-chain'
 
 // The "Way out" disclosure under a finding whose package has no fixed version released: the package's
 // health, one verdict per dependency path, whether only dev tooling reaches it, and the curated
-// alternatives. Everything here was computed and proven at scan time; this only renders it.
-export function WayOut({ remediation }: { remediation: Remediation }) {
+// alternatives. Everything here was computed and proven at scan time; this only renders it. A way out kept
+// from an earlier scan, on a row its source could not re-check since, says so first.
+export function WayOut({ remediation, notRecheckedBecause = null }: { remediation: Remediation; notRecheckedBecause?: NotRecheckedBecause | null }) {
     const t = useTranslations('Findings.wayOut')
     return (
         <details className="mt-1 text-xs">
             <summary className="cursor-pointer font-medium text-foreground">{t('title')}</summary>
             <div className="mt-1 flex flex-col gap-1.5 border-l-2 border-muted pl-2">
+                {notRecheckedBecause ? <p>{t('asOfLastScan')} <NotRechecked reason={notRecheckedBecause} /></p> : null}
                 <HealthLine health={remediation.health} />
                 <ul className="flex flex-col gap-1">
                     {remediation.chains.map(function chainItem(chain) {

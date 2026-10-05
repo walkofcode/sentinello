@@ -1,9 +1,11 @@
 import {
     buildAdvisoryMarkdown,
+    labelScanState,
     resolveExportPrompt,
     DEFAULT_ECOSYSTEM,
     type ExportFinding,
     type Finding,
+    type LabelledScanState,
     type Locale,
     type NotificationEvent,
     type NotificationTarget,
@@ -22,6 +24,7 @@ import {
     getProjectById,
     getRootById,
     getConfigValue,
+    getProjectScanState,
     type DispatchablePair,
     type DrizzleDb
 } from '@sentinello/db'
@@ -90,6 +93,8 @@ export async function notifyForCompletedScan(input: NotifyForCompletedScanInput)
     // 'text' flavor sends). Slack/Telegram ignore them.
     const root = getRootById(input.db, project.rootId)
     const exportPrompt = resolveExportPrompt(getConfigValue<string>(input.db, 'markdownExportPrompt'))
+    // Read after this scan's row is recorded, so it includes it: the project as the portal shows it now.
+    const scanState = labelScanState(getProjectScanState(input.db, project.id), notificationLocale)
     const grouped = groupByTarget(pairs)
     for (const group of grouped) {
         await dispatchGroup({
@@ -101,6 +106,7 @@ export async function notifyForCompletedScan(input: NotifyForCompletedScanInput)
             findingsByEventId: indexFindingsByEventId(input.outcome.findings, input.outcome.project.id),
             portalBaseUrl,
             notificationLocale,
+            scanState,
             scanErrorText: input.outcome.scan.errorText,
             dryRun: input.dryRun,
             at
@@ -125,6 +131,7 @@ type DispatchGroupInput = {
     findingsByEventId: Map<string, Finding>
     portalBaseUrl: string | null
     notificationLocale: Locale
+    scanState: LabelledScanState
     scanErrorText: string | null
     dryRun: boolean
     at: number
@@ -173,11 +180,13 @@ async function dispatchGroup(input: DispatchGroupInput): Promise<void> {
                 project: webhookProject(project),
                 findings: matchedFindings,
                 failureSignature: null,
+                scanState: input.scanState,
                 advisoryText: buildAdvisoryMarkdown({
                     scope: { kind: 'project', projectName: project.name, projectPath: project.relPath, depType: 'all' },
                     prompt: input.exportPrompt,
                     findings: matchedFindings.map(toExportFinding),
-                    generatedAt: input.at
+                    generatedAt: input.at,
+                    scanStates: [{ projectName: project.name, projectPath: null, scanState: input.scanState }]
                 })
             }
         }
@@ -208,6 +217,7 @@ async function dispatchGroup(input: DispatchGroupInput): Promise<void> {
                 project: webhookProject(project),
                 findings: [],
                 failureSignature: failureEvent.failureSignature,
+                scanState: input.scanState,
                 advisoryText: message.text
             }
         }

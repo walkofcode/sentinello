@@ -455,3 +455,43 @@ describe('buildProjectAdvisoryExport — document wiring', function () {
         expect(result?.markdown).toContain('lodash')
     })
 })
+
+describe('buildProjectAdvisoryExport — project cannot be scanned', function () {
+    function failNpmAudit(finishedAt: number): void {
+        insertScan(db, {
+            id: 'scan-failed-' + finishedAt,
+            projectId: PROJECT_ID,
+            startedAt: finishedAt - 1000,
+            finishedAt,
+            scanner: 'npm-audit',
+            source: 'npm-audit',
+            ecosystem: 'npm',
+            status: 'unauditable',
+            reasonCode: 'no_lockfile',
+            durationMs: 1000,
+            errorText: null,
+            rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile' }] })
+        })
+    }
+
+    it('opens with the section and marks the retained finding not re-checked', function () {
+        setConfigValue(db, sourceEnabledKey('osv', 'npm'), false)
+        scanWith([incoming()])
+        failNpmAudit(T0 + 2 * HOUR)
+        const md = exportAt(T0 + 3 * HOUR)?.markdown ?? ''
+        expect(md).toContain('## Projects that could not be fully scanned')
+        expect(md).toContain('- **app** — Project cannot be scanned\n    - No lockfile — npm audit, npm — on the project\'s side')
+        expect(md).toContain('not re-checked — the project cannot be scanned: No lockfile (last scanned successfully 2026-01-01)')
+        expect(md).not.toContain('rescan pending')
+    })
+
+    it('has no section once the project is fully scanned', function () {
+        setConfigValue(db, sourceEnabledKey('osv', 'npm'), false)
+        failNpmAudit(T0)
+        insertScan(db, {
+            id: 'scan-ok', projectId: PROJECT_ID, startedAt: T0 + HOUR - 1000, finishedAt: T0 + HOUR, scanner: 'npm-audit', source: 'npm-audit', ecosystem: 'npm',
+            status: 'ok', reasonCode: 'ok', durationMs: 1000, errorText: null, rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'ok' }] })
+        })
+        expect(exportAt()?.markdown).not.toContain('could not be fully scanned')
+    })
+})

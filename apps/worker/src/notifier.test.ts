@@ -296,6 +296,48 @@ describe('notifyForCompletedScan — dispatch', function () {
     })
 })
 
+// A project that lost its lockfile: npm audit (the default source) recorded the failure, and the notifier
+// reads the project's state after it, as the portal does.
+describe('notifyForCompletedScan — a project that cannot be scanned', function () {
+    const NO_LOCKFILE: Partial<Scan> = {
+        id: 'scan-no-lockfile',
+        scanner: 'npm-audit',
+        source: 'npm-audit',
+        status: 'unauditable',
+        reasonCode: 'no_lockfile',
+        finishedAt: T0 + 1000,
+        rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile' }] })
+    }
+
+    it('titles the failure [CANNOT BE SCANNED] and gives the webhook the labelled scan state', async function () {
+        insertNotificationTarget(db, target())
+        insertScan(db, scan(NO_LOCKFILE))
+        await notify(outcome([], NO_LOCKFILE))
+
+        expect(send).toHaveBeenCalledTimes(1)
+        const message = send.mock.calls[0]?.[1]
+        expect(message?.title).toBe('[CANNOT BE SCANNED] app — No lockfile')
+        expect(message?.webhook.scanState).toEqual({
+            state: 'cannot_scan',
+            reasons: [
+                { source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' },
+                { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' }
+            ]
+        })
+    })
+
+    it('puts the section in the findings webhook advisory text when the project is not fully scanned', async function () {
+        insertNotificationTarget(db, target())
+        insertScan(db, scan(NO_LOCKFILE))
+        await notify(outcome([finding()]))
+
+        const message = send.mock.calls[0]?.[1]
+        expect(message?.webhook.event).toBe('findings')
+        expect(message?.webhook.scanState.state).toBe('cannot_scan')
+        expect(message?.webhook.advisoryText).toContain('## Projects that could not be fully scanned')
+    })
+})
+
 // The ledger row and the scan's own findings are matched on the identity tuple, and both of the null
 // columns below are states the Phase 2 backfill exists to repair (see backfillEcosystemIdentity, whose
 // own SELECT filters on `advisory_id IS NOT NULL`). A dispatch landing in that window must degrade to

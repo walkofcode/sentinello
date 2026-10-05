@@ -156,7 +156,12 @@
         "nodeAmbient": "ambiant",
         "badgeMuted": "masqué",
         "badgeMissing": "manquant",
-        "colLanguage": "Langage"
+        "colLanguage": "Langage",
+        "stateCannotScan": "Analyse impossible",
+        "statePartial": "Analyse incomplète",
+        "stateNotScannedYet": "Pas encore analysé",
+        "stateSideProject": "le projet",
+        "stateSideEnvironment": "cette installation de Sentinello"
     },
     "WhatsNew": {
         "pillLabel": "Nouveautés",
@@ -490,7 +495,8 @@
             "notVerified": "non vérifié — sa fermeture de dépendances n’a pas pu être vérifiée",
             "builtIn": "intégré : {id}",
             "snippet": "code en ligne",
-            "removal": "à supprimer"
+            "removal": "à supprimer",
+            "asOfLastScan": "Selon la dernière analyse réussie :"
         },
         "vulnPrefix": "vuln :",
         "groupingAriaLabel": "Regroupement des résultats",
@@ -513,7 +519,11 @@
         "grades": {
             "label": "Évaluation par chaque source",
             "explain": "Sentinello retient l’évaluation la plus sévère parmi les sources, afin de ne jamais sous-estimer une vulnérabilité."
-        }
+        },
+        "notRecheckedCannotScan": "non revérifié — le projet ne peut pas être analysé : {reason}",
+        "notRecheckedPartial": "non revérifié — le projet ne peut pas être entièrement analysé : {reason}",
+        "lastScannedSuccessfully": "dernière analyse réussie le {date}",
+        "neverScannedSuccessfully": "jamais analysé avec succès"
     },
     "Triage": {
         "alias": {
@@ -715,10 +725,16 @@
                 "discovered": "Détectées",
                 "resolved": "Résolues"
             },
-            "coverageTitle": "Lacunes de couverture",
-            "coverageBody": "Certains langages de ce projet n’ont pas pu être entièrement audités hors ligne ; les résultats peuvent donc être incomplets pour ceux-ci.",
-            "coveragePartial": "Partielle",
-            "coverageUnauditable": "Non auditable"
+            "cannotScanTitle": "Le projet ne peut pas être analysé",
+            "cannotScanBody": "Aucune source n'a pu lire ce projet. Les vulnérabilités ci-dessous sont celles qu'une analyse précédente a enregistrées et n'ont pas été revérifiées ; zéro vulnérabilité ici signifie inconnu, pas sûr.",
+            "partialScanTitle": "Le projet ne peut pas être entièrement analysé",
+            "partialScanBody": "Une partie de ce projet n'a pas pu être analysée, ses vulnérabilités peuvent donc être incomplètes. Celles d'une source qui n'a pas pu l'analyser n'ont pas été revérifiées.",
+            "scanReasonSideProject": "du côté du projet : un fichier du projet empêche de le lire, et c'est là qu'il faut le corriger",
+            "scanReasonSideEnvironment": "du côté de cette installation de Sentinello : l'installation n'a pas pu faire l'analyse, et c'est à l'opérateur de corriger",
+            "scanReasonNotYetRun": "rien ne l'a encore examiné : la prochaine analyse le fera",
+            "noFindingsUnknownTitle": "Aucune vulnérabilité enregistrée",
+            "noFindingsUnknownBody": "Rien n'a été trouvé, mais ce projet n'a pas pu être entièrement analysé : c'est inconnu, pas sûr.",
+            "noFindingsNotScannedBody": "Ce projet n'a pas encore été analysé."
         },
         "library": {
             "eyebrow": "Bibliothèque",

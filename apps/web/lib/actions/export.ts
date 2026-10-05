@@ -51,6 +51,7 @@ export async function exportLibraryAdvisoryMarkdownAction(
             fixStatus: r.fixStatus,
             fixCheck: r.fixCheck,
             remediation: r.remediation,
+            notRecheckedBecause: r.notRecheckedBecause,
             severity: r.severity as Severity,
             advisoryId: r.advisoryId,
             advisoryTitle: r.advisoryTitle,

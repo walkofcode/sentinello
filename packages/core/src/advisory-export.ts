@@ -1,6 +1,8 @@
 import { compareSeverity, type FixStatus, type Severity } from './types'
-import { describeFix, describeFixDisagreement, type FixCheck, type FixTextStyle } from './fix-status'
+import { describeFix, describeFixDisagreement, describeNotRechecked, type FixCheck, type FixTextStyle } from './fix-status'
 import { describeRemediation, type Remediation } from './remediation'
+import type { NotRecheckedBecause, ScanState } from './scan-state'
+import { describeGroupedReasonLong, groupScanReasons, scanStateHeadline } from './scan-state-text'
 
 // The built-in remediation prompt prepended to every advisory export. Operators can override this
 // in Settings → Export; the override is stored in app_config under the key 'markdownExportPrompt'.
@@ -123,6 +125,9 @@ export type ExportFinding = {
     fixCheck: FixCheck | null
     // The way out for a 'none_released' finding; null for every other status.
     remediation: Remediation | null
+    // Set when the finding's source last failed to scan its project: the Fix line (and the way out) are what
+    // an earlier scan left, not re-checked since. Absent or null otherwise.
+    notRecheckedBecause?: NotRecheckedBecause | null
     severity: Severity
     advisoryId: string
     advisoryTitle: string | null
@@ -142,6 +147,15 @@ export type ExportFinding = {
     sources?: string[]
     advisoryIds?: string[]
     depPaths?: string[][]
+}
+
+// A project the document covers whose scan state is known. Only the ones that are not fully scanned are
+// rendered, in the "Projects that could not be fully scanned" section; a caller may pass every project.
+export type ExportScanState = {
+    projectName: string
+    // Where it lives, when the scope does not already say (a workspace of many projects). Null otherwise.
+    projectPath: string | null
+    scanState: ScanState
 }
 
 // Resolve the prompt the export should use. Treats both "no key" and a stored null/empty-string
@@ -209,7 +223,7 @@ function formatFinding(index: number, f: ExportFinding): string {
     const disagreement = describeFixDisagreement(f, MARKDOWN_FIX_STYLE)
     if (disagreement) lines.push('- **Fix evidence:** ' + disagreement)
     if (f.fixStatus === 'none_released' && f.remediation) {
-        for (const line of wayOutLines(f.remediation)) lines.push(line)
+        for (const line of wayOutLines(f.remediation, f.notRecheckedBecause ?? null)) lines.push(line)
     }
     if (f.vulnerableRange) {
         lines.push('- **Vulnerable range:** `' + escapeForMarkdown(f.vulnerableRange) + '`')
@@ -237,10 +251,13 @@ function formatFinding(index: number, f: ExportFinding): string {
 }
 
 // The "Way out" block under the Fix line: the package's health, one verdict per dependency path, whether
-// only dev tooling reaches it, and the curated alternatives with their signals.
-function wayOutLines(r: Remediation): string[] {
+// only dev tooling reaches it, and the curated alternatives with their signals. A way out kept from an
+// earlier scan says so first: the registry may have moved since.
+function wayOutLines(r: Remediation, notRechecked: NotRecheckedBecause | null): string[] {
     const text = describeRemediation(r, MARKDOWN_FIX_STYLE)
-    const lines = ['- **Way out:**', '    - **Health:** ' + text.health]
+    const lines = ['- **Way out:**']
+    if (notRechecked) lines.push('    - **As of the last successful scan:** ' + describeNotRechecked(notRechecked))
+    lines.push('    - **Health:** ' + text.health)
     if (text.chains.length > 0) {
         lines.push('    - **Paths:**')
         for (const c of text.chains) lines.push('        - ' + c)
@@ -307,6 +324,28 @@ function buildPromptSection(prompt: string): string[] {
     return out
 }
 
+// The projects whose findings cannot be taken at face value, before the findings themselves: zero findings
+// from a project nothing could read is unknown, not safe. Omitted when every project was fully scanned (or
+// the caller passed no states), so a clean document reads as it always has.
+function buildScanStateSection(scanStates: readonly ExportScanState[]): string[] {
+    const listed = scanStates.filter(function notFull(s) { return s.scanState.state === 'cannot_scan' || s.scanState.state === 'partial' })
+    if (listed.length === 0) return []
+    const out: string[] = []
+    out.push('## Projects that could not be fully scanned')
+    out.push('')
+    out.push('Zero findings from these projects means unknown, not safe. Findings an earlier scan recorded for them are still listed, marked "not re-checked".')
+    out.push('')
+    for (const entry of listed) {
+        const where = entry.projectPath ? ' (`' + escapeForMarkdown(entry.projectPath) + '`)' : ''
+        out.push('- **' + entry.projectName + '**' + where + ' — ' + scanStateHeadline(entry.scanState.state))
+        for (const group of groupScanReasons(entry.scanState.reasons)) {
+            out.push('    - ' + describeGroupedReasonLong(group))
+        }
+    }
+    out.push('')
+    return out
+}
+
 // `startIndex` keeps the printed numbering continuous across pages, so entry 25 is called 25 on page 2
 // rather than restarting at 1.
 function buildFindingsSection(findings: ExportFinding[], startIndex: number): string[] {
@@ -330,11 +369,15 @@ export function buildAdvisoryMarkdown(args: {
     prompt: string
     findings: ExportFinding[]
     generatedAt: number
+    // The covered projects' scan states; those not fully scanned get their own section. Optional: a caller
+    // with no state to give (the worker's per-scan webhook) renders exactly as before.
+    scanStates?: readonly ExportScanState[]
 }): string {
     const { scope, prompt, findings, generatedAt } = args
     const sorted = sortForExport(findings)
     const out = buildHeader(scope, generatedAt, sorted.length, null)
         .concat(buildPromptSection(prompt))
+        .concat(buildScanStateSection(args.scanStates ?? []))
         .concat(buildFindingsSection(sorted, 0))
     return out.join('\n')
 }
@@ -363,11 +406,14 @@ export function buildPaginatedAdvisoryMarkdown(args: {
     generatedAt: number
     offset: number
     byteBudget: number
+    // As in buildAdvisoryMarkdown. Rendered on the first page only: a continuation page carries findings.
+    scanStates?: readonly ExportScanState[]
 }): PaginatedAdvisoryMarkdown {
     const { scope, prompt, findings, generatedAt, byteBudget } = args
     const sorted = sortForExport(findings)
     const offset = Math.max(0, Math.min(args.offset, sorted.length))
-    const preamble = buildHeader(scope, generatedAt, 0, { offset, total: sorted.length }).concat(buildPromptSection(prompt))
+    const stateSection = offset === 0 ? buildScanStateSection(args.scanStates ?? []) : []
+    const preamble = buildHeader(scope, generatedAt, 0, { offset, total: sorted.length }).concat(buildPromptSection(prompt)).concat(stateSection)
     // The header is rebuilt once the page size is known (its subtitle names the range), so only its
     // size is borrowed here. Leave headroom for that rebuild plus the continuation notice.
     let used = preamble.join('\n').length + 512
@@ -384,6 +430,7 @@ export function buildPaginatedAdvisoryMarkdown(args: {
     const nextOffset = nextIndex < sorted.length ? nextIndex : null
     const out = buildHeader(scope, generatedAt, page.length, { offset, total: sorted.length })
         .concat(buildPromptSection(prompt))
+        .concat(stateSection)
         .concat(buildFindingsSection(page, offset))
     return {
         markdown: out.join('\n'),

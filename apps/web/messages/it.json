@@ -156,7 +156,12 @@
         "nodeAmbient": "ambiente",
         "badgeMuted": "silenziato",
         "badgeMissing": "mancante",
-        "colLanguage": "Linguaggio"
+        "colLanguage": "Linguaggio",
+        "stateCannotScan": "Non scansionabile",
+        "statePartial": "Non scansionabile del tutto",
+        "stateNotScannedYet": "Non ancora scansionato",
+        "stateSideProject": "il progetto",
+        "stateSideEnvironment": "questa installazione di Sentinello"
     },
     "WhatsNew": {
         "pillLabel": "Novità",
@@ -490,7 +495,8 @@
             "notVerified": "non verificato: non è stato possibile controllarne la chiusura di dipendenze",
             "builtIn": "integrato: {id}",
             "snippet": "codice in linea",
-            "removal": "rimuovilo"
+            "removal": "rimuovilo",
+            "asOfLastScan": "Secondo l'ultima scansione riuscita:"
         },
         "vulnPrefix": "vuln:",
         "groupingAriaLabel": "Raggruppamento dei risultati",
@@ -513,7 +519,11 @@
         "grades": {
             "label": "Valutazione per fonte",
             "explain": "Sentinello riporta la valutazione più grave tra quelle delle fonti, per non sottostimare mai una vulnerabilità."
-        }
+        },
+        "notRecheckedCannotScan": "non ricontrollato — il progetto non può essere scansionato: {reason}",
+        "notRecheckedPartial": "non ricontrollato — il progetto non può essere scansionato del tutto: {reason}",
+        "lastScannedSuccessfully": "ultima scansione riuscita il {date}",
+        "neverScannedSuccessfully": "mai scansionato con successo"
     },
     "Triage": {
         "alias": {
@@ -715,10 +725,16 @@
                 "discovered": "Rilevate",
                 "resolved": "Risolte"
             },
-            "coverageTitle": "Lacune di copertura",
-            "coverageBody": "Alcuni linguaggi in questo progetto non hanno potuto essere analizzati completamente offline, quindi i findings potrebbero essere incompleti per essi.",
-            "coveragePartial": "Parziale",
-            "coverageUnauditable": "Non analizzabile"
+            "cannotScanTitle": "Il progetto non può essere scansionato",
+            "cannotScanBody": "Nessuna fonte è riuscita a leggere questo progetto. Le vulnerabilità qui sotto sono quelle registrate da una scansione precedente e non sono state ricontrollate; zero vulnerabilità qui significa sconosciuto, non sicuro.",
+            "partialScanTitle": "Il progetto non può essere scansionato del tutto",
+            "partialScanBody": "Una parte di questo progetto non è stata scansionata, quindi le sue vulnerabilità potrebbero essere incomplete. Quelle di una fonte che non è riuscita a scansionarlo non sono state ricontrollate.",
+            "scanReasonSideProject": "dal lato del progetto: un file del progetto ne impedisce la lettura, e la soluzione è modificarlo lì",
+            "scanReasonSideEnvironment": "dal lato di questa installazione di Sentinello: l'installazione non è riuscita a eseguire la scansione, e la soluzione spetta all'operatore",
+            "scanReasonNotYetRun": "nessuno lo ha ancora esaminato: lo farà la prossima scansione",
+            "noFindingsUnknownTitle": "Nessuna vulnerabilità registrata",
+            "noFindingsUnknownBody": "Non è stato trovato nulla, ma questo progetto non è stato scansionato del tutto: è sconosciuto, non sicuro.",
+            "noFindingsNotScannedBody": "Questo progetto non è ancora stato scansionato."
         },
         "library": {
             "eyebrow": "Libreria",

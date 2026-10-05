@@ -116,7 +116,7 @@ function outcome(overrides: Partial<SyncOutcome> = {}): SyncOutcome {
 }
 
 function scanResult(overrides: Partial<ProjectScanResult> = {}): ProjectScanResult {
-    return { project: project(), findings: [], outcomes: [], fixes: new Map(), remediations: new Map(), wayOutError: null, ...overrides } as ProjectScanResult
+    return { project: project(), findings: [], outcomes: [], fixes: new Map(), remediations: new Map(), wayOutError: null, scanState: { state: 'scanned', reasons: [] }, ...overrides } as ProjectScanResult
 }
 
 function projectSummary(overrides: Partial<RunSummary['projects'][number]> = {}): RunSummary['projects'][number] {
@@ -126,6 +126,7 @@ function projectSummary(overrides: Partial<RunSummary['projects'][number]> = {})
         findingCount: 0,
         counts: { critical: 0, high: 0, moderate: 0, low: 0, info: 0 },
         unauditable: [],
+        scanState: { state: 'scanned', reasons: [] },
         ...overrides
     }
 }
@@ -161,6 +162,48 @@ beforeEach(function setup() {
 afterEach(function teardown() {
     vi.restoreAllMocks()
     vi.useRealTimers()
+})
+
+describe('summary — a project that cannot be scanned is never clean', function () {
+    const CANNOT = { state: 'cannot_scan' as const, reasons: [{ source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile' as const, side: 'project' as const }] }
+    const PARTIAL = { state: 'partial' as const, reasons: [{ source: null, ecosystem: 'npm', reasonCode: 'not_yet_run' as const, side: null }] }
+
+    it('does not count it clean, and lists it with its reasons', function () {
+        ui().summary(summary({ projects: [projectSummary({ relPath: 'ddns', scanState: CANNOT }), projectSummary()] }), null)
+        expect(out()).toContain('No findings — but not everything could be checked.')
+        expect(out()).not.toContain('clean')
+        expect(out()).toContain('1 project cannot be scanned')
+        expect(out()).toContain('✗ ddns  cannot be scanned — No lockfile (the project)')
+    })
+
+    it('counts both kinds beside the findings, pluralised', function () {
+        ui().summary(summary({
+            totalFindings: 1,
+            counts: { critical: 0, high: 1, moderate: 0, low: 0, info: 0 },
+            projects: [
+                projectSummary({ relPath: 'a', scanState: CANNOT }),
+                projectSummary({ relPath: 'b', scanState: CANNOT }),
+                projectSummary({ relPath: 'c', scanState: PARTIAL, findingCount: 1, counts: { critical: 0, high: 1, moderate: 0, low: 0, info: 0 } })
+            ]
+        }), null)
+        expect(out()).toContain('2 projects cannot be scanned · 1 project cannot be fully scanned')
+        expect(out()).toContain('! c  cannot be fully scanned — npm: Has not run yet')
+    })
+
+    it('counts projects that cannot be fully scanned alone, and lists one nothing scanned without a count', function () {
+        ui().summary(summary({ projects: [projectSummary({ relPath: 'c', scanState: PARTIAL }), projectSummary({ relPath: 'd', scanState: PARTIAL })] }), null)
+        expect(out()).toContain('2 projects cannot be fully scanned')
+        expect(out()).not.toContain('cannot be scanned ·')
+        written.length = 0
+        ui().summary(summary({ projects: [projectSummary({ relPath: 'new', scanState: { state: 'not_scanned_yet', reasons: [] } })] }), null)
+        expect(out()).toContain('! new  not scanned — no source ran')
+        expect(out()).not.toContain('cannot be')
+    })
+
+    it('counts only fully scanned projects as clean', function () {
+        ui().summary(summary({ projects: [projectSummary(), projectSummary({ relPath: 'api' })] }), null)
+        expect(out()).toContain('2 projects clean.')
+    })
 })
 
 describe('summary — a lost source is not a clean scan', function () {
@@ -730,16 +773,26 @@ describe('scan progress', function () {
         expect(out()).toContain('my-repo')
     })
 
-    // "0 findings" must never be confused with "nothing could be checked".
-    it('names the scanners that could not answer, with the reason', function () {
+    // "0 findings" must never be confused with "nothing could be checked": a project that cannot be scanned
+    // says so, with the reasons labelled and whose side they are on, never raw codes.
+    it('says a project cannot be scanned, and why, in place of raw reason codes', function () {
         ui().scanProjectDone(scanResult({
-            outcomes: [
-                { scanner: 'npm-audit', status: 'unauditable', reasonCode: 'no_lockfile', errorText: null, durationMs: 5 },
-                { scanner: 'osv', status: 'ok', reasonCode: 'ok', errorText: null, durationMs: 5 }
-            ]
+            outcomes: [{ scanner: 'npm-audit', status: 'unauditable', reasonCode: 'no_lockfile', errorText: null, durationMs: 5 }],
+            scanState: { state: 'cannot_scan', reasons: [{ source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project' }, { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project' }] }
         }))
-        expect(out()).toContain('npm-audit: no_lockfile')
-        expect(out()).not.toContain('osv: ok')
+        expect(out()).toContain('✗ web  cannot be scanned — No lockfile (the project)')
+        expect(out()).not.toContain('no_lockfile')
+    })
+
+    it('says a project cannot be fully scanned, next to its findings, and when nothing ran at all', function () {
+        ui().scanProjectDone(scanResult({
+            findings: [{}] as ProjectScanResult['findings'],
+            scanState: { state: 'partial', reasons: [{ source: 'osv', ecosystem: null, reasonCode: 'osv_db_not_seeded', side: 'environment' }] }
+        }))
+        expect(out()).toContain('! web  1 finding  cannot be fully scanned — OSV database not downloaded yet (this Sentinello install)')
+        written.length = 0
+        ui().scanProjectDone(scanResult({ scanState: { state: 'not_scanned_yet', reasons: [] } }))
+        expect(out()).toContain('! web  not scanned — no source ran')
     })
 
     // The fixes stand when the way out fails; the user is told which part of the answer is missing.

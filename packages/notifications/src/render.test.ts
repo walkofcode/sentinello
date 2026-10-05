@@ -319,12 +319,44 @@ describe('renderScanFailure', function () {
             projectName: 'api',
             projectId: 'project-1',
             gitBranch: null,
-            event: scanFailureEvent({ failureSignature: 'error:no_lockfile' }),
+            event: scanFailureEvent({ failureSignature: 'error:pm_missing' }),
             errorText: null,
             portalBaseUrl: null
         })
-        expect(out.title).not.toContain('error:no_lockfile')
-        expect(out.title.startsWith('[SCAN FAILED] api — ')).toBe(true)
+        expect(out.title).toBe('[SCAN FAILED] api — Package manager not on PATH')
+        expect(out.markdown).toContain('*Failure:* Package manager not on PATH')
+        expect(out.markdown).toContain('*Whose fix:* this Sentinello install')
+    })
+
+    // A cause on the project's side is not a scan that broke: the project cannot be scanned until someone
+    // changes it, and the title says so.
+    it('says a project cannot be scanned when the cause is on its side', function () {
+        const out = renderScanFailure({
+            projectName: 'ddns',
+            projectId: 'project-1',
+            gitBranch: null,
+            event: scanFailureEvent({ failureSignature: 'unauditable:no_lockfile' }),
+            errorText: null,
+            portalBaseUrl: null
+        })
+        expect(out.title).toBe('[CANNOT BE SCANNED] ddns — No lockfile')
+        expect(out.markdown).toContain('*Cannot be scanned:* *ddns*')
+        expect(out.markdown).toContain('*Reason:* No lockfile')
+        expect(out.markdown).toContain('*Whose fix:* the project')
+        expect(out.markdown).not.toContain('Scan failed')
+    })
+
+    it('says a project cannot be scanned in the configured locale', function () {
+        const out = renderScanFailure({
+            projectName: 'ddns',
+            projectId: 'project-1',
+            gitBranch: null,
+            event: scanFailureEvent({ failureSignature: 'unauditable:no_lockfile' }),
+            errorText: null,
+            portalBaseUrl: null,
+            locale: 'es'
+        })
+        expect(out.title).toBe('[CANNOT BE SCANNED] ddns — Sin lockfile')
     })
 
     it('passes a legacy one-liner signature through unchanged', function () {

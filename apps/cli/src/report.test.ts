@@ -5,7 +5,7 @@ import { parseArgs } from './options'
 import type { CliOptions } from './options'
 import type { ProjectScanResult, ScannerOutcome } from './scan'
 import { settleFix } from '@sentinello/fixes'
-import type { Remediation } from '@sentinello/core'
+import type { Remediation, ScanState } from '@sentinello/core'
 import type { RawFinding } from '@sentinello/scanners'
 import type { DiscoveredProject } from '@sentinello/scanners'
 
@@ -60,16 +60,19 @@ function outcome(overrides: Partial<ScannerOutcome> = {}): ScannerOutcome {
     return { scanner: 'osv', status: 'ok', reasonCode: 'ok', errorText: null, durationMs: 1, ...overrides }
 }
 
+const SCANNED: ScanState = { state: 'scanned', reasons: [] }
+
 // Settled offline: the registry is the CLI's settleProject's business (scan.test.ts), not the report's.
 function result(
     proj: DiscoveredProject,
     findings: RawFinding[],
-    outcomes: ScannerOutcome[] = [outcome()]
+    outcomes: ScannerOutcome[] = [outcome()],
+    scanState: ScanState = SCANNED
 ): ProjectScanResult {
     const fixes = new Map(findings.map(function settle(f) {
         return [f, settleFix({ evidence: [f.fixInputs], registry: { status: 'offline' }, checkedAt: 0 })] as const
     }))
-    return { project: proj, findings, outcomes, fixes, remediations: new Map(), wayOutError: null }
+    return { project: proj, findings, outcomes, fixes, remediations: new Map(), wayOutError: null, scanState }
 }
 
 describe('summarize — counting', function () {
@@ -232,6 +235,7 @@ describe('hasUnavailableSource — "we could not look", not "we found nothing"',
                 relPath: '.',
                 findingCount: 0,
                 counts: { critical: 0, high: 0, moderate: 0, low: 0, info: 0 },
+                scanState: SCANNED,
                 unauditable: reasonCodes.map(function entry(reasonCode) {
                     return { scanner: 'osv', reasonCode, errorText: null }
                 })
@@ -278,6 +282,7 @@ describe('hasUnavailableSource — "we could not look", not "we found nothing"',
             relPath: 'api',
             findingCount: 0,
             counts: { critical: 0, high: 0, moderate: 0, low: 0, info: 0 },
+            scanState: SCANNED,
             unauditable: [{ scanner: 'osv', reasonCode: 'osv_db_not_seeded', errorText: null }]
         })
         expect(hasUnavailableSource(summary)).toBe(true)
@@ -345,7 +350,8 @@ describe('renderJson', function () {
                 path: 'apps/a',
                 findingCount: 1,
                 counts: { critical: 0, high: 1, moderate: 0, low: 0, info: 0 },
-                unauditable: []
+                unauditable: [],
+                scanState: { state: 'scanned', reasons: [] }
             }
         ])
     })
@@ -396,5 +402,39 @@ describe('defaultOutputFilename', function () {
     it('is stable for the same instant', function () {
         const options = optionsWith([])
         expect(defaultOutputFilename(options, GENERATED_AT)).toBe(defaultOutputFilename(options, GENERATED_AT))
+    })
+})
+
+describe('project cannot be scanned — the report', function () {
+    const CANNOT: ScanState = {
+        state: 'cannot_scan',
+        reasons: [
+            { source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project' },
+            { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project' }
+        ]
+    }
+    const noLockfile = [outcome({ scanner: 'npm-audit', status: 'unauditable', reasonCode: 'no_lockfile' })]
+
+    it('carries the state into the summary and, labelled, into the JSON', function () {
+        const options = optionsWith([])
+        const summary = summarize([result(project('ddns', 'ddns'), [], noLockfile, CANNOT)], options)
+        expect(summary.projects[0]?.scanState).toEqual(CANNOT)
+        const doc = JSON.parse(renderJson(summary, options, GENERATED_AT))
+        expect(doc.projects[0].scanState).toEqual({
+            state: 'cannot_scan',
+            reasons: [
+                { source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' },
+                { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' }
+            ]
+        })
+    })
+
+    it('gives the markdown the section for the project that cannot be scanned only', function () {
+        const options = optionsWith([])
+        const summary = summarize([result(project('ddns', 'ddns'), [], noLockfile, CANNOT), result(project('web', '.'), [])], options)
+        const md = renderMarkdown(summary, options, '', GENERATED_AT)
+        expect(md).toContain('## Projects that could not be fully scanned')
+        expect(md).toContain('- **ddns** — Project cannot be scanned\n    - No lockfile — npm audit, npm — on the project\'s side')
+        expect(md).not.toContain('- **web**')
     })
 })

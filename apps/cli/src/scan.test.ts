@@ -1,12 +1,13 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { DiscoveredProject, GemnasiumAdvisory, OsvAdvisory, RawFinding, ScanContext, ScanResult, ScannerPlugin } from '@sentinello/scanners'
 import type { NpmPackageResult } from '@sentinello/feeds'
 import { createMemoryRegistryStore, createNpmRegistryClient } from '@sentinello/fixes'
 import type { LoadedCache } from './cache/lookup'
-import { buildScanners, collectPackageNames, pick, resolveProjects, scanProject, type ResolvedProject, type ScanSetup } from './scan'
+import { buildScanners, cliScanState, collectPackageNames, pick, resolveProjects, scanProject, type ResolvedProject, type ScanSetup } from './scan'
 
 // The CLI's scan runner — structurally apps/worker/src/runner.ts with the database and notification calls
 // removed. The symmetry is the point: a CLI run and a portal scan of the same project must produce the
@@ -545,5 +546,57 @@ describe('scanProject', function () {
             expect(ctxOf(osv).abortSignal).toBe(controller.signal)
             expect(ctxOf(osv).timeoutMs).toBeGreaterThan(0)
         })
+    })
+})
+
+// tests/fixtures/projects/npm-no-lockfile: a package.json with nothing pinned. Every source the run enabled
+// is refused for the same reason, on the project's side, so the project cannot be scanned — never clean.
+describe('project cannot be scanned — a lockfile-less project', function () {
+    const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'tests', 'fixtures', 'projects', 'npm-no-lockfile')
+
+    it('reads as cannot be scanned: No lockfile, from the source and the npm dependencies', async function () {
+        const [entry] = await resolveProjects([project({ absolutePath: FIXTURE, relPath: 'npm-no-lockfile', name: 'npm-no-lockfile' })])
+        const scanners = buildScanners(setup({ includeNpmAudit: false, sources: ['osv'] }), emptyCache())
+        const scanned = await scanProject(setup({ includeNpmAudit: false, sources: ['osv'] }), entry as ResolvedProject, scanners)
+        expect(scanned.findings).toEqual([])
+        expect(scanned.scanState).toEqual({
+            state: 'cannot_scan',
+            reasons: [
+                { source: 'osv', ecosystem: null, reasonCode: 'no_lockfile', side: 'project' },
+                { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project' }
+            ]
+        })
+    })
+})
+
+describe('cliScanState — the run is its own expected sources', function () {
+    const ok = { ecosystem: 'npm', status: 'ok' as const, graph: { packages: [], edges: [] } } as unknown as ResolvedProject['results'][number]
+
+    it('is scanned when every scanner the run enabled answered and the run ecosystem was read', function () {
+        const outcomes = [{ scanner: 'osv', status: 'ok', reasonCode: 'ok', errorText: null, durationMs: 1 }]
+        expect(cliScanState({ ecosystem: 'npm' }, { results: [ok] }, [{ name: 'osv' }], outcomes)).toEqual({ state: 'scanned', reasons: [] })
+    })
+
+    // Another ecosystem the CLI does not audit is not something the run was asked to read.
+    it('ignores the coverage of an ecosystem the run does not audit', function () {
+        const pypi = { ecosystem: 'PyPI', status: 'unauditable', reasonCode: 'no_lockfile', details: [] } as ResolvedProject['results'][number]
+        const outcomes = [{ scanner: 'osv', status: 'ok', reasonCode: 'ok', errorText: null, durationMs: 1 }]
+        expect(cliScanState({ ecosystem: 'npm' }, { results: [ok, pypi] }, [{ name: 'osv' }], outcomes).state).toBe('scanned')
+    })
+
+    it('reads a scanner the run never reached as not yet run, and a partly read ecosystem by its reason', function () {
+        const partial = { ecosystem: 'npm', status: 'partial', reasonCode: 'partial_dependency_graph', details: [], graph: { packages: [], edges: [] } } as unknown as ResolvedProject['results'][number]
+        const outcomes = [{ scanner: 'npm-audit', status: 'ok', reasonCode: 'ok', errorText: null, durationMs: 1 }]
+        expect(cliScanState({ ecosystem: 'npm' }, { results: [partial] }, [{ name: 'npm-audit' }, { name: 'osv' }], outcomes)).toEqual({
+            state: 'partial',
+            reasons: [
+                { source: 'osv', ecosystem: null, reasonCode: 'not_yet_run', side: null },
+                { source: null, ecosystem: 'npm', reasonCode: 'partial_dependency_graph', side: 'project' }
+            ]
+        })
+    })
+
+    it('is not scanned yet when the run enabled no scanner', function () {
+        expect(cliScanState({ ecosystem: 'npm' }, { results: [ok] }, [], [])).toEqual({ state: 'not_scanned_yet', reasons: [] })
     })
 })

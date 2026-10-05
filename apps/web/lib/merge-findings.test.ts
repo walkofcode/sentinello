@@ -562,3 +562,21 @@ describe('mergeFindings — picking the fix status', function () {
         expect(merged[0]).toMatchObject({ fixStatus: 'none_released', fixAvailable: false, fixVersion: null })
     })
 })
+
+describe('mergeFindings — not re-checked', function () {
+    const RETAINED = { reasonCode: 'no_lockfile' as const, side: 'project' as const, projectState: 'cannot_scan' as const, lastOkScanAt: 1 }
+
+    // The annotation belongs to the fix it qualifies: it travels with the row that gave the merged fix.
+    it('carries the not re-checked context of the row whose fix it shows', function () {
+        const merged = mergeFindings([
+            row({ id: 'a', scanner: 'npm-audit', source: 'npm-audit', fixVersion: '4.17.21', notRecheckedBecause: RETAINED }),
+            row({ id: 'b', scanner: 'osv', source: 'osv', fixStatus: 'unverified', fixCheck: null })
+        ])
+        expect(merged[0]).toMatchObject({ fixVersion: '4.17.21', notRecheckedBecause: RETAINED })
+        const fresh = mergeFindings([
+            row({ id: 'a', scanner: 'npm-audit', source: 'npm-audit', fixStatus: 'unverified', fixCheck: null, notRecheckedBecause: RETAINED }),
+            row({ id: 'b', scanner: 'osv', source: 'osv', fixVersion: '4.17.21' })
+        ])
+        expect(fresh[0]).toMatchObject({ fixVersion: '4.17.21', notRecheckedBecause: null })
+    })
+})

@@ -1,47 +1,33 @@
-import { isSourceUnavailableReason, reasonCodeLabel, type Locale, type ReasonCode } from '@sentinello/core'
-import type { ProjectCatalogRow, ProjectScanState } from '@sentinello/db'
-import { sourceLabel } from '@/components/findings/source-order'
+import { groupScanReasons, type Locale, type ScanState, type ScanStateSide } from '@sentinello/core'
+import type { ProjectCatalogRow } from '@sentinello/db'
 
-// How the dashboard's State column reads a project's per-source scan verdicts.
+// How the dashboard's State column reads a project's scan state.
 //
 // Lives here rather than in projects-filter-view.tsx because .tsx is outside the coverage globs: the
 // decisions below are the ones worth pinning, and in the component they would ship untested.
 
-// The sources that could not answer. A source that returned ok contributes nothing, so a project whose
-// enabled sources all succeeded shows an empty State cell rather than a row of green reassurance.
-export function problemScanStates(row: ProjectCatalogRow): ProjectScanState[] {
-    return row.scanStates.filter(function notOk(state) {
-        return state.status !== 'ok'
-    })
-}
-
-// Healthy = every source that answered said ok, and nothing was found.
-//
-// `every` is vacuously true on an empty array, so the length check is what preserves the old behaviour
-// for a project nothing has ever scanned: it is not healthy, it is unexamined. It also fixes a quieter
-// bug the single-latest-scan version had — a project whose npm audit errored while OSV returned ok read
-// as healthy and was hidden by default, because OSV's row was the one that won the race.
+// Healthy = the project was fully scanned (every expected source answered, every detected ecosystem was
+// read) and nothing was found. Anything less is not healthy: a project nothing could read has zero
+// findings because nothing looked, and one nothing has scanned yet is unexamined, not clean.
 export function isProjectHealthy(row: ProjectCatalogRow, findingCount: number): boolean {
-    if (row.scanStates.length === 0) return false
-    if (findingCount !== 0) return false
-    return row.scanStates.every(function ok(state) {
-        return state.status === 'ok'
-    })
+    return row.scanState.state === 'scanned' && findingCount === 0
 }
 
-// The badge text for one failing source: the source name, then what went wrong.
-//
-// The name is dropped when the reason code is one of SOURCE_UNAVAILABLE_REASON_CODES, because those four
-// are the codes ABOUT a particular source and their labels already name it in all ten locales (asserted
-// in the test beside this). Prefixing them produced "OSV · OSV database not downloaded yet" on the most
-// common case of all. Every other reason is generic — "No lockfile" says nothing about who was asking —
-// so those keep the prefix.
-//
-// The coupling is deliberate but worth knowing: widening SOURCE_UNAVAILABLE_REASON_CODES for the CI-gate
-// reason it exists for would also silence the prefix here. If a code is ever added whose label does not
-// name its source, the test beside this fails rather than the UI quietly losing the attribution.
-export function scanStateLabel(state: ProjectScanState, locale: Locale): string {
-    const reason = reasonCodeLabel((state.reasonCode as ReasonCode | null) || null, locale)
-    if (state.reasonCode && isSourceUnavailableReason(state.reasonCode)) return reason
-    return sourceLabel(state.source) + ' · ' + reason
+// The State badge: the scan state as one word, or null for a fully scanned project, which shows nothing
+// rather than a row of green reassurance.
+export function scanStateBadge(state: ScanState): 'cannotScan' | 'partial' | 'notScannedYet' | null {
+    if (state.state === 'cannot_scan') return 'cannotScan'
+    if (state.state === 'partial') return 'partial'
+    if (state.state === 'not_scanned_yet') return 'notScannedYet'
+    return null
+}
+
+// The badge's tooltip: every reason, labelled in the reader's locale, with whose fix it is — "No lockfile
+// (the project) · OSV database not downloaded yet (this Sentinello install) · npm: Has not run yet".
+// `sides` carries the two side words in the same locale.
+export function scanStateReasonsText(state: ScanState, locale: Locale, sides: Record<ScanStateSide, string>): string {
+    return groupScanReasons(state.reasons, locale).map(function line(group) {
+        if (group.side === null) return group.subjects.join(', ') + ': ' + group.label
+        return group.label + ' (' + sides[group.side] + ')'
+    }).join(' · ')
 }

@@ -4,6 +4,7 @@ import {
     getDashboardSummary,
     getProjectById,
     getProjectEcosystemCoverage,
+    getProjectScanState,
     getRootById,
     listActiveMutes,
     listCurrentFindingsForProject,
@@ -12,7 +13,7 @@ import {
     listRoots,
     listScansForProject
 } from '@sentinello/db'
-import { buildPaginatedAdvisoryMarkdown, meetsSeverityFloor } from '@sentinello/core'
+import { buildPaginatedAdvisoryMarkdown, labelScanState, meetsSeverityFloor } from '@sentinello/core'
 import { getDb } from '@/lib/db'
 import { buildProjectAdvisoryParts } from '@/lib/project-advisory-export'
 import { buildAdvisoryToolResult } from '@/lib/mcp/advisory-result'
@@ -29,6 +30,10 @@ const depTypeSchema = z
 // prompt and the continuation notice. Paging past this is honest and explicit; silently overflowing
 // the client's limit is not — a truncated security document reads as a clean one.
 const ADVISORY_BYTE_BUDGET = 90_000
+
+// What scanState means, shared by list_projects and get_project so the two never describe it differently.
+const SCAN_STATE_DESCRIPTION =
+    "scanState is the project's verdict over the sources this instance expects to have scanned it (every enabled source for an ecosystem detected in the project): { state, reasons }. state is one of: 'scanned' — every expected source's latest scan succeeded and every detected ecosystem's dependencies were fully read (reasons is empty); 'partial' — shown as \"Project cannot be fully scanned\": at least one source answered but something else did not (another source failed, one has not run yet, or an ecosystem could only be partly read), so its findings may be incomplete; 'cannot_scan' — shown as \"Project cannot be scanned\": no expected source could scan it and at least one tried and failed; 'not_scanned_yet' — nothing expected has scanned it yet (shown as never scanned). Zero findings on a 'partial', 'cannot_scan' or 'not_scanned_yet' project means UNKNOWN, not safe — only 'scanned' with zero findings is clean. Each reason is { source, ecosystem, reasonCode, label, side }: exactly one of source (a source id such as 'npm-audit', for that source's failed or missing scan) and ecosystem (an ecosystem id such as 'npm', for dependencies that could not be fully read) is set, the other is null; reasonCode is a scan reason code (e.g. 'no_lockfile', 'osv_db_not_seeded') or 'not_yet_run'; label is its English text; side says whose fix it is — 'project' (something in the project's folder stops it from being read: no lockfile, an unsupported lockfile, Yarn 1, an unknown package manager; the project's owner fixes it), 'environment' (this Sentinello install could not do the scan: a package manager or nvm missing, an advisory database not downloaded, a timeout, an audit failure; the operator fixes it), or null for 'not_yet_run' (nothing has looked yet — nobody's fault, the next scan does)."
 
 // Thin wrappers around packages/db query helpers. Each tool returns structured JSON via
 // `structuredContent` so MCP clients with schema-aware UIs render it nicely, plus a text fallback
@@ -79,7 +84,7 @@ export function registerReadTools(server: McpServer): void {
         {
             title: 'List projects',
             description:
-                'Lists projects discovered under all (or one) root, each with severity counts and a PER-SOURCE scan state. Severity counts are DISTINCT ADVISORIES, deduplicated across reporting sources — so they are lower than the row count list_findings returns for the same project, and they match get_project_advisory. scanStates carries ONE ENTRY PER ADVISORY SOURCE (npm-audit, osv, gemnasium) that has scanned the project and is still enabled, each with that source own latest finishedAt, status, reasonCode and errorText — reported separately because the sources finish at different times and routinely disagree, so a project can be ok for one source and unauditable for another. Read every entry: a non-ok entry means that source could not look at all, so zero findings from it means unknown, not safe. An EMPTY scanStates array means nothing has ever scanned the project, which is also not clean. A project silenced by a project-scope mute is still LISTED here, carrying muted: true and severity counts of zero; those zeros mean silenced, not clean, so check the muted flag before reporting a project as having nothing wrong. Such projects are excluded from the get_dashboard_summary totals, which is why this list can be longer than totalActiveProjects. This is the usual starting point for finding a projectId.',
+                'Lists projects discovered under all (or one) root, each with severity counts, the project\'s scanState and a PER-SOURCE scan state. ' + SCAN_STATE_DESCRIPTION + ' Severity counts are DISTINCT ADVISORIES, deduplicated across reporting sources — so they are lower than the row count list_findings returns for the same project, and they match get_project_advisory. scanStates carries ONE ENTRY PER ADVISORY SOURCE (npm-audit, osv, gemnasium) that has scanned the project and is still enabled, each with that source own latest finishedAt, status, reasonCode and errorText — reported separately because the sources finish at different times and routinely disagree, so a project can be ok for one source and unauditable for another; scanState is what they add up to. Read every entry: a non-ok entry means that source could not look at all, so zero findings from it means unknown, not safe. An EMPTY scanStates array means nothing has ever scanned the project, which is also not clean. A project silenced by a project-scope mute is still LISTED here, carrying muted: true and severity counts of zero; those zeros mean silenced, not clean, so check the muted flag before reporting a project as having nothing wrong. Such projects are excluded from the get_dashboard_summary totals, which is why this list can be longer than totalActiveProjects. This is the usual starting point for finding a projectId.',
             inputSchema: {
                 rootId: z.string().min(1).optional().describe('Limit to one root by id'),
                 depType: depTypeSchema.describe('Filter findings by dependency type (default: all)')
@@ -99,9 +104,10 @@ export function registerReadTools(server: McpServer): void {
                 }
                 rows = rows.filter(function inRoot(r) { return r.rootId === rootId })
             }
+            const projects = rows.map(function labelled(r) { return { ...r, scanState: labelScanState(r.scanState) } })
             return {
-                content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
-                structuredContent: { projects: rows }
+                content: [{ type: 'text', text: JSON.stringify(projects, null, 2) }],
+                structuredContent: { projects }
             }
         }
     )
@@ -111,7 +117,7 @@ export function registerReadTools(server: McpServer): void {
         {
             title: 'Get project',
             description:
-                "Fetches a single project by id, including its detected ecosystems and per-ecosystem resolver coverage (ok / partial / unauditable, each with a reason code). Check coverage before concluding a project is clean: 'unauditable' means that ecosystem was never successfully scanned, so zero findings there means unknown, not safe.",
+                "Fetches a single project by id, including its detected ecosystems, its scanState and the per-ecosystem resolver coverage its latest scan recorded (ok / partial / unauditable, each with a reason code; an empty list when the latest scan recorded none, which scanState then reports as not_yet_run for each detected ecosystem). Check scanState before concluding a project is clean. " + SCAN_STATE_DESCRIPTION,
             inputSchema: { id: z.string().min(1).describe('Project id, as returned by list_projects (a 26-char hex string)') }
         },
         async function handler({ id }) {
@@ -122,7 +128,7 @@ export function registerReadTools(server: McpServer): void {
             }
             // Surface per-ecosystem coverage so an agent sees that e.g. a Python scan was partial rather
             // than reading the absence of findings as a clean bill of health.
-            const out = { ...row, coverage: getProjectEcosystemCoverage(db, id) }
+            const out = { ...row, scanState: labelScanState(getProjectScanState(db, id)), coverage: getProjectEcosystemCoverage(db, id) }
             return {
                 content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
                 structuredContent: out
@@ -137,6 +143,7 @@ export function registerReadTools(server: McpServer): void {
             description:
                 "Returns the active (unresolved) vulnerability findings for one project, ordered by severity, as RAW PER-SOURCE ROWS: one row per reporting source, so a vulnerability that npm-audit and OSV both report appears twice under their different advisory ids. This count is therefore expected to EXCEED the distinct-advisory counts from list_projects, get_dashboard_summary and get_project_advisory — that is the intended difference in grain, not a bug. Use this when you want the underlying rows or need to mute a specific (source, advisory, package) identity; use get_project_advisory when you want the deduplicated work document.\n\n" +
                 "FIX FIELDS: every row carries fixStatus, fixVersion, fixAvailable and fixCheck. fixStatus is one of: 'released' — fixVersion is a version PUBLISHED on the npm registry that is outside every reporting source's affected range and not below any installed copy, so it is safe to target; 'none_released' — the registry was checked and NO published version qualifies (fixVersion is null): do not search for, pin or override to a fix version, the finding needs a different way out (replace the package or its parent); 'unverified' — the registry was not consulted or could not settle it (not reachable, package not on the registry, an ecosystem other than npm, or an affected range that could not be evaluated), so fixVersion, when set, is only what an advisory STATES and may not exist. fixVersion is a published version only when fixStatus is 'released'. fixCheck is the verification snapshot: checkedAt (epoch ms, when this row was settled), registry ('ok', 'stale' = cached data used because a refetch failed, 'not_found', 'error', 'skipped'), packageDataAsOf (epoch ms the registry data was fetched), unevaluable (why the evidence could not settle it, or null) and sources (each source's affected range and stated fix). fixCheck null with fixStatus 'unverified' means the row has not been re-checked since this check was introduced; its fix is withheld until the next scan of the project.\n\n" +
+                "NOT RE-CHECKED: every row carries notRecheckedBecause. It is null when the row's own source re-checked it in its latest scan of the project (or never scanned the project). It is an object when that source's latest scan of the project FAILED, so the row is what an earlier scan left and nothing re-checked it since: { reasonCode — why that scan failed (e.g. 'no_lockfile'); side — 'project' (something in the project stops it from being read; its owner fixes it) or 'environment' (this Sentinello install could not do the scan; the operator fixes it); projectState — the project's scan state, 'cannot_scan' (\"the project cannot be scanned\": no source could scan it) or 'partial' (\"the project cannot be fully scanned\"); lastOkScanAt — epoch ms of that source's last successful scan of the project, or null when it never scanned it successfully }. The row's severity and evidence are unchanged, but its fix fields and way out are historical: a settled row's fixStatus, fixVersion, fixCheck and remediation are as of the scan that settled it (fixCheck.checkedAt), and may be out of date; a row with fixCheck null was never settled, and with notRecheckedBecause set it is not waiting for a rescan — the project cannot be scanned until the reason is fixed. Say so when you report such a finding.\n\n" +
                 "WAY OUT: every row carries remediation, which is an object only when fixStatus is 'none_released' and null otherwise (also null when it could not be computed). It is the plan instead of a version to chase, computed at scan time from the npm registry and the project's lockfile: health (the vulnerable package's deprecation notice, lastPublishAt and daysSinceLastPublish, maintainers, weeklyDownloads, and unmaintained = deprecated or no publish for 183 days or more → replace it); chains (up to 5 dependency paths, shortest first, each with importer, rootKind — 'dev' means the path reaches only dev tooling — path as name@version from the direct dependency down, and a verdict: 'upgrade' {package, toAtLeast, proof} = that release's whole resolved dependency closure no longer reaches the package and its parent admits it; 'blocked' {escapePackage, escapeVersion, blockedBy, blockedByLatest, blockedRange, proof} = the escape exists but no released blockedBy admits it; 'noEscape' {packages} = no released version of any of these ancestors drops it; 'unknown' {at, reason} = the registry evidence could not settle it, nothing claimed; 'direct' = it is a direct dependency, replace it); moreChains (how many further dependency paths exist beyond those listed — every simple path, not only the shortest; moreChainsAtLeast true means a dependency cycle made it a lower bound); alternatives (curated replacements from the e18e module-replacements dataset for a package the reader cannot upgrade out of — options of kind 'module' (verified: true only when its latest release's closure was proven free of the vulnerable package), 'native', 'snippet' or 'removal'; an empty options list means no curated alternative is known); devOnly (true only when no production or optional root reaches the package at all, null when that could not be determined); checkedAt (epoch ms). There is no lookup cap: an 'unknown' verdict always names its real cause in reason (a registry error, a package not on the registry, a range nothing satisfies, a dist-tag, a git or file specifier).",
             inputSchema: {
                 projectId: z.string().min(1).describe('Project id, as returned by list_projects (a 26-char hex string)'),
@@ -259,7 +266,7 @@ export function registerReadTools(server: McpServer): void {
         {
             title: 'Get dashboard summary',
             description:
-                "High-level counts across the fleet — totalActiveProjects, projectsWithFindings, severity totals, findingsLast24h, and the last scan timestamp — the same numbers the portal home page shows. Severity totals count distinct advisories (deduped across reporting sources), matching list_projects. Projects silenced by a project-scope mute are EXCLUDED from totalActiveProjects, not merely zeroed: totalActiveProjects and projectsWithFindings are meant to be read together as 'N of M projects have findings', so both count the same population. list_projects still returns those muted projects, so it can be longer than totalActiveProjects — that is the intended difference, not a discrepancy. Use this for 'how bad is it overall', list_projects when you need the per-project breakdown, and list_mutes to see what has been silenced.",
+                "High-level counts across the fleet — totalActiveProjects, projectsWithFindings, severity totals, findingsLast24h, the last scan timestamp, projectsCannotBeScanned (projects whose scanState is 'cannot_scan': no expected source could scan them) and projectsCannotBeFullyScanned (scanState 'partial': only part of the project could be scanned) — the same numbers the portal home page shows. Both counts cover the same population as totalActiveProjects; zero findings on a project counted in either means unknown, not safe — use list_projects to see which projects they are and why. Severity totals count distinct advisories (deduped across reporting sources), matching list_projects. Projects silenced by a project-scope mute are EXCLUDED from totalActiveProjects, not merely zeroed: totalActiveProjects and projectsWithFindings are meant to be read together as 'N of M projects have findings', so both count the same population. list_projects still returns those muted projects, so it can be longer than totalActiveProjects — that is the intended difference, not a discrepancy. Use this for 'how bad is it overall', list_projects when you need the per-project breakdown, and list_mutes to see what has been silenced.",
             inputSchema: { depType: depTypeSchema }
         },
         async function handler({ depType }) {
@@ -278,6 +285,7 @@ export function registerReadTools(server: McpServer): void {
             description:
                 "Returns the Markdown advisory work document for one project — the same document the portal's Download .md button produces: a remediation prompt followed by the active vulnerabilities. This is a work document to act on, not a data query; use list_findings when you only need finding rows.\n\n" +
                 'GRAIN: one entry per distinct advisory, with every reporting source merged into it. A vulnerability that npm-audit and OSV both report is ONE entry here but TWO rows in list_findings, so this count is deliberately lower — that is not a discrepancy. It matches the severity totals from list_projects and the dashboard.\n\n' +
+                'SCAN STATE: when the project cannot be scanned, or cannot be fully scanned, the first page opens with a "Projects that could not be fully scanned" section naming each reason and whose side it is on (the project, or this Sentinello install), and its findings are marked "not re-checked": their fix lines are as of the last successful scan. Zero findings in such a document means unknown, not safe.\n\n' +
                 'SIZE: the response is paginated by byte size, not by a fixed count. If the document does not fit, the last line tells you it is incomplete and gives you the exact follow-up call to make; keep calling until it stops doing so. Never treat a page that ends early as the full list.\n\n' +
                 "Muted findings are excluded, and a note states how many. Default depType is 'all' here, while the portal page defaults to 'prod' — pass 'prod' to match a download taken from the default view.",
             inputSchema: {
@@ -330,7 +338,8 @@ export function registerReadTools(server: McpServer): void {
                 findings,
                 generatedAt: parts.generatedAt,
                 offset: resolvedOffset,
-                byteBudget: ADVISORY_BYTE_BUDGET
+                byteBudget: ADVISORY_BYTE_BUDGET,
+                scanStates: parts.scanStates
             })
             return buildAdvisoryToolResult({
                 page,

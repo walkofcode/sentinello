@@ -26,8 +26,9 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Sea
     const defaults = getFilterDefaults(db)
     const projDep = parseDepTypeParam(params.pdep) || defaults.depType
     const libDep = parseDepTypeParam(params.ldep) || defaults.depType
-    const summary = getDashboardSummary(db, now, projDep)
     const projects = listProjectCatalog(db, now, projDep)
+    // The catalog already read every project's scan state; the summary counts from it rather than again.
+    const summary = getDashboardSummary(db, now, projDep, new Map(projects.map(function stateOf(p) { return [p.id, p.scanState] })))
     const libraries = listLibraries(db, now, libDep)
     const anyInFlight = isAnyScanInFlight(db, now)
     // One query for every project's scan state, so each row's "Scan now" button reflects an

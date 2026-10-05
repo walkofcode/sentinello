@@ -1,4 +1,4 @@
-import { DEFAULT_ECOSYSTEM, type EcosystemId, type Remediation } from '@sentinello/core'
+import { DEFAULT_ECOSYSTEM, projectScanState, type EcosystemId, type Remediation, type ScanState } from '@sentinello/core'
 import {
     createGemnasiumScanner,
     createOsvScanner,
@@ -50,6 +50,9 @@ export type ProjectScanResult = {
     remediations: Map<RawFinding, Remediation>
     // Why the way out could not be computed, or null. The fixes stand regardless.
     wayOutError: string | null
+    // Whether the project could be scanned: the same projectScanState the portal reads, over this run's own
+    // source cells (every scanner the run enabled, for the run's ecosystem).
+    scanState: ScanState
 }
 
 export type ResolvedProject = {
@@ -246,5 +249,33 @@ export async function scanProject(
         const remediation = settled.remediations.get(key)
         if (remediation) remediations.set(finding, remediation)
     }
-    return { project: resolved.project, findings, outcomes, fixes, remediations, wayOutError: settled.wayOutError }
+    return {
+        project: resolved.project,
+        findings,
+        outcomes,
+        fixes,
+        remediations,
+        wayOutError: settled.wayOutError,
+        scanState: cliScanState(setup, resolved, scanners, outcomes)
+    }
+}
+
+// The run's expected sources are the scanners it enabled, and the ecosystem coverage must answer for is
+// the run's own: the CLI audits one ecosystem, so another one detected in the project is not something it
+// was asked to read. A scanner the run never reached (aborted) has no outcome and reads as not yet run.
+export function cliScanState(
+    setup: Pick<ScanSetup, 'ecosystem'>,
+    resolved: Pick<ResolvedProject, 'results'>,
+    scanners: readonly Pick<ScannerPlugin, 'name'>[],
+    outcomes: readonly ScannerOutcome[]
+): ScanState {
+    const own = resolved.results.filter(function inRun(result) { return result.ecosystem === setup.ecosystem })
+    return projectScanState({
+        expectedSources: scanners.map(function name(scanner) { return scanner.name }),
+        latestScans: outcomes.map(function latest(o) { return { source: o.scanner, status: o.status, reasonCode: o.reasonCode, finishedAt: 0 } }),
+        detectedEcosystems: own.map(function ecosystem(result) { return result.ecosystem }),
+        coverage: own.map(function covered(result) {
+            return { ecosystem: result.ecosystem, status: result.status, reasonCode: result.status === 'ok' ? null : result.reasonCode }
+        })
+    })
 }

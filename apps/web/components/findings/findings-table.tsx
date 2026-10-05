@@ -65,7 +65,7 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                                         vulnerableRange={f.vulnerableRange}
                                         fix={f}
                                     />
-                                    {f.fixStatus === 'none_released' && f.remediation ? <WayOut remediation={f.remediation} /> : null}
+                                    {f.fixStatus === 'none_released' && f.remediation ? <WayOut remediation={f.remediation} notRecheckedBecause={f.notRecheckedBecause} /> : null}
                                 </dd>
                                 <dt className="uppercase tracking-wide text-muted-foreground">{t('columns.advisory')}</dt>
                                 <dd className="min-w-0 break-words">
@@ -132,7 +132,7 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                                             vulnerableRange={f.vulnerableRange}
                                             fix={f}
                                         />
-                                        {f.fixStatus === 'none_released' && f.remediation ? <WayOut remediation={f.remediation} /> : null}
+                                        {f.fixStatus === 'none_released' && f.remediation ? <WayOut remediation={f.remediation} notRecheckedBecause={f.notRecheckedBecause} /> : null}
                                     </TableCell>
                                     <TableCell className="text-xs">
                                         {f.advisoryUrl ? (

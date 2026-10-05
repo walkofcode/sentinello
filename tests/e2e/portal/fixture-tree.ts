@@ -23,6 +23,7 @@ import { bulkDeps, bulkLock, BULK_DEP_COUNT, E2E_FIXTURE_ROOT, SEEDED } from './
 const HERE = dirname(fileURLToPath(import.meta.url))
 const NPM_BASIC = resolve(HERE, '..', '..', 'fixtures', 'projects', 'npm-basic')
 const NPM_NO_FIX = resolve(HERE, '..', '..', 'fixtures', 'projects', 'npm-no-fix')
+const NPM_NO_LOCKFILE = resolve(HERE, '..', '..', 'fixtures', 'projects', 'npm-no-lockfile')
 
 function write(path: string, contents: string): void {
     mkdirSync(dirname(path), { recursive: true })
@@ -74,6 +75,12 @@ export const FIXTURE_PROJECTS: FixtureProject[] = [
         relPath: SEEDED.noFixProjectName,
         // The same files as the CLI e2e suite's no-fix fixture, so both suites prove the same two findings.
         purpose: 'two findings with no fixed version released: braces 3.0.3 (dev, nodemon › chokidar) and node-forge 1.4.0 (prod)'
+    },
+    {
+        relPath: SEEDED.cannotScanProjectName,
+        // The same package.json as the CLI e2e suite's lockfile-less fixture. Its two findings are seeded
+        // (seed.ts), as an earlier scan with a lockfile would have left them.
+        purpose: 'cannot be scanned: no lockfile, with an earlier settled finding (lodash) and a legacy one (minimist)'
     }
 ]
 
@@ -124,6 +131,10 @@ export function buildFixtureTree(): string {
     copyFileSync(join(NPM_NO_FIX, 'package.json'), join(noFix, 'package.json'))
     copyFileSync(join(NPM_NO_FIX, 'package-lock.json'), join(noFix, 'package-lock.json'))
     write(join(noFix, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+
+    const lost = join(E2E_FIXTURE_ROOT, SEEDED.cannotScanProjectName)
+    mkdirSync(lost, { recursive: true })
+    copyFileSync(join(NPM_NO_LOCKFILE, 'package.json'), join(lost, 'package.json'))
 
     return E2E_FIXTURE_ROOT
 }

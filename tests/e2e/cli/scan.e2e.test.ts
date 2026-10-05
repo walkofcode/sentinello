@@ -30,6 +30,7 @@ const REPO_ROOT = resolve(HERE, '..', '..', '..')
 const CLI_BIN = join(REPO_ROOT, 'apps', 'cli', 'dist', 'cli.cjs')
 const FIXTURE_PROJECT = join(REPO_ROOT, 'tests', 'fixtures', 'projects', 'npm-basic')
 const FIXTURE_NO_FIX_PROJECT = join(REPO_ROOT, 'tests', 'fixtures', 'projects', 'npm-no-fix')
+const FIXTURE_NO_LOCKFILE_PROJECT = join(REPO_ROOT, 'tests', 'fixtures', 'projects', 'npm-no-lockfile')
 const FIXTURE_ADVISORIES = join(REPO_ROOT, 'tests', 'fixtures', 'advisories', 'osv-npm.ndjson')
 const REGISTRY_LAYERS = [
     join(REPO_ROOT, 'apps', 'worker', 'test', 'fixtures', 'registry', 'base'),
@@ -261,6 +262,34 @@ describe('advisories with no fixed version released', function () {
 })
 
 // A fix the registry confirms is an instruction; one it was not asked about is only the advisory's word.
+// A package.json with no lockfile: nothing can read it, and the run must say so rather than call it clean.
+describe('a project that cannot be scanned', function () {
+    async function scanNoLockfile(extraArgs: string[] = []): Promise<RunResult> {
+        return await runCli([FIXTURE_NO_LOCKFILE_PROJECT, '--source', 'osv', '--no-prompt', '--out', '-', ...extraArgs])
+    }
+
+    it('says "cannot be scanned — No lockfile" and never "clean", in the terminal, the markdown and the JSON', async function () {
+        const markdown = await scanNoLockfile()
+        expect(markdown.code).toBe(0)
+        expect(markdown.stderr).toContain('cannot be scanned — No lockfile (the project)')
+        expect(markdown.stderr).toContain('1 project cannot be scanned')
+        expect(markdown.stderr).not.toContain('clean')
+        expect(markdown.stderr).not.toContain('no_lockfile')
+        expect(markdown.stdout).toContain('## Projects that could not be fully scanned')
+        expect(markdown.stdout).toContain('Project cannot be scanned\n    - No lockfile — OSV, npm — on the project\'s side')
+
+        const json = await scanNoLockfile(['--json'])
+        expect(json.code).toBe(0)
+        expect(JSON.parse(json.stdout).projects[0].scanState).toEqual({
+            state: 'cannot_scan',
+            reasons: [
+                { source: 'osv', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' },
+                { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' }
+            ]
+        })
+    })
+})
+
 describe('fixes the registry confirms', function () {
     it('renders a published stated fix as an upgrade', async function () {
         const result = await scanFixture([])

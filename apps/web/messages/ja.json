@@ -156,7 +156,12 @@
         "nodeAmbient": "アンビエント",
         "badgeMuted": "ミュート済み",
         "badgeMissing": "欠落",
-        "colLanguage": "言語"
+        "colLanguage": "言語",
+        "stateCannotScan": "スキャンできません",
+        "statePartial": "完全にはスキャンできません",
+        "stateNotScannedYet": "未スキャン",
+        "stateSideProject": "プロジェクト側",
+        "stateSideEnvironment": "この Sentinello 環境側"
     },
     "WhatsNew": {
         "pillLabel": "新着情報",
@@ -490,7 +495,8 @@
             "notVerified": "未検証 — 依存クロージャを確認できませんでした",
             "builtIn": "組み込み: {id}",
             "snippet": "インラインコード",
-            "removal": "削除する"
+            "removal": "削除する",
+            "asOfLastScan": "最後に成功したスキャン時点:"
         },
         "vulnPrefix": "脆弱性:",
         "groupingAriaLabel": "検出のグループ化",
@@ -513,7 +519,11 @@
         "grades": {
             "label": "ソースごとの深刻度評価",
             "explain": "Sentinello はいずれかのソースが付けた最も重い評価を採用し、脆弱性を過小評価しません。"
-        }
+        },
+        "notRecheckedCannotScan": "再確認されていません — プロジェクトをスキャンできません: {reason}",
+        "notRecheckedPartial": "再確認されていません — プロジェクトを完全にはスキャンできません: {reason}",
+        "lastScannedSuccessfully": "最後に成功したスキャン {date}",
+        "neverScannedSuccessfully": "一度もスキャンに成功していません"
     },
     "Triage": {
         "alias": {
@@ -715,10 +725,16 @@
                 "discovered": "検出",
                 "resolved": "解決"
             },
-            "coverageTitle": "カバレッジのギャップ",
-            "coverageBody": "このプロジェクトの一部の言語はオフラインで完全に監査できなかったため、それらの findings は不完全な場合があります。",
-            "coveragePartial": "部分的",
-            "coverageUnauditable": "監査不可"
+            "cannotScanTitle": "プロジェクトをスキャンできません",
+            "cannotScanBody": "どのソースもこのプロジェクトを読み取れませんでした。以下の検出結果は以前のスキャンで記録されたもので、再確認されていません。ここで検出ゼロは「安全」ではなく「不明」を意味します。",
+            "partialScanTitle": "プロジェクトを完全にはスキャンできません",
+            "partialScanBody": "このプロジェクトの一部をスキャンできなかったため、検出結果が不完全な可能性があります。スキャンできなかったソースの検出結果は再確認されていません。",
+            "scanReasonSideProject": "プロジェクト側の問題: プロジェクト内のファイルが読み取りを妨げており、そこを変更することが対処です",
+            "scanReasonSideEnvironment": "この Sentinello 環境側の問題: 環境がスキャンを実行できず、運用者が対処します",
+            "scanReasonNotYetRun": "まだ何も確認していません: 次回のスキャンで確認されます",
+            "noFindingsUnknownTitle": "記録された検出結果はありません",
+            "noFindingsUnknownBody": "何も見つかりませんでしたが、このプロジェクトは完全にはスキャンできませんでした。安全ではなく不明です。",
+            "noFindingsNotScannedBody": "このプロジェクトはまだスキャンされていません。"
         },
         "library": {
             "eyebrow": "ライブラリ",

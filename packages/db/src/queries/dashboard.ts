@@ -1,8 +1,8 @@
 import { sql } from 'drizzle-orm'
-import { parseFindingCorroborations, readFixFields, SCAN_HEARTBEAT_STALE_MS, type DepTypeFilter, type NotRecheckedBecause, type FindingCorroboration, type FixCheck, type FixStatus, type Remediation } from '@sentinello/core'
+import { parseFindingCorroborations, readFixFields, SCAN_HEARTBEAT_STALE_MS, type DepTypeFilter, type NotRecheckedBecause, type ScanState, type FindingCorroboration, type FixCheck, type FixStatus, type Remediation } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { depTypeClause } from './dep-type'
-import { activeScanRows, findingScanContexts, listLatestSourceScans } from './scan-state'
+import { activeScanRows, findingScanContexts, listLatestSourceScans, listProjectScanStates, type LatestSourceScanRow } from './scan-state'
 import { activeSourceCellClause } from './sources'
 import { advisoryIdentitySql, severityRankSql, findingMuteExclusionSql } from './advisory-identity'
 
@@ -23,11 +23,18 @@ export type DashboardSummary = {
     severityCounts: SeverityCounts
     findingsLast24h: number
     lastScanFinishedAt: number | null
+    // Projects no expected source could scan ('cannot_scan'), and projects only part of which could be
+    // scanned ('partial'), over the same population as totalActiveProjects. Their zero findings are
+    // unknown, not clean.
+    projectsCannotBeScanned: number
+    projectsCannotBeFullyScanned: number
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeFilter = 'all'): DashboardSummary {
+// `scanStates` is every project's scan state when the caller already has it (the home page reads the
+// project catalog, which carries it): reading it is the costly part of this summary.
+export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeFilter = 'all', scanStates: ReadonlyMap<string, ScanState> | null = null): DashboardSummary {
     const depFilter = depTypeClause(depType)
     const sourceFilter = activeSourceCellClause(db)
     // Project-muted projects are excluded here for the same reason they're excluded from
@@ -135,6 +142,17 @@ export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeF
     } else {
         lastScan = db.get<{ finished_at: number | null }>(sql`SELECT MAX(s.finished_at) AS finished_at FROM scans s WHERE s.finished_at < ${cutoffAt}`)
     }
+    const projectMuted = new Set(db.all<{ id: string }>(sql`
+        SELECT m.project_id AS id FROM mutes m
+        WHERE m.scope = 'project' AND (m.expires_at IS NULL OR m.expires_at > ${at})
+    `).map(function idOf(row) { return row.id }))
+    let cannotScan = 0
+    let partial = 0
+    for (const [id, state] of scanStates ?? listProjectScanStates(db)) {
+        if (projectMuted.has(id)) continue
+        if (state.state === 'cannot_scan') cannotScan++
+        else if (state.state === 'partial') partial++
+    }
     return {
         totalActiveProjects: total?.n || 0,
         projectsWithFindings: withFindings?.n || 0,
@@ -146,7 +164,9 @@ export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeF
             info: sevRow?.info || 0
         },
         findingsLast24h: last24?.n || 0,
-        lastScanFinishedAt: lastScan?.finished_at || null
+        lastScanFinishedAt: lastScan?.finished_at || null,
+        projectsCannotBeScanned: cannotScan,
+        projectsCannotBeFullyScanned: partial
     }
 }
 
@@ -186,14 +206,17 @@ export type ProjectCatalogRow = {
     muteId: string | null
     tagsJson: string
     scanStates: ProjectScanState[]
+    // The project's scan state over its expected sources (projectScanState): what the State column and
+    // MCP say, where scanStates above is each source's own last word.
+    scanState: ScanState
     severityCounts: SeverityCounts
 }
 
 // Latest scan per (project, source), for every source cell that is currently active
 // (listLatestSourceScans says why one row per source, and why an absent source means "has not run").
-function listLatestScanStates(db: DrizzleDb): Map<string, ProjectScanState[]> {
+function listLatestScanStates(db: DrizzleDb, latest: readonly LatestSourceScanRow[]): Map<string, ProjectScanState[]> {
     const byProject = new Map<string, ProjectScanState[]>()
-    for (const row of activeScanRows(db, listLatestSourceScans(db))) {
+    for (const row of activeScanRows(db, latest)) {
         const states = byProject.get(row.projectId) ?? []
         states.push({
             source: row.source,
@@ -210,7 +233,9 @@ function listLatestScanStates(db: DrizzleDb): Map<string, ProjectScanState[]> {
 export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFilter = 'all'): ProjectCatalogRow[] {
     const depFilter = depTypeClause(depType)
     const sourceFilter = activeSourceCellClause(db)
-    const scanStates = listLatestScanStates(db)
+    const latest = listLatestSourceScans(db)
+    const scanStates = listLatestScanStates(db, latest)
+    const projectStates = listProjectScanStates(db, latest)
     const rows = db.all<{
         id: string
         name: string
@@ -299,6 +324,8 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             muted: row.muted === 1,
             tagsJson: row.tags_json,
             scanStates: scanStates.get(row.id) ?? [],
+            // Every listed project is one listProjectScanStates read.
+            scanState: projectStates.get(row.id) as ScanState,
             severityCounts: {
                 critical: row.critical,
                 high: row.high,

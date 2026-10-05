@@ -8,7 +8,8 @@ import { openDb } from '../client'
 import type { DrizzleDb, SqliteDb } from '../client'
 import { runMigrations } from '../migrate'
 import { setConfigValue, upsertRoot } from './config'
-import { listCurrentFindingsForProject } from './dashboard'
+import { getDashboardSummary, listCurrentFindingsForProject, listProjectCatalog } from './dashboard'
+import { insertMute } from './mutes'
 import { listLibraryUsage } from './libraries'
 import { upsertProject } from './projects'
 import {
@@ -362,6 +363,41 @@ describe('scan state — expected sources', function () {
             state: 'cannot_scan',
             reasons: [{ source: 'npm-audit', ecosystem: null, reasonCode: 'pm_missing', side: 'environment' }]
         })
+    })
+})
+
+describe('scan state — project cannot be scanned in the catalog and the dashboard', function () {
+    it('reads the same states from rows the caller already read', function () {
+        failed('npm-audit', T0, 'no_lockfile', { rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile' }] }) })
+        expect(listProjectScanStates(db, listLatestSourceScans(db))).toEqual(listProjectScanStates(db))
+    })
+
+    it('gives every catalog row its project scan state', function () {
+        failed('npm-audit', T0, 'no_lockfile', { rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile' }] }) })
+        const rows = listProjectCatalog(db, T0)
+        expect(rows.find(function mine(r) { return r.id === PROJECT_ID })?.scanState).toEqual({
+            state: 'cannot_scan',
+            reasons: [
+                { source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project' },
+                { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project' }
+            ]
+        })
+        expect(rows.find(function other(r) { return r.id === OTHER_PROJECT_ID })?.scanState).toEqual({ state: 'not_scanned_yet', reasons: [] })
+    })
+
+    it('counts the projects that cannot be scanned, and cannot be fully scanned, leaving project-muted ones out', function () {
+        addProject('partial-project')
+        addProject('muted-project')
+        enable('osv')
+        failed('npm-audit', T0, 'no_lockfile', { rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile' }] }) })
+        ok('npm-audit', T0, { projectId: 'partial-project', coverage: [{ ecosystem: 'npm', status: 'ok' }] })
+        failed('npm-audit', T0, 'no_lockfile', { projectId: 'muted-project' })
+        insertMute(db, { id: 'mute-1', scope: 'project', projectId: 'muted-project', scanner: null, ecosystem: null, advisoryId: null, packageName: null, reason: 'retired', author: 'betty', createdAt: T0, expiresAt: null })
+        const summary = getDashboardSummary(db, T0)
+        expect(summary.projectsCannotBeScanned).toBe(1)
+        expect(summary.projectsCannotBeFullyScanned).toBe(1)
+        const given = new Map(listProjectCatalog(db, T0).map(function stateOf(r) { return [r.id, r.scanState] }))
+        expect(getDashboardSummary(db, T0, 'all', given)).toEqual(summary)
     })
 })
 
