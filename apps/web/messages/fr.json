@@ -490,8 +490,7 @@
             "notVerified": "non vérifié — sa fermeture de dépendances n’a pas pu être vérifiée",
             "builtIn": "intégré : {id}",
             "snippet": "code en ligne",
-            "removal": "à supprimer",
-            "partial": "Partiel : le budget de requêtes au registre est épuisé, certains verdicts sont donc inconnus."
+            "removal": "à supprimer"
         },
         "vulnPrefix": "vuln :",
         "groupingAriaLabel": "Regroupement des résultats",
@@ -618,7 +617,7 @@
                 "disable": "Fonction principale — non désactivable"
             },
             "npmRegistry": {
-                "purpose": "Vérifier qu’une version corrigée a bien été publiée et, s’il n’y en a aucune, lire les métadonnées du paquet qui servent à construire l’issue (versions, dépendances, avis de dépréciation, mainteneurs). Les paquets avec des vulnérabilités et leurs chaînes de dépendances et, quand aucun correctif n’est publié, les versions candidates et les alternatives que l’issue examine, avec leurs arbres de dépendances, dans la limite d’un budget par analyse",
+                "purpose": "Vérifier qu’une version corrigée a bien été publiée et, s’il n’y en a aucune, lire les métadonnées du paquet qui servent à construire l’issue (versions, dépendances, avis de dépréciation, mainteneurs). Les paquets avec des vulnérabilités et leurs chaînes de dépendances et, quand aucun correctif n’est publié, les versions candidates et les alternatives que l’issue examine, avec leurs arbres de dépendances",
                 "when": "Après chaque analyse, pour les paquets sans réponse réussie depuis 24 heures ; une requête échouée n’est pas conservée et peut donc être retentée plus tôt",
                 "disable": "Non désactivable — SENTINELLO_NPM_REGISTRY_URL le dirige vers un miroir. S’il est injoignable, les métadonnées de paquet récupérées auparavant sont réutilisées si elles sont encore exploitables, et les vulnérabilités actuelles sont évaluées par rapport à elles, avec la date de leur récupération ; sans elles, le correctif est affiché comme non vérifié auprès du registre"
             },

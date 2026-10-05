@@ -77,7 +77,7 @@ Some findings say **No fixed version released**: Sentinello checked the package 
 - **"Upgrade X to ≥ v"**: upgrade that ancestor. The block has already checked that the named release's whole resolved dependency closure no longer reaches the vulnerable package — verify it in the lockfile afterwards like any other fix.
 - **"X ≥ v drops it, but no released P admits it"**: choose between overriding X to that version inside P (only with the full four-part justification above) and replacing P.
 - **"No released … drops it"**: no upgrade anywhere on that path helps. Adopt a listed alternative for one of the packages on the path (checking a **not verified** one first), or replace the direct dependency the path starts from.
-- **Unknown** verdicts mean the registry evidence ran out; investigate that path by hand and say what you found.
+- **Unknown** verdicts mean the registry evidence could not settle that path, for the reason given; investigate it by hand and say what you found.
 
 A path marked **dev tooling only** is still fixed, but rank it after every production path. When nothing in the block applies, record the finding in the residual table as "no upstream fix released", with the trigger to revisit (a release of the package, or of the ancestor named in the block).
 
@@ -247,7 +247,6 @@ function wayOutLines(r: Remediation): string[] {
     }
     lines.push('    - **Dev tooling:** ' + text.devOnly)
     for (const a of text.alternatives) lines.push('    - **Alternatives:** ' + a)
-    if (text.partial) lines.push('    - ' + text.partial)
     return lines
 }
 

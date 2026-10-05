@@ -12,22 +12,25 @@ import { fetchNpmPackage, fetchNpmWeeklyDownloads, type NpmDownloadsResult, type
 //
 // Cache policy:
 //   - an 'ok' or 'not_found' answer is fresh for REGISTRY_FRESH_MS; after that the next scan that needs
-//     the package refetches it;
+//     the package refetches it — conditionally, when the row has the registry's ETag: a 304 confirms the
+//     cached summary, which is then served as fetched now, without downloading the packument again;
 //   - a failed fetch is never cached, and never deletes what is there: a stale 'ok' row is served instead,
 //     marked 'stale', so the finding says how old its data is rather than pretending it is current.
 
 export const REGISTRY_FRESH_MS = 24 * 60 * 60 * 1000
-export const REGISTRY_FETCH_CONCURRENCY = 4
-export const FETCH_BUDGET_EXHAUSTED = 'fetch budget exhausted'
+// Measured on the 157-project scratch fleet, cold cache (2026-10-04): post-scan 109.8 s at 4, 94.8 s at 8,
+// 86.7 s at 16, with no 429 or 5xx from registry.npmjs.org at any of them. The fastest is kept.
+export const REGISTRY_FETCH_CONCURRENCY = 16
 
 // One cached npm answer, as a store keeps it. `summaryJson` is the reduced packument for 'ok' (parsed
-// here, which owns its shape) and null for 'not_found'. The download count is a separate, rarer fetch,
-// recorded beside the answer.
+// here, which owns its shape) and null for 'not_found'; `etag` is the registry's validator for it, null
+// when there is none. The download count is a separate, rarer fetch, recorded beside the answer.
 export type RegistryRow = {
     name: string
     status: 'ok' | 'not_found'
     summaryJson: string | null
     checkedAt: number
+    etag: string | null
     weeklyDownloads: number | null
     downloadsCheckedAt: number | null
 }
@@ -35,12 +38,13 @@ export type RegistryRow = {
 // Where the client keeps its answers. The worker's store is the registry_packages table; the CLI's is a
 // file in its cache directory. Contract:
 //   - get: the stored row for each name it has; a name it does not have is absent from the result;
-//   - put: records an answer ('ok' or 'not_found'), leaving any download count as it is. Only ever called
-//     with an answer: a failed fetch is not one, so the last good row survives it;
+//   - put: records an answer ('ok' or 'not_found', or an 'ok' the registry confirmed with a 304), leaving
+//     any download count as it is. Only ever called with an answer: a failed fetch is not one, so the last
+//     good row survives it;
 //   - setDownloads: records a count beside an existing answer; a name with no row is left alone.
 export type RegistryStore = {
     get(names: readonly string[]): Map<string, RegistryRow>
-    put(row: { name: string; status: RegistryRow['status']; summaryJson: string | null; checkedAt: number }): void
+    put(row: Omit<RegistryRow, 'weeklyDownloads' | 'downloadsCheckedAt'>): void
     setDownloads(name: string, weeklyDownloads: number, checkedAt: number): void
 }
 
@@ -52,51 +56,52 @@ export type RegistryEntry =
     | { status: 'not_found'; checkedAt: number; origin: 'fetched' | 'cache' }
     | { status: 'error'; reason: string }
 
-// A cap on how many packuments one caller may cause to be fetched. Cache hits and joined in-flight
-// fetches are free. Once `remaining` reaches zero, a further miss is answered with an error
-// (FETCH_BUDGET_EXHAUSTED) and `exhausted` is set, so the caller can say its answer is partial.
-export type FetchBudget = { remaining: number; exhausted: boolean }
-
-export type LookupOptions = { budget?: FetchBudget }
-
 export type RegistryClient = {
-    lookup(names: readonly string[], options?: LookupOptions): Promise<Map<string, RegistryEntry>>
+    lookup(names: readonly string[]): Promise<Map<string, RegistryEntry>>
     // Last week's downloads per package; null when the count could not be had. A signal for the reader,
     // never an input to a verdict, so a failure is not an error here.
     weeklyDownloads(names: readonly string[]): Promise<Map<string, number | null>>
 }
 
+// What one packument request carries: the ETag of the cached summary, when there is one to revalidate.
+export type PackumentRequest = { ifNoneMatch: string | null; abortSignal?: AbortSignal }
+
 export type NpmRegistryClientOptions = {
-    fetchPackage?: (name: string, abortSignal?: AbortSignal) => Promise<NpmPackageResult>
+    fetchPackage?: (name: string, request: PackumentRequest) => Promise<NpmPackageResult>
     fetchDownloads?: (name: string, abortSignal?: AbortSignal) => Promise<NpmDownloadsResult>
     now?: () => number
     abortSignal?: AbortSignal
+    // Requests in flight at once; REGISTRY_FETCH_CONCURRENCY unless a measurement run sets it.
+    concurrency?: number
 }
 
 export function createNpmRegistryClient(store: RegistryStore, options?: NpmRegistryClientOptions): RegistryClient {
-    const fetchPackage = options?.fetchPackage ?? function fetchLive(name: string, abortSignal?: AbortSignal) {
-        return fetchNpmPackage(name, { abortSignal })
+    const fetchPackage = options?.fetchPackage ?? function fetchLive(name: string, request: PackumentRequest) {
+        return fetchNpmPackage(name, request)
     }
     const fetchDownloads = options?.fetchDownloads ?? function fetchLiveDownloads(name: string, abortSignal?: AbortSignal) {
         return fetchNpmWeeklyDownloads(name, { abortSignal })
     }
     const now = options?.now ?? Date.now
-    const limit = createLimiter(REGISTRY_FETCH_CONCURRENCY)
+    const limit = createLimiter(options?.concurrency ?? REGISTRY_FETCH_CONCURRENCY)
     const packumentsInFlight = new Map<string, Promise<RegistryEntry>>()
     const downloadsInFlight = new Map<string, Promise<number | null>>()
 
     function refresh(name: string, previous: RegistryRow | undefined): Promise<RegistryEntry> {
         const running = packumentsInFlight.get(name)
         if (running) return running
+        // Only a summary this client can still read is worth revalidating: a 304 hands it back as current.
+        const held = previous && previous.status === 'ok' ? parseSummary(previous.summaryJson) : null
+        const ifNoneMatch = held !== null && previous ? previous.etag : null
         const started = limit(async function fetchOne(): Promise<RegistryEntry> {
             let result: NpmPackageResult
             try {
-                result = await fetchPackage(name, options?.abortSignal)
+                result = await fetchPackage(name, { ifNoneMatch, abortSignal: options?.abortSignal })
             } catch (err) {
                 // The fetcher is meant to answer, not throw; if one does, it is an answer of "error".
                 result = { status: 'error', reason: errText(err) }
             }
-            return settleFetch(store, name, result, now(), previous)
+            return settleFetch(store, name, result, now(), previous, held)
         }).finally(function forget() {
             packumentsInFlight.delete(name)
         })
@@ -125,12 +130,11 @@ export function createNpmRegistryClient(store: RegistryStore, options?: NpmRegis
     }
 
     return {
-        lookup: async function lookup(names, lookupOptions): Promise<Map<string, RegistryEntry>> {
+        lookup: async function lookup(names): Promise<Map<string, RegistryEntry>> {
             const unique = [...new Set(names)]
             const at = now()
             const cached = store.get(unique)
             const out = new Map<string, RegistryEntry>()
-            const budget = lookupOptions?.budget
             const pending: Promise<void>[] = []
             for (const name of unique) {
                 const row = cached.get(name)
@@ -138,14 +142,6 @@ export function createNpmRegistryClient(store: RegistryStore, options?: NpmRegis
                 if (entry) {
                     out.set(name, entry)
                     continue
-                }
-                if (budget && !packumentsInFlight.has(name)) {
-                    if (budget.remaining <= 0) {
-                        budget.exhausted = true
-                        out.set(name, { status: 'error', reason: FETCH_BUDGET_EXHAUSTED })
-                        continue
-                    }
-                    budget.remaining--
                 }
                 pending.push(refresh(name, row).then(function store(served) {
                     out.set(name, served)
@@ -184,30 +180,42 @@ function fromCache(row: RegistryRow): RegistryEntry | null {
     return summary === null ? null : { status: 'ok', summary, checkedAt: row.checkedAt, origin: 'cache' }
 }
 
-function settleFetch(store: RegistryStore, name: string, result: NpmPackageResult, fetchedAt: number, previous: RegistryRow | undefined): RegistryEntry {
+// `held` is the previous row's summary when it is still readable — what a 304 confirms, and what a failed
+// refetch falls back to.
+function settleFetch(store: RegistryStore, name: string, result: NpmPackageResult, fetchedAt: number, previous: RegistryRow | undefined, held: NpmPackageSummary | null): RegistryEntry {
     if (result.status === 'ok') {
-        store.put({ name, status: 'ok', summaryJson: JSON.stringify(result.summary), checkedAt: fetchedAt })
+        store.put({ name, status: 'ok', summaryJson: JSON.stringify(result.summary), checkedAt: fetchedAt, etag: result.etag })
         return { status: 'ok', summary: result.summary, checkedAt: fetchedAt, origin: 'fetched' }
     }
     if (result.status === 'not_found') {
-        store.put({ name, status: 'not_found', summaryJson: null, checkedAt: fetchedAt })
+        store.put({ name, status: 'not_found', summaryJson: null, checkedAt: fetchedAt, etag: null })
         return { status: 'not_found', checkedAt: fetchedAt, origin: 'fetched' }
     }
-    // The refetch failed. The last good answer is still the best evidence there is, labelled as old.
-    const staleSummary = previous && previous.status === 'ok' ? parseSummary(previous.summaryJson) : null
-    if (previous && staleSummary) return { status: 'stale', summary: staleSummary, checkedAt: previous.checkedAt, reason: result.reason }
-    return { status: 'error', reason: result.reason }
+    if (result.status === 'not_modified' && previous && held) {
+        // The registry confirmed, now, that the summary held is current: it is as good as a fresh fetch.
+        store.put({ name, status: 'ok', summaryJson: previous.summaryJson, checkedAt: fetchedAt, etag: result.etag ?? previous.etag })
+        return { status: 'ok', summary: held, checkedAt: fetchedAt, origin: 'fetched' }
+    }
+    // The refetch failed (a 304 with nothing held to confirm is a broken answer, not a confirmation). The
+    // last good answer is still the best evidence there is, labelled as old.
+    const reason = result.status === 'not_modified' ? 'HTTP 304 with no cached packument to confirm' : result.reason
+    if (previous && held) return { status: 'stale', summary: held, checkedAt: previous.checkedAt, reason }
+    return { status: 'error', reason }
 }
 
 export function parseSummary(json: string | null): NpmPackageSummary | null {
     if (json === null) return null
     try {
         const parsed = JSON.parse(json) as Partial<NpmPackageSummary> | null
-        if (!parsed || parsed.v !== 1 || typeof parsed.versions !== 'object' || parsed.versions === null) return null
+        if (!parsed || parsed.v !== 2 || !isObject(parsed.versions) || !isObject(parsed.prereleases)) return null
         return parsed as NpmPackageSummary
     } catch {
         return null
     }
+}
+
+function isObject(value: unknown): boolean {
+    return typeof value === 'object' && value !== null
 }
 
 // A counting semaphore: `limit(work)` runs work once fewer than `max` are running, in arrival order. A

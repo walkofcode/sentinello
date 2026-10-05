@@ -63,7 +63,7 @@ export function seedRegistryCache(db: DrizzleDb, checkedAt: number): { packages:
     for (const [name, body] of packuments) {
         const summary = summarizePackument(name, body)
         if (summary === null) throw new Error('[e2e] the registry fixture for ' + name + ' does not reduce to a summary')
-        upsertRegistryPackage(db, { ecosystem: NPM, name, status: 'ok', summaryJson: JSON.stringify(summary), checkedAt })
+        upsertRegistryPackage(db, { ecosystem: NPM, name, status: 'ok', summaryJson: JSON.stringify(summary), checkedAt, etag: null })
     }
     const downloads = JSON.parse(readFileSync(join(RECORDED, '_downloads.json'), 'utf8')) as Record<string, number>
     for (const [name, count] of Object.entries(downloads)) setRegistryDownloads(db, NPM, name, count, checkedAt)

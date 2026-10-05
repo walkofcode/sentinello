@@ -29,26 +29,33 @@ afterEach(async function teardown() {
 
 describe('registry_packages', function () {
     it('upserts an answer and reads it back by ecosystem and name', function () {
-        upsertRegistryPackage(db, { ecosystem: 'npm', name: 'braces', status: 'ok', summaryJson: '{"v":1}', checkedAt: 1 })
-        upsertRegistryPackage(db, { ecosystem: 'npm', name: 'gone', status: 'not_found', summaryJson: null, checkedAt: 2 })
+        upsertRegistryPackage(db, { ecosystem: 'npm', name: 'braces', status: 'ok', summaryJson: '{"v":1}', checkedAt: 1, etag: null })
+        upsertRegistryPackage(db, { ecosystem: 'npm', name: 'gone', status: 'not_found', summaryJson: null, checkedAt: 2, etag: null })
         const rows = getRegistryPackages(db, 'npm', ['braces', 'gone', 'braces', 'never'])
         expect(rows.size).toBe(2)
-        expect(rows.get('braces')).toEqual({ ecosystem: 'npm', name: 'braces', status: 'ok', summaryJson: '{"v":1}', weeklyDownloads: null, downloadsCheckedAt: null, checkedAt: 1 })
+        expect(rows.get('braces')).toEqual({ ecosystem: 'npm', name: 'braces', status: 'ok', summaryJson: '{"v":1}', weeklyDownloads: null, downloadsCheckedAt: null, checkedAt: 1, etag: null })
         expect(rows.get('gone')).toMatchObject({ status: 'not_found', summaryJson: null })
         expect(getRegistryPackages(db, 'PyPI', ['braces']).size).toBe(0)
     })
 
     // Download counts come from a separate, rarer fetch: a packument refresh must not wipe them.
     it('replaces the answer on refetch and keeps the download counts', function () {
-        upsertRegistryPackage(db, { ecosystem: 'npm', name: 'braces', status: 'ok', summaryJson: '{"v":1}', checkedAt: 1 })
+        upsertRegistryPackage(db, { ecosystem: 'npm', name: 'braces', status: 'ok', summaryJson: '{"v":1}', checkedAt: 1, etag: null })
         db.update(registryPackages).set({ weeklyDownloads: 42, downloadsCheckedAt: 1 }).run()
-        upsertRegistryPackage(db, { ecosystem: 'npm', name: 'braces', status: 'not_found', summaryJson: null, checkedAt: 5 })
+        upsertRegistryPackage(db, { ecosystem: 'npm', name: 'braces', status: 'not_found', summaryJson: null, checkedAt: 5, etag: null })
         expect(getRegistryPackages(db, 'npm', ['braces']).get('braces')).toMatchObject({ status: 'not_found', summaryJson: null, checkedAt: 5, weeklyDownloads: 42, downloadsCheckedAt: 1 })
+    })
+
+    it('stores the ETag with the answer and replaces it with the next one', function () {
+        upsertRegistryPackage(db, { ecosystem: 'npm', name: 'braces', status: 'ok', summaryJson: '{"v":1}', checkedAt: 1, etag: 'W/"e1"' })
+        expect(getRegistryPackages(db, 'npm', ['braces']).get('braces')?.etag).toBe('W/"e1"')
+        upsertRegistryPackage(db, { ecosystem: 'npm', name: 'braces', status: 'not_found', summaryJson: null, checkedAt: 5, etag: null })
+        expect(getRegistryPackages(db, 'npm', ['braces']).get('braces')?.etag).toBeNull()
     })
 
     it('looks up more names than one statement may bind', function () {
         const names = Array.from({ length: 1200 }, function n(_v, i) { return 'p' + i })
-        for (const name of names) upsertRegistryPackage(db, { ecosystem: 'npm', name, status: 'not_found', summaryJson: null, checkedAt: 1 })
+        for (const name of names) upsertRegistryPackage(db, { ecosystem: 'npm', name, status: 'not_found', summaryJson: null, checkedAt: 1, etag: null })
         expect(getRegistryPackages(db, 'npm', names).size).toBe(1200)
         expect(getRegistryPackages(db, 'npm', []).size).toBe(0)
     })

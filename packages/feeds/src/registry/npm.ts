@@ -10,6 +10,10 @@ import { baseHeaders } from '../http'
 // the edges are for the transitive "does this release still reach the vulnerable package" proofs — and
 // the package's latest tag, last modification, maintainer count and repository. A packument can run to
 // tens of megabytes (next, @next/eslint-plugin-next); the summary is what gets cached.
+//
+// The registry answers a conditional GET: sent the ETag of a packument already summarized, it replies 304
+// with no body when nothing changed (probed against registry.npmjs.org, 2026-10-04). That is what keeps the
+// daily refresh of an expired cache cheap — most packages publish nothing in a day.
 
 export const DEFAULT_NPM_REGISTRY_URL = 'https://registry.npmjs.org'
 
@@ -45,8 +49,10 @@ export type NpmVersionSummary = {
     edges: number | null
 }
 
+// v2 added `prereleases`. A v1 summary (cached before) lacks them and is read as no summary at all, so it is
+// refetched in full: revalidating it with its ETag would have the registry confirm an incomplete summary.
 export type NpmPackageSummary = {
-    v: 1
+    v: 2
     name: string
     latest: string | null
     modified: number | null
@@ -54,11 +60,19 @@ export type NpmPackageSummary = {
     repository: string | null
     // Non-prerelease versions only — a prerelease is never offered as a fix or an escape.
     versions: Record<string, NpmVersionSummary>
+    // Prerelease versions, each with its index into `edges` (null: no edges). Kept only so the transitive
+    // proofs resolve a dependency range the way npm does when only a prerelease satisfies it — gensync has
+    // never published anything but 1.0.0-beta.x, and @jest/core requires gensync@^1.0.0-beta.2.
+    prereleases: Record<string, number | null>
     edges: NpmEdges[]
 }
 
+// `etag` is the registry's validator for this packument (null when it sent none); `bytes` is the size of the
+// body as read, after any transfer compression is undone. `not_modified` answers a request that sent
+// `ifNoneMatch`: the packument behind that ETag is still current.
 export type NpmPackageResult =
-    | { status: 'ok'; summary: NpmPackageSummary }
+    | { status: 'ok'; summary: NpmPackageSummary; etag: string | null; bytes: number }
+    | { status: 'not_modified'; etag: string | null }
     | { status: 'not_found' }
     | { status: 'error'; reason: string }
 
@@ -67,6 +81,9 @@ export type FetchNpmPackageOptions = {
     timeoutMs?: number
     abortSignal?: AbortSignal
 }
+
+// A packument request may be conditional: `ifNoneMatch` is the ETag of the summary already held.
+export type FetchNpmPackumentOptions = FetchNpmPackageOptions & { ifNoneMatch?: string | null }
 
 // `@scope/name` travels as `@scope%2Fname`; the registry routes the encoded form.
 export function npmPackageUrl(registryUrl: string, name: string): string {
@@ -77,38 +94,58 @@ function encodeName(name: string): string {
     return encodeURIComponent(name).replace(/^%40/, '@')
 }
 
-type JsonResult = { status: 'ok'; body: unknown } | { status: 'not_found' } | { status: 'error'; reason: string }
+type Failure = { status: 'not_found' } | { status: 'error'; reason: string }
+type JsonResult = { status: 'ok'; body: unknown; bytes: number } | Failure
 
 // One GET with the shared user-agent, a timeout and no retries: the scan path must not stall on a registry
-// outage, and a failure is never cached, so the next scan asks again. A 404 or another status is answered
-// from the status line alone; its body is only released, never read — reading it could stall or fail
-// after the headers (a proxy that sends a 503 and hangs) and would throw past every fallback.
-async function getJson(url: string, options: FetchNpmPackageOptions | undefined, what: string): Promise<JsonResult> {
+// outage, and a failure is never cached, so the next scan asks again.
+async function request(url: string, options: FetchNpmPackageOptions | undefined, headers: Record<string, string>): Promise<Response | { status: 'error'; reason: string }> {
     const timeout = AbortSignal.timeout(options?.timeoutMs ?? NPM_REGISTRY_TIMEOUT_MS)
     const signal = options?.abortSignal ? AbortSignal.any([options.abortSignal, timeout]) : timeout
-    let response: Response
     try {
-        response = await fetch(url, { headers: { ...baseHeaders(), Accept: 'application/json' }, signal })
+        return await fetch(url, { headers: { ...baseHeaders(), Accept: 'application/json', ...headers }, signal })
     } catch (err) {
         return { status: 'error', reason: errorReason(err) }
     }
+}
+
+// A 404 or another status is answered from the status line alone; its body is only released, never read —
+// reading it could stall or fail after the headers (a proxy that sends a 503 and hangs) and would throw
+// past every fallback.
+async function readJson(response: Response, what: string): Promise<JsonResult> {
     if (response.status !== 200) {
         await discardBody(response)
         return response.status === 404 ? { status: 'not_found' } : { status: 'error', reason: 'HTTP ' + response.status }
     }
     try {
-        return { status: 'ok', body: await response.json() }
+        const body = new Uint8Array(await response.arrayBuffer())
+        return { status: 'ok', body: JSON.parse(new TextDecoder().decode(body)), bytes: body.byteLength }
     } catch (err) {
         return { status: 'error', reason: 'unreadable ' + what + ': ' + errorReason(err) }
     }
 }
 
-export async function fetchNpmPackage(name: string, options?: FetchNpmPackageOptions): Promise<NpmPackageResult> {
-    const result = await getJson(npmPackageUrl(options?.registryUrl ?? npmRegistryUrl(), name), options, 'packument')
+async function getJson(url: string, options: FetchNpmPackageOptions | undefined, what: string): Promise<JsonResult> {
+    const response = await request(url, options, {})
+    return response instanceof Response ? readJson(response, what) : response
+}
+
+export async function fetchNpmPackage(name: string, options?: FetchNpmPackumentOptions): Promise<NpmPackageResult> {
+    const validator = options?.ifNoneMatch ?? null
+    const response = await request(npmPackageUrl(options?.registryUrl ?? npmRegistryUrl(), name), options, validator === null ? {} : { 'If-None-Match': validator })
+    if (!(response instanceof Response)) return response
+    const etag = response.headers.get('etag')
+    // Only a conditional request can be answered "not modified"; a 304 to a plain GET is a broken server,
+    // and falls through to the status check as an error like any other unexpected status.
+    if (response.status === 304 && validator !== null) {
+        await discardBody(response)
+        return { status: 'not_modified', etag }
+    }
+    const result = await readJson(response, 'packument')
     if (result.status !== 'ok') return result
     const summary = summarizePackument(name, result.body)
     if (summary === null) return { status: 'error', reason: 'packument has no versions map' }
-    return { status: 'ok', summary }
+    return { status: 'ok', summary, etag, bytes: result.bytes }
 }
 
 // Releases an unread body without waiting for it. Cancelling cannot meaningfully fail here, and nothing
@@ -150,8 +187,9 @@ function errorReason(err: unknown): string {
 }
 
 // A full release version: three numeric parts, no prerelease tag (build metadata allowed). Prereleases
-// are dropped here, once, so nothing downstream can offer one.
+// are kept apart here, once, so nothing downstream can offer one.
 const RELEASE_VERSION_RE = /^v?\d+\.\d+\.\d+(?:\+[0-9A-Za-z.-]+)?$/
+const PRERELEASE_VERSION_RE = /^v?\d+\.\d+\.\d+-[0-9A-Za-z.-]+(?:\+[0-9A-Za-z.-]+)?$/
 
 // Reduces a packument to the summary. Null when the body is not a packument at all (no versions map); a
 // malformed field inside one is dropped rather than failing the package.
@@ -161,8 +199,10 @@ export function summarizePackument(name: string, body: unknown): NpmPackageSumma
     const edges: NpmEdges[] = []
     const edgeIndex = new Map<string, number>()
     const versions: Record<string, NpmVersionSummary> = {}
+    const prereleases: Record<string, number | null> = {}
     for (const [version, manifest] of Object.entries(body.versions)) {
-        if (!RELEASE_VERSION_RE.test(version)) continue
+        const release = RELEASE_VERSION_RE.test(version)
+        if (!release && !PRERELEASE_VERSION_RE.test(version)) continue
         const m = isRecord(manifest) ? manifest : {}
         const edgeSet = edgesOf(m)
         let index: number | null = null
@@ -177,6 +217,10 @@ export function summarizePackument(name: string, body: unknown): NpmPackageSumma
                 edgeIndex.set(key, index)
             }
         }
+        if (!release) {
+            prereleases[version] = index
+            continue
+        }
         versions[version] = {
             publishedAt: timestamp(time[version]),
             deprecated: typeof m.deprecated === 'string' && m.deprecated.length > 0 ? m.deprecated : null,
@@ -185,13 +229,14 @@ export function summarizePackument(name: string, body: unknown): NpmPackageSumma
     }
     const distTags = isRecord(body['dist-tags']) ? body['dist-tags'] : {}
     return {
-        v: 1,
+        v: 2,
         name,
         latest: typeof distTags.latest === 'string' ? distTags.latest : null,
         modified: timestamp(time.modified),
         maintainers: Array.isArray(body.maintainers) ? body.maintainers.length : 0,
         repository: repositoryOf(body.repository),
         versions,
+        prereleases,
         edges
     }
 }

@@ -59,7 +59,7 @@ function project(): Project {
 function summary(name: string, versions: string[], deprecated: string[] = []): NpmPackageSummary {
     const out: NpmPackageSummary['versions'] = {}
     for (const v of versions) out[v] = { publishedAt: T0, deprecated: deprecated.includes(v) ? 'old' : null, edges: null }
-    return { v: 1, name, latest: versions[versions.length - 1] ?? null, modified: T0, maintainers: 1, repository: null, versions: out, edges: [] }
+    return { v: 2, name, latest: versions[versions.length - 1] ?? null, modified: T0, maintainers: 1, repository: null, versions: out, prereleases: {}, edges: [] }
 }
 
 // A registry answering from a fixed table, counting what it was asked.
@@ -317,7 +317,7 @@ describe('reading a settled or unsettled row', function () {
     it('keeps the rendered check date when the cache is refreshed after the scan', async function () {
         await scan([scanner('npm-audit', [raw('npm-audit', '1001', '<1.1.0')])], fakeRegistry({ pkg: PKG_RELEASES }))
         const before = listCurrentFindingsForProject(db, PROJECT_ID, T0)[0]?.fixCheck
-        upsertRegistryPackage(db, { ecosystem: 'npm', name: 'pkg', status: 'ok', summaryJson: JSON.stringify(summary('pkg', ['9.9.9'])), checkedAt: T0 + 86_400_000 })
+        upsertRegistryPackage(db, { ecosystem: 'npm', name: 'pkg', status: 'ok', summaryJson: JSON.stringify(summary('pkg', ['9.9.9'])), checkedAt: T0 + 86_400_000, etag: null })
         const after = listCurrentFindingsForProject(db, PROJECT_ID, T0)[0]?.fixCheck
         expect(after).toEqual(before)
         expect(after?.packageDataAsOf).toBe(T0 - 1000)

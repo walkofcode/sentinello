@@ -4,10 +4,10 @@ import { basename, dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { DrizzleDb, SqliteDb } from '@sentinello/db'
 import type { Finding, Project } from '@sentinello/core'
-import type { NpmPackageSummary } from '@sentinello/feeds'
+import type { NpmDownloadsResult, NpmPackageResult, NpmPackageSummary } from '@sentinello/feeds'
 import type { ScannerPlugin } from '@sentinello/scanners'
 import type { ProjectScanOutcome } from '../src/runner'
-import type { RegistryClient, RegistryEntry } from '@sentinello/fixes'
+import type { PackumentRequest, RegistryClient, RegistryEntry } from '@sentinello/fixes'
 
 // The one bootstrap every scratch tool goes through (the smoke scripts, and later print-advisory and the
 // fleet rescan). A scratch run rescans real projects against a COPY of the live database; this file is
@@ -62,6 +62,21 @@ export type RegistrySnapshotEntry = {
     origin: 'fetched' | 'cache' | null
 }
 
+// What the registry client actually sent over the network in this environment — the cost side of the
+// measurements. Cache hits never reach here. `bytes` is the packument bodies as read (after transfer
+// compression is undone); a 304 has no body.
+export type RegistryTraffic = {
+    packumentRequests: number
+    revalidations: number
+    fetched: number
+    notModified: number
+    notFound: number
+    bytes: number
+    downloadRequests: number
+    // Failed requests by reason ('HTTP 429', 'HTTP 503', a timeout), packuments and download counts alike.
+    errors: Record<string, number>
+}
+
 export type RecordedNotification = {
     outcome: { scanId: string; scanner: string; status: string }
     findings: Finding[]
@@ -81,8 +96,16 @@ export type ScratchEnv = {
     // Scans one project through the real runner with the recording registry and notifier. Returns the
     // time the run started (the invariants' freshness floor) and its outcomes.
     scan(project: Project, scanners: ScannerPlugin[]): Promise<{ startedAt: number; outcomes: ProjectScanOutcome[] }>
+    // Every request the registry client made, counted as it went.
+    traffic: RegistryTraffic
     // Deletes the scratch database's registry cache, for a cold-cache run. Never touches anything else.
     clearRegistryCache(): void
+    // Moves every cached answer and download count `ms` into the past — `REGISTRY_FRESH_MS` and a margin
+    // gives the expired cache the first scan of each day sees. Never touches anything else.
+    ageRegistryCache(ms: number): void
+    // Forgets every cached ETag, so the next refetch of an expired row is a plain GET: the expired-cache
+    // cost without revalidation, for comparison. Never touches anything else.
+    forgetRegistryEtags(): void
     close(): void
 }
 
@@ -91,6 +114,8 @@ export type OpenScratchEnvOptions = {
     // Default to the scratch database's siblings, exactly as the worker resolves them.
     osvDb?: string
     gemnasiumDb?: string
+    // The registry client's request limit; its default (REGISTRY_FETCH_CONCURRENCY) when absent.
+    concurrency?: number
 }
 
 const MIGRATIONS = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'packages', 'db', 'drizzle')
@@ -112,6 +137,7 @@ export async function openScratchEnv(options: OpenScratchEnvOptions): Promise<Sc
     const { toWebhookVulnerability } = await import('@sentinello/notifications')
     const { runProjectScanners } = await import('../src/runner')
     const { createNpmRegistryClient } = await import('@sentinello/fixes')
+    const { fetchNpmPackage, fetchNpmWeeklyDownloads } = await import('@sentinello/feeds')
     const { createDbRegistryStore } = await import('../src/registry-store')
     const { toExportFinding } = await import('../src/notifier')
     const { CONFIG_KEYS } = await import('../src/config-loader')
@@ -126,10 +152,36 @@ export async function openScratchEnv(options: OpenScratchEnvOptions): Promise<Sc
 
     const snapshot: RegistrySnapshotEntry[] = []
     const notifications: RecordedNotification[] = []
-    const live = createNpmRegistryClient(createDbRegistryStore(db))
+    const traffic: RegistryTraffic = { packumentRequests: 0, revalidations: 0, fetched: 0, notModified: 0, notFound: 0, bytes: 0, downloadRequests: 0, errors: {} }
+    function failed(reason: string): void {
+        traffic.errors[reason] = (traffic.errors[reason] ?? 0) + 1
+    }
+    async function countedPackument(name: string, request: PackumentRequest): Promise<NpmPackageResult> {
+        traffic.packumentRequests++
+        if (request.ifNoneMatch !== null) traffic.revalidations++
+        const result = await fetchNpmPackage(name, request)
+        if (result.status === 'ok') {
+            traffic.fetched++
+            traffic.bytes += result.bytes
+        } else if (result.status === 'not_modified') {
+            traffic.notModified++
+        } else if (result.status === 'not_found') {
+            traffic.notFound++
+        } else {
+            failed(result.reason)
+        }
+        return result
+    }
+    async function countedDownloads(name: string, abortSignal?: AbortSignal): Promise<NpmDownloadsResult> {
+        traffic.downloadRequests++
+        const result = await fetchNpmWeeklyDownloads(name, { abortSignal })
+        if (result.status === 'error') failed('downloads: ' + result.reason)
+        return result
+    }
+    const live = createNpmRegistryClient(createDbRegistryStore(db), { fetchPackage: countedPackument, fetchDownloads: countedDownloads, concurrency: options.concurrency })
     const registry: RegistryClient = {
-        lookup: async function recordedLookup(names, options) {
-            const served = await live.lookup(names, options)
+        lookup: async function recordedLookup(names) {
+            const served = await live.lookup(names)
             for (const [name, entry] of served) snapshot.push(snapshotEntry(name, entry))
             return served
         },
@@ -158,6 +210,7 @@ export async function openScratchEnv(options: OpenScratchEnvOptions): Promise<Sc
         dbPath,
         snapshot,
         notifications,
+        traffic,
         scan: async function scan(project, scanners) {
             const startedAt = Date.now()
             const outcomes = await runProjectScanners({ db, scanners, project, registry, notify: recordNotification })
@@ -165,6 +218,12 @@ export async function openScratchEnv(options: OpenScratchEnvOptions): Promise<Sc
         },
         clearRegistryCache: function clearRegistryCache() {
             db.delete(schema.registryPackages).run()
+        },
+        ageRegistryCache: function ageRegistryCache(ms) {
+            sqlite.prepare('UPDATE registry_packages SET checked_at = checked_at - ?, downloads_checked_at = downloads_checked_at - ?').run(ms, ms)
+        },
+        forgetRegistryEtags: function forgetRegistryEtags() {
+            db.update(schema.registryPackages).set({ etag: null }).run()
         },
         close: function close() {
             sqlite.close()

@@ -392,7 +392,11 @@ export const registryPackages = sqliteTable(
         summaryJson: text('summary_json'),
         weeklyDownloads: integer('weekly_downloads'),
         downloadsCheckedAt: integer('downloads_checked_at'),
-        checkedAt: integer('checked_at').notNull()
+        checkedAt: integer('checked_at').notNull(),
+        // The registry's ETag for the answer in summary_json, sent back as If-None-Match when the row has
+        // expired: a 304 confirms the cached summary without downloading the packument again. Null when the
+        // registry sent none, and for 'not_found'.
+        etag: text('etag')
     },
     function registryPackagesKeys(table) {
         return {

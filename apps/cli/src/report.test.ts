@@ -212,7 +212,7 @@ describe('summarize — fix status', function () {
             v: 1, package: 'braces', checkedAt: 0,
             health: { name: 'braces', latest: '3.0.3', lastPublishAt: null, maintainers: 1, weeklyDownloads: null, deprecated: null, daysSinceLastPublish: null, unmaintained: false },
             chains: [{ importer: '.', rootKind: 'prod', path: ['braces@3.0.3'], verdict: { kind: 'direct' } }],
-            moreChains: 0, moreChainsAtLeast: false, alternatives: [], devOnly: false, partial: false
+            moreChains: 0, moreChainsAtLeast: false, alternatives: [], devOnly: false
         }
         scanned.remediations.set(braces, wayOut)
         const summary = summarize([scanned], optionsWith([]))

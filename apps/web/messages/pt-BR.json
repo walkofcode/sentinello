@@ -490,8 +490,7 @@
             "notVerified": "não verificado — não foi possível verificar seu fechamento de dependências",
             "builtIn": "nativo: {id}",
             "snippet": "código inline",
-            "removal": "remova-o",
-            "partial": "Parcial: o orçamento de consultas ao registro acabou, então alguns veredictos são desconhecidos."
+            "removal": "remova-o"
         },
         "vulnPrefix": "vuln:",
         "groupingAriaLabel": "Agrupamento de ocorrências",
@@ -618,7 +617,7 @@
                 "disable": "Função essencial — não pode ser desativada"
             },
             "npmRegistry": {
-                "purpose": "Verificar se uma versão com a correção foi realmente publicada e, quando não há nenhuma, ler os metadados do pacote usados para montar a saída (versões, dependências, avisos de descontinuação, mantenedores). Pacotes com vulnerabilidades e suas cadeias de dependências e, quando nenhuma correção foi publicada, as versões candidatas e as alternativas que a saída avalia, com suas árvores de dependências, dentro de um limite por varredura",
+                "purpose": "Verificar se uma versão com a correção foi realmente publicada e, quando não há nenhuma, ler os metadados do pacote usados para montar a saída (versões, dependências, avisos de descontinuação, mantenedores). Pacotes com vulnerabilidades e suas cadeias de dependências e, quando nenhuma correção foi publicada, as versões candidatas e as alternativas que a saída avalia, com suas árvores de dependências",
                 "when": "Após cada varredura, para pacotes sem resposta bem-sucedida nas últimas 24 horas; uma requisição que falhou não é guardada, então pode ser repetida antes disso",
                 "disable": "Não pode ser desativado — SENTINELLO_NPM_REGISTRY_URL aponta para um mirror. Se estiver inacessível, os metadados de pacote obtidos antes são reutilizados, se ainda forem utilizáveis, e as vulnerabilidades atuais são avaliadas com eles, com a data em que foram obtidos; sem eles, a correção aparece como não verificada no registro"
             },

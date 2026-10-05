@@ -464,8 +464,7 @@ describe('the way out of a none_released finding', function () {
         ],
         moreChains: 0, moreChainsAtLeast: false,
         alternatives: [{ replaces: 'nodemon', reason: 'blocked', signals: null, options: [], url: null }],
-        devOnly: true,
-        partial: false
+        devOnly: true
     }
 
     it('renders the block under the Fix line for none_released, and never for another status', function () {
@@ -479,10 +478,10 @@ describe('the way out of a none_released finding', function () {
         expect(released).not.toContain('Way out')
     })
 
-    it('omits the paths list when there are none, and says when the guidance is partial', function () {
-        const md = buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [exportFinding({ packageName: 'braces', installedVersion: '3.0.3', fixStatus: 'none_released', fixCheck: check(), remediation: { ...remediation, chains: [], partial: true } })] })
+    it('omits the paths list when there are none, and never mentions a budget', function () {
+        const md = buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [exportFinding({ packageName: 'braces', installedVersion: '3.0.3', fixStatus: 'none_released', fixCheck: check(), remediation: { ...remediation, chains: [] } })] })
         expect(md).not.toContain('**Paths:**')
-        expect(md).toContain('    - Partial: the registry lookup budget ran out')
+        expect(md).not.toMatch(/budget|Partial/)
     })
 
     it('tells the reader, in the default prompt, not to chase a version that is not released', function () {

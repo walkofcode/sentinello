@@ -36,7 +36,6 @@ function remediation(overrides: Partial<Remediation> = {}): Remediation {
         moreChains: 0, moreChainsAtLeast: false,
         alternatives: [],
         devOnly: false,
-        partial: false,
         ...overrides
     }
 }
@@ -82,6 +81,13 @@ describe('parseRemediation', function () {
         ['an unknown option', JSON.stringify({ ...remediation(), alternatives: [{ replaces: 'a', options: [{ kind: 'guess' }] }] })]
     ])('reads %s as no way out', function (_label, json) {
         expect(parseRemediation(json)).toBeNull()
+    })
+
+    it('reads a row stored with the old lookup-budget flag, and drops the flag', function () {
+        const r = remediation()
+        const read = parseRemediation(JSON.stringify({ ...r, partial: true }))
+        expect(read).toEqual(r)
+        expect(read).not.toHaveProperty('partial')
     })
 
     it('accepts a null devOnly', function () {
@@ -212,7 +218,7 @@ describe('the wording', function () {
         expect(describeDevOnly(null, 'braces')).toMatch(/could not be determined/)
     })
 
-    it('lays the block out with tags, a remainder and the partial note', function () {
+    it('lays the block out with tags and a remainder', function () {
         const text = describeRemediation(remediation({
             chains: [
                 { importer: '.', rootKind: 'dev', path: ['a@1.0.0', 'braces@3.0.3'], verdict: { kind: 'direct' } },
@@ -220,8 +226,7 @@ describe('the wording', function () {
                 { importer: null, rootKind: null, path: [], verdict: { kind: 'unknown', at: 'braces', reason: 'no lockfile graph' } }
             ],
             moreChains: 2, moreChainsAtLeast: false,
-            alternatives: [{ replaces: 'a', reason: 'noEscape', signals: null, options: [], url: null }],
-            partial: true
+            alternatives: [{ replaces: 'a', reason: 'noEscape', signals: null, options: [], url: null }]
         }), PLAIN_FIX_STYLE)
         expect(text.alternatives).toEqual(['no curated alternative known for a'])
         expect(text.chains).toEqual([
@@ -231,8 +236,7 @@ describe('the wording', function () {
             'and 2 more paths'
         ])
         expect(describeRemediation(remediation({ moreChains: 2, moreChainsAtLeast: true }), PLAIN_FIX_STYLE).chains.at(-1)).toBe('and at least 2 more paths')
-        expect(text.partial).toMatch(/budget ran out/)
-        expect(describeRemediation(remediation(), PLAIN_FIX_STYLE).partial).toBeNull()
+        expect(Object.keys(text)).toEqual(['health', 'chains', 'devOnly', 'alternatives'])
     })
 
     it('summarizes in one line', function () {

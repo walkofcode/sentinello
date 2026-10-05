@@ -37,7 +37,9 @@ function historicalFailures(input: Collected): string[] {
         const tinyglobby = r.alternatives.find(function a(x) { return x.replaces === 'fast-glob' })?.options.find(function o(x) { return x.kind === 'module' && x.name === 'tinyglobby' })
         if (!tinyglobby || tinyglobby.kind !== 'module' || !tinyglobby.verified || tinyglobby.proof === null) failures.push('historical: tinyglobby is not offered for fast-glob with its closure proof: ' + JSON.stringify(tinyglobby))
         if (r.devOnly !== true) failures.push('historical: braces is reached only by dev tooling, but devOnly is ' + String(r.devOnly))
-        if (r.partial) failures.push('historical: the fixture way-out is partial')
+        // There is no lookup cap: an unknown verdict names a real cause, never a budget.
+        const budgeted = r.chains.filter(function b(c) { return c.verdict.kind === 'unknown' && /budget/i.test(c.verdict.reason) })
+        if (budgeted.length > 0) failures.push('historical: a fixture way-out verdict names a budget: ' + JSON.stringify(budgeted.map(function v(c) { return c.verdict })))
     }
     for (const row of rowsFor(input, 'node-forge', FORGE)) {
         const r = row.remediationJson === null ? null : JSON.parse(row.remediationJson) as Remediation

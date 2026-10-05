@@ -1,0 +1,1 @@
+ALTER TABLE `registry_packages` ADD `etag` text;

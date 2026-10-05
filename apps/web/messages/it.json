@@ -490,8 +490,7 @@
             "notVerified": "non verificato: non è stato possibile controllarne la chiusura di dipendenze",
             "builtIn": "integrato: {id}",
             "snippet": "codice in linea",
-            "removal": "rimuovilo",
-            "partial": "Parziale: il budget di richieste al registro è esaurito, quindi alcuni verdetti sono sconosciuti."
+            "removal": "rimuovilo"
         },
         "vulnPrefix": "vuln:",
         "groupingAriaLabel": "Raggruppamento dei risultati",
@@ -618,7 +617,7 @@
                 "disable": "Funzione principale — non disabilitabile"
             },
             "npmRegistry": {
-                "purpose": "Verificare che una versione con la correzione sia stata davvero pubblicata e, se non ce n’è nessuna, leggere i metadati del pacchetto da cui si costruisce la via d’uscita (release, dipendenze, avvisi di deprecazione, maintainer). I pacchetti con vulnerabilità e le loro catene di dipendenze e, quando non è pubblicata nessuna correzione, le release candidate e le alternative che la via d’uscita valuta, con i loro alberi di dipendenze, entro un budget per scansione",
+                "purpose": "Verificare che una versione con la correzione sia stata davvero pubblicata e, se non ce n’è nessuna, leggere i metadati del pacchetto da cui si costruisce la via d’uscita (release, dipendenze, avvisi di deprecazione, maintainer). I pacchetti con vulnerabilità e le loro catene di dipendenze e, quando non è pubblicata nessuna correzione, le release candidate e le alternative che la via d’uscita valuta, con i loro alberi di dipendenze",
                 "when": "Dopo ogni scansione, per i pacchetti senza una risposta riuscita nelle ultime 24 ore; una richiesta fallita non viene conservata, quindi può essere ripetuta prima",
                 "disable": "Non disattivabile — SENTINELLO_NPM_REGISTRY_URL lo indirizza a un mirror. Se non è raggiungibile, i metadati dei pacchetti ottenuti in precedenza vengono riutilizzati se ancora utilizzabili, e le vulnerabilità attuali vengono valutate su di essi, con la data in cui sono stati ottenuti; senza di essi, la correzione risulta non verificata sul registry"
             },

@@ -235,7 +235,7 @@ async function runFixture(def: SmokeDefinition): Promise<Step[]> {
         steps.push({ name: '2 warm cache', detail: describeRun(warm), failures: [...warmFailures, ...def.historical(warm)] })
 
         // 2b. Cache aged past the window and the registry down: the old data, marked stale.
-        env.sqlite.prepare('UPDATE registry_packages SET checked_at = checked_at - ?').run(FRESH_WINDOW_MS + 3_600_000)
+        env.ageRegistryCache(FRESH_WINDOW_MS + 3_600_000)
         stub.setFailing(true)
         const staleRun = await scanAndCollect(env, project, scanners)
         stub.setFailing(false)
@@ -364,8 +364,8 @@ async function runScratch(def: SmokeDefinition, dbPath: string, projectId: strin
         }
         console.log('[' + def.name + '] scratch: ' + input.rows.length + ' rows settled; registry answers ' + JSON.stringify(counts))
         for (const row of record.rows.filter(function watched(r) { return PRESENT.some(function p(name) { return r.package.startsWith(name + '@') }) })) {
-            const way = row.remediation as { chains: { verdict: { kind: string } }[]; partial: boolean } | null
-            const verdicts = way ? ' way-out: ' + way.chains.map(function k(c) { return c.verdict.kind }).join(', ') + (way.partial ? ' (partial)' : '') : ''
+            const way = row.remediation as { chains: { verdict: { kind: string } }[] } | null
+            const verdicts = way ? ' way-out: ' + way.chains.map(function k(c) { return c.verdict.kind }).join(', ') : ''
             console.log('  ' + row.package + ' ' + row.advisory + ' [' + row.source + '] ' + row.severity + ' → ' + row.fixStatus + ' ' + row.fixVersion + ' (registry ' + row.registry + ')' + verdicts)
         }
         if (out) writeFileSync(out, JSON.stringify(record, null, 2) + '\n')

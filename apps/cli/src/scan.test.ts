@@ -460,7 +460,7 @@ describe('scanProject', function () {
                 fetchPackage: async function fetchPackage(name: string): Promise<NpmPackageResult> {
                     asked.push(name)
                     if (fail) return { status: 'error', reason: 'HTTP 503' }
-                    return { status: 'ok', summary: { v: 1, name, latest: '3.0.3', modified: 1, maintainers: 1, repository: null, versions: { '3.0.3': { publishedAt: 1, deprecated: null, edges: null } }, edges: [] } }
+                    return { status: 'ok', summary: { v: 2, name, latest: '3.0.3', modified: 1, maintainers: 1, repository: null, versions: { '3.0.3': { publishedAt: 1, deprecated: null, edges: null } }, prereleases: {}, edges: [] }, etag: null, bytes: 1 }
                 },
                 fetchDownloads: async function fetchDownloads() { return { status: 'error', reason: 'down' } }
             })

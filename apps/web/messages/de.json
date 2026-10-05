@@ -490,8 +490,7 @@
             "notVerified": "nicht verifiziert — die Abhängigkeitshülle konnte nicht geprüft werden",
             "builtIn": "integriert: {id}",
             "snippet": "Inline-Code",
-            "removal": "entfernen",
-            "partial": "Unvollständig: Das Budget für Registry-Abfragen war erschöpft, daher sind einige Urteile unbekannt."
+            "removal": "entfernen"
         },
         "vulnPrefix": "Schwachstelle:",
         "groupingAriaLabel": "Gruppierung der Funde",
@@ -618,7 +617,7 @@
                 "disable": "Kernfunktion — nicht deaktivierbar"
             },
             "npmRegistry": {
-                "purpose": "Prüfen, ob eine Fix-Version tatsächlich veröffentlicht wurde, und – falls keine existiert – die Paketmetadaten lesen, aus denen der Ausweg erstellt wird (Releases, Abhängigkeiten, Deprecation-Hinweise, Maintainer). Pakete mit Befunden und ihre Abhängigkeitsketten und, wenn kein Fix veröffentlicht ist, die Kandidaten-Releases und Alternativen, die der Ausweg abwägt, samt ihren Abhängigkeitsbäumen – innerhalb eines Budgets pro Scan",
+                "purpose": "Prüfen, ob eine Fix-Version tatsächlich veröffentlicht wurde, und – falls keine existiert – die Paketmetadaten lesen, aus denen der Ausweg erstellt wird (Releases, Abhängigkeiten, Deprecation-Hinweise, Maintainer). Pakete mit Befunden und ihre Abhängigkeitsketten und, wenn kein Fix veröffentlicht ist, die Kandidaten-Releases und Alternativen, die der Ausweg abwägt, samt ihren Abhängigkeitsbäumen",
                 "when": "Nach jedem Scan, für Pakete ohne erfolgreiche Antwort in den letzten 24 Stunden; eine fehlgeschlagene Anfrage wird nicht gespeichert und kann daher früher wiederholt werden",
                 "disable": "Nicht abschaltbar – SENTINELLO_NPM_REGISTRY_URL verweist auf einen Mirror. Ist er nicht erreichbar, werden früher abgerufene Paketmetadaten wiederverwendet, sofern sie noch brauchbar sind, und aktuelle Befunde mit dem Datum dieses Abrufs dagegen geprüft; ohne sie wird der Fix als nicht gegen die Registry geprüft angezeigt"
             },

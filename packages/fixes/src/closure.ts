@@ -1,7 +1,7 @@
 import semver from 'semver'
 import type { NpmPackageSummary } from '@sentinello/feeds'
 import { affectedSetContains, type AffectedSet } from '@sentinello/scanners'
-import type { FetchBudget, RegistryClient, RegistryEntry } from './registry-client'
+import type { RegistryClient, RegistryEntry } from './registry-client'
 
 // The transitive proof behind every escape the way-out guidance claims. A release "drops" the vulnerable
 // package only when its whole resolved dependency closure — not its direct dependency list — holds no
@@ -20,8 +20,9 @@ import type { FetchBudget, RegistryClient, RegistryEntry } from './registry-clie
 //                            identity), where the identity includes the affected sets: a 'no' for one
 //                            advisory says nothing about another.
 //
-// Every registry read goes through one budget per project scan; over budget, closures come back
-// incomplete and the verdicts that needed them 'unknown'.
+// There is no cap on how many packages a walk reads: a closure is walked to its end, and an 'unknown' only
+// ever comes from a real cause — a registry error, a package not on the registry, a range nothing
+// satisfies, a git or file specifier — which its reason names.
 
 export type Closure = {
     // package@version keys, the release itself included.
@@ -41,20 +42,16 @@ export type Reach = { verdict: 'yes' | 'no'; closureSize: number; reason: null }
 export type SummaryAnswer = { status: 'ok'; summary: NpmPackageSummary } | { status: 'missing'; reason: string }
 
 export type ClosureWalker = {
-    budget: FetchBudget
-    // Loads (once) and returns each package's registry summary, through the budget.
+    // Loads (once) and returns each package's registry summary.
     summaries(names: readonly string[]): Promise<Map<string, SummaryAnswer>>
     closureOf(name: string, version: string): Promise<Closure>
     reaches(name: string, version: string, target: ProofTarget): Promise<Reach>
 }
 
-// The fetch budget for one project scan's way-out guidance (closures need more lookups than settlement).
-export const REMEDIATION_FETCH_BUDGET = 60
-
 // The walk of one edge set, expanded a level at a time and kept: `closureOf` runs it to the end, while
 // `reaches` stops as soon as the target shows up — a 'yes' needs only the path to it, and a release whose
 // closure holds the target often also pulls in a large unrelated tree (a peer like eslint) that would
-// spend the whole fetch budget for nothing. The state is target-independent; any later call resumes it.
+// cost a level of fetches for nothing. The state is target-independent; any later call resumes it.
 type Expansion = {
     nodes: Map<string, { name: string; version: string }>
     unresolved: Set<string>
@@ -67,7 +64,7 @@ type Expansion = {
 // release itself cannot be read.
 type ReleaseWalk = { key: string; expansion: Expansion } | { key: string; final: Closure }
 
-export function createClosureWalker(registry: RegistryClient, budget: FetchBudget): ClosureWalker {
+export function createClosureWalker(registry: RegistryClient): ClosureWalker {
     // Every summary asked for in this project scan, as the promise of its answer, so two questions in flight
     // at once share one lookup.
     const loaded = new Map<string, Promise<SummaryAnswer>>()
@@ -78,7 +75,7 @@ export function createClosureWalker(registry: RegistryClient, budget: FetchBudge
     async function summaries(names: readonly string[]): Promise<Map<string, SummaryAnswer>> {
         const wanted = [...new Set(names)].filter(function notLoaded(n) { return !loaded.has(n) })
         if (wanted.length > 0) {
-            const lookup = registry.lookup(wanted, { budget })
+            const lookup = registry.lookup(wanted)
             for (const name of wanted) {
                 loaded.set(name, lookup.then(function answerFor(served) { return toAnswer(served.get(name)) }))
             }
@@ -126,9 +123,9 @@ export function createClosureWalker(registry: RegistryClient, budget: FetchBudge
         const key = name + '@' + version
         const answer = (await summaries([name])).get(name) as SummaryAnswer
         if (answer.status === 'missing') return { key, final: { nodes: [key], complete: false, reason: name + ': ' + answer.reason, unresolved: [name] } }
-        const meta = answer.summary.versions[version]
-        if (!meta) return { key, final: { nodes: [key], complete: false, reason: key + ' is not a published release', unresolved: [] } }
-        const edgeKey = name + '#' + String(meta.edges)
+        const edges = edgeIndexOf(answer.summary, version)
+        if (edges === undefined) return { key, final: { nodes: [key], complete: false, reason: key + ' is not a published release', unresolved: [] } }
+        const edgeKey = name + '#' + String(edges)
         let expansion = byEdges.get(edgeKey)
         if (!expansion) {
             expansion = { nodes: new Map(), unresolved: new Set(), reason: null, frontier: edgesOf(answer.summary, version), step: null }
@@ -167,7 +164,7 @@ export function createClosureWalker(registry: RegistryClient, budget: FetchBudge
         return computed
     }
 
-    return { budget, summaries, closureOf, reaches }
+    return { summaries, closureOf, reaches }
 }
 
 // The verdict a closure supports for one target. While the walk is still going (`finished` false) only a
@@ -221,8 +218,8 @@ export function edgesOf(summary: NpmPackageSummary, version: string): EdgeReques
 // entries of the same name in dependencies"). Every effective edge is followed, optional and peer included.
 // Empty for a release the registry has no record of, or one without dependencies.
 export function effectiveDependencies(summary: NpmPackageSummary, version: string): Record<string, string> {
-    const meta = summary.versions[version]
-    const edges = meta && meta.edges !== null ? summary.edges[meta.edges] : undefined
+    const index = edgeIndexOf(summary, version)
+    const edges = index === undefined || index === null ? undefined : summary.edges[index]
     if (!edges) return {}
     return { ...edges.peerDependencies, ...edges.dependencies, ...edges.optionalDependencies }
 }
@@ -235,16 +232,83 @@ export function unalias(name: string, range: string): EdgeRequest {
     return { name: spec.slice(0, at), range: spec.slice(at + 1) }
 }
 
-// What an install of `range` resolves to: the highest published release satisfying it. `latest`, `*` and
-// an empty range mean the latest tag. Null for anything not resolvable from the registry (a git or file
-// specifier, an unknown tag, a range nothing satisfies).
+// A version's index into the summary's edge sets — null when it declares none — for a release or a
+// prerelease alike; undefined when the registry has no such version.
+function edgeIndexOf(summary: NpmPackageSummary, version: string): number | null | undefined {
+    const release = summary.versions[version]
+    if (release) return release.edges
+    return Object.hasOwn(summary.prereleases, version) ? summary.prereleases[version] : undefined
+}
+
+// What an install of `range` resolves to: the highest published version satisfying it, as npm picks it.
+// Prereleases are candidates under semver's own rule — only for a range that names a prerelease of the same
+// major.minor.patch (gensync@^1.0.0-beta.2) — so an ordinary range still resolves to a release. `latest`,
+// `*` and an empty range mean the latest tag. Null for anything not resolvable from the registry (a git or
+// file specifier, an unknown tag, a range nothing satisfies).
+//
+// A walk resolves the same few ranges against the same summaries thousands of times, over release lists
+// thousands long (next: 2,369 releases and more canaries), so each summary's versions are parsed and sorted
+// once and each answer is remembered per summary. Measured on the scratch fleet: re-parsing every version on
+// every call was 48 of truqo's 74 post-scan seconds.
 export function resolveRange(summary: NpmPackageSummary, range: string): string | null {
-    const releases = Object.keys(summary.versions)
     const trimmed = range.trim()
+    let answers = resolved.get(summary)
+    if (!answers) {
+        answers = new Map()
+        resolved.set(summary, answers)
+    }
+    const known = answers.get(trimmed)
+    if (known !== undefined) return known
+    const answer = resolveUncached(summary, trimmed)
+    answers.set(trimmed, answer)
+    return answer
+}
+
+type Candidate = { key: string; version: semver.SemVer }
+type Candidates = { releases: Candidate[]; all: Candidate[] }
+
+const resolved = new WeakMap<NpmPackageSummary, Map<string, string | null>>()
+const candidates = new WeakMap<NpmPackageSummary, Candidates>()
+
+function resolveUncached(summary: NpmPackageSummary, trimmed: string): string | null {
     if (trimmed === '' || trimmed === '*' || trimmed === 'latest') {
         if (summary.latest !== null && summary.latest in summary.versions) return summary.latest
-        return semver.maxSatisfying(releases, '*')
+        return candidatesOf(summary).releases[0]?.key ?? null
     }
-    if (semver.validRange(trimmed) === null) return null
-    return semver.maxSatisfying(releases, trimmed)
+    let parsed: semver.Range
+    try {
+        parsed = new semver.Range(trimmed)
+    } catch {
+        return null
+    }
+    const pool = namesPrerelease(parsed) ? candidatesOf(summary).all : candidatesOf(summary).releases
+    return pool.find(function satisfies(c) { return parsed.test(c.version) })?.key ?? null
+}
+
+// Whether any comparator of the range carries a prerelease tag: without one, semver never lets a prerelease
+// satisfy it, so only releases need testing.
+function namesPrerelease(range: semver.Range): boolean {
+    return range.set.some(function anySet(comparators) {
+        return comparators.some(function tagged(c) { return c.semver instanceof semver.SemVer && c.semver.prerelease.length > 0 })
+    })
+}
+
+// The summary's versions parsed once, newest first: the first one a range accepts is the highest.
+function candidatesOf(summary: NpmPackageSummary): Candidates {
+    const cached = candidates.get(summary)
+    if (cached) return cached
+    function parse(keys: string[]): Candidate[] {
+        return keys.flatMap(function toCandidate(key) {
+            const version = semver.parse(key)
+            return version === null ? [] : [{ key, version }]
+        })
+    }
+    function newestFirst(a: Candidate, b: Candidate): number {
+        return b.version.compare(a.version)
+    }
+    const releases = parse(Object.keys(summary.versions)).sort(newestFirst)
+    const all = [...releases, ...parse(Object.keys(summary.prereleases))].sort(newestFirst)
+    const built = { releases, all }
+    candidates.set(summary, built)
+    return built
 }

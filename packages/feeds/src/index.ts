@@ -62,4 +62,4 @@ export {
     npmRegistryUrl,
     summarizePackument
 } from './registry/npm'
-export type { FetchNpmPackageOptions, NpmDownloadsResult, NpmEdges, NpmPackageResult, NpmPackageSummary, NpmVersionSummary } from './registry/npm'
+export type { FetchNpmPackageOptions, FetchNpmPackumentOptions, NpmDownloadsResult, NpmEdges, NpmPackageResult, NpmPackageSummary, NpmVersionSummary } from './registry/npm'

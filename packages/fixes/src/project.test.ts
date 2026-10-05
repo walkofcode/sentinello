@@ -116,7 +116,7 @@ describe('registryView / publishedVersions', function () {
     function summary(versions: string[], deprecated: string[] = []): NpmPackageSummary {
         const out: NpmPackageSummary['versions'] = {}
         for (const v of versions) out[v] = { publishedAt: CHECKED_AT, deprecated: deprecated.includes(v) ? 'old' : null, edges: null }
-        return { v: 1, name: 'p', latest: null, modified: CHECKED_AT, maintainers: 1, repository: null, versions: out, edges: [] }
+        return { v: 2, name: 'p', latest: null, modified: CHECKED_AT, maintainers: 1, repository: null, versions: out, prereleases: {}, edges: [] }
     }
 
     it('maps every registry answer onto what settlement may conclude from it', function () {

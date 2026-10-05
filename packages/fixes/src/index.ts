@@ -16,12 +16,10 @@ export {
 export {
     createNpmRegistryClient,
     parseSummary,
-    FETCH_BUDGET_EXHAUSTED,
     REGISTRY_FETCH_CONCURRENCY,
     REGISTRY_FRESH_MS,
-    type FetchBudget,
-    type LookupOptions,
     type NpmRegistryClientOptions,
+    type PackumentRequest,
     type RegistryClient,
     type RegistryEntry,
     type RegistryRow,

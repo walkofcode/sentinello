@@ -5,7 +5,7 @@ import { registryPackages } from '../schema'
 export type RegistryPackageStatus = 'ok' | 'not_found'
 
 // One cached registry answer. `summaryJson` is the reduced packument for 'ok' (parsed by the caller,
-// which owns its shape) and null for 'not_found'.
+// which owns its shape) and null for 'not_found'; `etag` is the registry's validator for that summary.
 export type RegistryPackageRow = {
     ecosystem: string
     name: string
@@ -14,6 +14,7 @@ export type RegistryPackageRow = {
     weeklyDownloads: number | null
     downloadsCheckedAt: number | null
     checkedAt: number
+    etag: string | null
 }
 
 // SQLite caps bound parameters per statement; a project's distinct package list stays far below this,
@@ -36,16 +37,17 @@ export function getRegistryPackages(db: DrizzleDb, ecosystem: string, names: rea
 
 // Writes the registry's latest answer for a package. Only ever called with an answer ('ok' or
 // 'not_found'): a failed fetch is not an answer and is never cached, so the last good row survives it.
-// Download counts belong to a separate, rarer fetch and are left as they are.
+// Download counts belong to a separate, rarer fetch and are left as they are. A revalidated answer (a 304)
+// is written the same way, with its new checkedAt.
 export function upsertRegistryPackage(
     db: DrizzleDb,
-    row: { ecosystem: string; name: string; status: RegistryPackageStatus; summaryJson: string | null; checkedAt: number }
+    row: { ecosystem: string; name: string; status: RegistryPackageStatus; summaryJson: string | null; checkedAt: number; etag: string | null }
 ): void {
     db.insert(registryPackages)
         .values({ ...row, weeklyDownloads: null, downloadsCheckedAt: null })
         .onConflictDoUpdate({
             target: [registryPackages.ecosystem, registryPackages.name],
-            set: { status: row.status, summaryJson: row.summaryJson, checkedAt: row.checkedAt }
+            set: { status: row.status, summaryJson: row.summaryJson, checkedAt: row.checkedAt, etag: row.etag }
         })
         .run()
 }

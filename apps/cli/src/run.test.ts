@@ -755,10 +755,13 @@ describe('the npm registry', function () {
         return {
             status: 'ok',
             summary: {
-                v: 1, name: 'lodash', latest: '4.17.21', modified: 1, maintainers: 1, repository: null,
+                v: 2, name: 'lodash', latest: '4.17.21', modified: 1, maintainers: 1, repository: null,
                 versions: { '4.17.11': { publishedAt: 1, deprecated: null, edges: null }, '4.17.21': { publishedAt: 2, deprecated: null, edges: null } },
+                prereleases: {},
                 edges: []
-            }
+            },
+            etag: null,
+            bytes: 1
         }
     }
 

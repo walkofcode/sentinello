@@ -63,12 +63,16 @@ export function parseRow(line: string): RegistryRow | null {
     if (r.status !== 'ok' && r.status !== 'not_found') return null
     if (r.summaryJson !== null && typeof r.summaryJson !== 'string') return null
     if (!isTime(r.checkedAt)) return null
+    // A line written before the CLI kept ETags has none: the row is served as it is, and the next refetch
+    // after it expires is a plain one.
+    const etag = typeof r.etag === 'string' && r.etag.length > 0 ? r.etag : null
     const downloads = isTime(r.weeklyDownloads) && isTime(r.downloadsCheckedAt)
     return {
         name: r.name,
         status: r.status,
         summaryJson: r.summaryJson,
         checkedAt: r.checkedAt,
+        etag,
         weeklyDownloads: downloads ? r.weeklyDownloads as number : null,
         downloadsCheckedAt: downloads ? r.downloadsCheckedAt as number : null
     }
@@ -94,8 +98,8 @@ export async function loadRegistryStore(cacheDir: string): Promise<FileRegistryS
     }
 }
 
-// Per name, the newer answer wins for the answer (status, summary, checkedAt) and the newer count for the
-// count. Each half is judged on its own timestamp, so a run that only refreshed a download count never
+// Per name, the newer answer wins for the answer (status, summary, checkedAt, and the ETag that validates
+// that summary) and the newer count for the count. Each half is judged on its own timestamp, so a run that only refreshed a download count never
 // rolls back an answer another run fetched later, and the reverse.
 export function mergeRow(onDisk: RegistryRow | undefined, mine: RegistryRow): RegistryRow {
     if (!onDisk) return mine
@@ -106,6 +110,7 @@ export function mergeRow(onDisk: RegistryRow | undefined, mine: RegistryRow): Re
         status: answer.status,
         summaryJson: answer.summaryJson,
         checkedAt: answer.checkedAt,
+        etag: answer.etag,
         weeklyDownloads: count.weeklyDownloads,
         downloadsCheckedAt: count.downloadsCheckedAt
     }

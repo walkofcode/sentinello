@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createMemoryRegistryStore } from './memory-store'
 
-const ROW = { name: 'a', status: 'ok' as const, summaryJson: '{}', checkedAt: 1, weeklyDownloads: 5, downloadsCheckedAt: 2 }
+const ROW = { name: 'a', status: 'ok' as const, summaryJson: '{}', checkedAt: 1, etag: '"e"', weeklyDownloads: 5, downloadsCheckedAt: 2 }
 
 describe('createMemoryRegistryStore', function () {
     it('answers only the names it holds, starting from the rows it was given', function () {
@@ -11,9 +11,9 @@ describe('createMemoryRegistryStore', function () {
 
     it('replaces an answer but keeps its download count, and starts a new one without a count', function () {
         const store = createMemoryRegistryStore([ROW])
-        store.put({ name: 'a', status: 'not_found', summaryJson: null, checkedAt: 9 })
-        store.put({ name: 'b', status: 'ok', summaryJson: '{}', checkedAt: 9 })
-        expect(store.get(['a']).get('a')).toEqual({ name: 'a', status: 'not_found', summaryJson: null, checkedAt: 9, weeklyDownloads: 5, downloadsCheckedAt: 2 })
+        store.put({ name: 'a', status: 'not_found', summaryJson: null, checkedAt: 9, etag: null })
+        store.put({ name: 'b', status: 'ok', summaryJson: '{}', checkedAt: 9, etag: null })
+        expect(store.get(['a']).get('a')).toEqual({ name: 'a', status: 'not_found', summaryJson: null, checkedAt: 9, etag: null, weeklyDownloads: 5, downloadsCheckedAt: 2 })
         expect(store.get(['b']).get('b')).toMatchObject({ weeklyDownloads: null, downloadsCheckedAt: null })
     })
 

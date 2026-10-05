@@ -490,8 +490,7 @@
             "notVerified": "no verificado: no se pudo comprobar su cierre de dependencias",
             "builtIn": "integrado: {id}",
             "snippet": "código en línea",
-            "removal": "elimínalo",
-            "partial": "Parcial: se agotó el presupuesto de consultas al registro, así que algunos veredictos son desconocidos."
+            "removal": "elimínalo"
         },
         "vulnPrefix": "vuln:",
         "groupingAriaLabel": "Agrupación de hallazgos",
@@ -618,7 +617,7 @@
                 "disable": "Función central — no se puede deshabilitar"
             },
             "npmRegistry": {
-                "purpose": "Comprobar que una versión con la corrección se publicó de verdad y, si no hay ninguna, leer los metadatos del paquete con los que se arma la salida (versiones, dependencias, avisos de obsolescencia, mantenedores). Paquetes con hallazgos y sus cadenas de dependencias y, cuando no hay corrección publicada, las versiones candidatas y las alternativas que evalúa la salida, con sus árboles de dependencias, dentro de un límite por escaneo",
+                "purpose": "Comprobar que una versión con la corrección se publicó de verdad y, si no hay ninguna, leer los metadatos del paquete con los que se arma la salida (versiones, dependencias, avisos de obsolescencia, mantenedores). Paquetes con hallazgos y sus cadenas de dependencias y, cuando no hay corrección publicada, las versiones candidatas y las alternativas que evalúa la salida, con sus árboles de dependencias",
                 "when": "Después de cada escaneo, para paquetes sin una respuesta correcta en las últimas 24 horas; una petición fallida no se guarda, así que puede repetirse antes",
                 "disable": "No se puede desactivar: SENTINELLO_NPM_REGISTRY_URL lo apunta a un mirror. Si no se puede alcanzar, se reutilizan los metadatos de paquete obtenidos antes, si siguen siendo utilizables, y los hallazgos actuales se evalúan con ellos, con la fecha en que se obtuvieron; sin ellos, la corrección se muestra como no comprobado en el registro"
             },

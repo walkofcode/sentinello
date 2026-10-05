@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Remediation } from '@sentinello/core'
 import type { LockRootKind, NodeGraph } from '@sentinello/scanners'
 import { computeRemediations, findChains } from './remediation'
-import { fakeRegistry, type FakePackage } from './registry-fake.fixture'
+import { fakeRegistry, type FakePackage, type FakeRelease } from './registry-fake.fixture'
 import type { ReplacementDataset } from './replacements'
 
 // The way out is advice an agent acts on, so every claim in it has to be proven or labelled. These cases
@@ -67,7 +67,7 @@ describe('the fast-glob path: the walk continues past micromatch, and tinyglobby
             verdict: { kind: 'noEscape', packages: ['micromatch', 'fast-glob', '@next/eslint-plugin-next'] }
         }])
         expect(r.devOnly).toBe(true)
-        expect(r.partial).toBe(false)
+        expect(r).not.toHaveProperty('partial')
         expect(r.health).toMatchObject({ name: 'braces', latest: '3.0.3', lastPublishAt: BRACES_PUBLISHED, maintainers: 2, weeklyDownloads: 204_706_783, deprecated: null, unmaintained: true })
         expect(r.health.daysSinceLastPublish).toBe(865)
         const fastGlob = r.alternatives.find(function fg(a) { return a.replaces === 'fast-glob' })
@@ -383,28 +383,27 @@ describe('alternatives from the dataset', function () {
     })
 })
 
-describe('the fetch budget', function () {
-    it('turns a verdict that needs more lookups than the budget allows into unknown, and marks the guidance partial', async function () {
-        const wide: Record<string, FakePackage> = { braces: BRACES, p: { releases: { '1.0.0': { dependencies: { braces: '3.0.3' } }, '2.0.0': { dependencies: Object.fromEntries(Array.from({ length: 70 }, function dep(_x, i) { return ['d' + i, '1.0.0'] })) } } } }
-        for (let i = 0; i < 70; i++) wide['d' + i] = { releases: { '1.0.0': {} } }
-        const r = await remediate(wide, graph({ roots: [['p@1.0.0', 'prod']], edges: ['p@1.0.0 > braces@3.0.3'] }), { dataset: NO_DATASET })
-        expect(r.chains[0]?.verdict).toMatchObject({ kind: 'unknown', at: 'p' })
-        expect(r.partial).toBe(true)
+// The way out used to stop after 60 registry lookups per project scan and mark itself partial. There is no
+// cap now: a candidate release with a wide dependency tree, and an alternative with one, are both proven.
+describe('no lookup cap', function () {
+    function wideTree(name: string, release: FakeRelease): Record<string, FakePackage> {
+        const table: Record<string, FakePackage> = { braces: BRACES, [name]: { releases: { '1.0.0': release } } }
+        for (let i = 0; i < 70; i++) table['d' + i] = { releases: { '1.0.0': {} } }
+        return table
+    }
+    const SEVENTY = Object.fromEntries(Array.from({ length: 70 }, function dep(_x, i) { return ['d' + i, '1.0.0'] }))
+
+    it('proves an upgrade whose release brings in 70 packages', async function () {
+        const table = wideTree('p', { dependencies: { braces: '3.0.3' } })
+        table.p = { releases: { ...table.p?.releases, '2.0.0': { dependencies: SEVENTY } } }
+        const r = await remediate(table, graph({ roots: [['p@1.0.0', 'prod']], edges: ['p@1.0.0 > braces@3.0.3'] }), { dataset: NO_DATASET })
+        expect(r.chains[0]?.verdict).toMatchObject({ kind: 'upgrade', package: 'p', toAtLeast: '2.0.0', proof: { release: 'p@2.0.0', closureSize: 71 } })
     })
 
-    it('marks the guidance partial when only an alternative was left unproven by the budget', async function () {
-        const wide: Record<string, FakePackage> = { braces: BRACES, wide: { releases: { '1.0.0': { dependencies: Object.fromEntries(Array.from({ length: 70 }, function dep(_x, i) { return ['d' + i, '1.0.0'] })) } } } }
-        for (let i = 0; i < 70; i++) wide['d' + i] = { releases: { '1.0.0': {} } }
+    it('verifies an alternative whose closure is 70 packages wide', async function () {
+        const table = wideTree('wide', { dependencies: SEVENTY })
         const dataset: ReplacementDataset = function curated(name) { return name === 'braces' ? { replaces: 'braces', url: null, replacements: [{ kind: 'module', name: 'wide' }] } : null }
-        const r = await remediate(wide, graph({ roots: [['braces@3.0.3', 'prod']] }), { dataset })
-        expect(r.chains[0]?.verdict).toEqual({ kind: 'direct' })
-        expect(r.alternatives[0]?.options[0]).toMatchObject({ kind: 'module', name: 'wide', verified: false })
-        expect(r.partial).toBe(true)
-    })
-
-    it('is not partial when the budget ran out but nothing in this guidance was left open', async function () {
-        const registry = fakeRegistry({ braces: BRACES })
-        const results = await computeRemediations([{ target: BRACES_TARGET, installed: ['3.0.3'] }], { graph: graph({ roots: [['braces@3.0.3', 'prod']] }), registry, checkedAt: CHECKED_AT, dataset: NO_DATASET })
-        expect(results[0]?.partial).toBe(false)
+        const r = await remediate(table, graph({ roots: [['braces@3.0.3', 'prod']] }), { dataset })
+        expect(r.alternatives[0]?.options[0]).toMatchObject({ kind: 'module', name: 'wide', verified: true, proof: { release: 'wide@1.0.0', closureSize: 71 } })
     })
 })

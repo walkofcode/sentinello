@@ -14,7 +14,7 @@ import {
 } from '@sentinello/core'
 import type { NpmPackageSummary } from '@sentinello/feeds'
 import type { LockRoot, NodeGraph } from '@sentinello/scanners'
-import { createClosureWalker, effectiveDependencies, REMEDIATION_FETCH_BUDGET, unalias, type ClosureWalker, type ProofTarget, type SummaryAnswer } from './closure'
+import { createClosureWalker, effectiveDependencies, unalias, type ClosureWalker, type ProofTarget, type SummaryAnswer } from './closure'
 import type { RegistryClient } from './registry-client'
 import { createReplacementDataset, type ReplacementDataset } from './replacements'
 
@@ -32,10 +32,10 @@ export type RemediationContext = {
     dataset?: ReplacementDataset
 }
 
-// The guidance for each request, in order, sharing one closure walker (its memo and its fetch budget) and
-// one download lookup across all of them — one project scan's worth.
+// The guidance for each request, in order, sharing one closure walker (its memo) and one download lookup
+// across all of them — one project scan's worth.
 export async function computeRemediations(requests: RemediationRequest[], context: RemediationContext): Promise<Remediation[]> {
-    const walker = createClosureWalker(context.registry, { remaining: REMEDIATION_FETCH_BUDGET, exhausted: false })
+    const walker = createClosureWalker(context.registry)
     const signals = new SignalBook(walker)
     const dataset = context.dataset ?? createReplacementDataset()
     const out: Remediation[] = []
@@ -44,15 +44,7 @@ export async function computeRemediations(requests: RemediationRequest[], contex
     }
     // Download counts are a signal, not a verdict: fetched once for every package any guidance names.
     await signals.fillDownloads(context.registry)
-    // Partial: the budget ran out and this guidance has a verdict or an option that more data could settle.
-    for (const r of out) r.partial = walker.budget.exhausted && hasOpenQuestion(r)
     return out
-}
-
-function hasOpenQuestion(r: Remediation): boolean {
-    const unknownChain = r.chains.some(function open(c) { return c.verdict.kind === 'unknown' })
-    const unverifiedOption = r.alternatives.some(function open(a) { return a.options.some(function o(opt) { return opt.kind === 'module' && !opt.verified }) })
-    return unknownChain || unverifiedOption
 }
 
 type BuildOneArgs = {
@@ -86,8 +78,7 @@ async function buildOne(args: BuildOneArgs): Promise<Remediation> {
         moreChains: found ? found.more : 0,
         moreChainsAtLeast: found ? found.moreAtLeast : false,
         alternatives,
-        devOnly: found ? found.devOnly : null,
-        partial: false
+        devOnly: found ? found.devOnly : null
     }
 }
 

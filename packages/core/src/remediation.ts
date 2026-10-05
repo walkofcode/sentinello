@@ -42,7 +42,8 @@ export type ChainVerdict =
     | { kind: 'blocked'; escapePackage: string; escapeVersion: string; blockedBy: string; blockedByLatest: string | null; blockedRange: string; proof: ClosureProof }
     // No released version of any of these ancestors (nearest first, up to the direct dependency) drops it.
     | { kind: 'noEscape'; packages: string[] }
-    // The registry evidence ran out at `at`; nothing at or above it is claimed either way.
+    // The registry evidence could not settle it at `at` — `reason` names the real cause; nothing at or above it
+    // is claimed either way.
     | { kind: 'unknown'; at: string; reason: string }
     // The vulnerable package is itself a direct dependency: the only way out is replacing it.
     | { kind: 'direct' }
@@ -96,8 +97,6 @@ export type Remediation = {
     // True only when no production or optional root reaches the vulnerable package at all; null when
     // that could not be determined (no lockfile graph).
     devOnly: boolean | null
-    // The registry lookup budget ran out, so some verdicts are `unknown` that more data could settle.
-    partial: boolean
 }
 
 export const MAX_REMEDIATION_CHAINS = 5
@@ -122,12 +121,17 @@ export function parseRemediation(json: string | null): Remediation | null {
     } catch {
         return null
     }
-    return isRemediation(parsed) ? parsed : null
+    if (!isRemediation(parsed)) return null
+    // A row stored while the way out had a fetch cap also carries `partial`. It is read, and dropped:
+    // there is no cap any more, so it says nothing about the guidance.
+    const current: Remediation & { partial?: unknown } = { ...parsed }
+    delete current.partial
+    return current
 }
 
 function isRemediation(r: unknown): r is Remediation {
     return isRecord(r) && r.v === 1 && isTime(r.checkedAt) && typeof r.package === 'string' && isCount(r.moreChains) &&
-        typeof r.moreChainsAtLeast === 'boolean' && typeof r.partial === 'boolean' && (r.devOnly === null || typeof r.devOnly === 'boolean') &&
+        typeof r.moreChainsAtLeast === 'boolean' && (r.devOnly === null || typeof r.devOnly === 'boolean') &&
         isHealth(r.health) && isListOf(r.chains, isChain) && isListOf(r.alternatives, isAlternative)
 }
 
@@ -294,7 +298,7 @@ export function describeDevOnly(devOnly: boolean | null, target: string): string
 
 // The "Way out" block as lines, without bullets, so each surface can indent them its own way: the
 // advisory export nests them under a bullet; the CLI and the notifications use a subset.
-export function describeRemediation(r: Remediation, style: FixTextStyle): { health: string; chains: string[]; devOnly: string; alternatives: string[]; partial: string | null } {
+export function describeRemediation(r: Remediation, style: FixTextStyle): { health: string; chains: string[]; devOnly: string; alternatives: string[] } {
     const target = style.code(r.package)
     const chains = r.chains.map(function line(c) {
         // The workspace is named when it is not the project itself: the same path in four apps of a
@@ -308,8 +312,7 @@ export function describeRemediation(r: Remediation, style: FixTextStyle): { heal
         health: describeHealth(r.health, style),
         chains,
         devOnly: describeDevOnly(r.devOnly, target),
-        alternatives: r.alternatives.map(function line(a) { return describeAlternative(a, style) }),
-        partial: r.partial ? 'Partial: the registry lookup budget ran out, so some verdicts above are unknown.' : null
+        alternatives: r.alternatives.map(function line(a) { return describeAlternative(a, style) })
     }
 }
 

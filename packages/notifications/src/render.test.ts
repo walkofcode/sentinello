@@ -423,7 +423,7 @@ describe('the way out in a notification', function () {
         v: 1, checkedAt: Date.UTC(2026, 9, 3), package: 'braces',
         health: { name: 'braces', latest: '3.0.3', lastPublishAt: Date.UTC(2024, 4, 21), maintainers: 2, weeklyDownloads: 1, deprecated: null, daysSinceLastPublish: 865, unmaintained: true },
         chains: [{ importer: '.', rootKind: 'dev', path: ['nodemon@3.1.14', 'chokidar@3.6.0', 'braces@3.0.3'], verdict: { kind: 'blocked', escapePackage: 'chokidar', escapeVersion: '4.0.0', blockedBy: 'nodemon', blockedByLatest: '3.1.14', blockedRange: '^3.5.2', proof: { release: 'chokidar@4.0.0', closureSize: 2 } } }],
-        moreChains: 0, moreChainsAtLeast: false, alternatives: [], devOnly: true, partial: false
+        moreChains: 0, moreChainsAtLeast: false, alternatives: [], devOnly: true
     }
     const expected = 'braces is unmaintained → replace it; chokidar ≥ 4.0.0 drops braces, but no released nodemon admits it (latest 3.1.14 requires ^3.5.2); dev tooling only'
 

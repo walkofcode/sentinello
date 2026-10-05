@@ -33,11 +33,11 @@ afterEach(async function cleanup() {
 })
 
 function summary(name: string): NpmPackageSummary {
-    return { v: 1, name, latest: '1.0.0', modified: NOW, maintainers: 1, repository: null, versions: { '1.0.0': { publishedAt: NOW, deprecated: null, edges: null } }, edges: [] }
+    return { v: 2, name, latest: '1.0.0', modified: NOW, maintainers: 1, repository: null, versions: { '1.0.0': { publishedAt: NOW, deprecated: null, edges: null } }, prereleases: {}, edges: [] }
 }
 
 function row(name: string, overrides: Partial<RegistryRow> = {}): RegistryRow {
-    return { name, status: 'ok', summaryJson: JSON.stringify(summary(name)), checkedAt: NOW, weeklyDownloads: null, downloadsCheckedAt: null, ...overrides }
+    return { name, status: 'ok', summaryJson: JSON.stringify(summary(name)), checkedAt: NOW, etag: null, weeklyDownloads: null, downloadsCheckedAt: null, ...overrides }
 }
 
 // A run: its own store over the file as it is now, and a client whose fetches are counted.
@@ -49,7 +49,7 @@ async function run(at: number = NOW) {
         now: function now() { return at },
         fetchPackage: async function fetchPackage(name: string): Promise<NpmPackageResult> {
             packuments.push(name)
-            return name.startsWith('missing') ? { status: 'not_found' } : { status: 'ok', summary: summary(name) }
+            return name.startsWith('missing') ? { status: 'not_found' } : { status: 'ok', summary: summary(name), etag: null, bytes: 1 }
         },
         fetchDownloads: async function fetchDownloads(name: string): Promise<NpmDownloadsResult> {
             counts.push(name)
@@ -169,7 +169,7 @@ describe('loadRegistryStore / saveRegistryStore', function () {
     it('creates the cache directory on first save', async function () {
         const nested = join(dir, 'nested')
         const store: FileRegistryStore = await loadRegistryStore(nested)
-        store.put({ name: 'a', status: 'not_found', summaryJson: null, checkedAt: NOW })
+        store.put({ name: 'a', status: 'not_found', summaryJson: null, checkedAt: NOW, etag: null })
         expect(await saveRegistryStore(nested, store)).toBe('saved')
         expect(await registryCacheSummary(nested)).toEqual({ rows: 1, oldestCheckedAt: NOW })
     })
@@ -183,11 +183,45 @@ describe('loadRegistryStore / saveRegistryStore', function () {
     })
 })
 
+// The daily case: yesterday's answers have expired. A run sends each one's saved ETag, and a 304 refreshes
+// the saved row without a packument being downloaded.
+describe('ETag revalidation through the cache file', function () {
+    it('saves the ETag, sends it back once the row expires, and saves the 304 as a fresh answer', async function () {
+        const first = await loadRegistryStore(dir)
+        const fetchFirst = async function fetchFirst(name: string): Promise<NpmPackageResult> { return { status: 'ok', summary: summary(name), etag: 'W/"e1"', bytes: 1 } }
+        await createNpmRegistryClient(first, { now: () => NOW, fetchPackage: fetchFirst }).lookup(['a'])
+        expect(await saveRegistryStore(dir, first)).toBe('saved')
+
+        const later = NOW + REGISTRY_FRESH_MS + 1
+        const sent: (string | null)[] = []
+        const second = await loadRegistryStore(dir)
+        const out = await createNpmRegistryClient(second, {
+            now: () => later,
+            fetchPackage: async function revalidate(_name, request): Promise<NpmPackageResult> {
+                sent.push(request.ifNoneMatch)
+                return { status: 'not_modified', etag: '"e1"' }
+            }
+        }).lookup(['a'])
+        expect(sent).toEqual(['W/"e1"'])
+        expect(out.get('a')).toEqual({ status: 'ok', summary: summary('a'), checkedAt: later, origin: 'fetched' })
+        expect(await saveRegistryStore(dir, second)).toBe('saved')
+        expect((await loadRegistryStore(dir)).get(['a']).get('a')).toEqual(row('a', { checkedAt: later, etag: '"e1"' }))
+    })
+})
+
 describe('parseRow', function () {
     it('accepts a row, and a count only with its timestamp', function () {
         expect(parseRow(JSON.stringify(row('a', { weeklyDownloads: 5, downloadsCheckedAt: NOW })))).toEqual(row('a', { weeklyDownloads: 5, downloadsCheckedAt: NOW }))
         expect(parseRow(JSON.stringify(row('a', { status: 'not_found', summaryJson: null })))).toEqual(row('a', { status: 'not_found', summaryJson: null }))
         expect(parseRow(JSON.stringify(row('a', { weeklyDownloads: 5 })))).toEqual(row('a'))
+    })
+
+    it('keeps the ETag, and reads a line written before the CLI kept one as having none', function () {
+        expect(parseRow(JSON.stringify(row('a', { etag: 'W/"e1"' })))?.etag).toBe('W/"e1"')
+        const { etag: _dropped, ...legacy } = row('a')
+        expect(parseRow(JSON.stringify(legacy))).toEqual(row('a'))
+        expect(parseRow(JSON.stringify({ ...row('a'), etag: '' }))?.etag).toBeNull()
+        expect(parseRow(JSON.stringify({ ...row('a'), etag: 7 }))?.etag).toBeNull()
     })
 
     it.each([
@@ -214,6 +248,13 @@ describe('mergeRow', function () {
         const mine = row('a', { checkedAt: NOW, weeklyDownloads: 2, downloadsCheckedAt: NOW + 5 })
         expect(mergeRow(disk, mine)).toEqual(row('a', { status: 'not_found', summaryJson: null, checkedAt: NOW + 5, weeklyDownloads: 2, downloadsCheckedAt: NOW + 5 }))
         expect(mergeRow(mine, disk)).toEqual(row('a', { status: 'not_found', summaryJson: null, checkedAt: NOW + 5, weeklyDownloads: 2, downloadsCheckedAt: NOW + 5 }))
+    })
+
+    it('carries the ETag with the answer it validates', function () {
+        const disk = row('a', { checkedAt: NOW + 5, etag: '"disk"', weeklyDownloads: 1, downloadsCheckedAt: NOW })
+        const mine = row('a', { checkedAt: NOW, etag: '"mine"', weeklyDownloads: 2, downloadsCheckedAt: NOW + 5 })
+        expect(mergeRow(disk, mine)).toMatchObject({ checkedAt: NOW + 5, etag: '"disk"', weeklyDownloads: 2 })
+        expect(mergeRow(row('a', { etag: '"old"' }), row('a', { checkedAt: NOW + 1, etag: '"new"' })).etag).toBe('"new"')
     })
 
     it('keeps the disk\'s count when the run has none', function () {

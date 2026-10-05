@@ -490,8 +490,7 @@
             "notVerified": "not verified — its dependency closure could not be checked",
             "builtIn": "built-in {id}",
             "snippet": "inline code",
-            "removal": "remove it",
-            "partial": "Partial: the registry lookup budget ran out, so some verdicts are unknown."
+            "removal": "remove it"
         },
         "vulnPrefix": "vuln:",
         "groupingAriaLabel": "Findings grouping",
@@ -618,7 +617,7 @@
                 "disable": "Core function — not disableable"
             },
             "npmRegistry": {
-                "purpose": "Check that a fix version was actually published, and — when none was — read the package metadata the way out is built from (releases, dependencies, deprecation notices, maintainers). Packages with findings and their dependency chains and, when no fix is released, the candidate releases and alternatives the way out weighs, with their dependency trees — within a budget per scan",
+                "purpose": "Check that a fix version was actually published, and — when none was — read the package metadata the way out is built from (releases, dependencies, deprecation notices, maintainers). Packages with findings and their dependency chains and, when no fix is released, the candidate releases and alternatives the way out weighs, with their dependency trees",
                 "when": "After each scan, for packages without a successful answer in the last 24 hours; a failed request is not stored, so it can be retried sooner",
                 "disable": "Not disableable — SENTINELLO_NPM_REGISTRY_URL points it at a mirror. When it cannot be reached, package metadata fetched earlier is reused if it is still usable, and current findings are evaluated against it, with the date it was fetched; without it, the fix shows as not checked against the registry"
             },

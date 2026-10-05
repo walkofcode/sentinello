@@ -24,7 +24,6 @@ export function WayOut({ remediation }: { remediation: Remediation }) {
                 {remediation.alternatives.map(function altItem(a) {
                     return <AlternativeLine key={a.replaces} alternative={a} />
                 })}
-                {remediation.partial ? <p className="text-muted-foreground">{t('partial')}</p> : null}
             </div>
         </details>
     )

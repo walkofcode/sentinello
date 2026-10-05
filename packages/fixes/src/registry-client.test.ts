@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { NpmDownloadsResult, NpmPackageResult, NpmPackageSummary } from '@sentinello/feeds'
 import { createMemoryRegistryStore } from './memory-store'
-import { createNpmRegistryClient, FETCH_BUDGET_EXHAUSTED, parseSummary, REGISTRY_FETCH_CONCURRENCY, REGISTRY_FRESH_MS, type FetchBudget, type RegistryStore } from './registry-client'
+import { createNpmRegistryClient, parseSummary, REGISTRY_FETCH_CONCURRENCY, REGISTRY_FRESH_MS, type PackumentRequest, type RegistryStore } from './registry-client'
 
 // The client over an in-memory store; the worker's registry-store.test.ts drives it over the real table.
 const NOW = Date.UTC(2026, 9, 3, 12)
@@ -9,20 +9,27 @@ const NOW = Date.UTC(2026, 9, 3, 12)
 let store: RegistryStore
 
 function summary(name: string): NpmPackageSummary {
-    return { v: 1, name, latest: '1.0.0', modified: NOW, maintainers: 1, repository: null, versions: { '1.0.0': { publishedAt: NOW, deprecated: null, edges: null } }, edges: [] }
+    return { v: 2, name, latest: '1.0.0', modified: NOW, maintainers: 1, repository: null, versions: { '1.0.0': { publishedAt: NOW, deprecated: null, edges: null } }, prereleases: {}, edges: [] }
 }
 
-function cache(name: string, status: 'ok' | 'not_found', checkedAt: number, summaryJson: string | null = status === 'ok' ? JSON.stringify(summary(name)) : null): void {
-    store.put({ name, status, summaryJson, checkedAt })
+function ok(name: string, etag: string | null = null): NpmPackageResult {
+    return { status: 'ok', summary: summary(name), etag, bytes: 100 }
 }
 
-// A fetcher answering from a table and counting calls.
+function cache(name: string, status: 'ok' | 'not_found', checkedAt: number, summaryJson: string | null = status === 'ok' ? JSON.stringify(summary(name)) : null, etag: string | null = null): void {
+    store.put({ name, status, summaryJson, checkedAt, etag })
+}
+
+// A fetcher answering from a table, counting calls and recording the validator each one sent.
 function fetcher(answers: Record<string, NpmPackageResult>) {
     const calls: string[] = []
+    const validators: Record<string, string | null> = {}
     return {
         calls,
-        fetchPackage: async function fetchPackage(name: string): Promise<NpmPackageResult> {
+        validators,
+        fetchPackage: async function fetchPackage(name: string, request: PackumentRequest): Promise<NpmPackageResult> {
             calls.push(name)
+            validators[name] = request.ifNoneMatch
             return answers[name] ?? { status: 'error', reason: 'no answer' }
         }
     }
@@ -45,7 +52,7 @@ describe('createNpmRegistryClient — cache first', function () {
 
     it('refetches an expired row and caches the answer', async function () {
         cache('a', 'ok', NOW - REGISTRY_FRESH_MS - 1)
-        const f = fetcher({ a: { status: 'ok', summary: summary('a') }, gone: { status: 'not_found' } })
+        const f = fetcher({ a: ok('a'), gone: { status: 'not_found' } })
         const out = await createNpmRegistryClient(store, { fetchPackage: f.fetchPackage, now: () => NOW }).lookup(['a', 'gone'])
         expect(f.calls.sort()).toEqual(['a', 'gone'])
         expect(out.get('a')).toMatchObject({ status: 'ok', checkedAt: NOW, origin: 'fetched' })
@@ -57,7 +64,7 @@ describe('createNpmRegistryClient — cache first', function () {
 
     it('refetches a fresh row whose summary cannot be read', async function () {
         cache('a', 'ok', NOW, '{broken')
-        const f = fetcher({ a: { status: 'ok', summary: summary('a') } })
+        const f = fetcher({ a: ok('a') })
         const out = await createNpmRegistryClient(store, { fetchPackage: f.fetchPackage, now: () => NOW }).lookup(['a'])
         expect(f.calls).toEqual(['a'])
         expect(out.get('a')).toMatchObject({ origin: 'fetched' })
@@ -96,7 +103,7 @@ describe('createNpmRegistryClient — concurrency', function () {
     it(`keeps at most ${REGISTRY_FETCH_CONCURRENCY} fetches in flight`, async function () {
         let inFlight = 0
         let peak = 0
-        const names = Array.from({ length: 10 }, function n(_v, i) { return 'p' + i })
+        const names = Array.from({ length: REGISTRY_FETCH_CONCURRENCY * 2 + 1 }, function n(_v, i) { return 'p' + i })
         const client = createNpmRegistryClient(store, {
             now: () => NOW,
             fetchPackage: async function slow(name): Promise<NpmPackageResult> {
@@ -104,11 +111,11 @@ describe('createNpmRegistryClient — concurrency', function () {
                 peak = Math.max(peak, inFlight)
                 await new Promise(function wait(r) { setTimeout(r, 5) })
                 inFlight--
-                return { status: 'ok', summary: summary(name) }
+                return ok(name)
             }
         })
         const out = await client.lookup(names)
-        expect(out.size).toBe(10)
+        expect(out.size).toBe(names.length)
         expect(peak).toBe(REGISTRY_FETCH_CONCURRENCY)
     })
 
@@ -124,7 +131,7 @@ describe('createNpmRegistryClient — concurrency', function () {
                 peak = Math.max(peak, inFlight)
                 await new Promise(function wait(r) { setTimeout(r, 10) })
                 inFlight--
-                return { status: 'ok', summary: summary(name) }
+                return ok(name)
             }
         })
         const names = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6']
@@ -132,6 +139,24 @@ describe('createNpmRegistryClient — concurrency', function () {
         expect(peak).toBeLessThanOrEqual(REGISTRY_FETCH_CONCURRENCY)
         expect(calls.sort()).toEqual(names)
         expect(a.get('p6')).toEqual(b.get('p6'))
+    })
+
+    it('takes another limit when a measurement run sets one', async function () {
+        let inFlight = 0
+        let peak = 0
+        const client = createNpmRegistryClient(store, {
+            now: () => NOW,
+            concurrency: 8,
+            fetchPackage: async function slow(name): Promise<NpmPackageResult> {
+                inFlight++
+                peak = Math.max(peak, inFlight)
+                await new Promise(function wait(r) { setTimeout(r, 5) })
+                inFlight--
+                return ok(name)
+            }
+        })
+        await client.lookup(Array.from({ length: 20 }, function n(_v, i) { return 'p' + i }))
+        expect(peak).toBe(8)
     })
 
     it('answers a throwing fetcher as an error', async function () {
@@ -146,37 +171,78 @@ describe('createNpmRegistryClient — concurrency', function () {
     })
 })
 
-describe('createNpmRegistryClient — fetch budget', function () {
-    it('charges only real fetches, refuses misses past the budget, and says so', async function () {
-        cache('hit', 'ok', NOW)
-        const f = fetcher({ a: { status: 'ok', summary: summary('a') }, b: { status: 'ok', summary: summary('b') } })
-        const client = createNpmRegistryClient(store, { fetchPackage: f.fetchPackage, now: () => NOW })
-        const budget: FetchBudget = { remaining: 1, exhausted: false }
-        const out = await client.lookup(['hit', 'a', 'b'], { budget })
-        expect(out.get('hit')).toMatchObject({ origin: 'cache' })
-        expect(out.get('a')).toMatchObject({ origin: 'fetched' })
-        expect(out.get('b')).toEqual({ status: 'error', reason: FETCH_BUDGET_EXHAUSTED })
-        expect(budget).toEqual({ remaining: 0, exhausted: true })
-        expect(f.calls).toEqual(['a'])
+describe('createNpmRegistryClient — ETag revalidation', function () {
+    it('never revalidates a cached v1 summary: it refetches it in full', async function () {
+        const { prereleases: _none, ...v1 } = { ...summary('a'), v: 1 }
+        cache('a', 'ok', NOW - REGISTRY_FRESH_MS - 1, JSON.stringify(v1), '"e1"')
+        const f = fetcher({ a: ok('a', '"e2"') })
+        const out = await createNpmRegistryClient(store, { fetchPackage: f.fetchPackage, now: () => NOW }).lookup(['a'])
+        expect(f.validators).toEqual({ a: null })
+        expect(out.get('a')).toMatchObject({ status: 'ok', summary: summary('a') })
     })
 
-    it('lets a budgeted lookup join a fetch already in flight for free', async function () {
-        let release: () => void = function none() { return undefined }
-        const gate = new Promise<void>(function hold(resolve) { release = resolve })
-        const client = createNpmRegistryClient(store, {
-            now: () => NOW,
-            fetchPackage: async function held(name): Promise<NpmPackageResult> {
-                await gate
-                return { status: 'ok', summary: summary(name) }
-            }
-        })
-        const first = client.lookup(['a'])
-        const budget: FetchBudget = { remaining: 0, exhausted: false }
-        const joined = client.lookup(['a'], { budget })
-        release()
-        expect((await joined).get('a')).toMatchObject({ status: 'ok', origin: 'fetched' })
-        expect(budget.exhausted).toBe(false)
-        await first
+    it('stores the ETag of a fetched answer, and none for not_found', async function () {
+        const f = fetcher({ a: ok('a', '"e1"'), gone: { status: 'not_found' } })
+        await createNpmRegistryClient(store, { fetchPackage: f.fetchPackage, now: () => NOW }).lookup(['a', 'gone'])
+        expect(f.validators).toEqual({ a: null, gone: null })
+        expect(store.get(['a']).get('a')).toMatchObject({ etag: '"e1"' })
+        expect(store.get(['gone']).get('gone')).toMatchObject({ etag: null })
+    })
+
+    it('revalidates an expired row with its ETag; a 304 serves the held summary as fetched now', async function () {
+        const old = NOW - REGISTRY_FRESH_MS - 1
+        cache('a', 'ok', old, undefined, 'W/"e1"')
+        store.setDownloads('a', 7, old)
+        const f = fetcher({ a: { status: 'not_modified', etag: '"e1"' } })
+        const out = await createNpmRegistryClient(store, { fetchPackage: f.fetchPackage, now: () => NOW }).lookup(['a'])
+        expect(f.validators).toEqual({ a: 'W/"e1"' })
+        expect(out.get('a')).toEqual({ status: 'ok', summary: summary('a'), checkedAt: NOW, origin: 'fetched' })
+        expect(store.get(['a']).get('a')).toEqual({ name: 'a', status: 'ok', summaryJson: JSON.stringify(summary('a')), checkedAt: NOW, etag: '"e1"', weeklyDownloads: 7, downloadsCheckedAt: old })
+    })
+
+    it('keeps the stored ETag when a 304 carries none', async function () {
+        cache('a', 'ok', NOW - REGISTRY_FRESH_MS - 1, undefined, '"e1"')
+        const f = fetcher({ a: { status: 'not_modified', etag: null } })
+        await createNpmRegistryClient(store, { fetchPackage: f.fetchPackage, now: () => NOW }).lookup(['a'])
+        expect(store.get(['a']).get('a')).toMatchObject({ checkedAt: NOW, etag: '"e1"' })
+    })
+
+    it('replaces the summary and its ETag when the packument changed', async function () {
+        cache('a', 'ok', NOW - REGISTRY_FRESH_MS - 1, undefined, '"e1"')
+        const f = fetcher({ a: ok('a', '"e2"') })
+        await createNpmRegistryClient(store, { fetchPackage: f.fetchPackage, now: () => NOW }).lookup(['a'])
+        expect(f.validators).toEqual({ a: '"e1"' })
+        expect(store.get(['a']).get('a')).toMatchObject({ checkedAt: NOW, etag: '"e2"' })
+    })
+
+    it('sends no validator for a row without an ETag, a not_found row, or a summary it cannot read', async function () {
+        const old = NOW - REGISTRY_FRESH_MS - 1
+        cache('plain', 'ok', old)
+        cache('gone', 'not_found', old, null, '"x"')
+        cache('junk', 'ok', old, '{broken', '"x"')
+        const f = fetcher({ plain: ok('plain'), gone: ok('gone'), junk: ok('junk') })
+        await createNpmRegistryClient(store, { fetchPackage: f.fetchPackage, now: () => NOW }).lookup(['plain', 'gone', 'junk'])
+        expect(f.validators).toEqual({ plain: null, gone: null, junk: null })
+    })
+
+    it('reads a 304 with nothing held to confirm as an error, never as an answer', async function () {
+        cache('junk', 'ok', NOW - REGISTRY_FRESH_MS - 1, '{broken', '"x"')
+        const f = fetcher({ junk: { status: 'not_modified', etag: '"x"' }, new: { status: 'not_modified', etag: null } })
+        const out = await createNpmRegistryClient(store, { fetchPackage: f.fetchPackage, now: () => NOW }).lookup(['junk', 'new'])
+        expect(out.get('junk')).toEqual({ status: 'error', reason: 'HTTP 304 with no cached packument to confirm' })
+        expect(out.get('new')).toEqual({ status: 'error', reason: 'HTTP 304 with no cached packument to confirm' })
+        expect(store.get(['new']).size).toBe(0)
+        expect(store.get(['junk']).get('junk')).toMatchObject({ checkedAt: NOW - REGISTRY_FRESH_MS - 1 })
+    })
+})
+
+describe('createNpmRegistryClient — no cap', function () {
+    it('fetches every miss in one lookup, however many there are', async function () {
+        const names = Array.from({ length: 200 }, function name(_x, i) { return 'p' + i })
+        const f = fetcher(Object.fromEntries(names.map(function answer(n) { return [n, ok(n)] })))
+        const out = await createNpmRegistryClient(store, { fetchPackage: f.fetchPackage, now: () => NOW }).lookup(names)
+        expect([...out.values()].every(function fetched(e) { return e.status === 'ok' && e.origin === 'fetched' })).toBe(true)
+        expect(f.calls).toHaveLength(200)
     })
 })
 
@@ -221,12 +287,16 @@ describe('createNpmRegistryClient — weekly downloads', function () {
 })
 
 describe('parseSummary', function () {
-    it('accepts a v1 summary and rejects anything else', function () {
+    // A v1 summary was cached before prereleases were kept: it is no summary, so it is refetched in full.
+    it('accepts a v2 summary and rejects anything else, a cached v1 summary included', function () {
         expect(parseSummary(JSON.stringify(summary('a')))).toEqual(summary('a'))
         expect(parseSummary(null)).toBeNull()
         expect(parseSummary('{')).toBeNull()
         expect(parseSummary('null')).toBeNull()
-        expect(parseSummary(JSON.stringify({ ...summary('a'), v: 2 }))).toBeNull()
+        const { prereleases: _none, ...v1 } = { ...summary('a'), v: 1 }
+        expect(parseSummary(JSON.stringify(v1))).toBeNull()
+        expect(parseSummary(JSON.stringify({ ...summary('a'), v: 3 }))).toBeNull()
+        expect(parseSummary(JSON.stringify({ ...summary('a'), prereleases: null }))).toBeNull()
         expect(parseSummary(JSON.stringify({ ...summary('a'), versions: null }))).toBeNull()
         expect(parseSummary(JSON.stringify({ ...summary('a'), versions: 'x' }))).toBeNull()
     })

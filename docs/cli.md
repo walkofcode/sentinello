@@ -84,7 +84,8 @@ The cache lives in `$SENTINELLO_CACHE_DIR`, else `$XDG_CACHE_HOME/sentinello`, e
 
 The same directory holds `registry-npm.ndjson.gz`, the npm registry answers the fix check and the way out
 read (see below). An answer is reused for 24 hours; after that the next scan that needs the package asks
-again, and if the registry cannot be reached the earlier answer is used and marked with its date. Two
+again, sending the ETag the answer came with, so a package that has not changed costs a `304` with no body.
+If the registry cannot be reached the earlier answer is used and marked with its date. Two
 runs at once never lose each other's answers: each saves only what it fetched, merged into the file under
 the cache lock, and a run that finds the lock held skips its save.
 

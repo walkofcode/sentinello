@@ -259,13 +259,14 @@ function snapshotSummaries(snapshot: RegistrySnapshotEntry[]): Map<string, NpmPa
     return out
 }
 
-// What an install of `range` resolves to, re-derived with semver: the highest release satisfying it, the
-// latest tag for '', '*' and 'latest'.
+// What an install of `range` resolves to, re-derived with semver: the highest version satisfying it under
+// semver's default prerelease rule (a prerelease only for a range naming one of the same major.minor.patch),
+// the latest tag for '', '*' and 'latest'.
 function resolveWith(summary: NpmPackageSummary, range: string): string | null {
     const releases = Object.keys(summary.versions)
     const r = range.trim()
     if (r === '' || r === '*' || r === 'latest') return summary.latest !== null && summary.latest in summary.versions ? summary.latest : semver.maxSatisfying(releases, '*')
-    return semver.validRange(r) === null ? null : semver.maxSatisfying(releases, r)
+    return semver.validRange(r) === null ? null : semver.maxSatisfying([...releases, ...Object.keys(summary.prereleases)], r)
 }
 
 // The release's resolved dependency closure, walked over the snapshot alone. `missing` names what the
@@ -277,12 +278,14 @@ function rewalk(name: string, version: string, summaries: Map<string, NpmPackage
     for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
         const [n, v] = next
         const summary = summaries.get(n)
-        const meta = summary?.versions[v]
-        if (!summary || !meta) {
+        const release = summary?.versions[v]
+        // A release's edge index (null: no edges), else a prerelease's; undefined when it is neither.
+        const index = !summary ? undefined : release ? release.edges : Object.hasOwn(summary.prereleases, v) ? summary.prereleases[v] : undefined
+        if (!summary || index === undefined) {
             missing.push(n + '@' + v)
             continue
         }
-        const edges = meta.edges === null ? undefined : summary.edges[meta.edges]
+        const edges = index === null ? undefined : summary.edges[index]
         if (!edges) continue
         // npm honours one range per name: optionalDependencies over dependencies over peerDependencies.
         for (const [depName, depRange] of Object.entries({ ...edges.peerDependencies, ...edges.dependencies, ...edges.optionalDependencies })) {

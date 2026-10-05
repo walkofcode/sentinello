@@ -53,10 +53,10 @@ const PACKUMENT = {
 }
 
 describe('summarizePackument', function () {
-    it('keeps release versions with their publish time, deprecation and interned edges', function () {
+    it('keeps release versions with their publish time, deprecation and interned edges, and prereleases apart', function () {
         const summary = summarizePackument('braces', PACKUMENT)
         expect(summary).toEqual({
-            v: 1,
+            v: 2,
             name: 'braces',
             latest: '3.0.3',
             modified: Date.parse('2024-05-21T00:00:00.000Z'),
@@ -66,11 +66,27 @@ describe('summarizePackument', function () {
                 '3.0.2': { publishedAt: Date.parse('2019-04-07T00:00:00.000Z'), deprecated: null, edges: 0 },
                 '3.0.3': { publishedAt: Date.parse('2024-05-21T00:00:00.000Z'), deprecated: 'use something else', edges: 1 }
             },
+            prereleases: { '3.0.4-beta': null, '4.0.0-rc.1': null },
             edges: [
                 { dependencies: { 'fill-range': '^7.0.1' }, optionalDependencies: {}, peerDependencies: {}, optionalPeers: [] },
                 { dependencies: { 'fill-range': '^7.1.1' }, optionalDependencies: {}, peerDependencies: {}, optionalPeers: [] }
             ]
         })
+    })
+
+    // gensync has published only 1.0.0-beta.x; the proofs must resolve @jest/core's gensync@^1.0.0-beta.2.
+    it('keeps a prerelease\'s edges, sharing the interned sets, and drops a version that is not semver', function () {
+        const summary = summarizePackument('gensync', {
+            versions: {
+                '1.0.0-beta.1': { dependencies: { a: '1' } },
+                '1.0.0-beta.2+build.5': { dependencies: { a: '1' } },
+                '1.0.0-beta.3': {},
+                'not-a-version': { dependencies: { b: '1' } }
+            }
+        })
+        expect(summary?.versions).toEqual({})
+        expect(summary?.prereleases).toEqual({ '1.0.0-beta.1': 0, '1.0.0-beta.2+build.5': 0, '1.0.0-beta.3': null })
+        expect(summary?.edges).toHaveLength(1)
     })
 
     it('stores an identical dependency map once, whatever its key order', function () {
@@ -163,6 +179,34 @@ describe('fetchNpmPackage', function () {
         expect(server.requests[0]?.url).toBe('/braces')
         expect(server.requests[0]?.headers['user-agent']).toContain('sentinello')
         expect(server.requests[0]?.headers.accept).toBe('application/json')
+    })
+
+    it('returns the registry\'s ETag and the size of the body it read', async function () {
+        const body = JSON.stringify(PACKUMENT)
+        server = await startDownloadServer(function respond(request) {
+            return request.url === '/braces' ? { body, headers: { etag: '"58a16aca"' } } : { body }
+        })
+        expect(await fetchNpmPackage('braces', { registryUrl: server.origin })).toMatchObject({ status: 'ok', etag: '"58a16aca"', bytes: Buffer.byteLength(body) })
+        expect(await fetchNpmPackage('untagged', { registryUrl: server.origin })).toMatchObject({ status: 'ok', etag: null })
+        expect(server.requests[0]?.headers['if-none-match']).toBeUndefined()
+    })
+
+    // registry.npmjs.org answers a conditional GET with 304 and no body (probed 2026-10-04, evidence m3-etag-probe).
+    it('sends If-None-Match when asked, and reads a 304 as not modified', async function () {
+        server = await startDownloadServer(function respond(request) {
+            if (request.headers['if-none-match'] === 'W/"58a16aca"') return { status: 304, headers: { etag: '"58a16aca"' } }
+            return { body: JSON.stringify(PACKUMENT), headers: { etag: '"new"' } }
+        })
+        expect(await fetchNpmPackage('braces', { registryUrl: server.origin, ifNoneMatch: 'W/"58a16aca"' })).toEqual({ status: 'not_modified', etag: '"58a16aca"' })
+        expect(server.requests[0]?.headers['if-none-match']).toBe('W/"58a16aca"')
+        expect(await fetchNpmPackage('braces', { registryUrl: server.origin, ifNoneMatch: '"old"' })).toMatchObject({ status: 'ok', etag: '"new"' })
+        expect(await fetchNpmPackage('braces', { registryUrl: server.origin, ifNoneMatch: null })).toMatchObject({ status: 'ok' })
+        expect(server.requests[2]?.headers['if-none-match']).toBeUndefined()
+    })
+
+    it('reads a 304 to a request that sent no validator as an error', async function () {
+        server = await startDownloadServer({ status: 304 })
+        expect(await fetchNpmPackage('braces', { registryUrl: server.origin })).toEqual({ status: 'error', reason: 'HTTP 304' })
     })
 
     it('reports a 404 as not_found and any other status as an error', async function () {

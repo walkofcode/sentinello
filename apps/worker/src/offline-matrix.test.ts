@@ -52,7 +52,7 @@ const osv: ScannerPlugin = {
 function summary(versions: string[]): NpmPackageSummary {
     const out: NpmPackageSummary['versions'] = {}
     for (const v of versions) out[v] = { publishedAt: Date.UTC(2024, 4, 21), deprecated: null, edges: null }
-    return { v: 1, name: 'braces', latest: versions[versions.length - 1] ?? null, modified: 0, maintainers: 2, repository: null, versions: out, edges: [] }
+    return { v: 2, name: 'braces', latest: versions[versions.length - 1] ?? null, modified: 0, maintainers: 2, repository: null, versions: out, prereleases: {}, edges: [] }
 }
 
 // A registry that answers every request with one status.
@@ -67,7 +67,7 @@ async function registryAnswering(status: number): Promise<string> {
 
 function cacheStale(versions: string[], age: number): number {
     const checkedAt = Date.now() - age
-    upsertRegistryPackage(db, { ecosystem: 'npm', name: 'braces', status: 'ok', summaryJson: JSON.stringify(summary(versions)), checkedAt })
+    upsertRegistryPackage(db, { ecosystem: 'npm', name: 'braces', status: 'ok', summaryJson: JSON.stringify(summary(versions)), checkedAt, etag: null })
     return checkedAt
 }
 
