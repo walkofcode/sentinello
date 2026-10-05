@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.7.0](https://github.com/walkofcode/sentinello/compare/v3.6.0...v3.7.0) (2026-10-05)
+
+
+### Documentation
+
+* a pre-release 3.7.0 registry cache is refetched per package when next needed, not swept on the first scan ([eacd190](https://github.com/walkofcode/sentinello/commit/eacd1901bc8cda93d22a6c9e2f271eb553d4cb3b))
+* **releases:** 3.7.0 — an outage reuses cached package metadata only while it is usable, and current findings are evaluated against it ([ad2c808](https://github.com/walkofcode/sentinello/commit/ad2c8086b1ff0285a4268d879b55f8358f3f99f9))
+* **releases:** 3.7.0 — fix versions are checked against the npm registry, and a finding with no released fix shows the way out ([01fccff](https://github.com/walkofcode/sentinello/commit/01fccffc0c6b2299a9742e08d05b2671e52bdb27))
+* **releases:** 3.7.0 — say what an outage keeps, which lookups the way out makes, that unverified alternatives are marked, and what the prompt now asks of the agent ([da6b55b](https://github.com/walkofcode/sentinello/commit/da6b55b644afc7d63e7e833db2f70d5463b89d4c))
+* **releases:** 3.7.0 ships on 2026-10-05 ([b138342](https://github.com/walkofcode/sentinello/commit/b138342c2b264fdcf8b4e14d95fc02e9b3a0cab4))
+* **releases:** amend 3.7.0 — the CLI checks npm like the worker, projects that cannot be scanned say so and why, and the way out has no lookup cap ([de6d49d](https://github.com/walkofcode/sentinello/commit/de6d49d587d1aa4d2771ed5674aba6e213aace95))
+
 ## [3.6.0](https://github.com/walkofcode/sentinello/compare/v3.5.1...v3.6.0) (2026-10-02)
 
 
