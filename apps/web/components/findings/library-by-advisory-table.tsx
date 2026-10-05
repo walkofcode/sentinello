@@ -15,6 +15,7 @@ import { cn } from '@/lib/cn'
 import { advisoryIdentity } from '@/lib/merge-findings'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { RowDisclosure } from './row-disclosure'
+import { NotRechecked } from './version-chain'
 
 type Props = {
     packageName: string
@@ -265,6 +266,8 @@ function AdvisoryCard({ packageName, group, activeMutes, isOpen, onToggle, now }
                                     </Link>
                                     {(u.isDev && !u.isProd && <Badge variant="dev">{t('dev')}</Badge>) || null}
                                 </div>
+                                {/* What an earlier scan left, kept at its severity: say why nothing re-checked it. */}
+                                {u.notRecheckedBecause ? <div className="mt-1"><NotRechecked reason={u.notRecheckedBecause} /></div> : null}
                                 <dl className="mt-2 grid grid-cols-[5rem_1fr] gap-x-3 gap-y-1">
                                     <dt className="uppercase tracking-wide text-muted-foreground">{t('columns.installed')}</dt>
                                     <dd className="font-mono">{u.installedVersion}</dd>
@@ -343,6 +346,7 @@ function ExpandedProjects({ packageName, group, activeMutes, now }: ExpandedProp
                                     <Link href={'/projects/' + u.projectId} className="hover:opacity-80">
                                         {u.projectName}
                                     </Link>
+                                    {u.notRecheckedBecause ? <div><NotRechecked reason={u.notRecheckedBecause} /></div> : null}
                                 </td>
                                 <td className="px-2 py-1.5 align-middle font-mono">
                                     {u.installedVersion}

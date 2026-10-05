@@ -274,6 +274,14 @@ function applyValueFlag(options: CliOptions, name: string, raw: string): string 
     return 'unknown option ' + name
 }
 
+// Whether npm audit runs. It submits the dependency tree to the configured registry, so --offline — the
+// documented no-network switch — outranks every way of asking for it: the default sources, --source and
+// sentinello.config.json. Read here, after the config file is applied, rather than by clearing
+// includeNpmAudit, so nothing applied later can turn it back on and the run can still say what it left out.
+export function runsNpmAudit(options: CliOptions): boolean {
+    return options.includeNpmAudit && !options.offline
+}
+
 function isSeverity(value: string): value is Severity {
     return (SEVERITIES as string[]).includes(value)
 }

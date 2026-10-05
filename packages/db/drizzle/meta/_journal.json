@@ -71,6 +71,20 @@
       "when": 1786763207885,
       "tag": "0009_fat_toro",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1791082004552,
+      "tag": "0010_whole_luke_cage",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1791158378838,
+      "tag": "0011_free_maddog",
+      "breakpoints": true
     }
   ]
 }

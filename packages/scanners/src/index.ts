@@ -13,7 +13,7 @@ export {
     mergeResolvedGraphs,
     graphForEcosystem
 } from './resolver'
-export type { DepScope, DetectedManifest, ResolvedGraph, ResolvedPackage, ResolverResult } from './resolver'
+export type { DepScope, DetectedManifest, LockEdge, LockEdgeKind, LockNode, LockRoot, LockRootKind, NodeGraph, ResolvedGraph, ResolvedPackage, ResolverResult } from './resolver'
 export {
     detectEcosystems,
     detectPackageManager,
@@ -26,9 +26,22 @@ export type { OsvAdvisory, OsvLookup, OsvRange, OsvScannerDeps } from './osv'
 export { createGemnasiumScanner, GEMNASIUM_SCANNER_NAME } from './gemnasium'
 export type { GemnasiumAdvisory, GemnasiumLookup, GemnasiumRange, GemnasiumScannerDeps } from './gemnasium'
 export { matchAdvisories } from './engine/matcher'
+export { normalizeOneVulnerability, type DepClassifier, type Vulnerability } from './npm-audit-parse'
 // Version semantics live in @sentinello/versions; re-exported here so existing consumers keep one import.
 export { semverComparator, pep440Comparator } from '@sentinello/versions'
 export { reconcileAgainstReported, findingIdentityKeys, escalatedSeverity } from './engine/reconcile'
+export {
+    pickStatedFix,
+    affectedSetContains,
+    evaluableAffected,
+    evaluableContains,
+    isNoPatchedSentinel,
+    parseRangeSafely,
+    NO_PATCHED_VERSION_SENTINEL,
+    type AffectedSet,
+    type EvaluableAffected,
+    type FixEvidence
+} from './version-fix'
 export type { CorroborationEvent, ReconcileResult, ReportedAdvisory } from './engine/reconcile'
 export type { CanonicalAdvisory, VersionRange, VersionComparator } from './engine/types'
 

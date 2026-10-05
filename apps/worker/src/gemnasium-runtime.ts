@@ -112,14 +112,10 @@ export function gemnasiumSourceEnabled(db: DrizzleDb): boolean {
     return enabledGemnasiumEcosystems(db).length > 0
 }
 
-// Opens (and migrates) the gemnasium cache, builds the scanner bound to it, runs an initial sync if the
-// feed is enabled, and schedules the daily sync. Returns the scanner so the scheduler can include it in
-// the per-project run set.
-export function startGemnasiumRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime): GemnasiumRuntime {
-    const { db: gemnasiumDb } = openGemnasiumDb()
-    runGemnasiumMigrations(gemnasiumDb)
-
-    const scanner = createGemnasiumScanner({
+// The gemnasium scanner bound to an opened cache, with no sync attached. The runtime below adds the sync;
+// the scratch tools use this alone, against a copy of gemnasium.db, so a verification run never touches the feed.
+export function createGemnasiumScannerFor(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb): ScannerPlugin {
+    return createGemnasiumScanner({
         isEnabled: function isEnabled(ecosystem: string): boolean {
             // The operator's live (gemnasium, ecosystem) cell flag, read each scan. The single gemnasium
             // cache is seeded for every ecosystem, so without this gate a disabled cell would still match;
@@ -141,6 +137,16 @@ export function startGemnasiumRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime)
             return out
         }
     })
+}
+
+// Opens (and migrates) the gemnasium cache, builds the scanner bound to it, runs an initial sync if the
+// feed is enabled, and schedules the daily sync. Returns the scanner so the scheduler can include it in
+// the per-project run set.
+export function startGemnasiumRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime): GemnasiumRuntime {
+    const { db: gemnasiumDb } = openGemnasiumDb()
+    runGemnasiumMigrations(gemnasiumDb)
+
+    const scanner = createGemnasiumScannerFor(mainDb, gemnasiumDb)
 
     // Mirror an initial status snapshot immediately so the Settings panel shows "not seeded yet" rather
     // than nothing the moment the source is enabled.

@@ -14,23 +14,19 @@ import {
     deleteScansByIds,
     getLastScanFinishedAt,
     getLatestScanForProject,
-    getProjectEcosystemCoverage,
     hasStaleSourceUnavailableScans,
     insertScan,
     listPrunableScanIds,
     listScansForProject,
     RAW_JSON_MAX_BYTES
 } from './scans'
+import { getProjectEcosystemCoverage } from './scan-state'
 
 // Ordering is what most of this module is for: "the latest scan" drives the project page header and
 // the scheduler's idea of when anything last ran, so newest-first has to hold regardless of insert
 // order.
 //
-// getProjectEcosystemCoverage is the part with real judgement in it. Feed scanners serialise their
-// per-ecosystem coverage into rawJson, and this reconstructs the latest state per ecosystem. Its
-// defaults all lean the same way on purpose: unreadable or unexpected input is skipped rather than
-// guessed at, because reading a coverage gap as a clean bill of health would tell an operator a
-// language was audited when it was not.
+// Coverage (getProjectEcosystemCoverage) is read in ./scan-state and tested beside it.
 
 const MIGRATIONS = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'drizzle')
 
@@ -232,108 +228,51 @@ describe('listScansForProject', function () {
     })
 })
 
-describe('getProjectEcosystemCoverage', function () {
-    function coverageScan(id: string, finishedAt: number, coverage: unknown): void {
-        insertScan(db, { ...scan({ id, finishedAt }), rawJson: JSON.stringify({ coverage }) })
-    }
-
-    it('reports nothing when no scan recorded coverage', function () {
-        insertScan(db, scan())
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([])
-    })
-
-    it('reads coverage out of a scan rawJson', function () {
-        coverageScan('s1', T0, [{ ecosystem: 'npm', status: 'ok' }])
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([
-            { ecosystem: 'npm', status: 'ok', reasonCode: null, details: [] }
-        ])
-    })
-
-    it('carries the reason and details for a degraded ecosystem', function () {
-        coverageScan('s1', T0, [
-            { ecosystem: 'PyPI', status: 'unauditable', reasonCode: 'no_lockfile', details: ['no poetry.lock'] }
-        ])
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([
-            { ecosystem: 'PyPI', status: 'unauditable', reasonCode: 'no_lockfile', details: ['no poetry.lock'] }
-        ])
-    })
-
-    // Walks newest-first and keeps the first entry per ecosystem, so a stale earlier scan cannot
-    // overwrite the current state with an out-of-date one.
-    it('keeps the newest entry per ecosystem', function () {
-        coverageScan('older', T0, [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile' }])
-        coverageScan('newer', T0 + HOUR, [{ ecosystem: 'npm', status: 'ok' }])
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([
-            { ecosystem: 'npm', status: 'ok', reasonCode: null, details: [] }
-        ])
-    })
-
-    it('merges coverage across ecosystems from different scans', function () {
-        coverageScan('npm-scan', T0, [{ ecosystem: 'npm', status: 'ok' }])
-        coverageScan('py-scan', T0 + HOUR, [{ ecosystem: 'PyPI', status: 'partial' }])
-        const found = getProjectEcosystemCoverage(db, PROJECT_ID)
-        expect(found.map(function e(c) { return c.ecosystem }).sort()).toEqual(['PyPI', 'npm'])
-    })
-
-    it('skips a scan whose rawJson is not valid JSON', function () {
-        insertScan(db, { ...scan({ id: 'broken', finishedAt: T0 + HOUR }), rawJson: '{not json' })
-        coverageScan('good', T0, [{ ecosystem: 'npm', status: 'ok' }])
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toHaveLength(1)
-    })
-
-    it('skips a scan whose coverage is not an array', function () {
-        coverageScan('weird', T0 + HOUR, { ecosystem: 'npm' })
-        coverageScan('good', T0, [{ ecosystem: 'npm', status: 'ok' }])
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toHaveLength(1)
-    })
-
-    it('skips entries with no ecosystem name', function () {
-        coverageScan('s1', T0, [{ status: 'ok' }, { ecosystem: 'npm', status: 'ok' }])
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID).map(function e(c) { return c.ecosystem })).toEqual(['npm'])
-    })
-
-    // An unrecognised status becomes 'ok' rather than being dropped, so the ecosystem still appears
-    // in the list rather than vanishing from the coverage report entirely.
-    it('normalises an unrecognised status to ok', function () {
-        coverageScan('s1', T0, [{ ecosystem: 'npm', status: 'weird' }])
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)[0]?.status).toBe('ok')
-    })
-
-    it('nulls a non-string reason code', function () {
-        coverageScan('s1', T0, [{ ecosystem: 'npm', status: 'partial', reasonCode: 42 }])
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)[0]?.reasonCode).toBeNull()
-    })
-
-    it('keeps only string details', function () {
-        coverageScan('s1', T0, [{ ecosystem: 'npm', status: 'partial', details: ['ok', 7, null] }])
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)[0]?.details).toEqual(['ok'])
-    })
-
-    it('defaults absent details to an empty list', function () {
-        coverageScan('s1', T0, [{ ecosystem: 'npm', status: 'partial', details: 'not-an-array' }])
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)[0]?.details).toEqual([])
-    })
-
-    it('does not read another project coverage', function () {
-        insertScan(db, {
-            ...scan({ id: 'theirs', projectId: OTHER_PROJECT_ID }),
-            rawJson: JSON.stringify({ coverage: [{ ecosystem: 'Go', status: 'ok' }] })
-        })
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([])
-    })
-})
-
 // Retention. The rule is deliberately conservative — three independent conditions, each of which can
 // only ever SAVE a row — because deleting scan history is irreversible and the sweep runs unattended.
 describe('listPrunableScanIds', function () {
     const CUTOFF = T0 + 100 * HOUR
 
+    // A failed scan, so the latest-ok rule below never spares it: these tests are about the other rules.
     function oldScan(id: string, projectId = PROJECT_ID): void {
-        insertScan(db, scan({ id, projectId, finishedAt: T0 }))
+        insertScan(db, scan({ id, projectId, finishedAt: T0, status: 'unauditable', reasonCode: 'no_lockfile' }))
     }
+
+    // A project that has failed for months still says when its source last scanned it successfully.
+    it('spares the latest ok scan of each source, however old', function () {
+        insertScan(db, scan({ id: 'ok-old', finishedAt: T0 }))
+        insertScan(db, scan({ id: 'ok-last', finishedAt: T0 + HOUR }))
+        insertScan(db, scan({ id: 'audit-ok', finishedAt: T0, source: 'npm-audit', scanner: 'npm-audit' }))
+        insertScan(db, scan({ id: 'failed', finishedAt: T0 + 2 * HOUR, status: 'unauditable', reasonCode: 'no_lockfile' }))
+        expect(listPrunableScanIds(db, CUTOFF, 0, 100)).toEqual(['ok-old'])
+    })
+
+    // The source's latest scan is what the scan state reads: pruning a latest failure while sparing an older
+    // ok would make the source read as having answered, with no successful recheck. At most two rows per
+    // (project, source) are kept this way: the latest, and the latest ok.
+    it('spares the latest scan of each source, however old, as well as its latest ok', function () {
+        insertScan(db, scan({ id: 'ok', finishedAt: T0 }))
+        insertScan(db, scan({ id: 'failed-old', finishedAt: T0 + HOUR, status: 'error', reasonCode: 'osv_db_unavailable' }))
+        insertScan(db, scan({ id: 'failed-last', finishedAt: T0 + 2 * HOUR, status: 'error', reasonCode: 'osv_db_unavailable' }))
+        for (let n = 0; n < 3; n++) insertScan(db, scan({ id: 'audit-' + n, finishedAt: T0 + (10 + n) * HOUR, source: 'npm-audit', scanner: 'npm-audit' }))
+        expect(listPrunableScanIds(db, CUTOFF, 2, 100).sort()).toEqual(['audit-0', 'failed-old'])
+    })
+
+    it('breaks a finished_at tie for the latest scan on the later id', function () {
+        oldScan('failed-a')
+        oldScan('failed-b')
+        expect(listPrunableScanIds(db, CUTOFF, 0, 100)).toEqual(['failed-a'])
+    })
+
+    it('breaks a finished_at tie between ok scans on the later id', function () {
+        insertScan(db, scan({ id: 'ok-a', finishedAt: T0 }))
+        insertScan(db, scan({ id: 'ok-b', finishedAt: T0 }))
+        expect(listPrunableScanIds(db, CUTOFF, 0, 100)).toEqual(['ok-a'])
+    })
 
     it('offers an old, unreferenced scan', function () {
         oldScan('old')
+        insertScan(db, scan({ id: 'newer', finishedAt: CUTOFF + HOUR, status: 'unauditable', reasonCode: 'no_lockfile' }))
         expect(listPrunableScanIds(db, CUTOFF, 0, 100)).toEqual(['old'])
     })
 
@@ -342,7 +281,7 @@ describe('listPrunableScanIds', function () {
         expect(listPrunableScanIds(db, CUTOFF, 0, 100)).toEqual([])
     })
 
-    // The floor that keeps getProjectEcosystemCoverage (last 100 per project) whole no matter how far
+    // The floor that keeps every running source's latest scan (and its coverage) whole no matter how far
     // back the cutoff reaches.
     it('spares the newest K per project however old they are', function () {
         oldScan('oldest')
@@ -388,6 +327,7 @@ describe('listPrunableScanIds', function () {
     it('still finds prunable scans while an unresolved finding holds a NULL resolved_scan_id', function () {
         oldScan('pinned')
         oldScan('prunable')
+        insertScan(db, scan({ id: 'newer', finishedAt: CUTOFF + HOUR, status: 'unauditable', reasonCode: 'no_lockfile' }))
         pinWithFinding('open', 'pinned', null)
 
         expect(listPrunableScanIds(db, CUTOFF, 0, 100)).toEqual(['prunable'])

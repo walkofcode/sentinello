@@ -156,7 +156,12 @@
         "nodeAmbient": "ambient",
         "badgeMuted": "muted",
         "badgeMissing": "missing",
-        "colLanguage": "Language"
+        "colLanguage": "Language",
+        "stateCannotScan": "Cannot be scanned",
+        "statePartial": "Cannot be fully scanned",
+        "stateNotScannedYet": "Not scanned yet",
+        "stateSideProject": "the project",
+        "stateSideEnvironment": "this Sentinello install"
     },
     "WhatsNew": {
         "pillLabel": "What's new",
@@ -458,7 +463,41 @@
         "depTypeAll": "All deps",
         "showMuted": "Show muted ({count})",
         "fixAvailableSeeAdvisory": "fix available — see advisory",
-        "noPatchPublished": "no patch published",
+        "noFixReleased": "No fixed version released",
+        "fixUnverified": "fix not checked against the registry",
+        "fixStatedUnverified": "{version} named by the advisory · not checked against the registry",
+        "fixRecheckPending": "fix not re-checked yet — rescan pending",
+        "wayOut": {
+            "title": "Way out",
+            "lastPublish": "last publish {date}",
+            "lastPublishUnknown": "last publish unknown",
+            "maintainers": "{count, plural, one {# maintainer} other {# maintainers}}",
+            "downloads": "{count, number} weekly downloads",
+            "downloadsUnknown": "weekly downloads unknown",
+            "deprecated": "deprecated (“{message}”) → replace it",
+            "unmaintained": "unmaintained (no publish for 6+ months) → replace it",
+            "maintained": "maintained",
+            "devToolingOnly": "dev tooling only",
+            "inWorkspace": "in {workspace}",
+            "verdictUpgrade": "Upgrade {package} to ≥ {version} — its resolved dependency closure ({size, plural, one {# package} other {# packages}}) no longer reaches {target}",
+            "verdictBlocked": "{escape} ≥ {version} drops {target}, but no released {blockedBy} admits it (latest {latest} requires {range})",
+            "verdictNoEscape": "No released version of {packages} drops {target}",
+            "verdictUnknown": "Unknown — not enough registry evidence at {at}",
+            "verdictDirect": "{target} is a direct dependency — the only way out is to replace it",
+            "morePaths": "and {count, plural, one {# more path} other {# more paths}}",
+            "morePathsAtLeast": "and at least {count, plural, one {# more path} other {# more paths}}",
+            "devOnlyAll": "Every path reaches only dev tooling — still fix it, after the production findings.",
+            "devOnlyNo": "At least one production path reaches this package.",
+            "devOnlyUnknown": "Whether only dev tooling reaches it could not be determined.",
+            "alternativesFor": "Alternatives to {name}",
+            "noCurated": "No curated alternative known for {name}",
+            "verified": "dependency closure checked ({size, plural, one {# package} other {# packages}})",
+            "notVerified": "not verified — its dependency closure could not be checked",
+            "builtIn": "built-in {id}",
+            "snippet": "inline code",
+            "removal": "remove it",
+            "asOfLastScan": "As of the last successful scan:"
+        },
         "vulnPrefix": "vuln:",
         "groupingAriaLabel": "Findings grouping",
         "libraryGroupingAriaLabel": "Library findings grouping",
@@ -480,7 +519,11 @@
         "grades": {
             "label": "How each source graded this",
             "explain": "Sentinello reports the worst grade any source gave, so a vulnerability is never under-stated."
-        }
+        },
+        "notRecheckedCannotScan": "not re-checked — the project cannot be scanned: {reason}",
+        "notRecheckedPartial": "not re-checked — the project cannot be fully scanned: {reason}",
+        "lastScannedSuccessfully": "last scanned successfully {date}",
+        "neverScannedSuccessfully": "never scanned successfully"
     },
     "Triage": {
         "alias": {
@@ -583,6 +626,16 @@
                 "when": "During each scan",
                 "disable": "Core function — not disableable"
             },
+            "npmRegistry": {
+                "purpose": "Check that a fix version was actually published, and — when none was — read the package metadata the way out is built from (releases, dependencies, deprecation notices, maintainers). Packages with findings and their dependency chains and, when no fix is released, the candidate releases and alternatives the way out weighs, with their dependency trees",
+                "when": "After each scan, for packages without a successful answer in the last 24 hours; a failed request is not stored, so it can be retried sooner",
+                "disable": "Not disableable — SENTINELLO_NPM_REGISTRY_URL points it at a mirror. When it cannot be reached, package metadata fetched earlier is reused if it is still usable, and current findings are evaluated against it, with the date it was fetched; without it, the fix shows as not checked against the registry"
+            },
+            "npmDownloads": {
+                "purpose": "Weekly download counts shown beside the packages and alternatives in a way out",
+                "when": "After a scan that finds no fixed version released, for packages not counted in the last 24 hours",
+                "disable": "Not disableable — SENTINELLO_NPM_DOWNLOADS_URL points it elsewhere. When it cannot be reached, the last known count is shown, or unknown when there is none"
+            },
             "osv": {
                 "purpose": "Download the public OSV advisory export for the npm ecosystem",
                 "when": "Daily around 03:17, plus manual refresh — only when OSV is enabled",
@@ -628,7 +681,9 @@
             "osvFeedUrl": "Base URL for the OSV advisory export, used only when the OSV source is enabled; set to off to disable all OSV network access.",
             "osvDbPath": "Location of the rebuildable OSV advisory cache; defaults next to the main database.",
             "gemnasiumFeedUrl": "URL for the GitLab gemnasium advisory archive, used only when the gemnasium source is enabled; set to off to disable all gemnasium network access.",
-            "gemnasiumDbPath": "Location of the rebuildable gemnasium advisory cache; defaults next to the main database."
+            "gemnasiumDbPath": "Location of the rebuildable gemnasium advisory cache; defaults next to the main database.",
+            "npmRegistryUrl": "npm registry that fix versions are checked against after each scan, and that package metadata for the way out is read from; point it at a mirror if you use one. When it cannot be reached, package metadata fetched earlier is reused if it is still usable, and current findings are evaluated against it, with the date it was fetched; without it, the fix shows as not checked against the registry.",
+            "npmDownloadsUrl": "npm download-count API, read for the weekly downloads shown in a way out. When it cannot be reached, the last known count is shown, or unknown when there is none."
         },
         "builtWithTitle": "Built with",
         "reportingTitle": "Reporting a vulnerability in Sentinello",
@@ -670,10 +725,16 @@
                 "discovered": "Discovered",
                 "resolved": "Resolved"
             },
-            "coverageTitle": "Coverage gaps",
-            "coverageBody": "Some languages in this project could not be fully audited offline, so findings may be incomplete for them.",
-            "coveragePartial": "Partial",
-            "coverageUnauditable": "Unauditable"
+            "cannotScanTitle": "Project cannot be scanned",
+            "cannotScanBody": "No source could read this project. The findings below are what an earlier scan recorded and were not re-checked; zero findings here means unknown, not safe.",
+            "partialScanTitle": "Project cannot be fully scanned",
+            "partialScanBody": "Part of this project could not be scanned, so its findings may be incomplete. Findings from a source that could not scan it were not re-checked.",
+            "scanReasonSideProject": "on the project's side: a file in the project stops it from being read, and changing it there is the fix",
+            "scanReasonSideEnvironment": "on this Sentinello install's side: the install could not do the scan, and it is the operator's fix",
+            "scanReasonNotYetRun": "nothing has looked yet: the next scan does",
+            "noFindingsUnknownTitle": "No findings recorded",
+            "noFindingsUnknownBody": "Nothing was found, but this project could not be fully scanned: that is unknown, not safe.",
+            "noFindingsNotScannedBody": "This project has not been scanned yet."
         },
         "library": {
             "eyebrow": "Library",

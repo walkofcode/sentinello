@@ -70,6 +70,7 @@ COPY apps/worker/package.json apps/worker/
 COPY packages/db/package.json packages/db/
 COPY packages/core/package.json packages/core/
 COPY packages/feeds/package.json packages/feeds/
+COPY packages/fixes/package.json packages/fixes/
 COPY packages/notifications/package.json packages/notifications/
 COPY packages/scanners/package.json packages/scanners/
 COPY packages/versions/package.json packages/versions/

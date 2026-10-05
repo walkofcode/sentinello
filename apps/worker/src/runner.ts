@@ -9,6 +9,8 @@ import {
     setProjectGitBranch,
     walCheckpoint,
     getConfigValue,
+    RAW_JSON_MAX_BYTES,
+    RAW_JSON_TRUNCATION_MARKER,
     type DrizzleDb,
     type IncomingFinding,
     type SqliteDb
@@ -22,15 +24,19 @@ import {
     type ReportedAdvisory,
     resolveProjectGraphs,
     type EcosystemCoverage,
+    type FixEvidence,
     type RawFinding,
     type ResolvedGraph,
     type ResolverResult,
     type ScannerPlugin
 } from '@sentinello/scanners'
 import { errText } from '@sentinello/feeds'
+import { createNpmRegistryClient, fixEvidenceKey, type RegistryClient } from '@sentinello/fixes'
 import { CONFIG_KEYS } from './config-loader'
 import { readGitBranch } from './discovery'
+import { verifyFixes } from './fix-verification'
 import { notifyForCompletedScan } from './notifier'
+import { createDbRegistryStore } from './registry-store'
 
 const SCANNER_TIMEOUT_MS = 90_000
 
@@ -71,9 +77,12 @@ export async function runBatch(input: RunBatchInput): Promise<ProjectScanOutcome
     const outcomes: ProjectScanOutcome[] = []
     const queue = input.projects.slice()
     const workerCount = Math.max(1, Math.min(input.parallelism, queue.length))
+    // One registry client for the whole batch: its concurrency limit and in-flight map are per worker,
+    // not per project, so parallel project scans share both.
+    const registry = createNpmRegistryClient(createDbRegistryStore(input.db), { abortSignal: input.abortSignal })
     const workers: Promise<void>[] = []
     for (let i = 0; i < workerCount; i++) {
-        workers.push(workerLoop(input, queue, outcomes))
+        workers.push(workerLoop(input, registry, queue, outcomes))
     }
     await Promise.all(workers)
     walCheckpoint(input.sqlite)
@@ -82,6 +91,7 @@ export async function runBatch(input: RunBatchInput): Promise<ProjectScanOutcome
 
 async function workerLoop(
     input: RunBatchInput,
+    registry: RegistryClient,
     queue: Project[],
     outcomes: ProjectScanOutcome[]
 ): Promise<void> {
@@ -89,15 +99,30 @@ async function workerLoop(
         const project = queue.shift()
         if (!project) return
         if (input.abortSignal && input.abortSignal.aborted) return
-        const projectOutcomes = await runProjectScanners(input, project)
+        const projectOutcomes = await runProjectScanners({ db: input.db, scanners: input.scanners, project, abortSignal: input.abortSignal, registry })
         for (const outcome of projectOutcomes) outcomes.push(outcome)
     }
+}
+
+export type RunProjectScansInput = {
+    db: DrizzleDb
+    // Scanners to run, IN ORDER (see RunBatchInput.scanners).
+    scanners: ScannerPlugin[]
+    project: Project
+    abortSignal?: AbortSignal
+    // Called once per outcome after settlement. Defaults to the real notifier (honouring dryRunNotify);
+    // the scratch tools pass a recording one that never reaches a sender.
+    notify?: (outcome: ProjectScanOutcome) => Promise<void>
+    // The registry fix settlement reads through. Defaults to the cache-first npm client on this DB; the
+    // scratch tools wrap it to record every answer it serves.
+    registry?: RegistryClient
 }
 
 // Runs every scanner against one project, in order, and returns one outcome per scanner. The dedup set
 // accumulates the (package → advisory keys) reported by earlier scanners so a later scanner (OSV) drops
 // findings the authoritative scanner (npm-audit) already surfaced.
-async function runProjectScanners(input: RunBatchInput, project: Project): Promise<ProjectScanOutcome[]> {
+export async function runProjectScanners(input: RunProjectScansInput): Promise<ProjectScanOutcome[]> {
+    const project = input.project
     const root = getRootById(input.db, project.rootId)
     if (!root) {
         const outcome = makeErrorOutcome(project, 'project root not found in DB')
@@ -135,25 +160,60 @@ async function runProjectScanners(input: RunBatchInput, project: Project): Promi
         const isNpmAudit = scanner.name === NPM_AUDIT_SCANNER_NAME
         const graphForScanner = isNpmAudit ? npmGraph : mergedGraph
         const coverageForScanner = isNpmAudit ? undefined : coverage
-        const outcome = await runOneScanner(input, project, projectPath, scanner, reportedByPackage, corroborations, graphForScanner, coverageForScanner)
+        const outcome = await runOneScanner(input, project, projectPath, scanner, reportedByPackage, corroborations, graphForScanner, coverageForScanner, coverage)
         outcomes.push(outcome)
     }
     recordCorroborations(input.db, outcomes, corroborations)
-    // Notification comes AFTER corroboration, for the whole project at once, and this ordering is
-    // load-bearing rather than tidy. Escalation to the worst grade any source gave a finding is only
-    // knowable once every source has run, but notifying inside each scanner's own pass stamped the
+    // Fix settlement also waits for every source: the fix has to clear every source's affected set and
+    // every installed copy. With it comes the way out for every finding settled `none_released`, from the
+    // same registry data and the npm lockfile's node graph. Neither ever fails the scan or skips
+    // notification:
+    //   - a settlement failure (the database, not the registry — registry trouble already degrades to
+    //     `unverified` inside) leaves the rows unsettled, which read as "rescan pending", and no way out;
+    //   - a way-out failure keeps the settlements and leaves those findings without guidance (their Fix
+    //     line still says no fixed version is released).
+    const settledFindings = outcomes.flatMap(function findingsOf(o) { return o.findings })
+    const evidence = evidenceByFinding(reportedByPackage)
+    const registry = input.registry ?? createNpmRegistryClient(createDbRegistryStore(input.db), { abortSignal: input.abortSignal })
+    try {
+        const { wayOutError } = await verifyFixes({ db: input.db, findings: settledFindings, evidence, graph: npmGraph, registry, checkedAt: Date.now() })
+        if (wayOutError !== null) console.error('[runner] way-out guidance failed for project ' + project.id + ': ' + wayOutError)
+    } catch (err) {
+        console.error('[runner] fix settlement failed for project ' + project.id + ': ' + errText(err))
+    }
+    // Notification comes AFTER corroboration and settlement, for the whole project at once, and this
+    // ordering is load-bearing rather than tidy. Escalation to the worst grade any source gave a finding
+    // is only knowable once every source has run, but notifying inside each scanner's own pass stamped the
     // pre-escalation grade onto the notification event — the column selectDispatchablePairs filters on.
     // A finding npm-audit called moderate and gemnasium called critical was dispatched (or, under a
-    // critical-only filter, silently not dispatched) as moderate, and nothing ever revisited it.
-    const dryRun = getConfigValue<boolean>(input.db, CONFIG_KEYS.dryRunNotify) || false
+    // critical-only filter, silently not dispatched) as moderate, and nothing ever revisited it. The
+    // settled fix has the same shape of problem: the message must say what the row says.
+    const notify = input.notify ?? defaultNotifier(input.db)
     for (const outcome of outcomes) {
         try {
-            await notifyForCompletedScan({ db: input.db, outcome, dryRun })
+            await notify(outcome)
         } catch (err) {
             console.error('[runner] notifier failed for project ' + project.id + ': ' + errText(err))
         }
     }
     return outcomes
+}
+
+function defaultNotifier(db: DrizzleDb): (outcome: ProjectScanOutcome) => Promise<void> {
+    const dryRun = getConfigValue<boolean>(db, CONFIG_KEYS.dryRunNotify) || false
+    return function notify(outcome) {
+        return notifyForCompletedScan({ db, outcome, dryRun })
+    }
+}
+
+// Every survivor's accumulated evidence, keyed the way settleProject looks findings up. A survivor is
+// registered under each of its identity keys, so the same object is visited more than once.
+function evidenceByFinding(reportedByPackage: Map<string, Map<string, ReportedAdvisory>>): Map<string, FixEvidence[]> {
+    const out = new Map<string, FixEvidence[]>()
+    for (const byKey of reportedByPackage.values()) {
+        for (const reported of byKey.values()) out.set(fixEvidenceKey(reported), reported.evidence)
+    }
+    return out
 }
 
 // Writes the corroboration set onto the findings that survived, and re-grades each corroborated one to
@@ -202,12 +262,58 @@ function recordCorroborations(db: DrizzleDb, outcomes: ProjectScanOutcome[], eve
     }
 }
 
+// Survivor identity: one key shape for a persisted finding and the in-memory record it survived as.
 function findingIdentity(finding: Finding): string {
-    return finding.source + '|' + finding.ecosystem + '|' + finding.advisoryId + '|' + finding.packageName
+    return fixEvidenceKey(finding)
 }
 
 function targetIdentity(target: ReportedAdvisory): string {
-    return target.source + '|' + target.ecosystem + '|' + target.advisoryId + '|' + target.packageName
+    return fixEvidenceKey(target)
+}
+
+// Every scan row records the project's resolver coverage, whatever its source and however it ended, so the
+// project's latest scan always says which ecosystems could be read and why not (getProjectEcosystemCoverage
+// and the scan state read it from there, and only from there). The feed sources already write it into their
+// summary; npm-audit, which is handed none, and a failed scan with an empty summary get it here.
+//
+// A summary that is not a JSON object — the raw audit output an error keeps for debugging — is kept beside
+// the coverage, as `{ coverage, raw }`, never instead of it: a row with no coverage reads as unknown, and the
+// reason the project could not be read would be lost. So is a summary that would not fit under the raw_json
+// cap once the coverage is added, since capRawJson would cut the JSON itself and take the coverage with it.
+function withCoverage(rawJson: string, coverage: EcosystemCoverage[]): string {
+    if (rawJson === '') return JSON.stringify({ coverage })
+    const summary = summaryObject(rawJson)
+    if (summary !== null) {
+        if (Array.isArray(summary.coverage)) return rawJson
+        const merged = JSON.stringify({ ...summary, coverage })
+        if (merged.length <= RAW_JSON_MAX_BYTES) return merged
+    }
+    return diagnosticEnvelope(rawJson, coverage)
+}
+
+function summaryObject(rawJson: string): Record<string, unknown> | null {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(rawJson)
+    } catch {
+        return null
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    return parsed as Record<string, unknown>
+}
+
+// `{ coverage, raw }` under the raw_json cap: the raw text is shortened (and marked) until the whole
+// envelope fits, so the cap never has to cut it. JSON escaping makes the encoded text at least as long as the
+// slice, so dropping the excess each round converges; the coverage alone is a few hundred bytes (fixed
+// resolver details, one entry per ecosystem), and `keep > 0` bounds the loop whatever it is.
+function diagnosticEnvelope(raw: string, coverage: EcosystemCoverage[]): string {
+    let keep = raw.length
+    let envelope = JSON.stringify({ coverage, raw })
+    while (envelope.length > RAW_JSON_MAX_BYTES && keep > 0) {
+        keep = Math.max(0, keep - (envelope.length - RAW_JSON_MAX_BYTES) - RAW_JSON_TRUNCATION_MARKER.length)
+        envelope = JSON.stringify({ coverage, raw: raw.slice(0, keep) + RAW_JSON_TRUNCATION_MARKER })
+    }
+    return envelope
 }
 
 // Flatten a classified ResolverResult into the compact per-ecosystem coverage the feed scanners record.
@@ -217,14 +323,15 @@ function toCoverage(result: ResolverResult): EcosystemCoverage {
 }
 
 async function runOneScanner(
-    input: RunBatchInput,
+    input: RunProjectScansInput,
     project: Project,
     projectPath: string,
     scanner: ScannerPlugin,
     reportedByPackage: Map<string, Map<string, ReportedAdvisory>>,
     corroborations: CorroborationEvent[],
     resolvedGraph: ResolvedGraph | null,
-    coverage: EcosystemCoverage[] | undefined
+    coverage: EcosystemCoverage[] | undefined,
+    projectCoverage: EcosystemCoverage[]
 ): Promise<ProjectScanOutcome> {
     const startedAt = Date.now()
     // nvm/Node tooling is JavaScript-only: only the npm-audit scanner ever invokes it. Feed sources are
@@ -242,6 +349,7 @@ async function runOneScanner(
     } catch (err) {
         const message = err instanceof Error && err.message || String(err)
         const outcome = makeErrorOutcome(project, 'scanner threw: ' + message, startedAt, scanner.name)
+        outcome.scan.rawJson = withCoverage(outcome.scan.rawJson, projectCoverage)
         insertScan(input.db, outcome.scan)
         return outcome
     }
@@ -260,7 +368,7 @@ async function runOneScanner(
         reasonCode: scanResult.reasonCode,
         durationMs: scanResult.durationMs,
         errorText: scanResult.errorText,
-        rawJson: scanResult.rawJson
+        rawJson: withCoverage(scanResult.rawJson, projectCoverage)
     }
     const reconciled = reconcileAgainstReported(scanResult.findings, reportedByPackage, scanner.name)
     for (const event of reconciled.corroborations) corroborations.push(event)

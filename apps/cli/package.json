@@ -47,6 +47,7 @@
     "devDependencies": {
         "@sentinello/core": "workspace:*",
         "@sentinello/feeds": "workspace:*",
+        "@sentinello/fixes": "workspace:*",
         "@sentinello/scanners": "workspace:*",
         "@types/node": "25.6.0",
         "tsup": "8.5.1",

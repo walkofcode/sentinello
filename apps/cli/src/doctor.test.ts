@@ -1,9 +1,11 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { gzipSync } from 'node:zlib'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GEMNASIUM_NORMALIZER_VERSION, OSV_NORMALIZER_VERSION } from '@sentinello/core'
 import { advisoryFilePath, ensureCacheDir, readCacheMeta, setSourceState, writeCacheMeta, type SourceId, type SourceState } from './cache/meta'
+import { registryFilePath } from './cache/registry'
 import { createRowWriter } from './cache/store'
 import type { CliOptions } from './options'
 import { runDoctor } from './doctor'
@@ -146,6 +148,12 @@ describe('runDoctor — environment and settings', function () {
         expect(report()).toContain('sources      gemnasium')
     })
 
+    it('omits npm-audit under --offline, which never runs it', async function () {
+        await makeProject('.')
+        await runDoctor(options({ includeNpmAudit: true, offline: true, sources: ['osv'] }), cacheDir)
+        expect(report()).toContain('sources      osv')
+    })
+
     it('reports "(none)" when every source is switched off', async function () {
         await makeProject('.')
         await runDoctor(options({ includeNpmAudit: false, sources: [] }), cacheDir)
@@ -262,6 +270,29 @@ describe('runDoctor — advisory cache', function () {
     })
 })
 
+describe('runDoctor — npm registry cache', function () {
+    it('says nothing is cached yet before the first run that reached the registry', async function () {
+        await runDoctor(options(), cacheDir)
+        expect(report()).toContain('npm registry nothing cached yet')
+    })
+
+    it('counts the cached packages and dates the oldest answer', async function () {
+        vi.useFakeTimers()
+        vi.setSystemTime(T0 + 3 * 3_600_000)
+        await ensureCacheDir(cacheDir)
+        const row = function row(name: string, checkedAt: number) {
+            return JSON.stringify({ name, status: 'not_found', summaryJson: null, checkedAt, weeklyDownloads: null, downloadsCheckedAt: null }) + '\n'
+        }
+        await writeFile(registryFilePath(cacheDir), gzipSync(row('a', T0) + row('b', T0 + 3_600_000)))
+        await runDoctor(options(), cacheDir)
+        expect(report()).toContain('npm registry 2 packages, oldest answer 3h ago')
+        expect(report()).toContain(registryFilePath(cacheDir))
+        await writeFile(registryFilePath(cacheDir), gzipSync(row('a', T0)))
+        await runDoctor(options(), cacheDir)
+        expect(report()).toContain('npm registry 1 package, oldest answer 3h ago')
+    })
+})
+
 describe('runDoctor — projects', function () {
     it('lists each project with its package manager and ecosystems', async function () {
         await makeProject('web')
@@ -321,7 +352,7 @@ describe('runDoctor — output shape', function () {
         await makeProject('.')
         await runDoctor(options(), cacheDir)
         const text = report()
-        expect(text.indexOf('Settings')).toBeLessThan(text.indexOf('Advisory cache'))
-        expect(text.indexOf('Advisory cache')).toBeLessThan(text.indexOf('Projects'))
+        expect(text.indexOf('Settings')).toBeLessThan(text.indexOf('Cache'))
+        expect(text.indexOf('Cache')).toBeLessThan(text.indexOf('Projects'))
     })
 })

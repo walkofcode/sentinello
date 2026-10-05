@@ -156,7 +156,12 @@
         "nodeAmbient": "アンビエント",
         "badgeMuted": "ミュート済み",
         "badgeMissing": "欠落",
-        "colLanguage": "言語"
+        "colLanguage": "言語",
+        "stateCannotScan": "スキャンできません",
+        "statePartial": "完全にはスキャンできません",
+        "stateNotScannedYet": "未スキャン",
+        "stateSideProject": "プロジェクト側",
+        "stateSideEnvironment": "この Sentinello 環境側"
     },
     "WhatsNew": {
         "pillLabel": "新着情報",
@@ -458,7 +463,41 @@
         "depTypeAll": "すべての依存関係",
         "showMuted": "ミュート済みを表示 ({count})",
         "fixAvailableSeeAdvisory": "修正あり — アドバイザリを参照",
-        "noPatchPublished": "公開されたパッチなし",
+        "noFixReleased": "修正済みバージョンは未公開",
+        "fixUnverified": "修正はレジストリで未確認",
+        "fixStatedUnverified": "アドバイザリが {version} を修正版として記載 · レジストリで未確認",
+        "fixRecheckPending": "修正は未再確認 — 再スキャン待ち",
+        "wayOut": {
+            "title": "回避策",
+            "lastPublish": "最終公開 {date}",
+            "lastPublishUnknown": "最終公開日は不明",
+            "maintainers": "メンテナー {count, plural, other {#人}}",
+            "downloads": "週間ダウンロード {count, number}",
+            "downloadsUnknown": "週間ダウンロード数は不明",
+            "deprecated": "非推奨（「{message}」）→ 置き換えてください",
+            "unmaintained": "メンテナンスされていません（6か月以上公開なし）→ 置き換えてください",
+            "maintained": "メンテナンスあり",
+            "devToolingOnly": "開発ツールのみ",
+            "inWorkspace": "{workspace} 内",
+            "verdictUpgrade": "{package} を {version} 以上に更新 — 解決後の依存クロージャ（{size, plural, other {#パッケージ}}）は {target} に到達しません",
+            "verdictBlocked": "{escape} {version} 以上で {target} は外れますが、公開済みの {blockedBy} はどれもそれを許容しません（最新 {latest} の要求は {range}）",
+            "verdictNoEscape": "{packages} のどの公開版も {target} を外しません",
+            "verdictUnknown": "不明 — {at} でレジストリの情報が不足しています",
+            "verdictDirect": "{target} は直接依存です — 置き換える以外に方法はありません",
+            "morePaths": "ほか {count, plural, other {#件のパス}}",
+            "morePathsAtLeast": "ほか少なくとも {count, plural, other {#件のパス}}",
+            "devOnlyAll": "すべてのパスが開発ツールのみに到達します — 本番の検出の後に、それでも修正してください。",
+            "devOnlyNo": "少なくとも 1 つの本番パスがこのパッケージに到達します。",
+            "devOnlyUnknown": "開発ツールだけが到達するかどうかは判定できませんでした。",
+            "alternativesFor": "{name} の代替",
+            "noCurated": "{name} には厳選された代替が知られていません",
+            "verified": "依存クロージャを確認済み（{size, plural, other {#パッケージ}}）",
+            "notVerified": "未検証 — 依存クロージャを確認できませんでした",
+            "builtIn": "組み込み: {id}",
+            "snippet": "インラインコード",
+            "removal": "削除する",
+            "asOfLastScan": "最後に成功したスキャン時点:"
+        },
         "vulnPrefix": "脆弱性:",
         "groupingAriaLabel": "検出のグループ化",
         "libraryGroupingAriaLabel": "ライブラリの検出のグループ化",
@@ -480,7 +519,11 @@
         "grades": {
             "label": "ソースごとの深刻度評価",
             "explain": "Sentinello はいずれかのソースが付けた最も重い評価を採用し、脆弱性を過小評価しません。"
-        }
+        },
+        "notRecheckedCannotScan": "再確認されていません — プロジェクトをスキャンできません: {reason}",
+        "notRecheckedPartial": "再確認されていません — プロジェクトを完全にはスキャンできません: {reason}",
+        "lastScannedSuccessfully": "最後に成功したスキャン {date}",
+        "neverScannedSuccessfully": "一度もスキャンに成功していません"
     },
     "Triage": {
         "alias": {
@@ -583,6 +626,16 @@
                 "when": "各スキャン時",
                 "disable": "コア機能 — 無効化できません"
             },
+            "npmRegistry": {
+                "purpose": "修正版が実際に公開されているかを確認し、公開されていない場合は回避策の作成に使うパッケージのメタデータ（リリース、依存関係、非推奨の通知、メンテナー）を取得します。対象は検出のあるパッケージとその依存チェーン、そして修正版が公開されていない場合は回避策が検討する候補リリースと代替（それぞれの依存ツリーを含む）です",
+                "when": "各スキャンの後、過去24時間に成功した答えがないパッケージについて。失敗したリクエストは保存されないため、それより早く再試行されることがあります",
+                "disable": "無効化できません。SENTINELLO_NPM_REGISTRY_URL でミラーを指定できます。到達できない場合、以前に取得したパッケージメタデータがまだ使えるならそれを再利用し、現在の検出結果をそれで評価して取得日を示します。使えるメタデータがなければ、修正版は「レジストリで未確認」と表示されます"
+            },
+            "npmDownloads": {
+                "purpose": "回避策に示すパッケージと代替候補の週間ダウンロード数",
+                "when": "修正版が公開されていない検出があったスキャンの後、過去24時間に取得していないパッケージについて",
+                "disable": "無効化できません。SENTINELLO_NPM_DOWNLOADS_URL で別の宛先を指定できます。到達できない場合は最後に取得した数を表示し、それもなければ不明と表示します"
+            },
             "osv": {
                 "purpose": "npm エコシステムの公開 OSV アドバイザリエクスポートをダウンロード",
                 "when": "毎日 03:17 頃、加えて手動更新 — OSV が有効な場合のみ",
@@ -628,7 +681,9 @@
             "osvFeedUrl": "OSV アドバイザリエクスポートのベース URL。OSV ソースが有効な場合のみ使用されます。off に設定すると OSV のネットワークアクセスをすべて無効化します。",
             "osvDbPath": "再構築可能な OSV アドバイザリキャッシュの保存場所。デフォルトではメインデータベースの隣に配置されます。",
             "gemnasiumFeedUrl": "GitLab gemnasium アドバイザリアーカイブの URL。gemnasium ソースが有効な場合にのみ使用されます。off に設定すると gemnasium のネットワークアクセスをすべて無効にします。",
-            "gemnasiumDbPath": "再構築可能な gemnasium アドバイザリキャッシュの保存場所。デフォルトではメインデータベースの隣に配置されます。"
+            "gemnasiumDbPath": "再構築可能な gemnasium アドバイザリキャッシュの保存場所。デフォルトではメインデータベースの隣に配置されます。",
+            "npmRegistryUrl": "各スキャン後に修正版を確認し、回避策のためのパッケージメタデータを取得する npm レジストリ。ミラーを使う場合はそちらを指定します。到達できない場合、以前に取得したパッケージメタデータがまだ使えるならそれを再利用し、現在の検出結果をそれで評価して取得日を示します。使えるメタデータがなければ、修正版はレジストリで未確認と表示されます。",
+            "npmDownloadsUrl": "回避策に表示する週間ダウンロード数を取得する npm のダウンロード数 API。到達できない場合は最後に取得した数を表示し、それもなければ不明と表示します。"
         },
         "builtWithTitle": "使用技術",
         "reportingTitle": "Sentinello の脆弱性を報告する",
@@ -670,10 +725,16 @@
                 "discovered": "検出",
                 "resolved": "解決"
             },
-            "coverageTitle": "カバレッジのギャップ",
-            "coverageBody": "このプロジェクトの一部の言語はオフラインで完全に監査できなかったため、それらの findings は不完全な場合があります。",
-            "coveragePartial": "部分的",
-            "coverageUnauditable": "監査不可"
+            "cannotScanTitle": "プロジェクトをスキャンできません",
+            "cannotScanBody": "どのソースもこのプロジェクトを読み取れませんでした。以下の検出結果は以前のスキャンで記録されたもので、再確認されていません。ここで検出ゼロは「安全」ではなく「不明」を意味します。",
+            "partialScanTitle": "プロジェクトを完全にはスキャンできません",
+            "partialScanBody": "このプロジェクトの一部をスキャンできなかったため、検出結果が不完全な可能性があります。スキャンできなかったソースの検出結果は再確認されていません。",
+            "scanReasonSideProject": "プロジェクト側の問題: プロジェクト内のファイルが読み取りを妨げており、そこを変更することが対処です",
+            "scanReasonSideEnvironment": "この Sentinello 環境側の問題: 環境がスキャンを実行できず、運用者が対処します",
+            "scanReasonNotYetRun": "まだ何も確認していません: 次回のスキャンで確認されます",
+            "noFindingsUnknownTitle": "記録された検出結果はありません",
+            "noFindingsUnknownBody": "何も見つかりませんでしたが、このプロジェクトは完全にはスキャンできませんでした。安全ではなく不明です。",
+            "noFindingsNotScannedBody": "このプロジェクトはまだスキャンされていません。"
         },
         "library": {
             "eyebrow": "ライブラリ",

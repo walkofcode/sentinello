@@ -10,8 +10,12 @@ import { openDb } from '../../../packages/db/src/client'
 import { projectId } from '../../../packages/db/src/identity'
 import { runMigrations } from '../../../packages/db/src/migrate'
 import { setConfigValue, upsertRoot } from '../../../packages/db/src/queries/config'
+import { upsertProject } from '../../../packages/db/src/queries/projects'
+import { insertScan } from '../../../packages/db/src/queries/scans'
+import type { SqliteDb } from '../../../packages/db/src/client'
 import { buildFixtureTree, FIXTURE_PROJECTS } from './fixture-tree'
 import { seedOsvCache } from './seed-osv'
+import { seedRegistryCache } from './seed-registry'
 import {
     E2E_DB_PATH,
     E2E_LOCK_DIR,
@@ -36,7 +40,8 @@ const LOCK_STALE_MS = 30_000
 
 // Builds the environment the portal and the worker share.
 //
-// It deliberately writes NO projects, scans or findings. Those come from the worker's own boot sweep,
+// It deliberately writes NO projects, scans or findings (one exception, seedEarlierFindings, says why).
+// Those come from the worker's own boot sweep,
 // which discovers the on-disk tree and scans it through the real code path. That is not merely higher
 // fidelity — it is the only correct option now that a real worker runs. discoverProjects matches rows
 // by projectId(rootId, relPath) and OVERWRITES name, packageManager, nvmrcVersion, gitBranch and
@@ -85,6 +90,12 @@ export function seedPortalDatabase(): string {
 
     setConfigValue(db, 'e2e.fixture', { version: FIXTURE_VERSION, rootPath, seededAt: T0 })
 
+    // Fix settlement reads the npm registry after every scan; the worker's registry URLs point at a
+    // refused port (playwright.config.ts), so this cache is the only registry the suite has.
+    const registry = seedRegistryCache(db, Date.now())
+
+    seedEarlierFindings(db, sqlite)
+
     sqlite.close()
 
     const osv = seedOsvCache()
@@ -102,7 +113,64 @@ export function seedPortalDatabase(): string {
     }
     writeFileSync(E2E_MANIFEST_PATH, JSON.stringify(manifest, null, 4) + '\n', 'utf8')
 
-    return dbPath + ' (osv advisories=' + osv.count + ')'
+    return dbPath + ' (osv advisories=' + osv.count + ', registry packages=' + registry.packages + ')'
+}
+
+// The one exception to "the worker writes every project": lost-lockfile's findings come from a scan that
+// had a lockfile, which this tree never has. So its row, that earlier ok OSV scan and the two findings it
+// left are written here, exactly as the runner would have — one settled (lodash, fixed in 4.17.21) and
+// one legacy (minimist, written before settlement existed). The row is keyed by the same projectId
+// discovery computes, so discovery updates it rather than replacing it, and the boot sweep's failed scan
+// leaves the findings in place, as a failed scan does.
+function seedEarlierFindings(db: Parameters<typeof upsertProject>[0], sqlite: SqliteDb): void {
+    const id = projectId(SEEDED.rootId, SEEDED.cannotScanProjectName)
+    // A week back, well past the 24 h schedule: the worker's boot sweep runs only when the newest scan is
+    // older than the interval, and this is the only scan in the database before it.
+    const earlier = T0 - 7 * 86_400_000
+    upsertProject(db, {
+        id,
+        rootId: SEEDED.rootId,
+        relPath: SEEDED.cannotScanProjectName,
+        name: SEEDED.cannotScanProjectName,
+        alias: null,
+        packageManager: 'npm',
+        nvmrcVersion: null,
+        gitBranch: null,
+        ecosystems: ['npm'],
+        muted: false,
+        tags: [],
+        createdAt: earlier,
+        updatedAt: earlier
+    })
+    const scanId = 'e2e-earlier-ok-scan'
+    insertScan(db, {
+        id: scanId,
+        projectId: id,
+        startedAt: earlier - 1000,
+        finishedAt: earlier,
+        scanner: 'osv',
+        source: 'osv',
+        ecosystem: 'npm',
+        status: 'ok',
+        reasonCode: 'ok',
+        durationMs: 1000,
+        errorText: null,
+        rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'ok' }] })
+    })
+    const check = JSON.stringify({
+        v: 1, checkedAt: earlier, registry: 'ok', packageDataAsOf: earlier, unevaluable: null,
+        sources: [{ source: 'osv', installed: ['4.17.11'], affected: '>=4.0.0 <4.17.21', patched: '>=4.17.21', statedFix: '4.17.21', noPatchedSentinel: false }]
+    })
+    const insert = sqlite.prepare(
+        'INSERT INTO findings (id, scan_id, project_id, scanner, source, ecosystem, advisory_id, advisory_title, advisory_url, package_name,' +
+            ' installed_version, vulnerable_range, severity, fix_available, fix_version, fix_status, fix_check_json, dep_path_json, is_prod, is_dev,' +
+            ' first_detected_at, last_seen_at)' +
+            " VALUES (?, ?, ?, 'osv', 'osv', 'npm', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, 1, 0, ?, ?)"
+    )
+    insert.run('e2e-lost-lodash', scanId, id, 'GHSA-FIXTURE-lodash', 'Fixture: prototype pollution in lodash', 'https://example.invalid/GHSA-FIXTURE-lodash',
+        'lodash', '4.17.11', '>=4.0.0 <4.17.21', 'high', '4.17.21', 'released', check, '["lodash"]', earlier, earlier)
+    insert.run('e2e-lost-minimist', scanId, id, 'GHSA-FIXTURE-minimist', 'Fixture: prototype pollution in minimist', 'https://example.invalid/GHSA-FIXTURE-minimist',
+        'minimist', '1.2.0', '>=1.0.0 <1.2.6', 'low', '1.2.6', null, null, '["minimist"]', earlier, earlier)
 }
 
 // Refuses to run while a worker from a previous run still holds the lock.

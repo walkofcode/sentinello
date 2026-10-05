@@ -1,0 +1,60 @@
+{
+ "name": "is-binary-path",
+ "dist-tags": {
+  "latest": "3.0.0"
+ },
+ "maintainers": [
+  {
+   "name": "paulmillr"
+  },
+  {
+   "name": "sindresorhus"
+  }
+ ],
+ "repository": {
+  "type": "git",
+  "url": "git+https://github.com/sindresorhus/is-binary-path.git"
+ },
+ "time": {
+  "created": "2015-01-24T09:13:13.344Z",
+  "modified": "2024-04-30T16:50:26.044Z",
+  "1.0.0": "2015-01-24T09:13:13.344Z",
+  "1.0.1": "2015-05-25T11:32:32.616Z",
+  "2.0.0": "2016-09-14T11:52:57.308Z",
+  "2.0.1": "2019-03-27T12:14:17.036Z",
+  "2.1.0": "2019-04-19T04:42:45.772Z",
+  "3.0.0": "2024-04-30T16:50:25.858Z"
+ },
+ "versions": {
+  "1.0.0": {
+   "dependencies": {
+    "binary-extensions": "^1.0.0"
+   }
+  },
+  "1.0.1": {
+   "dependencies": {
+    "binary-extensions": "^1.0.0"
+   }
+  },
+  "2.0.0": {
+   "dependencies": {
+    "binary-extensions": "^1.0.0"
+   }
+  },
+  "2.0.1": {
+   "dependencies": {
+    "binary-extensions": "^1.0.0"
+   }
+  },
+  "2.1.0": {
+   "dependencies": {
+    "binary-extensions": "^2.0.0"
+   }
+  },
+  "3.0.0": {
+   "dependencies": {
+    "binary-extensions": "^3.0.0"
+   }
+  }
+ }
+}

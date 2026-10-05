@@ -2,8 +2,13 @@ import { describe, expect, it } from 'vitest'
 import type { CurrentFindingRow } from '@sentinello/db'
 import { groupByLibrary } from './group-by-library'
 
+// A row that names a version with a fix flag is a released fix unless the test says otherwise.
 function row(overrides: Partial<CurrentFindingRow> = {}): CurrentFindingRow {
     return {
+        fixStatus: overrides.fixVersion && overrides.fixAvailable ? 'released' : 'unverified',
+        fixCheck: { v: 1, checkedAt: 1, registry: 'ok', packageDataAsOf: 1, unevaluable: null, sources: [] },
+        remediation: null,
+        notRecheckedBecause: null,
         id: 'finding-1',
         scanId: 'scan-1',
         projectId: 'project-1',
@@ -65,6 +70,20 @@ describe('groupByLibrary', function () {
         ])
         expect(groups[0]?.severities).toEqual(['low', 'critical'])
         expect(groups[0]?.maxSeverity).toBe('critical')
+    })
+
+    // A stated fix is not a recommendation: the libraries table used to show "Recommended upgrade 3.0.4"
+    // for braces, a version never published.
+    it('recommends only a released fix, never a stated one', function () {
+        const groups = groupByLibrary([
+            row({ fixStatus: 'unverified', fixAvailable: true, fixVersion: '3.0.4' }),
+            row({ fixStatus: 'none_released' })
+        ])
+        expect(groups[0]).toMatchObject({ recommendedUpgrade: null, fixedCount: 0, partial: true, noFixReleased: true })
+    })
+
+    it('says no fix is released only when some row proved it', function () {
+        expect(groupByLibrary([row({ fixStatus: 'unverified' })])[0]?.noFixReleased).toBe(false)
     })
 
     it('counts only findings that have both a fix flag and a fix version', function () {

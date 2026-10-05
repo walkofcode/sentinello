@@ -1,78 +1,55 @@
 import { describe, expect, it } from 'vitest'
-import { LOCALES, SOURCE_UNAVAILABLE_REASON_CODES, reasonCodeLabel } from '@sentinello/core'
-import type { ProjectCatalogRow, ProjectScanState } from '@sentinello/db'
-import { isProjectHealthy, problemScanStates, scanStateLabel } from './project-state'
+import type { ScanState } from '@sentinello/core'
+import type { ProjectCatalogRow } from '@sentinello/db'
+import { isProjectHealthy, scanStateBadge, scanStateReasonsText } from './project-state'
 
-function state(overrides: Partial<ProjectScanState> = {}): ProjectScanState {
-    return { source: 'npm-audit', finishedAt: 1, status: 'ok', reasonCode: 'ok', errorText: null, ...overrides }
+function row(scanState: ScanState): ProjectCatalogRow {
+    return { scanState } as ProjectCatalogRow
 }
 
-function row(scanStates: ProjectScanState[]): ProjectCatalogRow {
-    return { scanStates } as ProjectCatalogRow
+const SCANNED: ScanState = { state: 'scanned', reasons: [] }
+const CANNOT: ScanState = {
+    state: 'cannot_scan',
+    reasons: [
+        { source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project' },
+        { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project' }
+    ]
 }
-
-describe('problemScanStates', function () {
-    it('keeps only the sources that could not answer', function () {
-        const bad = state({ source: 'osv', status: 'unauditable', reasonCode: 'osv_db_not_seeded' })
-        expect(problemScanStates(row([state(), bad]))).toEqual([bad])
-    })
-
-    it('is empty when every source succeeded, so a clean project shows no badge at all', function () {
-        expect(problemScanStates(row([state(), state({ source: 'osv' })]))).toEqual([])
-    })
-})
+const PARTIAL: ScanState = {
+    state: 'partial',
+    reasons: [
+        { source: 'osv', ecosystem: null, reasonCode: 'osv_db_not_seeded', side: 'environment' },
+        { source: null, ecosystem: 'npm', reasonCode: 'not_yet_run', side: null }
+    ]
+}
+const SIDES = { project: 'the project', environment: 'this install' }
 
 describe('isProjectHealthy', function () {
-    it('is healthy when every source said ok and nothing was found', function () {
-        expect(isProjectHealthy(row([state(), state({ source: 'osv' })]), 0)).toBe(true)
+    it('is healthy only when the project was fully scanned and nothing was found', function () {
+        expect(isProjectHealthy(row(SCANNED), 0)).toBe(true)
+        expect(isProjectHealthy(row(SCANNED), 3)).toBe(false)
     })
 
-    // The bug the single-latest-scan version hid: OSV won the race, reported ok, and the project was
-    // filtered out of the dashboard while npm audit had actually failed on it.
-    it('is not healthy when one source failed and another succeeded', function () {
-        expect(isProjectHealthy(row([state({ status: 'error' }), state({ source: 'osv' })]), 0)).toBe(false)
-    })
-
-    it('is not healthy with findings, however well the scan went', function () {
-        expect(isProjectHealthy(row([state()]), 3)).toBe(false)
-    })
-
-    // `every` is vacuously true on an empty array, so without the length check a project nothing has
-    // ever scanned would report healthy — unexamined is not clean.
-    it('is not healthy when nothing has ever scanned the project', function () {
-        expect(isProjectHealthy(row([]), 0)).toBe(false)
+    // Zero findings because nothing could look is not clean: a project that cannot be scanned is never
+    // hidden as healthy.
+    it('is not healthy when the project cannot be scanned, cannot be fully scanned, or was never scanned', function () {
+        expect(isProjectHealthy(row(CANNOT), 0)).toBe(false)
+        expect(isProjectHealthy(row(PARTIAL), 0)).toBe(false)
+        expect(isProjectHealthy(row({ state: 'not_scanned_yet', reasons: [] }), 0)).toBe(false)
     })
 })
 
-describe('scanStateLabel', function () {
-    it('names the source for a reason that could have come from any of them', function () {
-        expect(scanStateLabel(state({ source: 'osv', status: 'unauditable', reasonCode: 'no_lockfile' }), 'en'))
-            .toBe('OSV · ' + reasonCodeLabel('no_lockfile', 'en'))
+describe('the State column — cannot be scanned', function () {
+    it('names each state but a fully scanned one', function () {
+        expect(scanStateBadge(CANNOT)).toBe('cannotScan')
+        expect(scanStateBadge(PARTIAL)).toBe('partial')
+        expect(scanStateBadge({ state: 'not_scanned_yet', reasons: [] })).toBe('notScannedYet')
+        expect(scanStateBadge(SCANNED)).toBeNull()
     })
 
-    it('leaves the source off a reason whose own label already names it', function () {
-        const label = scanStateLabel(state({ source: 'osv', status: 'unauditable', reasonCode: 'osv_db_not_seeded' }), 'en')
-        expect(label).toBe('OSV database not downloaded yet')
-        expect(label).not.toContain('OSV · ')
-    })
-
-    it('names the source when the reason code is missing entirely', function () {
-        expect(scanStateLabel(state({ source: 'gemnasium', status: 'error', reasonCode: null }), 'en'))
-            .toBe('gemnasium · ' + reasonCodeLabel(null, 'en'))
-    })
-
-    it('follows the requested locale', function () {
-        expect(scanStateLabel(state({ source: 'osv', status: 'unauditable', reasonCode: 'osv_db_not_seeded' }), 'de'))
-            .toBe(reasonCodeLabel('osv_db_not_seeded', 'de'))
-    })
-
-    // The prefix is dropped for these four on the strength of their labels naming their own source. If a
-    // code is ever added to that list whose label does not, this fails rather than the badge quietly
-    // losing the attribution — which on a multi-source install is the only thing telling them apart.
-    it.each(SOURCE_UNAVAILABLE_REASON_CODES)('%s names its own source in every locale', function (code) {
-        const source = code.startsWith('osv') ? 'osv' : 'gemnasium'
-        for (const locale of LOCALES) {
-            expect(reasonCodeLabel(code, locale).toLowerCase()).toContain(source)
-        }
+    it('lists the reasons once each, with whose side they are on, in the reader locale', function () {
+        expect(scanStateReasonsText(CANNOT, 'en', SIDES)).toBe('No lockfile (the project)')
+        expect(scanStateReasonsText(PARTIAL, 'en', SIDES)).toBe('OSV database not downloaded yet (this install) · npm: Has not run yet')
+        expect(scanStateReasonsText(CANNOT, 'es', { project: 'el proyecto', environment: 'esta instalación' })).toBe('Sin lockfile (el proyecto)')
     })
 })

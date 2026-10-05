@@ -156,7 +156,12 @@
         "nodeAmbient": "环境默认",
         "badgeMuted": "已静默",
         "badgeMissing": "缺失",
-        "colLanguage": "语言"
+        "colLanguage": "语言",
+        "stateCannotScan": "无法扫描",
+        "statePartial": "无法完整扫描",
+        "stateNotScannedYet": "尚未扫描",
+        "stateSideProject": "项目方",
+        "stateSideEnvironment": "此 Sentinello 安装方"
     },
     "WhatsNew": {
         "pillLabel": "新功能",
@@ -458,7 +463,41 @@
         "depTypeAll": "所有依赖",
         "showMuted": "显示已静默项 ({count})",
         "fixAvailableSeeAdvisory": "有修复方案——参见通告",
-        "noPatchPublished": "尚未发布补丁",
+        "noFixReleased": "尚未发布修复版本",
+        "fixUnverified": "修复未经注册表核实",
+        "fixStatedUnverified": "通告指明 {version} 为修复版本 · 未经注册表核实",
+        "fixRecheckPending": "修复尚未重新核实——等待重新扫描",
+        "wayOut": {
+            "title": "解决途径",
+            "lastPublish": "最后发布 {date}",
+            "lastPublishUnknown": "最后发布时间未知",
+            "maintainers": "{count, plural, other {# 位维护者}}",
+            "downloads": "每周下载 {count, number} 次",
+            "downloadsUnknown": "每周下载量未知",
+            "deprecated": "已弃用（“{message}”）→ 请替换",
+            "unmaintained": "无人维护（6 个月以上未发布）→ 请替换",
+            "maintained": "有人维护",
+            "devToolingOnly": "仅开发工具",
+            "inWorkspace": "位于 {workspace}",
+            "verdictUpgrade": "将 {package} 升级到 ≥ {version} — 其解析后的依赖闭包（{size, plural, other {# 个包}}）不再包含 {target}",
+            "verdictBlocked": "{escape} ≥ {version} 去掉了 {target}，但没有任何已发布的 {blockedBy} 允许它（最新版 {latest} 要求 {range}）",
+            "verdictNoEscape": "{packages} 的所有已发布版本都未去掉 {target}",
+            "verdictUnknown": "未知 — {at} 处的注册表信息不足",
+            "verdictDirect": "{target} 是直接依赖 — 唯一的解决途径是替换它",
+            "morePaths": "另有 {count, plural, other {# 条路径}}",
+            "morePathsAtLeast": "另有至少 {count, plural, other {# 条路径}}",
+            "devOnlyAll": "所有路径都只到达开发工具 — 仍需修复，但排在生产问题之后。",
+            "devOnlyNo": "至少有一条生产路径到达此包。",
+            "devOnlyUnknown": "无法确定是否只有开发工具到达它。",
+            "alternativesFor": "{name} 的替代方案",
+            "noCurated": "没有已知的 {name} 精选替代方案",
+            "verified": "已检查依赖闭包（{size, plural, other {# 个包}}）",
+            "notVerified": "未验证 — 无法检查其依赖闭包",
+            "builtIn": "内置：{id}",
+            "snippet": "内联代码",
+            "removal": "移除它",
+            "asOfLastScan": "截至上次成功扫描："
+        },
         "vulnPrefix": "漏洞：",
         "groupingAriaLabel": "发现分组",
         "libraryGroupingAriaLabel": "依赖库发现分组",
@@ -480,7 +519,11 @@
         "grades": {
             "label": "各来源的评级",
             "explain": "Sentinello 采用所有来源中最严重的评级，以免低估漏洞。"
-        }
+        },
+        "notRecheckedCannotScan": "未重新检查 — 项目无法扫描：{reason}",
+        "notRecheckedPartial": "未重新检查 — 项目无法完整扫描：{reason}",
+        "lastScannedSuccessfully": "上次成功扫描于 {date}",
+        "neverScannedSuccessfully": "从未成功扫描"
     },
     "Triage": {
         "alias": {
@@ -583,6 +626,16 @@
                 "when": "在每次扫描期间",
                 "disable": "核心功能——无法禁用"
             },
+            "npmRegistry": {
+                "purpose": "核实修复版本确实已发布；若没有，则读取用于生成出路的包元数据（版本、依赖、弃用说明、维护者）。对象是有发现项的包及其依赖链，以及在没有已发布修复版本时，出路所评估的候选版本和替代方案及其依赖树",
+                "when": "每次扫描后，针对过去 24 小时内没有成功答案的包；失败的请求不会保存，因此可能更早重试",
+                "disable": "无法关闭——可用 SENTINELLO_NPM_REGISTRY_URL 指向镜像。无法访问时，如果之前获取的包元数据仍然可用，就会复用它来评估当前的发现项，并标明获取日期；没有可用的元数据时，修复版本显示为“未在注册表中核实”"
+            },
+            "npmDownloads": {
+                "purpose": "在出路中的包和替代方案旁显示的每周下载量",
+                "when": "扫描发现没有已发布修复版本的问题后，针对过去 24 小时内未统计过的包",
+                "disable": "无法关闭——可用 SENTINELLO_NPM_DOWNLOADS_URL 指向其他地址。无法访问时，显示最后已知的下载量；若没有，则显示为未知"
+            },
             "osv": {
                 "purpose": "下载 npm 生态系统的公开 OSV 公告导出",
                 "when": "每日约 03:17 以及手动刷新时 — 仅在启用 OSV 时",
@@ -628,7 +681,9 @@
             "osvFeedUrl": "OSV 通告导出的基础 URL，仅在启用 OSV 来源时使用；设为 off 可禁用所有 OSV 网络访问。",
             "osvDbPath": "可重建的 OSV 公告缓存的位置；默认位于主数据库旁边。",
             "gemnasiumFeedUrl": "GitLab gemnasium 公告归档的 URL，仅在启用 gemnasium 来源时使用；设为 off 可禁用所有 gemnasium 网络访问。",
-            "gemnasiumDbPath": "可重建的 gemnasium 公告缓存的位置；默认位于主数据库旁边。"
+            "gemnasiumDbPath": "可重建的 gemnasium 公告缓存的位置；默认位于主数据库旁边。",
+            "npmRegistryUrl": "每次扫描后用来核实修复版本、并读取出路所需包元数据的 npm 注册表；如使用镜像，可指向镜像。无法访问时，如果之前获取的包元数据仍然可用，就会复用它来评估当前的发现项，并标明获取日期；没有可用的元数据时，修复版本显示为未经注册表核实。",
+            "npmDownloadsUrl": "npm 下载量 API，用于读取出路中显示的每周下载量。无法访问时，显示最后已知的下载量；若没有，则显示为未知。"
         },
         "builtWithTitle": "技术栈",
         "reportingTitle": "报告 Sentinello 中的漏洞",
@@ -670,10 +725,16 @@
                 "discovered": "发现",
                 "resolved": "已解决"
             },
-            "coverageTitle": "覆盖缺口",
-            "coverageBody": "本项目中的某些语言无法在离线状态下完整审计，因此对它们的发现可能不完整。",
-            "coveragePartial": "部分",
-            "coverageUnauditable": "无法审计"
+            "cannotScanTitle": "项目无法扫描",
+            "cannotScanBody": "没有任何来源能读取此项目。下面的发现是之前的扫描记录的，未经重新检查；此处零发现意味着未知，而非安全。",
+            "partialScanTitle": "项目无法完整扫描",
+            "partialScanBody": "此项目的一部分无法扫描，因此其发现可能不完整。无法扫描它的来源所给出的发现未经重新检查。",
+            "scanReasonSideProject": "项目方的问题：项目中的某个文件导致无法读取，修改该文件即可解决",
+            "scanReasonSideEnvironment": "此 Sentinello 安装方的问题：安装无法执行扫描，需由运维人员解决",
+            "scanReasonNotYetRun": "尚无任何检查：下一次扫描会进行",
+            "noFindingsUnknownTitle": "没有记录的发现",
+            "noFindingsUnknownBody": "没有发现任何问题，但此项目无法完整扫描：这是未知，而非安全。",
+            "noFindingsNotScannedBody": "此项目尚未扫描。"
         },
         "library": {
             "eyebrow": "依赖库",

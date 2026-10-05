@@ -1,0 +1,170 @@
+{
+ "name": "tinyglobby",
+ "dist-tags": {
+  "latest": "0.2.17"
+ },
+ "maintainers": [
+  {
+   "name": "superchupu"
+  }
+ ],
+ "repository": {
+  "url": "git+https://github.com/SuperchupuDev/tinyglobby.git",
+  "type": "git"
+ },
+ "time": {
+  "created": "2024-07-22T18:19:33.107Z",
+  "modified": "2026-05-30T19:57:22.038Z",
+  "0.1.0": "2024-07-22T18:19:33.355Z",
+  "0.1.1": "2024-07-22T19:21:36.789Z",
+  "0.1.2": "2024-07-22T21:50:34.722Z",
+  "0.2.0": "2024-07-24T14:07:19.907Z",
+  "0.2.1": "2024-08-04T09:52:21.246Z",
+  "0.2.2": "2024-08-06T15:51:09.291Z",
+  "0.2.3": "2024-08-24T12:14:22.936Z",
+  "0.2.4": "2024-08-24T13:19:35.254Z",
+  "0.2.5": "2024-08-24T13:54:47.952Z",
+  "0.2.6": "2024-09-08T23:02:09.719Z",
+  "0.2.7": "2024-09-30T12:30:26.545Z",
+  "0.2.8": "2024-10-01T00:18:49.737Z",
+  "0.2.9": "2024-10-01T10:05:53.334Z",
+  "0.2.10": "2024-10-25T07:34:29.010Z",
+  "0.2.11": "2025-02-17T19:31:52.818Z",
+  "0.2.12": "2025-02-20T00:25:55.583Z",
+  "0.2.13": "2025-04-19T18:32:47.367Z",
+  "0.2.14": "2025-05-25T16:19:05.967Z",
+  "0.2.15": "2025-09-06T18:52:04.151Z",
+  "0.2.16": "2026-04-07T23:37:03.457Z",
+  "0.2.17": "2026-05-30T19:57:21.717Z"
+ },
+ "versions": {
+  "0.1.0": {
+   "dependencies": {
+    "fdir": "^6.2.0",
+    "picomatch": "^4.0.2"
+   }
+  },
+  "0.1.1": {
+   "dependencies": {
+    "fdir": "^6.2.0",
+    "picomatch": "^4.0.2"
+   }
+  },
+  "0.1.2": {
+   "dependencies": {
+    "fdir": "^6.2.0",
+    "picomatch": "^4.0.2"
+   }
+  },
+  "0.2.0": {
+   "dependencies": {
+    "fdir": "^6.2.0",
+    "picomatch": "^4.0.2"
+   }
+  },
+  "0.2.1": {
+   "dependencies": {
+    "fdir": "^6.2.0",
+    "picomatch": "^4.0.2"
+   }
+  },
+  "0.2.2": {
+   "dependencies": {
+    "fdir": "^6.2.0",
+    "picomatch": "^4.0.2"
+   }
+  },
+  "0.2.3": {
+   "dependencies": {
+    "fdir": "^6.2.0",
+    "picomatch": "^4.0.2"
+   },
+   "deprecated": "Versions 0.2.3 and 0.2.4 contain a critical bug. Please upgrade to 0.2.5 or higher"
+  },
+  "0.2.4": {
+   "dependencies": {
+    "fdir": "^6.2.0",
+    "picomatch": "^4.0.2"
+   },
+   "deprecated": "Versions 0.2.3 and 0.2.4 contain a critical bug. Please upgrade to 0.2.5 or higher"
+  },
+  "0.2.5": {
+   "dependencies": {
+    "fdir": "^6.2.0",
+    "picomatch": "^4.0.2"
+   }
+  },
+  "0.2.6": {
+   "dependencies": {
+    "fdir": "^6.3.0",
+    "picomatch": "^4.0.2"
+   }
+  },
+  "0.2.7": {
+   "dependencies": {
+    "fdir": "^6.4.0",
+    "picomatch": "^4.0.2"
+   }
+  },
+  "0.2.8": {
+   "dependencies": {
+    "fdir": "^6.4.0",
+    "picomatch": "^4.0.2"
+   }
+  },
+  "0.2.9": {
+   "dependencies": {
+    "fdir": "^6.4.0",
+    "picomatch": "^4.0.2"
+   }
+  },
+  "0.2.10": {
+   "dependencies": {
+    "fdir": "^6.4.2",
+    "picomatch": "^4.0.2"
+   }
+  },
+  "0.2.11": {
+   "dependencies": {
+    "fdir": "^6.4.3",
+    "picomatch": "^4.0.2"
+   }
+  },
+  "0.2.12": {
+   "dependencies": {
+    "fdir": "^6.4.3",
+    "picomatch": "^4.0.2"
+   }
+  },
+  "0.2.13": {
+   "dependencies": {
+    "fdir": "^6.4.4",
+    "picomatch": "^4.0.2"
+   }
+  },
+  "0.2.14": {
+   "dependencies": {
+    "fdir": "^6.4.4",
+    "picomatch": "^4.0.2"
+   }
+  },
+  "0.2.15": {
+   "dependencies": {
+    "fdir": "^6.5.0",
+    "picomatch": "^4.0.3"
+   }
+  },
+  "0.2.16": {
+   "dependencies": {
+    "fdir": "^6.5.0",
+    "picomatch": "^4.0.4"
+   }
+  },
+  "0.2.17": {
+   "dependencies": {
+    "fdir": "^6.5.0",
+    "picomatch": "^4.0.4"
+   }
+  }
+ }
+}

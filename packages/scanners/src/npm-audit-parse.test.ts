@@ -209,19 +209,21 @@ describe('pickSeverity, pickFixAvailability, pickVulnerableRange', function () {
     })
 
     it('reads fix availability from all three shapes', function () {
-        expect(pickFixAvailability(undefined)).toEqual({ fixAvailable: false, fixVersion: null })
-        expect(pickFixAvailability(false)).toEqual({ fixAvailable: false, fixVersion: null })
+        expect(pickFixAvailability(undefined)).toEqual({ fixAvailable: false, fixVersion: null, fixName: null })
+        expect(pickFixAvailability(false)).toEqual({ fixAvailable: false, fixVersion: null, fixName: null })
         // `true` means "a fix exists" without naming a version.
-        expect(pickFixAvailability(true)).toEqual({ fixAvailable: true, fixVersion: null })
+        expect(pickFixAvailability(true)).toEqual({ fixAvailable: true, fixVersion: null, fixName: null })
         expect(pickFixAvailability({ name: 'lodash', version: '4.17.21', isSemVerMajor: false })).toEqual({
             fixAvailable: true,
-            fixVersion: '4.17.21'
+            fixVersion: '4.17.21',
+            fixName: 'lodash'
         })
         // A fix object carrying an empty version still means "a fix exists", but there is no version
         // to name — the empty string must not reach the UI as the suggested upgrade target.
         expect(pickFixAvailability({ name: 'lodash', version: '', isSemVerMajor: false })).toEqual({
             fixAvailable: true,
-            fixVersion: null
+            fixVersion: null,
+            fixName: 'lodash'
         })
     })
 
@@ -354,8 +356,9 @@ describe('normalizeAuditOutput — the npm 7+ shape', function () {
         expect(normalizeAuditOutput(audit({}), new Map(), PROD_CLASSIFIER).findings).toEqual([])
     })
 
-    // npm can report "no fix available" while the range's upper bound still implies one.
-    it('derives a fix from the vulnerable range when npm named none', function () {
+    // `<=5.2.1` with "no fix available" means exactly that. This test used to assert the opposite — that
+    // the range "implies" 5.2.2 — which is the arithmetic that sent five agents after braces 3.0.4.
+    it('states no fix for an inclusive upper bound when npm named none', function () {
         const result = normalizeAuditOutput(
             audit({
                 lodash: { name: 'lodash', severity: 'high', range: '<=5.2.1', fixAvailable: false, via: [{ source: 1, range: '<=5.2.1' }] }
@@ -363,8 +366,96 @@ describe('normalizeAuditOutput — the npm 7+ shape', function () {
             new Map(),
             PROD_CLASSIFIER
         )
-        expect(result.findings[0]?.fixVersion).toBe('5.2.2')
+        expect(result.findings[0]?.fixVersion).toBeNull()
+        expect(result.findings[0]?.fixAvailable).toBe(false)
+        expect(result.findings[0]?.fixInputs).toEqual({
+            source: 'npm-audit',
+            installed: ['<=5.2.1'],
+            affected: { ranges: '<=5.2.1', exact: [], complete: true },
+            patched: null,
+            statedFix: null,
+            fixViaParent: false
+        })
+    })
+
+    // npm's fixAvailable version belongs to fixAvailable.name. When that is a parent, its version says
+    // nothing about this package: minimatch `<3.0.5` was told to upgrade to "12.0.1", a parent's version.
+    it('drops a fix version that belongs to a parent package', function () {
+        const result = normalizeAuditOutput(
+            audit({
+                minimatch: {
+                    name: 'minimatch',
+                    severity: 'high',
+                    range: '<3.0.5',
+                    nodes: ['node_modules/minimatch'],
+                    fixAvailable: { name: 'some-parent', version: '12.0.1', isSemVerMajor: true },
+                    via: [{ source: 1, range: '<3.0.5' }]
+                }
+            }),
+            new Map([['node_modules/minimatch', '3.0.4']]),
+            PROD_CLASSIFIER
+        )
+        // The stated fix comes from the range's own `<3.0.5`, never from the parent's 12.0.1. npm still
+        // says `npm audit fix` resolves it, so the finding keeps fixAvailable.
+        expect(result.findings[0]?.fixVersion).toBe('3.0.5')
         expect(result.findings[0]?.fixAvailable).toBe(true)
+    })
+
+    it('keeps fixAvailable with no version when only a parent upgrade is offered', function () {
+        const result = normalizeAuditOutput(
+            audit({
+                braces: {
+                    name: 'braces',
+                    severity: 'high',
+                    range: '<=3.0.3',
+                    nodes: ['node_modules/braces'],
+                    fixAvailable: { name: 'nodemon', version: '1.0.0', isSemVerMajor: true },
+                    via: [{ source: 1, range: '<=3.0.3' }]
+                }
+            }),
+            new Map([['node_modules/braces', '3.0.3']]),
+            PROD_CLASSIFIER
+        )
+        expect(result.findings[0]?.fixVersion).toBeNull()
+        expect(result.findings[0]?.fixAvailable).toBe(true)
+        expect(result.findings[0]?.fixInputs.installed).toEqual(['3.0.3'])
+        // Carried to settlement, which keeps "a parent upgrade resolves it" without a version.
+        expect(result.findings[0]?.fixInputs.fixViaParent).toBe(true)
+    })
+
+    // A same-package version the picker rejects (still inside the range) is not "via a parent".
+    it('does not claim a fix when npm names a same-package version that is still vulnerable', function () {
+        const result = normalizeAuditOutput(
+            audit({
+                lodash: {
+                    name: 'lodash',
+                    severity: 'high',
+                    range: '<4.17.21',
+                    nodes: ['node_modules/lodash'],
+                    fixAvailable: { name: 'lodash', version: '4.17.20', isSemVerMajor: false },
+                    via: [{ source: 1 }]
+                }
+            }),
+            new Map([['node_modules/lodash', '4.17.11']]),
+            PROD_CLASSIFIER
+        )
+        expect(result.findings[0]?.fixVersion).toBe('4.17.21')
+        const rejected = normalizeAuditOutput(
+            audit({
+                lodash: {
+                    name: 'lodash',
+                    severity: 'high',
+                    range: '<=4.17.20',
+                    nodes: ['node_modules/lodash'],
+                    fixAvailable: { name: 'lodash', version: '4.17.20', isSemVerMajor: false },
+                    via: [{ source: 1 }]
+                }
+            }),
+            new Map([['node_modules/lodash', '4.17.11']]),
+            PROD_CLASSIFIER
+        )
+        expect(rejected.findings[0]?.fixVersion).toBeNull()
+        expect(rejected.findings[0]?.fixAvailable).toBe(false)
     })
 })
 
@@ -617,10 +708,9 @@ describe('normalizeAuditOutput — the fix-availability edge', function () {
     }
 
     // npm reports fixAvailable: true with no version when the fix needs a major bump it will not pick
-    // for you. Sentinello does not leave the operator with "a fix exists, somewhere" — pickSafeFixVersion
-    // derives the version from the lower bound of the vulnerable range, which is the whole point of
-    // version-fix.ts: "<4.17.21" means 4.17.21 is the first safe one.
-    it('derives the fix version from the vulnerable range when npm names none', function () {
+    // for you. The range itself states one: "<4.17.21" names 4.17.21 as the first version past it, so
+    // pickStatedFix reads it — a version the source wrote, which the registry check later confirms.
+    it('reads the stated fix from the vulnerable range when npm names none', function () {
         const { findings } = normalizeAuditOutput(auditWithFix(true, '<4.17.21'), new Map([['node_modules/lodash', '4.17.11']]), PROD_CLASSIFIER)
         expect(findings[0]).toMatchObject({ fixAvailable: true, fixVersion: '4.17.21' })
     })
@@ -690,6 +780,37 @@ describe('normalizePnpmAuditOutput — the remaining arms', function () {
 
         expect(out).toHaveLength(2)
         expect(out.map(function p(f) { return f.depPath })).toEqual([['app', 'lodash'], ['app', 'tool', 'lodash']])
+    })
+
+    // braces 3.0.3 as `pnpm audit --json` reported it on 2026-10-03: `<=3.0.3`, patched `<0.0.0`. Nothing
+    // is stated, so nothing is named — and the sentinel travels as provenance for settlement.
+    it('states no fix for braces <=3.0.3 with the <0.0.0 sentinel', function () {
+        const doc = pnpmDoc({
+            1102341: {
+                id: 1102341,
+                github_advisory_id: 'GHSA-vfj7-8cjw-p6xm',
+                module_name: 'braces',
+                severity: 'high',
+                title: 'braces stack exhaustion',
+                url: 'https://github.com/advisories/GHSA-vfj7-8cjw-p6xm',
+                vulnerable_versions: '<=3.0.3',
+                patched_versions: '<0.0.0',
+                findings: [{ version: '3.0.3', paths: ['app>nodemon>chokidar>braces'] }]
+            }
+        })
+
+        const [finding] = normalizePnpmAuditOutput(doc, PROD_CLASSIFIER)
+
+        expect(finding?.fixVersion).toBeNull()
+        expect(finding?.fixAvailable).toBe(false)
+        expect(finding?.fixInputs).toEqual({
+            source: 'npm-audit',
+            installed: ['3.0.3'],
+            affected: { ranges: '<=3.0.3', exact: [], complete: true },
+            patched: '<0.0.0',
+            statedFix: null,
+            fixViaParent: false
+        })
     })
 
     // A finding with no paths still has to be reported — the advisory is real, only its provenance

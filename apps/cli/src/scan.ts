@@ -1,4 +1,4 @@
-import { DEFAULT_ECOSYSTEM, type EcosystemId } from '@sentinello/core'
+import { DEFAULT_ECOSYSTEM, projectScanState, type EcosystemId, type Remediation, type ScanState } from '@sentinello/core'
 import {
     createGemnasiumScanner,
     createOsvScanner,
@@ -10,11 +10,13 @@ import {
     resolveProjectGraphs,
     type ReportedAdvisory,
     type DiscoveredProject,
+    type FixEvidence,
     type RawFinding,
     type ResolvedGraph,
     type ResolverResult,
     type ScannerPlugin
 } from '@sentinello/scanners'
+import { fixEvidenceKey, settleProject, type FixSettlement, type RegistryClient } from '@sentinello/fixes'
 import { cacheEcosystemKey, type LoadedCache } from './cache/lookup'
 import type { SourceId } from './cache/meta'
 
@@ -41,6 +43,16 @@ export type ProjectScanResult = {
     project: DiscoveredProject
     findings: RawFinding[]
     outcomes: ScannerOutcome[]
+    // Each surviving finding's fix, settled from every source's evidence against the npm registry by the
+    // same settleProject the worker calls — `unverified`, marked offline, under --offline.
+    fixes: Map<RawFinding, FixSettlement>
+    // The way out for each finding settled 'none_released'. Empty when it could not be computed.
+    remediations: Map<RawFinding, Remediation>
+    // Why the way out could not be computed, or null. The fixes stand regardless.
+    wayOutError: string | null
+    // Whether the project could be scanned: the same projectScanState the portal reads, over this run's own
+    // source cells (every scanner the run enabled, for the run's ecosystem).
+    scanState: ScanState
 }
 
 export type ResolvedProject = {
@@ -90,6 +102,12 @@ export type ScanSetup = {
     // "database not downloaded" about a cache holding 224k advisories — telling the user to fix something
     // that is not broken, and hiding the fact that the project was in fact scanned cleanly.
     seeded: Record<SourceId, boolean>
+    // The run's instant, stamped on every finding's fix snapshot as its settlement time, so one run's
+    // findings all say the same thing about when they were settled.
+    settledAt: number
+    // The npm registry, one client for the whole run so a package is fetched at most once across every
+    // project (as the worker's batch client is). Null under --offline: no request is made at all.
+    registry: RegistryClient | null
     abortSignal?: AbortSignal
 }
 
@@ -204,5 +222,60 @@ export async function scanProject(
             findings.push(finding)
         }
     }
-    return { project: resolved.project, findings, outcomes }
+    // Settlement waits for every source, as in the worker: the fix has to clear every source's affected set
+    // and every installed copy. A survivor is registered under each of its identity keys, so the same
+    // ReportedAdvisory is visited more than once; settleProject settles each identity once.
+    const survivors = new Map<RawFinding, ReportedAdvisory>()
+    const evidence = new Map<string, FixEvidence[]>()
+    for (const byKey of reportedByPackage.values()) {
+        for (const reported of byKey.values()) {
+            survivors.set(reported.finding, reported)
+            evidence.set(fixEvidenceKey(reported), reported.evidence)
+        }
+    }
+    const settled = await settleProject({
+        findings: [...survivors.values()],
+        evidence,
+        graph: resolved.npmGraph,
+        registry: setup.registry,
+        checkedAt: setup.settledAt
+    })
+    const fixes = new Map<RawFinding, FixSettlement>()
+    const remediations = new Map<RawFinding, Remediation>()
+    for (const [finding, reported] of survivors) {
+        const key = fixEvidenceKey(reported)
+        // settleProject settles every identity it is given.
+        fixes.set(finding, settled.settlements.get(key) as FixSettlement)
+        const remediation = settled.remediations.get(key)
+        if (remediation) remediations.set(finding, remediation)
+    }
+    return {
+        project: resolved.project,
+        findings,
+        outcomes,
+        fixes,
+        remediations,
+        wayOutError: settled.wayOutError,
+        scanState: cliScanState(setup, resolved, scanners, outcomes)
+    }
+}
+
+// The run's expected sources are the scanners it enabled, and the ecosystem coverage must answer for is
+// the run's own: the CLI audits one ecosystem, so another one detected in the project is not something it
+// was asked to read. A scanner the run never reached (aborted) has no outcome and reads as not yet run.
+export function cliScanState(
+    setup: Pick<ScanSetup, 'ecosystem'>,
+    resolved: Pick<ResolvedProject, 'results'>,
+    scanners: readonly Pick<ScannerPlugin, 'name'>[],
+    outcomes: readonly ScannerOutcome[]
+): ScanState {
+    const own = resolved.results.filter(function inRun(result) { return result.ecosystem === setup.ecosystem })
+    return projectScanState({
+        expectedSources: scanners.map(function name(scanner) { return scanner.name }),
+        latestScans: outcomes.map(function latest(o) { return { source: o.scanner, status: o.status, reasonCode: o.reasonCode, finishedAt: 0 } }),
+        detectedEcosystems: own.map(function ecosystem(result) { return result.ecosystem }),
+        coverage: own.map(function covered(result) {
+            return { ecosystem: result.ecosystem, status: result.status, reasonCode: result.status === 'ok' ? null : result.reasonCode }
+        })
+    })
 }

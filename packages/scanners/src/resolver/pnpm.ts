@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import yaml from 'js-yaml'
 import { makeGraph, parseDepKey, reachableFrom } from './graph'
-import type { ResolvedGraph, ResolvedPackage } from './types'
+import type { LockEdge, LockEdgeKind, LockNode, LockRoot, LockRootKind, NodeGraph, ResolvedGraph, ResolvedPackage } from './types'
 
 const NPM_ECOSYSTEM = 'npm'
 
@@ -59,44 +59,51 @@ function parsePnpmV9(root: PnpmLockDoc): ResolvedGraph {
     const snapshots = root.snapshots || {}
     const packagesMap = root.packages || {}
 
-    // Adjacency over snapshot keys: each snapshot's dependency value is the child's version(+peers), so
-    // `childName@value` reconstructs the child's snapshot key exactly (pnpm keys are deterministic).
+    // Adjacency over snapshot keys, kept as typed edges for the node graph. A dependency value is
+    // normally the child's version(+peers), so `childName@value` is the child's snapshot key; an aliased
+    // dependency (`string-width-cjs: string-width@4.2.3`) carries the real key as its value.
+    const edges: LockEdge[] = []
     const adjacency = new Map<string, string[]>()
     const optionalKeys = new Set<string>()
     for (const key of Object.keys(snapshots)) {
         const snap = snapshots[key]
         const children: string[] = []
         if (snap && typeof snap === 'object') {
-            collectChildren(snap.dependencies, children)
-            collectChildren(snap.optionalDependencies, children)
+            collectChildren(key, snap.dependencies, 'prod', snapshots, children, edges)
+            collectChildren(key, snap.optionalDependencies, 'optional', snapshots, children, edges)
             if (snap.optional === true) optionalKeys.add(key)
         }
         adjacency.set(key, children)
     }
 
-    // Roots: every importer (workspace) contributes its prod deps (dependencies + optionalDependencies)
-    // as prod roots and its devDependencies as dev roots. `link:` values point at another workspace, not
-    // a registry package — that workspace's own deps are already counted via its own importer entry, so
-    // we skip link targets here rather than chase them.
-    const prodRoots: string[] = []
-    const devRoots: string[] = []
-    for (const importer of Object.values(importers)) {
+    // Roots: every importer (workspace) contributes its dependencies and optionalDependencies as prod
+    // roots and its devDependencies as dev roots, one root per importer entry. `link:` values point at
+    // another workspace, not a registry package — that workspace's own deps are already counted via its
+    // own importer entry, so we skip link targets here rather than chase them.
+    const roots: LockRoot[] = []
+    for (const importerPath of Object.keys(importers)) {
+        const importer = importers[importerPath]
         if (!importer || typeof importer !== 'object') continue
-        collectRoots(importer.dependencies, prodRoots)
-        collectRoots(importer.optionalDependencies, prodRoots)
-        collectRoots(importer.devDependencies, devRoots)
+        collectRoots(importerPath, importer.dependencies, 'prod', snapshots, roots)
+        collectRoots(importerPath, importer.optionalDependencies, 'optional', snapshots, roots)
+        collectRoots(importerPath, importer.devDependencies, 'dev', snapshots, roots)
     }
+    const prodRoots = roots.filter(function prod(r) { return r.kind !== 'dev' }).map(nodeIdOf)
+    const devRoots = roots.filter(function dev(r) { return r.kind === 'dev' }).map(nodeIdOf)
 
     const prodReachable = reachableFrom(prodRoots, adjacency)
     const devReachable = reachableFrom(devRoots, adjacency)
 
     // Enumerate installed packages from the snapshot keys (the full resolved set), collapsing peer
-    // variants of the same name@version into one row and unioning their scope.
+    // variants of the same name@version into one row and unioning their scope. Each key stays its own
+    // node in the node graph.
     const sourceKeys = Object.keys(snapshots).length > 0 ? Object.keys(snapshots) : Object.keys(packagesMap)
     const byId = new Map<string, ResolvedPackage>()
+    const nodes: LockNode[] = []
     for (const key of sourceKeys) {
         const parsed = parseDepKey(key)
         if (!parsed) continue
+        nodes.push({ id: key, name: parsed.name, version: parsed.version })
         const id = parsed.name + '@' + parsed.version
         const isProd = prodReachable.has(key)
         const isDev = devReachable.has(key)
@@ -118,7 +125,19 @@ function parsePnpmV9(root: PnpmLockDoc): ResolvedGraph {
             })
         }
     }
-    return makeGraph(Array.from(byId.values()))
+    const nodeGraph: NodeGraph = { nodes, edges, roots }
+    return makeGraph(Array.from(byId.values()), nodeGraph)
+}
+
+function nodeIdOf(root: LockRoot): string {
+    return root.nodeId
+}
+
+// The snapshot key a dependency value points at: `name@value`, or the value itself for an alias.
+function snapshotKey(name: string, value: string, snapshots: Record<string, PnpmSnapshot>): string {
+    const direct = name + '@' + value
+    if (direct in snapshots) return direct
+    return value in snapshots ? value : direct
 }
 
 // pnpm v6/earlier: the `packages` map keys are `/name@version` and each entry carries `dev`/`optional`.
@@ -145,21 +164,37 @@ function parsePnpmLegacy(root: PnpmLockDoc): ResolvedGraph {
     return makeGraph(out)
 }
 
-function collectChildren(deps: Record<string, string> | undefined, out: string[]): void {
+function collectChildren(
+    from: string,
+    deps: Record<string, string> | undefined,
+    kind: LockEdgeKind,
+    snapshots: Record<string, PnpmSnapshot>,
+    out: string[],
+    edges: LockEdge[]
+): void {
     if (!deps || typeof deps !== 'object') return
     for (const name of Object.keys(deps)) {
         const version = deps[name]
-        if (typeof version === 'string' && version) out.push(name + '@' + version)
+        if (typeof version !== 'string' || !version) continue
+        const to = snapshotKey(name, version, snapshots)
+        out.push(to)
+        edges.push({ from, to, kind })
     }
 }
 
-function collectRoots(deps: Record<string, PnpmImporterDep> | undefined, out: string[]): void {
+function collectRoots(
+    importer: string,
+    deps: Record<string, PnpmImporterDep> | undefined,
+    kind: LockRootKind,
+    snapshots: Record<string, PnpmSnapshot>,
+    out: LockRoot[]
+): void {
     if (!deps || typeof deps !== 'object') return
     for (const name of Object.keys(deps)) {
         const dep = deps[name]
         const version = dep && dep.version
         if (typeof version !== 'string' || !version) continue
         if (version.startsWith('link:')) continue
-        out.push(name + '@' + version)
+        out.push({ importer, nodeId: snapshotKey(name, version, snapshots), kind })
     }
 }

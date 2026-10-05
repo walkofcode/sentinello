@@ -6,12 +6,21 @@ import {
     DEFAULT_EXPORT_PROMPT,
     resolveExportPrompt,
     type ExportFinding,
+    type ExportScanState,
     type ExportScope
 } from './advisory-export'
+import type { FixCheck } from './fix-status'
+import type { Remediation } from './remediation'
 
 // The advisory export is handed straight to an LLM as a remediation work list, so two properties
 // matter: the prompt that frames the work must survive intact, and no finding may be silently dropped
 // or mis-attributed. The markdown shape itself is asserted only where it carries meaning.
+
+const CHECKED_AT = Date.UTC(2026, 9, 3)
+
+function check(overrides: Partial<FixCheck> = {}): FixCheck {
+    return { v: 1, checkedAt: CHECKED_AT, registry: 'ok', packageDataAsOf: CHECKED_AT, unevaluable: null, sources: [], ...overrides }
+}
 
 function exportFinding(overrides: Partial<ExportFinding> = {}): ExportFinding {
     return {
@@ -19,6 +28,9 @@ function exportFinding(overrides: Partial<ExportFinding> = {}): ExportFinding {
         installedVersion: '4.17.20',
         fixAvailable: false,
         fixVersion: null,
+        fixStatus: 'unverified',
+        fixCheck: check({ registry: 'skipped', packageDataAsOf: null }),
+        remediation: null,
         severity: 'high',
         advisoryId: 'GHSA-1',
         advisoryTitle: null,
@@ -178,11 +190,41 @@ describe('buildAdvisoryMarkdown finding rendering', function () {
     })
 
     it.each([
-        [{ fixAvailable: true, fixVersion: '4.17.21' }, '- **Fix:** upgrade to `4.17.21`'],
-        [{ fixAvailable: true, fixVersion: null }, '- **Fix:** available (target version not specified — check the advisory)'],
-        [{ fixAvailable: false, fixVersion: null }, '- **Fix:** no fix available yet — track upstream or mitigate at the call site']
+        [{ fixStatus: 'released', fixAvailable: true, fixVersion: '4.17.21', fixCheck: check() }, '- **Fix:** upgrade to `4.17.21`'],
+        [{ fixStatus: 'none_released', fixCheck: check() }, '- **Fix:** **No fixed version released** — no published version of `lodash` is outside the vulnerable range (registry checked 2026-10-03)'],
+        [{ fixAvailable: true, fixVersion: '4.17.21' }, '- **Fix:** advisory names `4.17.21` as the fix · not checked against the registry'],
+        [{ fixAvailable: true, fixVersion: null }, '- **Fix:** npm reports `npm audit fix` resolves it (no version of this package stated) · not checked against the registry'],
+        [{ fixAvailable: false, fixVersion: null }, '- **Fix:** no fix stated by the advisory · not checked against the registry'],
+        [{ fixCheck: null }, '- **Fix:** fix not re-checked yet — rescan pending']
     ] as Array<[Partial<ExportFinding>, string]>)('renders the fix line for %j', function (overrides, expected) {
         expect(build(PROJECT_SCOPE, [exportFinding(overrides)])).toContain(expected)
+    })
+
+    // An unverified fix is the source's statement, not a registry fact, so it must never read as an
+    // instruction to upgrade.
+    it('never says "upgrade to" for an unverified fix', function () {
+        const md = build(PROJECT_SCOPE, [exportFinding({ fixStatus: 'unverified', fixAvailable: true, fixVersion: '4.17.21' })])
+        expect(md).not.toContain('upgrade to `4.17.21`')
+    })
+
+    it('names the sources when they disagree on the affected range', function () {
+        const md = build(PROJECT_SCOPE, [exportFinding({
+            fixStatus: 'released',
+            fixAvailable: true,
+            fixVersion: '1.2.0',
+            fixCheck: check({
+                sources: [
+                    { source: 'npm-audit', installed: ['1.0.0'], affected: '<1.1.0', patched: null, statedFix: '1.1.0', noPatchedSentinel: false },
+                    { source: 'osv', installed: ['1.0.0'], affected: '<1.2.0', patched: null, statedFix: '1.2.0', noPatchedSentinel: false }
+                ]
+            })
+        })])
+        expect(md).toContain('- **Fix evidence:** sources disagree: npm-audit `<1.1.0`, osv `<1.2.0` — `1.2.0` is outside both')
+    })
+
+    it('adds no evidence line when the sources agree', function () {
+        const agreeing = check({ sources: [{ source: 'osv', installed: ['1.0.0'], affected: '<1.1.0', patched: null, statedFix: null, noPatchedSentinel: false }] })
+        expect(build(PROJECT_SCOPE, [exportFinding({ fixCheck: agreeing })])).not.toContain('Fix evidence')
     })
 
     it.each([
@@ -409,5 +451,117 @@ describe('buildExportFilename', function () {
         expect(buildExportFilename({ ...PROJECT_SCOPE, projectName: '🙂' }, AT)).toBe(
             'sentinello-unnamed-advisories-2026-07-27.md'
         )
+    })
+})
+
+describe('the way out of a none_released finding', function () {
+    const remediation: Remediation = {
+        v: 1,
+        checkedAt: CHECKED_AT,
+        package: 'braces',
+        health: { name: 'braces', latest: '3.0.3', lastPublishAt: Date.UTC(2024, 4, 21), maintainers: 2, weeklyDownloads: 204706783, deprecated: null, daysSinceLastPublish: 865, unmaintained: true },
+        chains: [
+            { importer: '.', rootKind: 'dev', path: ['nodemon@3.1.14', 'chokidar@3.6.0', 'braces@3.0.3'], verdict: { kind: 'blocked', escapePackage: 'chokidar', escapeVersion: '4.0.0', blockedBy: 'nodemon', blockedByLatest: '3.1.14', blockedRange: '^3.5.2', proof: { release: 'chokidar@4.0.0', closureSize: 2 } } }
+        ],
+        moreChains: 0, moreChainsAtLeast: false,
+        alternatives: [{ replaces: 'nodemon', reason: 'blocked', signals: null, options: [], url: null }],
+        devOnly: true
+    }
+
+    it('renders the block under the Fix line for none_released, and never for another status', function () {
+        const none = buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [exportFinding({ packageName: 'braces', installedVersion: '3.0.3', fixStatus: 'none_released', fixCheck: check(), remediation })] })
+        expect(none).toContain('- **Fix:** **No fixed version released**')
+        expect(none).toContain('- **Way out:**\n    - **Health:** `braces`: last publish 2024-05-21 (28 months ago) · 2 maintainers · 204,706,783 weekly downloads — **unmaintained** (no publish for 6+ months) → replace it')
+        expect(none).toContain('        - `nodemon@3.1.14 › chokidar@3.6.0 › braces@3.0.3` [dev tooling only]: `chokidar` ≥ `4.0.0` drops `braces`, but no released `nodemon` admits it (latest 3.1.14 requires `^3.5.2`)')
+        expect(none).toContain('    - **Dev tooling:** Every path to `braces` reaches only dev tooling')
+        expect(none).toContain('    - **Alternatives:** no curated alternative known for `nodemon`')
+        const released = buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [exportFinding({ fixStatus: 'released', fixVersion: '3.0.4', fixCheck: check(), remediation })] })
+        expect(released).not.toContain('Way out')
+    })
+
+    it('omits the paths list when there are none, and never mentions a budget', function () {
+        const md = buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [exportFinding({ packageName: 'braces', installedVersion: '3.0.3', fixStatus: 'none_released', fixCheck: check(), remediation: { ...remediation, chains: [] } })] })
+        expect(md).not.toContain('**Paths:**')
+        expect(md).not.toMatch(/budget|Partial/)
+    })
+
+    it('tells the reader, in the default prompt, not to chase a version that is not released', function () {
+        expect(DEFAULT_EXPORT_PROMPT).toContain('## When no fixed version is released')
+        // Issue 019: the prohibition covers a fix of the vulnerable package itself, never the registry-checked
+        // ancestor, escape and alternative releases the Way out block names.
+        expect(DEFAULT_EXPORT_PROMPT).toContain('do not pin, install or override the vulnerable package to a version that is meant to be its fix')
+        expect(DEFAULT_EXPORT_PROMPT).toContain('This applies to the vulnerable package only')
+        expect(DEFAULT_EXPORT_PROMPT).not.toContain('a version the Fix line does not name')
+        expect(DEFAULT_EXPORT_PROMPT).not.toContain('it does not exist yet')
+        // A version another source names can be published and still not settle the finding (the sources
+        // disagree), so the prompt must not say it was absent from the registry.
+        expect(DEFAULT_EXPORT_PROMPT).not.toContain('was not on the registry')
+        expect(DEFAULT_EXPORT_PROMPT).toContain('may well be published, but it is not a verified fix for this finding')
+        // A replacement whose closure could not be checked is a lead to investigate, not an endorsed route.
+        expect(DEFAULT_EXPORT_PROMPT).toContain('A replacement marked **not verified** is a lead, not a fix')
+        expect(DEFAULT_EXPORT_PROMPT).not.toContain('a listed alternative — were each checked against the registry')
+        expect(DEFAULT_EXPORT_PROMPT).toContain('dev tooling only')
+        expect(DEFAULT_EXPORT_PROMPT).toContain('"no upstream fix released"')
+    })
+})
+
+describe('projects that cannot be scanned, and findings not re-checked', function () {
+    const cannot: ExportScanState = {
+        projectName: 'ddns',
+        projectPath: 'apps/ddns',
+        scanState: { state: 'cannot_scan', reasons: [{ source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project' }, { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project' }] }
+    }
+    const partial: ExportScanState = {
+        projectName: 'api',
+        projectPath: null,
+        scanState: { state: 'partial', reasons: [{ source: null, ecosystem: 'npm', reasonCode: 'not_yet_run', side: null }] }
+    }
+    const fine: ExportScanState = { projectName: 'web', projectPath: null, scanState: { state: 'scanned', reasons: [] } }
+    const never: ExportScanState = { projectName: 'new', projectPath: null, scanState: { state: 'not_scanned_yet', reasons: [] } }
+    const retained = { reasonCode: 'no_lockfile' as const, side: 'project' as const, projectState: 'cannot_scan' as const, lastOkScanAt: Date.UTC(2026, 9, 1) }
+
+    it('lists each project that cannot be (fully) scanned with its reasons and their side, before the findings', function () {
+        const md = buildAdvisoryMarkdown({ scope: WORKSPACE_SCOPE, prompt: 'PROMPT', generatedAt: CHECKED_AT, findings: [exportFinding()], scanStates: [cannot, partial, fine, never] })
+        expect(md).toContain('## Projects that could not be fully scanned\n\nZero findings from these projects means unknown, not safe.')
+        expect(md).toContain('- **ddns** (`apps/ddns`) — Project cannot be scanned\n    - No lockfile — npm audit, npm — on the project\'s side')
+        expect(md).toContain('- **api** — Project cannot be fully scanned\n    - Has not run yet — npm — nobody\'s fix')
+        expect(md).not.toContain('**web**')
+        expect(md).not.toContain('**new**')
+        expect(md.indexOf('PROMPT')).toBeLessThan(md.indexOf('## Projects that could not'))
+        expect(md.indexOf('## Projects that could not')).toBeLessThan(md.indexOf('## Findings'))
+    })
+
+    it('has no section when every project was fully scanned, or no state was given', function () {
+        expect(buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [], scanStates: [fine] })).not.toContain('could not be fully scanned')
+        expect(buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [] })).not.toContain('could not be fully scanned')
+    })
+
+    it('puts the section on the first page of a paginated document only', function () {
+        const findings = [exportFinding({ advisoryId: 'GHSA-1' }), exportFinding({ advisoryId: 'GHSA-2' })]
+        const first = buildPaginatedAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings, offset: 0, byteBudget: 1, scanStates: [cannot] })
+        expect(first.markdown).toContain('## Projects that could not be fully scanned')
+        expect(first.nextOffset).toBe(1)
+        const second = buildPaginatedAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings, offset: 1, byteBudget: 1, scanStates: [cannot] })
+        expect(second.markdown).not.toContain('could not be fully scanned')
+        expect(buildPaginatedAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings, offset: 0, byteBudget: 1 }).markdown).not.toContain('could not be fully scanned')
+    })
+
+    it('marks a retained finding not re-checked on its Fix line and at the head of its way out', function () {
+        const remediation: Remediation = {
+            v: 1,
+            checkedAt: CHECKED_AT,
+            package: 'braces',
+            health: { name: 'braces', latest: '3.0.3', lastPublishAt: null, maintainers: 2, weeklyDownloads: null, deprecated: null, daysSinceLastPublish: null, unmaintained: false },
+            chains: [],
+            moreChains: 0, moreChainsAtLeast: false,
+            alternatives: [],
+            devOnly: null
+        }
+        const md = buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [exportFinding({ packageName: 'braces', fixStatus: 'none_released', fixCheck: check(), remediation, notRecheckedBecause: retained })] })
+        expect(md).toContain('- **Fix:** **No fixed version released** — no published version of `braces` is outside the vulnerable range (registry checked 2026-10-03) · not re-checked — the project cannot be scanned: No lockfile (last scanned successfully 2026-10-01)')
+        expect(md).toContain('- **Way out:**\n    - **As of the last successful scan:** not re-checked — the project cannot be scanned: No lockfile (last scanned successfully 2026-10-01)\n    - **Health:**')
+        const legacy = buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [exportFinding({ fixCheck: null, notRecheckedBecause: { ...retained, lastOkScanAt: null } })] })
+        expect(legacy).toContain('- **Fix:** not re-checked — the project cannot be scanned: No lockfile (never scanned successfully)')
+        expect(legacy).not.toContain('rescan pending')
     })
 })

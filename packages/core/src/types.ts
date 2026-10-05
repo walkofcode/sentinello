@@ -1,7 +1,18 @@
 import type { EcosystemId } from './ecosystems'
 import type { NotificationSourceScope } from './sources'
+import type { FixCheck } from './fix-status'
+import type { Remediation } from './remediation'
+import type { NotRecheckedBecause } from './scan-state'
 
 export type Severity = 'critical' | 'high' | 'moderate' | 'low' | 'info'
+
+// What is known about a finding's fix version, which is a fact about the package registry and never
+// arithmetic on a range. `released` — the fix version is published (and outside every source's affected
+// set); `none_released` — the registry answered and no published version qualifies; `unverified` — the
+// registry was not consulted, or some source's affected data could not be evaluated, so the version shown
+// is only what the source stated (or nothing). The CLI never consults the registry, so every CLI finding is
+// `unverified`.
+export type FixStatus = 'released' | 'none_released' | 'unverified'
 
 // One source independently reporting an advisory that another source already reported for the same
 // package. The scan keeps ONE finding per vulnerability — reporting the same flaw three times because
@@ -312,8 +323,19 @@ export type Finding = {
     // thirds of findings are corroborated, and without this they looked identical to the third that
     // are not.
     corroborations: FindingCorroboration[]
+    // The fix as settled against the registry after every source ran (see FixStatus). `fixVersion` is a
+    // published version only when `fixStatus` is 'released'. `fixCheck` is the verification snapshot;
+    // null on a row no settlement has written yet, whose fix value is withheld (readFixFields).
+    fixStatus: FixStatus
     fixAvailable: boolean
     fixVersion: string | null
+    fixCheck: FixCheck | null
+    // The way out, set only on a 'none_released' finding (null otherwise, and on any row whose way-out
+    // could not be computed).
+    remediation: Remediation | null
+    // Set by a reader that knows the row's source scans: the source's latest scan of the project failed,
+    // so this row was not re-checked by it (readFixFields). Absent or null otherwise.
+    notRecheckedBecause?: NotRecheckedBecause | null
     depPath: string[]
     // A transitive can be reached from both prod and dev direct deps — both flags can be true.
     // Unmappable findings default to isProd=true,isDev=false so they remain visible in the prod-only view.

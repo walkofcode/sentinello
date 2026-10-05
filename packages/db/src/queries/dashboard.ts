@@ -1,7 +1,8 @@
-import { sql, type SQL } from 'drizzle-orm'
-import { parseFindingCorroborations, SCAN_HEARTBEAT_STALE_MS, SOURCE_IDS, type DepTypeFilter, type FindingCorroboration } from '@sentinello/core'
+import { sql } from 'drizzle-orm'
+import { parseFindingCorroborations, readFixFields, SCAN_HEARTBEAT_STALE_MS, type DepTypeFilter, type NotRecheckedBecause, type ScanState, type FindingCorroboration, type FixCheck, type FixStatus, type Remediation } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { depTypeClause } from './dep-type'
+import { activeScanRows, findingScanContexts, listLatestSourceScans, listProjectScanStates, type LatestSourceScanRow } from './scan-state'
 import { activeSourceCellClause } from './sources'
 import { advisoryIdentitySql, severityRankSql, findingMuteExclusionSql } from './advisory-identity'
 
@@ -22,11 +23,18 @@ export type DashboardSummary = {
     severityCounts: SeverityCounts
     findingsLast24h: number
     lastScanFinishedAt: number | null
+    // Projects no expected source could scan ('cannot_scan'), and projects only part of which could be
+    // scanned ('partial'), over the same population as totalActiveProjects. Their zero findings are
+    // unknown, not clean.
+    projectsCannotBeScanned: number
+    projectsCannotBeFullyScanned: number
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeFilter = 'all'): DashboardSummary {
+// `scanStates` is every project's scan state when the caller already has it (the home page reads the
+// project catalog, which carries it): reading it is the costly part of this summary.
+export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeFilter = 'all', scanStates: ReadonlyMap<string, ScanState> | null = null): DashboardSummary {
     const depFilter = depTypeClause(depType)
     const sourceFilter = activeSourceCellClause(db)
     // Project-muted projects are excluded here for the same reason they're excluded from
@@ -134,6 +142,17 @@ export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeF
     } else {
         lastScan = db.get<{ finished_at: number | null }>(sql`SELECT MAX(s.finished_at) AS finished_at FROM scans s WHERE s.finished_at < ${cutoffAt}`)
     }
+    const projectMuted = new Set(db.all<{ id: string }>(sql`
+        SELECT m.project_id AS id FROM mutes m
+        WHERE m.scope = 'project' AND (m.expires_at IS NULL OR m.expires_at > ${at})
+    `).map(function idOf(row) { return row.id }))
+    let cannotScan = 0
+    let partial = 0
+    for (const [id, state] of scanStates ?? listProjectScanStates(db)) {
+        if (projectMuted.has(id)) continue
+        if (state.state === 'cannot_scan') cannotScan++
+        else if (state.state === 'partial') partial++
+    }
     return {
         totalActiveProjects: total?.n || 0,
         projectsWithFindings: withFindings?.n || 0,
@@ -145,7 +164,9 @@ export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeF
             info: sevRow?.info || 0
         },
         findingsLast24h: last24?.n || 0,
-        lastScanFinishedAt: lastScan?.finished_at || null
+        lastScanFinishedAt: lastScan?.finished_at || null,
+        projectsCannotBeScanned: cannotScan,
+        projectsCannotBeFullyScanned: partial
     }
 }
 
@@ -185,89 +206,26 @@ export type ProjectCatalogRow = {
     muteId: string | null
     tagsJson: string
     scanStates: ProjectScanState[]
+    // The project's scan state over its expected sources (projectScanState): what the State column and
+    // MCP say, where scanStates above is each source's own last word.
+    scanState: ScanState
     severityCounts: SeverityCounts
 }
 
-// Display order (npm audit -> OSV -> gemnasium), derived from SOURCE_IDS so it cannot drift from the
-// registry's dedup-priority order. An unknown/legacy source value sorts after all of them; the
-// caller's second ORDER BY term makes that group alphabetical. Source ids are fixed registry
-// constants, never user input, so the inlined literals carry no injection risk — same reasoning as
-// activeSourceCellClause.
-function sourceRankSql(expr: string): SQL {
-    const whens = SOURCE_IDS.map(function when(id, index) {
-        return "WHEN '" + id + "' THEN " + index
-    }).join(' ')
-    return sql.raw('CASE ' + expr + ' ' + whens + ' ELSE ' + SOURCE_IDS.length + ' END')
-}
-
-// Latest scan per (project, source), for every source cell that is currently active.
-//
-// One row per source, deliberately. A sweep writes one scans row PER SOURCE and they finish
-// milliseconds apart, so "the project's latest scan" was whichever source finished last. Reading that
-// as the project's verdict discarded npm audit's answer silently: on a real instance every project
-// reported "OSV database not downloaded yet" while npm audit had scanned fine and produced findings.
-// Sources disagree; the row has to carry all of them.
-//
-// ROW_NUMBER rather than a correlated `s.id = (SELECT ... LIMIT 1)`: the correlation would have to
-// match on COALESCE(source, scanner), which no index can supply, and the inner scan could no longer
-// stop at the project's newest row. One pass and one sort instead. Mirrors listPrunableScanIds.
-//
-// Retention prunes per project rather than per source, so a source that ran once long ago and has
-// been out-scanned since can lose its only row and silently drop out of this map. keepPerProject
-// covers dozens of sweeps and a still-enabled source re-creates its row next sweep, so the window is
-// narrow — but it is why an absent source reads as "has not run", never as "is fine".
-function listLatestScanStates(db: DrizzleDb): Map<string, ProjectScanState[]> {
-    // The scans table carries source/scanner/ecosystem exactly like findings, so the shared cell
-    // filter applies verbatim: a source the operator has since switched off leaves its scan rows
-    // behind, and they must not badge.
-    const sourceFilter = activeSourceCellClause(db, 'r')
-    const rows = db.all<{
-        project_id: string
-        source: string
-        finished_at: number
-        status: string
-        reason_code: string | null
-        error_text: string | null
-    }>(sql`
-        WITH ranked AS (
-            SELECT s.project_id AS project_id,
-                   s.source AS source,
-                   s.scanner AS scanner,
-                   s.ecosystem AS ecosystem,
-                   s.finished_at AS finished_at,
-                   s.status AS status,
-                   s.reason_code AS reason_code,
-                   s.error_text AS error_text,
-                   -- id DESC breaks a finished_at tie deterministically: scan ids are ULIDs, so the
-                   -- higher id is the later write.
-                   ROW_NUMBER() OVER (
-                       PARTITION BY s.project_id, COALESCE(s.source, s.scanner)
-                       ORDER BY s.finished_at DESC, s.id DESC
-                   ) AS rn
-            FROM scans s
-        )
-        SELECT r.project_id AS project_id,
-               COALESCE(r.source, r.scanner) AS source,
-               r.finished_at AS finished_at,
-               r.status AS status,
-               r.reason_code AS reason_code,
-               r.error_text AS error_text
-        FROM ranked r
-        WHERE r.rn = 1
-          ${sourceFilter}
-        ORDER BY ${sourceRankSql('COALESCE(r.source, r.scanner)')}, COALESCE(r.source, r.scanner)
-    `)
+// Latest scan per (project, source), for every source cell that is currently active
+// (listLatestSourceScans says why one row per source, and why an absent source means "has not run").
+function listLatestScanStates(db: DrizzleDb, latest: readonly LatestSourceScanRow[]): Map<string, ProjectScanState[]> {
     const byProject = new Map<string, ProjectScanState[]>()
-    for (const row of rows) {
-        const states = byProject.get(row.project_id) ?? []
+    for (const row of activeScanRows(db, latest)) {
+        const states = byProject.get(row.projectId) ?? []
         states.push({
             source: row.source,
-            finishedAt: row.finished_at,
+            finishedAt: row.finishedAt,
             status: row.status,
-            reasonCode: row.reason_code,
-            errorText: row.error_text
+            reasonCode: row.reasonCode,
+            errorText: row.errorText
         })
-        byProject.set(row.project_id, states)
+        byProject.set(row.projectId, states)
     }
     return byProject
 }
@@ -275,7 +233,9 @@ function listLatestScanStates(db: DrizzleDb): Map<string, ProjectScanState[]> {
 export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFilter = 'all'): ProjectCatalogRow[] {
     const depFilter = depTypeClause(depType)
     const sourceFilter = activeSourceCellClause(db)
-    const scanStates = listLatestScanStates(db)
+    const latest = listLatestSourceScans(db)
+    const scanStates = listLatestScanStates(db, latest)
+    const projectStates = listProjectScanStates(db, latest)
     const rows = db.all<{
         id: string
         name: string
@@ -364,6 +324,8 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             muted: row.muted === 1,
             tagsJson: row.tags_json,
             scanStates: scanStates.get(row.id) ?? [],
+            // Every listed project is one listProjectScanStates read.
+            scanState: projectStates.get(row.id) as ScanState,
             severityCounts: {
                 critical: row.critical,
                 high: row.high,
@@ -389,8 +351,18 @@ export type CurrentFindingRow = {
     installedVersion: string
     vulnerableRange: string
     severity: string
+    // Read through readFixFields: a row no settlement has written reads as `unverified` with its fix
+    // withheld and `fixCheck: null` ("rescan pending"). `fixVersion` is a published version only when
+    // `fixStatus` is 'released'.
+    fixStatus: FixStatus
     fixAvailable: boolean
     fixVersion: string | null
+    fixCheck: FixCheck | null
+    // The way out, set only when fixStatus is 'none_released'.
+    remediation: Remediation | null
+    // Set when the row's source last failed to scan the project: the row was retained, not re-checked,
+    // whether or not an earlier scan settled it. Null when that scan was ok.
+    notRecheckedBecause: NotRecheckedBecause | null
     depPathJson: string
     // Other sources that independently reported this same advisory for this same package, each with the
     // id IT uses and the grade IT assigned. `severity` above is already the worst of them.
@@ -410,6 +382,7 @@ export function listCurrentFindingsForProject(
 ): CurrentFindingRow[] {
     const depFilter = depTypeClause(depType)
     const sourceFilter = activeSourceCellClause(db)
+    const scanContext = findingScanContexts(db, [projectId])
     const rows = db.all<{
         id: string
         scan_id: string
@@ -428,6 +401,9 @@ export function listCurrentFindingsForProject(
         severity: string
         fix_available: number
         fix_version: string | null
+        fix_status: string | null
+        fix_check_json: string | null
+        remediation_json: string | null
         dep_path_json: string
         corroborations_json: string
         muted: number | null
@@ -439,7 +415,7 @@ export function listCurrentFindingsForProject(
         SELECT
             f.id, f.scan_id, f.project_id, f.scanner, f.source, f.ecosystem, f.advisory_id, f.advisory_title, f.advisory_url,
             f.package_name, f.installed_version, f.vulnerable_range, f.severity, f.fix_available,
-            f.fix_version, f.dep_path_json, f.corroborations_json, f.is_prod, f.is_dev,
+            f.fix_version, f.fix_status, f.fix_check_json, f.remediation_json, f.dep_path_json, f.corroborations_json, f.is_prod, f.is_dev,
             f.first_detected_at, f.last_seen_at,
             (SELECT 1 FROM mutes m
                 WHERE (m.expires_at IS NULL OR m.expires_at > ${at})
@@ -480,8 +456,10 @@ export function listCurrentFindingsForProject(
             installedVersion: row.installed_version,
             vulnerableRange: row.vulnerable_range,
             severity: row.severity,
-            fixAvailable: row.fix_available === 1,
-            fixVersion: row.fix_version,
+            ...readFixFields(
+                { fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json, remediationJson: row.remediation_json },
+                scanContext(row.project_id, row.source ?? row.scanner)
+            ),
             depPathJson: row.dep_path_json,
             corroborations: parseFindingCorroborations(row.corroborations_json),
             isMuted: row.muted === 1,

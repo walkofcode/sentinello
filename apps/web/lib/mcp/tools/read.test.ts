@@ -642,3 +642,66 @@ describe('get_project_advisory', function () {
         })
     })
 })
+
+// A project that lost its lockfile: npm audit scanned it once and found something, then could not read it.
+describe('project cannot be scanned — scanState, the counts and not re-checked rows', function () {
+    const NO_LOCKFILE_COVERAGE = JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile' }] })
+    const LAST_OK = T0 + 1000
+
+    beforeEach(function seedLostLockfile() {
+        scanProject(handle.db, 'project-1', [finding({ advisoryId: 'CVE-2024-1', packageName: 'lodash' })], { at: LAST_OK })
+        scanProject(handle.db, 'project-1', [], { at: T0 + 2000, status: 'unauditable', reasonCode: 'no_lockfile', rawJson: NO_LOCKFILE_COVERAGE })
+    })
+
+    const CANNOT_SCAN = {
+        state: 'cannot_scan',
+        reasons: [
+            { source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' },
+            { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' }
+        ]
+    }
+
+    it('gives list_projects and get_project the labelled scan state, the reason on the project side', async function () {
+        const listed = jsonOf<{ id: string; scanState: unknown }[]>(await mcp.call('list_projects'))
+        expect(listed.find(function mine(p) { return p.id === 'project-1' })?.scanState).toEqual(CANNOT_SCAN)
+        const project = await mcp.call('get_project', { id: 'project-1' })
+        expect(project.structuredContent?.scanState).toEqual(CANNOT_SCAN)
+    })
+
+    it('counts it in get_dashboard_summary', async function () {
+        const summary = await mcp.call('get_dashboard_summary')
+        expect(summary.structuredContent).toMatchObject({ projectsCannotBeScanned: 1, projectsCannotBeFullyScanned: 0 })
+    })
+
+    it('marks each retained list_findings row not re-checked, with the last successful scan', async function () {
+        const rows = jsonOf<{ notRecheckedBecause: unknown }[]>(await mcp.call('list_findings', { projectId: 'project-1' }))
+        expect(rows).toHaveLength(1)
+        expect(rows[0]?.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: LAST_OK })
+    })
+
+    it('opens get_project_advisory with the section and marks the finding not re-checked', async function () {
+        const md = textOf(await mcp.call('get_project_advisory', { projectId: 'project-1', includePrompt: false }))
+        expect(md).toContain('## Projects that could not be fully scanned')
+        expect(md).toContain('— Project cannot be scanned\n    - No lockfile — npm audit, npm — on the project\'s side')
+        expect(md).toContain('not re-checked — the project cannot be scanned: No lockfile')
+    })
+
+    // issue-037: a field an agent receives is described where the agent reads it.
+    it('describes scanState, the counts and notRecheckedBecause in the tool descriptions', async function () {
+        for (const tool of ['list_projects', 'get_project']) {
+            const description = await mcp.describeTool(tool)
+            expect(description).toContain("'cannot_scan'")
+            expect(description).toContain("'partial'")
+            expect(description).toContain("'not_scanned_yet'")
+            expect(description).toContain('means UNKNOWN, not safe')
+            expect(description).toContain("'environment' (this Sentinello install")
+        }
+        expect(await mcp.describeTool('get_dashboard_summary')).toContain('projectsCannotBeFullyScanned')
+        expect(await mcp.describeTool('get_project_advisory')).toContain('Projects that could not be fully scanned')
+        const findings = await mcp.describeTool('list_findings')
+        expect(findings).toContain('notRecheckedBecause')
+        expect(findings).toContain('lastOkScanAt — epoch ms')
+        expect(findings).toContain('are historical')
+        expect(await mcp.describeTool('nope')).toBeUndefined()
+    })
+})

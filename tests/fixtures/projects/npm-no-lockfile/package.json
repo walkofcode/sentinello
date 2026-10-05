@@ -1,0 +1,10 @@
+{
+    "name": "npm-no-lockfile",
+    "version": "1.0.0",
+    "private": true,
+    "description": "Frozen fixture: a package.json with no lockfile beside it — the project cannot be scanned (no_lockfile, on the project's side). The portal e2e seeds findings an earlier scan recorded for these two packages.",
+    "dependencies": {
+        "lodash": "4.17.11",
+        "minimist": "1.2.0"
+    }
+}

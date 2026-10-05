@@ -1,0 +1,27 @@
+{
+ "name": "lodash",
+ "dist-tags": {
+  "latest": "4.17.21"
+ },
+ "maintainers": [
+  {
+   "name": "fixture-maintainer"
+  }
+ ],
+ "repository": {
+  "type": "git",
+  "url": "git+https://example.invalid/lodash.git"
+ },
+ "time": {
+  "created": "2018-09-12T18:00:00.000Z",
+  "modified": "2021-02-20T15:00:00.000Z",
+  "4.17.11": "2018-09-12T18:00:00.000Z",
+  "4.17.20": "2020-08-13T16:00:00.000Z",
+  "4.17.21": "2021-02-20T15:00:00.000Z"
+ },
+ "versions": {
+  "4.17.11": {},
+  "4.17.20": {},
+  "4.17.21": {}
+ }
+}

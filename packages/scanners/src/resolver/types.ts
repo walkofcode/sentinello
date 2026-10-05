@@ -22,13 +22,31 @@ export type ResolvedPackage = {
     depPaths: string[]
 }
 
+// The lockfile as a graph of installed nodes, for the questions the collapsed package list cannot answer:
+// which importer a dependency path starts from, through which parent, and whether ANY production root
+// reaches a node. A node is one installed copy, identified by its stable lockfile key — the full pnpm
+// snapshot key including its peer suffix (two peer variants of one name@version are two nodes), or the
+// npm lock path (`node_modules/a/node_modules/b`, so hoisted and nested copies stay distinct). For these
+// lockfiles a ResolvedPackage's `depPaths` are exactly its node ids.
+export type LockNode = { id: string; name: string; version: string }
+export type LockEdgeKind = 'prod' | 'optional' | 'peer'
+export type LockEdge = { from: string; to: string; kind: LockEdgeKind }
+export type LockRootKind = 'prod' | 'dev' | 'optional'
+// One entry per importer dependency, never pooled across importers: `importer` is the workspace path
+// ('.' for the project itself).
+export type LockRoot = { importer: string; nodeId: string; kind: LockRootKind }
+export type NodeGraph = { nodes: LockNode[]; edges: LockEdge[]; roots: LockRoot[] }
+
 // The resolved graph plus the two lookups every consumer needs: the full package list (the OSV matcher
 // walks it) and a classifier keyed by name+version (npm-audit maps each pre-matched finding back to its
 // scope). `version` may be null or a comma-joined list — classify unions the scope across matches.
+// `nodeGraph` is null where the lockfile carries no node graph (pnpm < v9, every non-JavaScript
+// resolver): what depends on it is then "not determined", never guessed.
 export type ResolvedGraph = {
     packages: ResolvedPackage[]
     classify(name: string, version: string | null): DepScope
     byName(name: string): ResolvedPackage[]
+    nodeGraph: NodeGraph | null
 }
 
 // A manifest/lockfile discovery hit: the file we found, the ecosystem (registry EcosystemId) it belongs

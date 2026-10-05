@@ -1,8 +1,9 @@
 import type { Severity } from '@sentinello/core'
-import { formatRange, formatRanges, versionInRange, type FormatOptions } from '@sentinello/versions'
+import { valid, validRange } from 'semver'
+import { formatRange, formatRanges, isZeroVersion, versionInRange, type FormatOptions, type VersionRange } from '@sentinello/versions'
 import type { ResolvedPackage } from '../resolver/types'
 import type { RawFinding } from '../types'
-import { pickSafeFixVersion } from '../version-fix'
+import type { AffectedSet } from '../version-fix'
 import type { CanonicalAdvisory, VersionComparator } from './types'
 
 // The finding card shows the shorter "0"; a string handed to node-semver's Range parser needs a full
@@ -58,11 +59,6 @@ function applicableRanges(
     })
 }
 
-type AffectedHit = {
-    affected: boolean
-    firstFixed: string | null
-}
-
 function matchOne(
     pkg: ResolvedPackage,
     advisory: CanonicalAdvisory,
@@ -86,57 +82,122 @@ function matchOne(
         // can't responsibly claim a clean version is affected, so we skip. This branch should be rare —
         // real OSV malware records enumerate the compromised versions.
         if (advisory.kind !== 'malware') return null
-        return buildFinding(pkg, advisory, 'critical', null, '*')
+        // No version data on malware means every version is affected: the only way out is removal. But
+        // "no data" is only true when the source supplied none. A record whose ranges were all dropped for
+        // this comparator (a GIT range, an unclassified one) did state versions we cannot read, so its
+        // evidence is incomplete — unknown, never "every version is affected, no fix".
+        const sourceStatedRanges = advisory.affected.ranges.length > 0
+        return buildFinding(pkg, advisory, 'critical', null, '*', { ranges: '*', exact: [], complete: !sourceStatedRanges })
     }
 
-    const hit = isAffected(pkg.version, ranges, exactVersions, comparator)
-    if (!hit.affected) return null
+    if (!isAffected(pkg.version, ranges, exactVersions, comparator)) return null
 
     const severity = advisory.kind === 'malware' ? 'critical' : mapSeverity(advisory.severity)
-    const fixVersion = pickSafeFixVersion({
-        patched: null,
-        recommendation: hit.firstFixed,
-        vulnerable: vulnerableRangeForFix(ranges),
-        installed: pkg.version
-    })
-    return buildFinding(pkg, advisory, severity, fixVersion, rangesToDisplay(ranges, exactVersions))
+    const statedFix = statedFixFor(pkg.version, ranges, exactVersions, comparator)
+    const dropped = ranges.length !== advisory.affected.ranges.length
+    return buildFinding(pkg, advisory, severity, statedFix, rangesToDisplay(ranges, exactVersions), affectedSetFor(ranges, exactVersions, dropped, comparator))
 }
 
 // A version is affected when it equals an enumerated exact version OR falls inside any range. Each bound
 // is evaluated with the inclusivity the range declares — `>X` excludes X, `<=X` includes it — rather than
-// being forced into a half-open interval and rounded. We track the lowest `fixed` boundary at/above the
-// install as the fix target.
+// being forced into a half-open interval and rounded.
 function isAffected(
+    versionRaw: string,
+    ranges: CanonicalAdvisory['affected']['ranges'],
+    exactVersions: string[],
+    comparator: VersionComparator
+): boolean {
+    const version = comparator.normalize(versionRaw)
+
+    for (const raw of exactVersions) {
+        if (raw === versionRaw) return true
+        const v = comparator.normalize(raw)
+        if (v !== null && version !== null && v === version) return true
+    }
+
+    if (version === null) return false
+
+    // Bound evaluation lives with the range type, so this and every other reader of a range agree on
+    // exactly what its bounds mean.
+    return ranges.some(function contains(range) {
+        return versionInRange(versionRaw, range, comparator)
+    })
+}
+
+// The fix the advisory STATES: the lowest `fixed` bound that is not below the install and is itself outside
+// every range and every exact version (a multi-branch advisory can name a `fixed` that a later branch
+// re-opens). Only `fixed` names a fix; a `lastAffected` bound means "no known fix", and nothing is ever
+// derived from it — `<=3.0.3` does not make 3.0.4 a release.
+function statedFixFor(
     installedRaw: string,
     ranges: CanonicalAdvisory['affected']['ranges'],
     exactVersions: string[],
     comparator: VersionComparator
-): AffectedHit {
+): string | null {
+    // An exact version can match an install the comparator cannot read; with no floor to compare against,
+    // no fix is stated.
     const installed = comparator.normalize(installedRaw)
-
-    for (const raw of exactVersions) {
-        if (raw === installedRaw) return { affected: true, firstFixed: null }
-        const v = comparator.normalize(raw)
-        if (v !== null && installed !== null && v === installed) return { affected: true, firstFixed: null }
-    }
-
-    if (installed === null) return { affected: false, firstFixed: null }
-
-    let affected = false
-    let firstFixed: string | null = null
+    if (installed === null) return null
+    let best: string | null = null
     for (const range of ranges) {
-        // Bound evaluation lives with the range type, so this and every other reader of a range agree on
-        // exactly what its bounds mean.
-        if (!versionInRange(installedRaw, range, comparator)) continue
-        affected = true
-        // Track the lowest `fixed` boundary above the install as the remediation target. A range bounded by
-        // `lastAffected` has no fix by definition and contributes none.
-        const fixed = range.fixed ? comparator.normalize(range.fixed) : null
-        if (fixed !== null && (firstFixed === null || comparator.lt(fixed, firstFixed))) {
-            firstFixed = fixed
-        }
+        if (!range.fixed) continue
+        const fixed = comparator.normalize(range.fixed)
+        if (fixed === null || comparator.lt(fixed, installed)) continue
+        if (isAffected(range.fixed, ranges, exactVersions, comparator)) continue
+        if (best === null || comparator.lt(fixed, best)) best = fixed
     }
-    return { affected, firstFixed }
+    return best
+}
+
+// The whole affected set, for settling the fix against the registry: the same filtered ranges and exact
+// versions this finding matched with. Incomplete when a range was dropped for this comparator, or when a
+// range cannot be written as a node-semver range that means what the comparator means — unknown, never
+// "safe".
+function affectedSetFor(
+    ranges: CanonicalAdvisory['affected']['ranges'],
+    exactVersions: string[],
+    dropped: boolean,
+    comparator: VersionComparator
+): AffectedSet {
+    if (ranges.length === 0) return { ranges: null, exact: [...exactVersions], complete: !dropped }
+    const rewritten: VersionRange[] = []
+    for (const range of ranges) {
+        const bounds = semverBounds(range, comparator)
+        if (bounds === null) return { ranges: formatRanges(ranges, SEMVER_FORMAT), exact: [...exactVersions], complete: false }
+        rewritten.push(bounds)
+    }
+    const text = formatRanges(rewritten, SEMVER_FORMAT)
+    return { ranges: text, exact: [...exactVersions], complete: !dropped && validRange(text) !== null }
+}
+
+// A range with every bound replaced by the version the COMPARATOR reads it as, so node-semver evaluates
+// the same interval the matcher did. Written as-is, a partial bound changes meaning on the way: the
+// matcher reads `>1.2` as "above 1.2.0", node-semver as ">=1.3.0", and 1.2.1 — affected — would pass as a
+// fix. An inclusive zero lower bound stays the bottom of the version space, as versionInRange reads it.
+// Null when a bound does not normalize to a full semver version: the range cannot be carried faithfully.
+function semverBounds(range: VersionRange, comparator: VersionComparator): VersionRange | null {
+    const bottom = range.introducedExclusive !== true && isZeroVersion(range.introduced)
+    const introduced = bottom ? '0' : fullSemver(range.introduced, comparator)
+    if (introduced === null) return null
+    const out: VersionRange = { ...range, introduced }
+    if (range.fixed !== null && range.fixed !== undefined) {
+        const fixed = fullSemver(range.fixed, comparator)
+        if (fixed === null) return null
+        out.fixed = fixed
+        return out
+    }
+    if (range.lastAffected !== null && range.lastAffected !== undefined) {
+        const lastAffected = fullSemver(range.lastAffected, comparator)
+        if (lastAffected === null) return null
+        out.lastAffected = lastAffected
+    }
+    return out
+}
+
+function fullSemver(raw: string, comparator: VersionComparator): string | null {
+    const normalized = comparator.normalize(raw)
+    if (normalized === null || valid(normalized) !== normalized) return null
+    return normalized
 }
 
 function buildFinding(
@@ -144,7 +205,8 @@ function buildFinding(
     advisory: CanonicalAdvisory,
     severity: Severity,
     fixVersion: string | null,
-    vulnerableRange: string
+    vulnerableRange: string,
+    affected: AffectedSet
 ): RawFinding {
     return {
         advisoryId: advisory.id,
@@ -158,6 +220,14 @@ function buildFinding(
         severity,
         fixAvailable: fixVersion !== null,
         fixVersion,
+        fixInputs: {
+            source: advisory.source,
+            installed: [pkg.version],
+            affected,
+            patched: null,
+            statedFix: fixVersion,
+            fixViaParent: false
+        },
         depPath: pkg.depPaths,
         isProd: pkg.scope.isProd,
         isDev: pkg.scope.isDev,
@@ -178,14 +248,6 @@ function rangesToDisplay(
     // parts is never empty: the only caller sits behind the hasVersionData guard, and the no-version
     // path builds its '*' itself rather than routing through here.
     return parts.join(' || ')
-}
-
-// pickSafeFixVersion derives a fix from the vulnerable range's upper bound, so feed it the ranges as a
-// semver string (exact-version-only advisories have no range and thus no derivable fix target). Same
-// formatter as the display path: when this rendered its own string it dropped `lastAffected`, so every
-// such advisory looked vulnerable-forever and no fix version was ever suggested for it.
-function vulnerableRangeForFix(ranges: CanonicalAdvisory['affected']['ranges']): string {
-    return formatRanges(ranges, SEMVER_FORMAT)
 }
 
 // OSV/GHSA severity buckets are upper-case (CRITICAL/HIGH/MODERATE/LOW). Map to our lower-case union;

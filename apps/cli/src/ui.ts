@@ -1,11 +1,11 @@
 import { createInterface } from 'node:readline/promises'
-import { isSourceUnavailableReason, type Severity } from '@sentinello/core'
+import { describeScanReasons, isSourceUnavailableReason, type ScanState, type Severity } from '@sentinello/core'
 import type { RetryNotice } from '@sentinello/feeds'
 import type { DiscoveredProject, DiscoverySkip } from '@sentinello/scanners'
 import type { SyncOutcome, SyncPlan, SyncPlanItem } from './cache/sync'
 import type { CliOptions } from './options'
 import type { ProjectScanResult } from './scan'
-import type { RunSummary } from './report'
+import { projectLabel, type RunSummary } from './report'
 
 // The terminal layer. Hand-rolled ANSI, no dependencies — the published package declares none, and a
 // colour library would be the only thing standing in the way of that.
@@ -82,7 +82,8 @@ export type Ui = {
     confirmRetry(failed: readonly SyncOutcome[]): Promise<boolean>
     sourcesSwitchedOff(sources: readonly string[]): void
     seedDeclined(gated: boolean): void
-    offlineNotice(): void
+    // npmAuditSkipped: npm audit was asked for, and --offline left it out.
+    offlineNotice(npmAuditSkipped: boolean): void
     syncStatus(item: SyncPlanItem, phase: 'start' | 'done'): void
     syncProgress(item: SyncPlanItem, bytesRead: number, totalBytes: number | null): void
     syncRetry(item: SyncPlanItem, notice: RetryNotice): void
@@ -90,6 +91,7 @@ export type Ui = {
     scanStart(count: number): void
     scanProject(project: DiscoveredProject): void
     scanProjectDone(result: ProjectScanResult): void
+    registryCacheNotSaved(why: string): void
     summary(summary: RunSummary, destination: string | null): void
     error(message: string): void
 }
@@ -226,8 +228,9 @@ export function createUi(options: CliOptions): Ui {
         write('')
     }
 
-    function offlineNotice(): void {
+    function offlineNotice(npmAuditSkipped: boolean): void {
         write('  ' + c.dim + 'offline — using the cached advisory data as-is' + c.reset)
+        if (npmAuditSkipped) write('    ' + c.dim + '· npm audit not run — it queries the npm registry' + c.reset)
     }
 
     function syncStatus(item: SyncPlanItem, phase: 'start' | 'done'): void {
@@ -313,20 +316,36 @@ export function createUi(options: CliOptions): Ui {
         progressActive = true
     }
 
+    // "cannot be scanned — No lockfile (the project)": the state and every reason, labelled, with whose fix
+    // it is. Null for a fully scanned project.
+    function scanStateText(state: ScanState): string | null {
+        if (state.state === 'cannot_scan') return 'cannot be scanned — ' + describeScanReasons(state.reasons)
+        if (state.state === 'partial') return 'cannot be fully scanned — ' + describeScanReasons(state.reasons)
+        if (state.state === 'not_scanned_yet') return 'not scanned — no source ran'
+        return null
+    }
+
     function scanProjectDone(result: ProjectScanResult): void {
         clearProgress()
         const total = result.findings.length
-        const label = result.project.relPath === '.' ? result.project.name : result.project.relPath
-        const mark = total === 0 ? c.green + '✓' + c.reset : c.yellow + '•' + c.reset
-        let line = '    ' + mark + ' ' + label
+        const state = result.scanState.state
+        let mark = total === 0 ? c.green + '✓' + c.reset : c.yellow + '•' + c.reset
+        if (state === 'cannot_scan') mark = c.red + '✗' + c.reset
+        else if (state !== 'scanned') mark = c.yellow + '!' + c.reset
+        let line = '    ' + mark + ' ' + projectLabel(result.project)
         if (total > 0) line += c.dim + '  ' + total + ' finding' + (total === 1 ? '' : 's') + c.reset
-        const blocked = result.outcomes.filter(function notOk(o): boolean {
-            return o.status !== 'ok'
-        })
-        if (blocked.length > 0) {
-            line += c.dim + '  (' + blocked.map(function name(o) { return o.scanner + ': ' + o.reasonCode }).join(', ') + ')' + c.reset
-        }
+        const stateText = scanStateText(result.scanState)
+        if (stateText !== null) line += '  ' + (state === 'cannot_scan' ? c.red : c.yellow) + stateText + c.reset
         write(line)
+        // The fixes stand; only the guidance for the findings with no released fix is missing.
+        if (result.wayOutError !== null) {
+            write('      ' + c.yellow + '!' + c.reset + c.dim + ' way out not computed: ' + result.wayOutError + c.reset)
+        }
+    }
+
+    function registryCacheNotSaved(why: string): void {
+        clearProgress()
+        write('  ' + c.dim + 'npm registry cache not saved (' + why + '); the next run fetches again' + c.reset)
     }
 
     // Sources that never answered, deduplicated across projects. report.ts's ProjectSummary comment says
@@ -346,14 +365,48 @@ export function createUi(options: CliOptions): Ui {
         })
     }
 
+    // What the registry said about the fixes, so "3 findings" never hides that none of them has a fix.
+    function fixCounts(runSummary: RunSummary): string {
+        let released = 0
+        let none = 0
+        let unverified = 0
+        for (const finding of runSummary.findings) {
+            if (finding.fixStatus === 'released') released++
+            else if (finding.fixStatus === 'none_released') none++
+            else unverified++
+        }
+        const parts: string[] = []
+        if (released > 0) parts.push(released + ' with a released fix')
+        if (none > 0) parts.push(none + ' with no released fix')
+        if (unverified > 0) parts.push(unverified + ' not checked against the registry')
+        return parts.join(' · ')
+    }
+
+    // The projects that could not be (fully) scanned, each with why. Zero findings from them is unknown, so
+    // they are named rather than folded into a "clean" count.
+    function unscannedLines(runSummary: RunSummary): string[] {
+        const lines: string[] = []
+        for (const project of runSummary.projects) {
+            const text = scanStateText(project.scanState)
+            if (text === null) continue
+            const color = project.scanState.state === 'cannot_scan' ? c.red : c.yellow
+            lines.push('    ' + color + (project.scanState.state === 'cannot_scan' ? '✗' : '!') + c.reset + ' ' + projectLabel(project) + '  ' + color + text + c.reset)
+        }
+        return lines
+    }
+
     function summary(runSummary: RunSummary, destination: string | null): void {
         write('')
         const lost = lostSourceLines(runSummary)
-        if (runSummary.totalFindings === 0 && lost.length > 0) {
-            // Deliberately not "clean". Nothing was found because nothing was consulted.
+        const unscanned = unscannedLines(runSummary)
+        const clean = runSummary.projects.filter(function fullyScanned(p): boolean {
+            return p.scanState.state === 'scanned' && p.findingCount === 0
+        }).length
+        if (runSummary.totalFindings === 0 && (lost.length > 0 || unscanned.length > 0)) {
+            // Deliberately not "clean". Nothing was found because nothing (or not everything) was consulted.
             write('  ' + c.yellow + c.bold + 'No findings — but not everything could be checked.' + c.reset)
         } else if (runSummary.totalFindings === 0) {
-            write('  ' + c.green + c.bold + 'No findings.' + c.reset + c.dim + '  ' + runSummary.projects.length + ' project' + (runSummary.projects.length === 1 ? '' : 's') + ' clean.' + c.reset)
+            write('  ' + c.green + c.bold + 'No findings.' + c.reset + c.dim + '  ' + clean + ' project' + (clean === 1 ? '' : 's') + ' clean.' + c.reset)
         } else {
             const parts: string[] = []
             for (const severity of SEVERITY_ORDER) {
@@ -362,6 +415,7 @@ export function createUi(options: CliOptions): Ui {
                 parts.push(severityColor(severity) + c.bold + count + c.reset + ' ' + severityColor(severity) + severity + c.reset)
             }
             write('  ' + c.bold + runSummary.totalFindings + ' finding' + (runSummary.totalFindings === 1 ? '' : 's') + c.reset + '   ' + parts.join('   '))
+            write('  ' + c.dim + fixCounts(runSummary) + c.reset)
             write('')
             // Every project with findings is listed explicitly: a total alone hides which repository in a
             // folder of twenty actually needs the work.
@@ -377,6 +431,16 @@ export function createUi(options: CliOptions): Ui {
                     .join(c.dim + ', ' + c.reset)
                 write('    ' + project.relPath.padEnd(38).slice(0, 38) + '  ' + breakdown)
             }
+        }
+        if (unscanned.length > 0) {
+            const cannot = runSummary.projects.filter(function cannotScan(p): boolean { return p.scanState.state === 'cannot_scan' }).length
+            const partial = runSummary.projects.filter(function partialScan(p): boolean { return p.scanState.state === 'partial' }).length
+            const counts: string[] = []
+            if (cannot > 0) counts.push(cannot + ' project' + (cannot === 1 ? '' : 's') + ' cannot be scanned')
+            if (partial > 0) counts.push(partial + ' project' + (partial === 1 ? '' : 's') + ' cannot be fully scanned')
+            write('')
+            if (counts.length > 0) write('  ' + c.yellow + c.bold + counts.join(' · ') + c.reset)
+            for (const line of unscanned) write(line)
         }
         if (lost.length > 0) {
             write('')
@@ -421,6 +485,7 @@ export function createUi(options: CliOptions): Ui {
         scanStart,
         scanProject,
         scanProjectDone,
+        registryCacheNotSaved,
         summary,
         error
     }

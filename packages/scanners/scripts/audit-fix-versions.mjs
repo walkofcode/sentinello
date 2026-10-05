@@ -1,269 +1,146 @@
-// One-off audit: read every row in `findings` (dumped to JSON), check whether
-// the stored fix_version makes sense given installed_version and vulnerable_range,
-// and what the new picker would suggest. Read-only.
+// The fleet-wide re-check: does any active npm finding name a fix version npm never published? Reads a
+// Sentinello database read-only, checks every distinct (package, fix_version) against the registry's
+// version list, and reports the rows that name an unpublished one, by fix status:
 //
-// Usage:
-//   sqlite3 ./data/sentinello.sqlite -json "SELECT id, package_name, installed_version, vulnerable_range, fix_version, fix_available, advisory_id FROM findings" > /tmp/sentinello-findings.json
-//   cd packages/scanners && node ../../scripts/audit-fix-versions.mjs
+//   released      — presented as "upgrade to X". The gate: there must be none (--assert-zero).
+//   unverified    — the advisory's stated fix, labelled "not checked against the registry" everywhere.
+//   none_released — never carries a version; counted for completeness.
+//   legacy        — rows written before 3.7.0 (no fix status). The read model withholds their version
+//                   ("rescan pending") until a scan settles them; their count is the before-and-after
+//                   comparison with the 2026-10-03 baseline (35 tuples / 296 rows).
+//
+// Usage (Node 24, which ships node:sqlite):
+//   node packages/scanners/scripts/audit-fix-versions.mjs --db <sentinello.sqlite> [--assert-zero] [--show <package>]...
+//
+//   --db           the database to read (opened read-only; never written)
+//   --assert-zero  exit 1 when any released row names an unpublished version, or when one could not be checked
+//   --show         also list every distinct (status, fix, range) of that package, e.g. --show qs
+//
+// The registry is SENTINELLO_NPM_REGISTRY_URL (default https://registry.npmjs.org), as for the worker.
 
-import { readFileSync } from 'node:fs'
-import { Range, satisfies, gte, gt, valid, coerce } from 'semver'
+/* global AbortSignal -- a Node 24 global; this package's lint config declares only the ones its library code uses */
+import { DatabaseSync } from 'node:sqlite'
+import { parseArgs } from 'node:util'
 
-const JSON_PATH = '/tmp/sentinello-findings.json'
-const VERSION_LITERAL_RE = /\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/g
+const STATUSES = ['released', 'unverified', 'none_released', 'legacy']
+const CONCURRENCY = 8
+const TIMEOUT_MS = 30_000
 
-function parseRangeSafely(input) {
-    if (!input) return null
-    const trimmed = String(input).trim()
-    if (!trimmed) return null
-    if (trimmed === '<0.0.0') return null
+const { values } = parseArgs({
+    options: {
+        db: { type: 'string' },
+        'assert-zero': { type: 'boolean', default: false },
+        show: { type: 'string', multiple: true, default: [] }
+    }
+})
+if (!values.db) {
+    console.error('usage: audit-fix-versions.mjs --db <sentinello.sqlite> [--assert-zero] [--show <package>]...')
+    process.exit(2)
+}
+const registry = (process.env.SENTINELLO_NPM_REGISTRY_URL || 'https://registry.npmjs.org').replace(/\/+$/, '')
+
+const db = new DatabaseSync(values.db, { readOnly: true })
+// A database still on a release before 3.7.0 has no fix_status column: every row in it is legacy.
+const hasStatus = db.prepare("SELECT 1 FROM pragma_table_info('findings') WHERE name = 'fix_status'").get() !== undefined
+const statusColumn = hasStatus ? "coalesce(fix_status, 'legacy')" : "'legacy'"
+const rows = db.prepare(
+    `SELECT ${statusColumn} AS status, scanner, package_name AS name, fix_version AS fix, vulnerable_range AS range, count(*) AS n
+     FROM findings
+     WHERE resolved_at IS NULL AND ecosystem = 'npm' AND fix_version IS NOT NULL
+     GROUP BY 1, 2, 3, 4, 5`
+).all()
+db.close()
+
+// One abbreviated packument per package: its version list is all this needs.
+async function publishedVersions(name) {
+    const url = registry + '/' + (name.startsWith('@') ? '@' + encodeURIComponent(name.slice(1)) : encodeURIComponent(name))
     try {
-        return new Range(trimmed, { includePrerelease: false })
-    } catch {
-        return null
-    }
-}
-
-function extractLiteralCandidates(input) {
-    if (!input) return []
-    const matches = String(input).match(VERSION_LITERAL_RE)
-    if (!matches) return []
-    const out = []
-    for (const m of matches) {
-        if (valid(m)) out.push(m)
-    }
-    return out
-}
-
-function bumpPatch(v) {
-    const sv = coerce(v)
-    if (!sv) return null
-    return sv.major + '.' + sv.minor + '.' + (sv.patch + 1)
-}
-
-function extractRangeLowerBounds(range) {
-    const out = []
-    for (const conjuncts of range.set) {
-        let candidate = null
-        for (const c of conjuncts) {
-            if (!c.semver || !c.semver.version) continue
-            const v = c.semver.version
-            if (!valid(v)) continue
-            const op = c.operator
-            if (op === '>=' || op === '=' || op === '') {
-                if (!candidate || gt(v, candidate)) candidate = v
-            } else if (op === '>') {
-                const inc = bumpPatch(v)
-                if (inc && (!candidate || gt(inc, candidate))) candidate = inc
-            }
+        const response = await fetch(url, { headers: { accept: 'application/vnd.npm.install-v1+json' }, signal: AbortSignal.timeout(TIMEOUT_MS) })
+        if (response.status === 404) {
+            await response.body?.cancel()
+            return { status: 'not_found' }
         }
-        if (candidate) out.push(candidate)
-    }
-    return out
-}
-
-function extractRangeUpperBoundsBeyond(range) {
-    const out = []
-    for (const conjuncts of range.set) {
-        for (const c of conjuncts) {
-            if (!c.semver || !c.semver.version) continue
-            const v = c.semver.version
-            if (!valid(v)) continue
-            const op = c.operator
-            if (op === '<') {
-                out.push(v)
-            } else if (op === '<=') {
-                const inc = bumpPatch(v)
-                if (inc) out.push(inc)
-            }
+        if (!response.ok) {
+            await response.body?.cancel()
+            return { status: 'error', reason: 'HTTP ' + response.status }
         }
-    }
-    return out
-}
-
-function pickHighestInstalled(installed) {
-    if (!installed) return null
-    const parts = String(installed).split(/[\s,]+/)
-    let highest = null
-    for (const raw of parts) {
-        const part = raw.trim()
-        if (!part) continue
-        if (!valid(part)) continue
-        if (!highest || gt(part, highest)) highest = part
-    }
-    return highest
-}
-
-function pickSafeFixVersion(args) {
-    const patchedRange = parseRangeSafely(args.patched)
-    const vulnRange = parseRangeSafely(args.vulnerable)
-    const installedFloor = pickHighestInstalled(args.installed)
-    const candidates = new Set()
-    if (patchedRange) {
-        for (const v of extractRangeLowerBounds(patchedRange)) candidates.add(v)
-    } else {
-        for (const v of extractLiteralCandidates(args.patched)) candidates.add(v)
-    }
-    for (const v of extractLiteralCandidates(args.recommendation)) candidates.add(v)
-    if (vulnRange) {
-        for (const v of extractRangeUpperBoundsBeyond(vulnRange)) candidates.add(v)
-    }
-    for (const v of extractLiteralCandidates(args.vulnerable)) candidates.add(v)
-    if (candidates.size === 0) return null
-    let best = null
-    for (const v of candidates) {
-        if (patchedRange && !satisfies(v, patchedRange)) continue
-        if (vulnRange && satisfies(v, vulnRange)) continue
-        if (installedFloor && !gte(v, installedFloor)) continue
-        if (!best || gt(best, v)) best = v
-    }
-    return best
-}
-
-const rows = JSON.parse(readFileSync(JSON_PATH, 'utf-8'))
-
-const buckets = {
-    OK: 0,
-    WRONG_STILL_VULNERABLE: 0,
-    WRONG_DOWNGRADE: 0,
-    MISSING_BUT_COMPUTABLE: 0,
-    MISSING_NO_CANDIDATE: 0,
-    UNPARSEABLE_VULN_RANGE_NO_FIX: 0,
-    INSTALLED_NOT_VULNERABLE_AND_FIX_OK: 0,
-    INSTALLED_IS_RANGE: 0,
-    FIX_NOT_VALID_SEMVER: 0
-}
-
-const rescanOutcome = {
-    UNCHANGED: 0,
-    REPLACED_BOGUS_WITH_NULL: 0,
-    REPLACED_BOGUS_WITH_BETTER: 0,
-    ADDED_NEW_FIX: 0,
-    CHANGED_VALUE: 0,
-    STILL_NO_FIX: 0,
-    STORED_FIX_BUT_RECOMPUTE_NULL: 0
-}
-
-const samples = {
-    WRONG_STILL_VULNERABLE: [],
-    WRONG_DOWNGRADE: [],
-    MISSING_BUT_COMPUTABLE: [],
-    UNPARSEABLE_VULN_RANGE_NO_FIX: [],
-    INSTALLED_IS_RANGE: [],
-    FIX_NOT_VALID_SEMVER: []
-}
-
-const SAMPLE_LIMIT = 10
-
-function pushSample(bucket, row, extra) {
-    if (samples[bucket] && samples[bucket].length < SAMPLE_LIMIT) {
-        samples[bucket].push({ ...row, ...extra })
+        const body = await response.json()
+        return { status: 'ok', versions: new Set(Object.keys(body.versions ?? {})) }
+    } catch (err) {
+        return { status: 'error', reason: err instanceof Error ? err.message : String(err) }
     }
 }
 
+const names = [...new Set(rows.map(function name(r) { return r.name }))].sort()
+const answers = new Map()
+let next = 0
+await Promise.all(Array.from({ length: Math.min(CONCURRENCY, names.length) }, async function worker() {
+    for (let i = next++; i < names.length; i = next++) answers.set(names[i], await publishedVersions(names[i]))
+}))
+
+// A row's fix is published, unpublished, or could not be checked (the registry did not answer).
+function verdictOf(row) {
+    const answer = answers.get(row.name)
+    if (answer.status === 'error') return 'unchecked'
+    if (answer.status === 'not_found') return 'unpublished'
+    return answer.versions.has(row.fix) ? 'published' : 'unpublished'
+}
+
+function tally() {
+    return { tuples: 0, rows: 0 }
+}
+const byStatus = Object.fromEntries(STATUSES.map(function entry(s) { return [s, { all: tally(), unpublished: tally(), unchecked: tally() }] }))
+const unpublishedSamples = []
+const uncheckedReasons = new Map()
 for (const row of rows) {
-    const installed = row.installed_version || ''
-    const vuln = row.vulnerable_range || ''
-    const fix = row.fix_version
-    const vulnRange = parseRangeSafely(vuln)
-    const installedFloor = pickHighestInstalled(installed)
-    const installedLooksLikeRange = installed && !installedFloor
-
-    // Diagnose the STORED row
-    let storedVerdict = 'OK'
-    if (installedLooksLikeRange) {
-        buckets.INSTALLED_IS_RANGE++
-        pushSample('INSTALLED_IS_RANGE', row, {})
-        if (fix && valid(fix) && vulnRange && satisfies(fix, vulnRange)) {
-            buckets.WRONG_STILL_VULNERABLE++
-            pushSample('WRONG_STILL_VULNERABLE', row, { note: 'installed is range' })
-            storedVerdict = 'WRONG'
-        }
-    } else if (fix) {
-        if (!valid(fix)) {
-            buckets.FIX_NOT_VALID_SEMVER++
-            pushSample('FIX_NOT_VALID_SEMVER', row, {})
-            storedVerdict = 'WRONG'
-        } else {
-            const stillVuln = vulnRange && satisfies(fix, vulnRange)
-            const downgrade = installedFloor && !gte(fix, installedFloor)
-            if (stillVuln) {
-                buckets.WRONG_STILL_VULNERABLE++
-                pushSample('WRONG_STILL_VULNERABLE', row, {})
-                storedVerdict = 'WRONG'
-            } else if (downgrade) {
-                buckets.WRONG_DOWNGRADE++
-                pushSample('WRONG_DOWNGRADE', row, {})
-                storedVerdict = 'WRONG'
-            } else {
-                buckets.OK++
-            }
-        }
-    } else {
-        const wouldCompute = pickSafeFixVersion({ patched: null, recommendation: null, vulnerable: vuln, installed: installed || null })
-        if (wouldCompute) {
-            buckets.MISSING_BUT_COMPUTABLE++
-            pushSample('MISSING_BUT_COMPUTABLE', row, { computed: wouldCompute })
-        } else if (!vulnRange) {
-            buckets.UNPARSEABLE_VULN_RANGE_NO_FIX++
-            pushSample('UNPARSEABLE_VULN_RANGE_NO_FIX', row, {})
-        } else {
-            buckets.MISSING_NO_CANDIDATE++
-        }
-    }
-
-    // What would the NEW picker produce on re-scan? (using only vuln+installed
-    // since we don't have the original patched/recommendation strings)
-    const recomputed = pickSafeFixVersion({ patched: null, recommendation: null, vulnerable: vuln, installed: installed || null })
-    if (fix && recomputed === fix) {
-        rescanOutcome.UNCHANGED++
-    } else if (fix && recomputed === null && storedVerdict === 'WRONG') {
-        rescanOutcome.REPLACED_BOGUS_WITH_NULL++
-    } else if (fix && recomputed === null && storedVerdict === 'OK') {
-        rescanOutcome.STORED_FIX_BUT_RECOMPUTE_NULL++
-    } else if (fix && recomputed !== null && storedVerdict === 'WRONG') {
-        rescanOutcome.REPLACED_BOGUS_WITH_BETTER++
-    } else if (fix && recomputed !== null && recomputed !== fix) {
-        rescanOutcome.CHANGED_VALUE++
-    } else if (!fix && recomputed !== null) {
-        rescanOutcome.ADDED_NEW_FIX++
-    } else if (!fix && recomputed === null) {
-        rescanOutcome.STILL_NO_FIX++
-    }
+    const verdict = verdictOf(row)
+    const bucket = byStatus[row.status] ?? (byStatus[row.status] = { all: tally(), unpublished: tally(), unchecked: tally() })
+    bucket.all.tuples++
+    bucket.all.rows += row.n
+    if (verdict === 'published') continue
+    bucket[verdict].tuples++
+    bucket[verdict].rows += row.n
+    if (verdict === 'unpublished') unpublishedSamples.push(row)
+    else uncheckedReasons.set(row.name, answers.get(row.name).reason)
 }
 
-console.log('Total rows scanned:', rows.length)
+const total = rows.reduce(function sum(acc, r) { return { tuples: acc.tuples + 1, rows: acc.rows + r.n } }, tally())
+const unpublishedAll = Object.values(byStatus).reduce(function sum(acc, b) { return { tuples: acc.tuples + b.unpublished.tuples, rows: acc.rows + b.unpublished.rows } }, tally())
+
+console.log('database: ' + values.db + ' (read-only' + (hasStatus ? '' : '; schema before 3.7.0 — every row is legacy') + ')')
+console.log('registry: ' + registry + ' · ' + names.length + ' packages checked on ' + new Date().toISOString())
+console.log('active npm findings naming a fix version: ' + total.tuples + ' (scanner, package, fix, range) tuples, ' + total.rows + ' rows')
 console.log('')
-console.log('=== STORED-ROW DIAGNOSIS (what is in the DB right now) ===')
-console.log('')
-console.log('Bucket counts:')
-const ordering = ['OK', 'WRONG_STILL_VULNERABLE', 'WRONG_DOWNGRADE', 'MISSING_BUT_COMPUTABLE', 'MISSING_NO_CANDIDATE', 'UNPARSEABLE_VULN_RANGE_NO_FIX', 'INSTALLED_IS_RANGE', 'FIX_NOT_VALID_SEMVER']
-for (const name of ordering) {
-    const count = buckets[name]
-    const pct = rows.length === 0 ? '0.0' : ((count / rows.length) * 100).toFixed(1)
-    console.log('  ' + name.padEnd(36) + String(count).padStart(7) + '  (' + pct + '%)')
+console.log('status          tuples    rows   unpublished tuples/rows   unchecked tuples/rows')
+for (const [status, b] of Object.entries(byStatus)) {
+    console.log(
+        status.padEnd(14) + String(b.all.tuples).padStart(8) + String(b.all.rows).padStart(8) +
+        (String(b.unpublished.tuples) + '/' + b.unpublished.rows).padStart(26) + (String(b.unchecked.tuples) + '/' + b.unchecked.rows).padStart(24)
+    )
 }
 console.log('')
-
-for (const bucket of Object.keys(samples)) {
-    const items = samples[bucket]
-    if (items.length === 0) continue
-    console.log('--- Samples: ' + bucket + ' (up to ' + SAMPLE_LIMIT + ') ---')
-    for (const s of items) {
-        const computed = s.computed ? ' -> computed=' + s.computed : ''
-        const note = s.note ? ' [' + s.note + ']' : ''
-        console.log('  ' + s.package_name + '  installed=' + s.installed_version + '  vuln=' + s.vulnerable_range + '  fix=' + (s.fix_version || 'null') + computed + note)
-    }
+console.log('all stored fix versions not on the registry: ' + unpublishedAll.tuples + ' tuples / ' + unpublishedAll.rows + ' rows (2026-10-03 baseline: 35 tuples / 296 rows)')
+if (unpublishedSamples.length > 0) {
     console.log('')
+    console.log('unpublished, by status:')
+    for (const r of unpublishedSamples.sort(function order(a, b) { return a.status.localeCompare(b.status) || b.n - a.n })) {
+        console.log('  ' + r.status.padEnd(14) + r.scanner.padEnd(11) + r.name + ' ' + r.fix + '  (range ' + r.range + ', ' + r.n + ' rows)')
+    }
+}
+if (uncheckedReasons.size > 0) {
+    console.log('')
+    console.log('not checked (the registry did not answer):')
+    for (const [name, reason] of uncheckedReasons) console.log('  ' + name + ': ' + reason)
+}
+for (const name of values.show) {
+    console.log('')
+    console.log(name + ':')
+    const mine = rows.filter(function of(r) { return r.name === name })
+    if (mine.length === 0) console.log('  no active row names a fix version')
+    for (const r of mine) console.log('  ' + r.status.padEnd(14) + r.scanner.padEnd(11) + r.fix + '  (range ' + r.range + ', ' + r.n + ' rows, ' + verdictOf(r) + ')')
 }
 
-console.log('=== RE-SCAN SIMULATION (what new picker produces using only vuln+installed) ===')
-console.log('Caveat: the live scanner has the original patched_versions/recommendation strings;')
-console.log('this simulation only sees what the DB stored. Real re-scan will be at least this good.')
+const released = byStatus.released
 console.log('')
-const rescanOrdering = ['UNCHANGED', 'REPLACED_BOGUS_WITH_NULL', 'REPLACED_BOGUS_WITH_BETTER', 'ADDED_NEW_FIX', 'CHANGED_VALUE', 'STILL_NO_FIX', 'STORED_FIX_BUT_RECOMPUTE_NULL']
-for (const name of rescanOrdering) {
-    const count = rescanOutcome[name]
-    const pct = rows.length === 0 ? '0.0' : ((count / rows.length) * 100).toFixed(1)
-    console.log('  ' + name.padEnd(36) + String(count).padStart(7) + '  (' + pct + '%)')
-}
+console.log('unpublished fix versions: ' + released.unpublished.rows + (released.unchecked.rows > 0 ? ' (' + released.unchecked.rows + ' released rows could not be checked)' : ''))
+if (values['assert-zero'] && (released.unpublished.rows > 0 || released.unchecked.rows > 0)) process.exit(1)

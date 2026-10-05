@@ -156,7 +156,12 @@
         "nodeAmbient": "ambiente",
         "badgeMuted": "silenciado",
         "badgeMissing": "ausente",
-        "colLanguage": "Linguagem"
+        "colLanguage": "Linguagem",
+        "stateCannotScan": "Não pode ser escaneado",
+        "statePartial": "Não pode ser escaneado por completo",
+        "stateNotScannedYet": "Ainda não escaneado",
+        "stateSideProject": "o projeto",
+        "stateSideEnvironment": "esta instalação do Sentinello"
     },
     "WhatsNew": {
         "pillLabel": "Novidades",
@@ -458,7 +463,41 @@
         "depTypeAll": "Todas as deps",
         "showMuted": "Mostrar silenciados ({count})",
         "fixAvailableSeeAdvisory": "correção disponível — consulte o alerta",
-        "noPatchPublished": "nenhum patch publicado",
+        "noFixReleased": "Nenhuma versão corrigida publicada",
+        "fixUnverified": "correção não verificada no registro",
+        "fixStatedUnverified": "{version} indicada pelo alerta · não verificada no registro",
+        "fixRecheckPending": "correção ainda não verificada novamente — aguardando nova varredura",
+        "wayOut": {
+            "title": "Saída",
+            "lastPublish": "última publicação {date}",
+            "lastPublishUnknown": "última publicação desconhecida",
+            "maintainers": "{count, plural, one {# mantenedor} other {# mantenedores}}",
+            "downloads": "{count, number} downloads semanais",
+            "downloadsUnknown": "downloads semanais desconhecidos",
+            "deprecated": "descontinuado (“{message}”) → substitua-o",
+            "unmaintained": "sem manutenção (nenhuma publicação há 6+ meses) → substitua-o",
+            "maintained": "mantido",
+            "devToolingOnly": "apenas ferramentas de desenvolvimento",
+            "inWorkspace": "em {workspace}",
+            "verdictUpgrade": "Atualize {package} para ≥ {version} — seu fechamento de dependências resolvido ({size, plural, one {# pacote} other {# pacotes}}) não alcança mais {target}",
+            "verdictBlocked": "{escape} ≥ {version} remove {target}, mas nenhuma versão publicada de {blockedBy} o admite (a mais recente, {latest}, exige {range})",
+            "verdictNoEscape": "Nenhuma versão publicada de {packages} remove {target}",
+            "verdictUnknown": "Desconhecido — dados do registro insuficientes em {at}",
+            "verdictDirect": "{target} é uma dependência direta — a única saída é substituí-lo",
+            "morePaths": "e mais {count, plural, one {# caminho} other {# caminhos}}",
+            "morePathsAtLeast": "e pelo menos mais {count, plural, one {# caminho} other {# caminhos}}",
+            "devOnlyAll": "Todos os caminhos chegam apenas a ferramentas de desenvolvimento — corrija mesmo assim, depois das ocorrências de produção.",
+            "devOnlyNo": "Pelo menos um caminho de produção alcança este pacote.",
+            "devOnlyUnknown": "Não foi possível determinar se apenas ferramentas de desenvolvimento o alcançam.",
+            "alternativesFor": "Alternativas a {name}",
+            "noCurated": "Nenhuma alternativa curada conhecida para {name}",
+            "verified": "fechamento de dependências verificado ({size, plural, one {# pacote} other {# pacotes}})",
+            "notVerified": "não verificado — não foi possível verificar seu fechamento de dependências",
+            "builtIn": "nativo: {id}",
+            "snippet": "código inline",
+            "removal": "remova-o",
+            "asOfLastScan": "Conforme o último escaneamento bem-sucedido:"
+        },
         "vulnPrefix": "vuln:",
         "groupingAriaLabel": "Agrupamento de ocorrências",
         "libraryGroupingAriaLabel": "Agrupamento de ocorrências de biblioteca",
@@ -480,7 +519,11 @@
         "grades": {
             "label": "Como cada fonte classifica",
             "explain": "O Sentinello reporta a pior classificação dada por qualquer fonte, para nunca subestimar uma vulnerabilidade."
-        }
+        },
+        "notRecheckedCannotScan": "não verificado novamente — o projeto não pode ser escaneado: {reason}",
+        "notRecheckedPartial": "não verificado novamente — o projeto não pode ser escaneado por completo: {reason}",
+        "lastScannedSuccessfully": "último escaneamento bem-sucedido em {date}",
+        "neverScannedSuccessfully": "nunca escaneado com sucesso"
     },
     "Triage": {
         "alias": {
@@ -583,6 +626,16 @@
                 "when": "Durante cada varredura",
                 "disable": "Função essencial — não pode ser desativada"
             },
+            "npmRegistry": {
+                "purpose": "Verificar se uma versão com a correção foi realmente publicada e, quando não há nenhuma, ler os metadados do pacote usados para montar a saída (versões, dependências, avisos de descontinuação, mantenedores). Pacotes com vulnerabilidades e suas cadeias de dependências e, quando nenhuma correção foi publicada, as versões candidatas e as alternativas que a saída avalia, com suas árvores de dependências",
+                "when": "Após cada varredura, para pacotes sem resposta bem-sucedida nas últimas 24 horas; uma requisição que falhou não é guardada, então pode ser repetida antes disso",
+                "disable": "Não pode ser desativado — SENTINELLO_NPM_REGISTRY_URL aponta para um mirror. Se estiver inacessível, os metadados de pacote obtidos antes são reutilizados, se ainda forem utilizáveis, e as vulnerabilidades atuais são avaliadas com eles, com a data em que foram obtidos; sem eles, a correção aparece como não verificada no registro"
+            },
+            "npmDownloads": {
+                "purpose": "Downloads semanais exibidos ao lado dos pacotes e alternativas de uma saída",
+                "when": "Após uma varredura que não encontra versão corrigida publicada, para pacotes não contados nas últimas 24 horas",
+                "disable": "Não pode ser desativado — SENTINELLO_NPM_DOWNLOADS_URL aponta para outro lugar. Se estiver inacessível, aparece a última contagem conhecida, ou desconhecido se não houver nenhuma"
+            },
             "osv": {
                 "purpose": "Baixar o export público de avisos OSV do ecossistema npm",
                 "when": "Diariamente por volta das 03:17, além de atualização manual — apenas quando o OSV está ativado",
@@ -628,7 +681,9 @@
             "osvFeedUrl": "URL base da exportação de avisos OSV, usada apenas quando a fonte OSV está habilitada; defina como off para desativar todo o acesso de rede ao OSV.",
             "osvDbPath": "Local do cache reconstruível de avisos OSV; por padrão, fica ao lado do banco de dados principal.",
             "gemnasiumFeedUrl": "URL do arquivo de avisos gemnasium do GitLab, usado apenas quando a fonte gemnasium está ativada; defina como off para desativar todo o acesso de rede do gemnasium.",
-            "gemnasiumDbPath": "Local do cache reconstruível de avisos gemnasium; por padrão, fica ao lado do banco de dados principal."
+            "gemnasiumDbPath": "Local do cache reconstruível de avisos gemnasium; por padrão, fica ao lado do banco de dados principal.",
+            "npmRegistryUrl": "Registro do npm usado para verificar as versões corrigidas após cada varredura e para ler os metadados dos pacotes da saída; aponte-o para um mirror se usar um. Se estiver inacessível, os metadados de pacote obtidos antes são reutilizados, se ainda forem utilizáveis, e as vulnerabilidades atuais são avaliadas com eles, com a data em que foram obtidos; sem eles, a correção aparece como não verificada no registro.",
+            "npmDownloadsUrl": "API de downloads do npm, lida para os downloads semanais exibidos em uma saída. Se estiver inacessível, aparece a última contagem conhecida, ou desconhecido se não houver nenhuma."
         },
         "builtWithTitle": "Construído com",
         "reportingTitle": "Relatar uma vulnerabilidade no Sentinello",
@@ -670,10 +725,16 @@
                 "discovered": "Detectadas",
                 "resolved": "Resolvidas"
             },
-            "coverageTitle": "Lacunas de cobertura",
-            "coverageBody": "Algumas linguagens neste projeto não puderam ser totalmente auditadas offline, então os achados podem estar incompletos para elas.",
-            "coveragePartial": "Parcial",
-            "coverageUnauditable": "Não auditável"
+            "cannotScanTitle": "O projeto não pode ser escaneado",
+            "cannotScanBody": "Nenhuma fonte conseguiu ler este projeto. As descobertas abaixo são as que um escaneamento anterior registrou e não foram verificadas novamente; zero descobertas aqui significa desconhecido, não seguro.",
+            "partialScanTitle": "O projeto não pode ser escaneado por completo",
+            "partialScanBody": "Uma parte deste projeto não pôde ser escaneada, então suas descobertas podem estar incompletas. As descobertas de uma fonte que não conseguiu escaneá-lo não foram verificadas novamente.",
+            "scanReasonSideProject": "do lado do projeto: um arquivo do projeto impede que ele seja lido, e a correção é alterá-lo ali",
+            "scanReasonSideEnvironment": "do lado desta instalação do Sentinello: a instalação não conseguiu fazer o escaneamento, e a correção cabe ao operador",
+            "scanReasonNotYetRun": "nada o verificou ainda: o próximo escaneamento fará isso",
+            "noFindingsUnknownTitle": "Nenhuma descoberta registrada",
+            "noFindingsUnknownBody": "Nada foi encontrado, mas este projeto não pôde ser escaneado por completo: isso é desconhecido, não seguro.",
+            "noFindingsNotScannedBody": "Este projeto ainda não foi escaneado."
         },
         "library": {
             "eyebrow": "Biblioteca",

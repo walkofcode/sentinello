@@ -1,7 +1,8 @@
 import { sql } from 'drizzle-orm'
-import type { DepTypeFilter } from '@sentinello/core'
+import { readFixFields, type DepTypeFilter, type FixCheck, type FixStatus, type NotRecheckedBecause, type Remediation } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { depTypeClause } from './dep-type'
+import { findingScanContexts } from './scan-state'
 import { activeSourceCellClause } from './sources'
 import { advisoryIdentitySql } from './advisory-identity'
 
@@ -37,6 +38,15 @@ export type LibraryProjectUsage = {
     advisoryTitle: string | null
     advisoryUrl: string | null
     severity: string
+    // The settled fix, read the same way as CurrentFindingRow's (readFixFields).
+    fixStatus: FixStatus
+    fixAvailable: boolean
+    fixVersion: string | null
+    fixCheck: FixCheck | null
+    // The way out, set only when fixStatus is 'none_released'.
+    remediation: Remediation | null
+    // Set when this source last failed to scan the project: the row was retained, not re-checked.
+    notRecheckedBecause: NotRecheckedBecause | null
     isProd: boolean
     isDev: boolean
     firstDetectedAt: number | null
@@ -127,6 +137,11 @@ export function listLibraryUsage(
         advisory_title: string | null
         advisory_url: string | null
         severity: string
+        fix_status: string | null
+        fix_available: number
+        fix_version: string | null
+        fix_check_json: string | null
+        remediation_json: string | null
         is_prod: number
         is_dev: number
         first_detected_at: number | null
@@ -144,6 +159,11 @@ export function listLibraryUsage(
             f.advisory_title AS advisory_title,
             f.advisory_url AS advisory_url,
             f.severity AS severity,
+            f.fix_status AS fix_status,
+            f.fix_available AS fix_available,
+            f.fix_version AS fix_version,
+            f.fix_check_json AS fix_check_json,
+            f.remediation_json AS remediation_json,
             f.is_prod AS is_prod,
             f.is_dev AS is_dev,
             f.first_detected_at AS first_detected_at,
@@ -172,6 +192,7 @@ export function listLibraryUsage(
           )
         ORDER BY p.name ASC, f.advisory_id ASC
     `)
+    const scanContext = findingScanContexts(db, Array.from(new Set(rows.map(function projectOf(row) { return row.project_id }))))
     return rows.map(function toUsage(row) {
         return {
             projectId: row.project_id,
@@ -185,6 +206,10 @@ export function listLibraryUsage(
             advisoryTitle: row.advisory_title,
             advisoryUrl: row.advisory_url,
             severity: row.severity,
+            ...readFixFields(
+                { fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json, remediationJson: row.remediation_json },
+                scanContext(row.project_id, row.source)
+            ),
             isProd: row.is_prod === 1,
             isDev: row.is_dev === 1,
             firstDetectedAt: row.first_detected_at,

@@ -1,0 +1,12 @@
+{
+    "name": "npm-no-fix",
+    "version": "1.0.0",
+    "private": true,
+    "description": "Frozen fixture: two advisories with no fixed version released (braces <=3.0.3 via nodemon, node-forge <=1.4.0).",
+    "dependencies": {
+        "node-forge": "1.4.0"
+    },
+    "devDependencies": {
+        "nodemon": "3.1.14"
+    }
+}

@@ -1,9 +1,10 @@
 import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import { ulid } from 'ulid'
-import { escalatedSeverity, parseFindingCorroborations, type Finding, type FindingCorroboration } from '@sentinello/core'
+import { escalatedSeverity, parseFindingCorroborations, parseRemediation, readFixFields, type FixCheck, type FixFields, type FixStatus, type Finding, type FindingCorroboration, type FindingScanContext, type Remediation } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { findings } from '../schema'
 import { sumCount } from './count'
+import type { FindingScanContextLookup } from './scan-state'
 
 type FindingRow = typeof findings.$inferSelect
 type FindingInsert = typeof findings.$inferInsert
@@ -24,6 +25,8 @@ export type IncomingFinding = {
     installedVersion: string
     vulnerableRange: string
     severity: Finding['severity']
+    // The fix the source STATES. Written unsettled (fix_status NULL) and settled by applyFixSettlement
+    // once every source has run; until then readers withhold it.
     fixAvailable: boolean
     fixVersion: string | null
     depPath: string[]
@@ -109,6 +112,11 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
                     severity: inc.severity,
                     fixAvailable: inc.fixAvailable,
                     fixVersion: inc.fixVersion,
+                    // Unsettled until applyFixSettlement runs for this scan: last scan's verdict was about
+                    // last scan's evidence, and must not outlive it if settlement never completes.
+                    fixStatus: null,
+                    fixCheckJson: null,
+                    remediationJson: null,
                     depPathJson: JSON.stringify(inc.depPath),
                     isProd: inc.isProd,
                     isDev: inc.isDev,
@@ -125,6 +133,9 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
                 severity: inc.severity,
                 fixAvailable: inc.fixAvailable,
                 fixVersion: inc.fixVersion,
+                fixStatus: null,
+                fixCheckJson: null,
+                remediationJson: null,
                 depPathJson: JSON.stringify(inc.depPath),
                 isProd: inc.isProd,
                 isDev: inc.isDev,
@@ -156,6 +167,9 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             corroborationsJson: '[]',
             fixAvailable: inc.fixAvailable,
             fixVersion: inc.fixVersion,
+            fixStatus: null,
+            fixCheckJson: null,
+            remediationJson: null,
             depPathJson: JSON.stringify(inc.depPath),
             isProd: inc.isProd,
             isDev: inc.isDev,
@@ -180,8 +194,8 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             vulnerableRange: inc.vulnerableRange,
             severity: inc.severity,
             corroborations: [],
-            fixAvailable: inc.fixAvailable,
-            fixVersion: inc.fixVersion,
+            // Read back exactly as a reader would see the unsettled row.
+            ...readFixFields({ fixStatus: null, fixVersion: inc.fixVersion, fixAvailable: inc.fixAvailable, fixCheckJson: null, remediationJson: null }),
             depPath: inc.depPath,
             isProd: inc.isProd,
             isDev: inc.isDev,
@@ -322,6 +336,9 @@ export function listResolvedFindingsForLibrary(
         corroborations_json: string
         fix_available: number
         fix_version: string | null
+        fix_status: string | null
+        fix_check_json: string | null
+        remediation_json: string | null
         dep_path_json: string
         is_prod: number
         is_dev: number
@@ -355,8 +372,7 @@ export function listResolvedFindingsForLibrary(
             vulnerableRange: row.vulnerable_range,
             severity: row.severity as Finding['severity'],
             corroborations: parseFindingCorroborations(row.corroborations_json),
-            fixAvailable: row.fix_available === 1,
-            fixVersion: row.fix_version,
+            ...readFixFields({ fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json, remediationJson: row.remediation_json }),
             depPath: parseDepPath(row.dep_path_json),
             isProd: row.is_prod === 1,
             isDev: row.is_dev === 1,
@@ -369,9 +385,13 @@ export function listResolvedFindingsForLibrary(
     })
 }
 
+// The notifier's read of a finding a pending event names. `scanContext` is required because the row may be
+// one a failed scan retained — a retried or backfilled delivery after the project lost its lockfile — and
+// without its source's scan context the message would present the old fix as current ("rescan pending").
 export function findFindingByIdentity(
     db: DrizzleDb,
-    identity: { projectId: string; source: string; ecosystem: string; advisoryId: string; packageName: string }
+    identity: { projectId: string; source: string; ecosystem: string; advisoryId: string; packageName: string },
+    scanContext: FindingScanContextLookup
 ): Finding | null {
     const row = db
         .select()
@@ -390,7 +410,7 @@ export function findFindingByIdentity(
         )
         .get()
     if (!row) return null
-    return rowToFinding(row)
+    return rowToFindingInContext(row, scanContext(row.projectId, row.source ?? row.scanner))
 }
 
 // In-memory dedup key for the lifecycle merge. First component is the persisted source identity, not
@@ -400,6 +420,11 @@ function identityKey(source: string, ecosystem: string, advisoryId: string, pack
 }
 
 function rowToFinding(row: FindingRow): Finding {
+    return rowToFindingInContext(row, null)
+}
+
+// `scanContext` is what the row's source last did on its project (readFixFields); null reads it as re-checked.
+function rowToFindingInContext(row: FindingRow, scanContext: FindingScanContext | null): Finding {
     return {
         id: row.id,
         scanId: row.scanId,
@@ -418,8 +443,7 @@ function rowToFinding(row: FindingRow): Finding {
         vulnerableRange: row.vulnerableRange,
         severity: row.severity,
         corroborations: parseFindingCorroborations(row.corroborationsJson),
-        fixAvailable: row.fixAvailable,
-        fixVersion: row.fixVersion,
+        ...readFixFields(row, scanContext),
         depPath: parseDepPath(row.depPathJson),
         isProd: row.isProd,
         isDev: row.isDev,
@@ -499,3 +523,51 @@ export function applyFindingCorroborations(
     return { written, severities }
 }
 
+
+// One finding's settled fix, as the worker decided it after every source ran.
+export type FixSettlementWrite = {
+    id: string
+    fixStatus: FixStatus
+    fixVersion: string | null
+    fixAvailable: boolean
+    fixCheck: FixCheck
+}
+
+// Every settlement also clears the row's way-out: one exists only for a 'none_released' finding, and is
+// written by applyRemediation right after, from this scan's evidence. Clearing in the same write is what
+// keeps a past way-out from outliving a status change (a fix published since the last scan).
+export function applyFixSettlement(db: DrizzleDb, settlements: FixSettlementWrite[]): Map<string, FixFields> {
+    const persisted = new Map<string, FixFields>()
+    if (settlements.length === 0) return persisted
+    db.transaction(function txn(tx) {
+        for (const s of settlements) {
+            const fixCheckJson = JSON.stringify(s.fixCheck)
+            tx.update(findings)
+                .set({ fixStatus: s.fixStatus, fixVersion: s.fixVersion, fixAvailable: s.fixAvailable, fixCheckJson, remediationJson: null })
+                .where(eq(findings.id, s.id))
+                .run()
+            persisted.set(s.id, readFixFields({ fixStatus: s.fixStatus, fixVersion: s.fixVersion, fixAvailable: s.fixAvailable, fixCheckJson, remediationJson: null }))
+        }
+    })
+    return persisted
+}
+
+// Writes each 'none_released' finding's way-out and returns it as a reader will see it. A row that is not
+// (or no longer) 'none_released' is left alone and absent from the result, so a caller can never attach
+// a way-out to a finding that has a fix.
+export function applyRemediation(db: DrizzleDb, writes: { id: string; remediation: Remediation }[]): Map<string, Remediation> {
+    const persisted = new Map<string, Remediation>()
+    if (writes.length === 0) return persisted
+    db.transaction(function txn(tx) {
+        for (const w of writes) {
+            const remediationJson = JSON.stringify(w.remediation)
+            const result = tx.update(findings)
+                .set({ remediationJson })
+                .where(and(eq(findings.id, w.id), eq(findings.fixStatus, 'none_released')))
+                .run()
+            const read = result.changes > 0 ? parseRemediation(remediationJson) : null
+            if (read) persisted.set(w.id, read)
+        }
+    })
+    return persisted
+}

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, index, primaryKey, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 // Sentinello SQLite schema. Two-process architecture (apps/web + apps/worker) coordinates exclusively
 // through this DB in WAL mode; this file is the literal contract between both apps.
@@ -169,6 +169,17 @@ export const findings = sqliteTable(
         corroborationsJson: text('corroborations_json').notNull().default('[]'),
         fixAvailable: integer('fix_available', { mode: 'boolean' }).notNull().default(false),
         fixVersion: text('fix_version'),
+        // The fix as settled against the registry once every source has run: 'released' |
+        // 'none_released' | 'unverified' (FixStatus). NULL on a row no settlement has written — written
+        // before 3.7.0, or by a scan that stopped between the lifecycle merge and settlement — whose
+        // fix_version is withheld on read (readFixFields) until the next scan settles it.
+        fixStatus: text('fix_status'),
+        // JSON FixCheck: the verification snapshot (when it was checked, what the registry said, how old
+        // the package data was, and what each source stated). Written with fix_status, for every status.
+        fixCheckJson: text('fix_check_json'),
+        // JSON way-out guidance for a 'none_released' finding. Written by the remediation step; NULL
+        // otherwise.
+        remediationJson: text('remediation_json'),
         depPathJson: text('dep_path_json').notNull().default('[]'),
         // Dependency-graph classification: a transitive can be reachable from both a prod and a
         // dev direct dep, so we store both flags independently. Defaults keep pre-migration rows
@@ -364,6 +375,32 @@ export const scanRequests = sqliteTable(
                 table.status,
                 table.requestedAt
             )
+        }
+    }
+)
+
+// The package registry's answer per package, cached so a scan pays for each package at most once per
+// freshness window. `status` is 'ok' or 'not_found' — a failed fetch is never cached, and a stale 'ok'
+// row is kept (and used) when a refetch fails. `summary_json` is the reduced packument (NpmPackageSummary)
+// for 'ok', NULL for 'not_found'. `checked_at` is when the registry last answered for this row.
+export const registryPackages = sqliteTable(
+    'registry_packages',
+    {
+        ecosystem: text('ecosystem').notNull(),
+        name: text('name').notNull(),
+        status: text('status', { enum: ['ok', 'not_found'] }).notNull(),
+        summaryJson: text('summary_json'),
+        weeklyDownloads: integer('weekly_downloads'),
+        downloadsCheckedAt: integer('downloads_checked_at'),
+        checkedAt: integer('checked_at').notNull(),
+        // The registry's ETag for the answer in summary_json, sent back as If-None-Match when the row has
+        // expired: a 304 confirms the cached summary without downloading the packument again. Null when the
+        // registry sent none, and for 'not_found'.
+        etag: text('etag')
+    },
+    function registryPackagesKeys(table) {
+        return {
+            pk: primaryKey({ columns: [table.ecosystem, table.name] })
         }
     }
 )

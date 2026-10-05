@@ -1,0 +1,938 @@
+{
+ "name": "minimatch",
+ "dist-tags": {
+  "latest": "10.2.6"
+ },
+ "maintainers": [
+  {
+   "name": "isaacs"
+  }
+ ],
+ "repository": {
+  "url": "git+ssh://git@github.com/isaacs/minimatch.git",
+  "type": "git"
+ },
+ "time": {
+  "created": "2011-07-16T08:52:46.242Z",
+  "modified": "2026-07-27T19:00:09.643Z",
+  "0.0.1": "2011-07-16T08:52:46.751Z",
+  "0.0.2": "2011-07-16T17:57:12.490Z",
+  "0.0.4": "2011-07-29T19:13:01.148Z",
+  "0.0.5": "2011-12-14T02:32:05.891Z",
+  "0.1.1": "2011-12-31T02:22:30.836Z",
+  "0.1.2": "2012-01-04T02:28:33.356Z",
+  "0.1.3": "2012-01-04T09:14:19.756Z",
+  "0.1.4": "2012-01-19T00:14:01.941Z",
+  "0.1.5": "2012-02-04T19:32:24.992Z",
+  "0.2.0": "2012-02-22T11:04:45.694Z",
+  "0.2.2": "2012-03-22T05:22:24.613Z",
+  "0.2.3": "2012-03-29T01:37:56.651Z",
+  "0.2.4": "2012-03-29T01:48:13.065Z",
+  "0.2.5": "2012-06-04T20:57:13.340Z",
+  "0.2.6": "2012-08-13T16:42:08.866Z",
+  "0.2.7": "2012-10-04T03:49:50.719Z",
+  "0.2.8": "2012-10-25T15:24:02.744Z",
+  "0.2.9": "2012-10-25T15:34:02.432Z",
+  "0.2.10": "2013-02-25T16:21:43.150Z",
+  "0.2.11": "2013-02-25T16:23:45.015Z",
+  "0.2.12": "2013-04-12T19:28:43.983Z",
+  "0.2.13": "2013-12-16T06:02:07.117Z",
+  "0.2.14": "2013-12-16T22:01:16.541Z",
+  "0.3.0": "2014-05-13T00:47:58.044Z",
+  "0.4.0": "2014-07-11T23:25:00.225Z",
+  "1.0.0": "2014-07-28T21:29:33.094Z",
+  "2.0.0": "2014-12-01T02:12:02.529Z",
+  "2.0.1": "2014-12-01T16:30:35.174Z",
+  "2.0.2": "2015-03-10T00:34:30.286Z",
+  "2.0.3": "2015-03-10T02:03:12.334Z",
+  "2.0.4": "2015-03-12T17:34:43.679Z",
+  "2.0.5": "2015-04-29T14:37:27.431Z",
+  "2.0.6": "2015-04-29T15:25:34.731Z",
+  "2.0.7": "2015-04-29T15:43:59.337Z",
+  "2.0.8": "2015-05-19T01:38:00.517Z",
+  "2.0.9": "2015-07-18T23:03:23.099Z",
+  "2.0.10": "2015-07-23T01:51:41.664Z",
+  "3.0.0": "2015-09-27T18:18:59.997Z",
+  "3.0.2": "2016-06-17T20:13:02.079Z",
+  "3.0.3": "2016-08-08T17:45:22.959Z",
+  "3.0.4": "2017-05-07T18:11:10.900Z",
+  "3.0.5": "2022-02-06T20:28:04.652Z",
+  "3.0.6": "2022-02-12T23:58:17.727Z",
+  "4.0.0": "2022-02-13T00:37:33.892Z",
+  "4.1.0": "2022-02-13T00:58:48.018Z",
+  "3.1.0": "2022-02-13T01:03:22.958Z",
+  "3.1.1": "2022-02-13T04:01:44.444Z",
+  "3.0.7": "2022-02-13T04:03:33.143Z",
+  "4.1.1": "2022-02-13T04:22:13.854Z",
+  "4.2.0": "2022-02-15T16:03:28.444Z",
+  "4.2.1": "2022-02-15T16:35:28.146Z",
+  "5.0.0": "2022-02-15T16:50:03.151Z",
+  "3.1.2": "2022-02-15T20:32:43.510Z",
+  "3.0.8": "2022-02-15T20:33:33.732Z",
+  "5.0.1": "2022-02-24T17:58:20.816Z",
+  "5.1.0": "2022-05-16T16:13:11.979Z",
+  "5.1.1": "2022-11-29T20:33:52.832Z",
+  "5.1.2": "2022-12-20T15:12:13.918Z",
+  "5.1.3": "2023-01-14T18:54:23.367Z",
+  "5.1.4": "2023-01-14T19:09:39.409Z",
+  "6.0.0": "2023-01-14T21:07:02.827Z",
+  "6.0.1": "2023-01-15T17:37:41.372Z",
+  "6.0.2": "2023-01-15T21:26:11.666Z",
+  "6.0.3": "2023-01-15T23:08:02.448Z",
+  "6.0.4": "2023-01-16T01:55:01.750Z",
+  "6.1.0": "2023-01-17T07:11:06.269Z",
+  "6.1.1": "2023-01-17T14:57:09.235Z",
+  "6.1.2": "2023-01-17T15:02:37.126Z",
+  "5.1.5": "2023-01-17T15:04:11.073Z",
+  "4.2.2": "2023-01-17T15:09:14.295Z",
+  "6.1.3": "2023-01-17T17:24:11.735Z",
+  "6.1.4": "2023-01-17T17:46:31.707Z",
+  "5.1.6": "2023-01-17T19:46:37.483Z",
+  "4.2.3": "2023-01-17T19:47:04.835Z",
+  "6.1.5": "2023-01-17T22:17:33.109Z",
+  "6.1.6": "2023-01-22T17:52:06.355Z",
+  "6.1.7": "2023-02-11T20:33:31.384Z",
+  "6.1.8": "2023-02-11T21:10:03.494Z",
+  "6.1.9": "2023-02-13T06:54:04.311Z",
+  "6.1.10": "2023-02-13T08:20:38.903Z",
+  "6.2.0": "2023-02-13T08:58:22.378Z",
+  "7.0.0": "2023-02-20T00:45:53.556Z",
+  "7.0.1": "2023-02-22T02:01:55.015Z",
+  "7.1.0": "2023-02-22T23:45:29.974Z",
+  "7.1.1": "2023-02-24T00:36:24.751Z",
+  "7.1.2": "2023-02-24T22:56:58.174Z",
+  "7.1.3": "2023-02-25T02:07:45.997Z",
+  "7.1.4": "2023-02-26T01:03:07.458Z",
+  "7.2.0": "2023-02-26T09:13:44.871Z",
+  "7.3.0": "2023-02-27T19:58:12.599Z",
+  "7.4.0": "2023-03-01T06:59:21.929Z",
+  "7.4.1": "2023-03-01T07:59:55.185Z",
+  "7.4.2": "2023-03-01T20:13:50.508Z",
+  "7.4.3": "2023-03-22T18:52:11.270Z",
+  "7.4.4": "2023-04-01T23:44:08.895Z",
+  "8.0.0": "2023-04-02T03:33:52.141Z",
+  "8.0.1": "2023-04-02T03:39:08.726Z",
+  "8.0.2": "2023-04-02T03:41:11.591Z",
+  "7.4.5": "2023-04-03T16:49:58.486Z",
+  "8.0.3": "2023-04-03T16:51:26.689Z",
+  "8.0.4": "2023-04-09T20:17:45.328Z",
+  "7.4.6": "2023-04-09T20:18:44.178Z",
+  "9.0.0": "2023-04-09T22:15:07.639Z",
+  "9.0.1": "2023-05-20T20:53:59.996Z",
+  "9.0.2": "2023-06-23T21:12:23.706Z",
+  "9.0.3": "2023-07-06T17:05:47.404Z",
+  "9.0.4": "2024-03-28T19:42:56.374Z",
+  "9.0.5": "2024-06-25T22:41:02.824Z",
+  "10.0.0": "2024-07-08T21:53:11.825Z",
+  "10.0.1": "2024-07-08T23:02:25.545Z",
+  "10.0.2": "2025-06-11T18:09:28.209Z",
+  "10.0.3": "2025-06-12T20:19:27.846Z",
+  "10.1.0": "2025-10-28T22:27:48.183Z",
+  "10.1.1": "2025-10-28T22:58:24.269Z",
+  "10.1.2": "2026-02-03T17:50:22.033Z",
+  "10.1.3": "2026-02-12T18:29:45.427Z",
+  "10.2.0": "2026-02-12T18:47:49.196Z",
+  "10.2.1": "2026-02-17T04:33:01.229Z",
+  "10.2.2": "2026-02-19T17:18:49.823Z",
+  "9.0.6": "2026-02-22T02:04:56.696Z",
+  "8.0.5": "2026-02-22T02:13:39.240Z",
+  "7.4.7": "2026-02-22T02:14:52.476Z",
+  "6.2.1": "2026-02-22T02:16:05.114Z",
+  "5.1.7": "2026-02-22T02:16:33.346Z",
+  "4.2.4": "2026-02-22T02:17:04.748Z",
+  "3.1.3": "2026-02-22T02:17:31.158Z",
+  "10.2.3": "2026-02-25T00:19:15.056Z",
+  "9.0.7": "2026-02-25T00:19:39.919Z",
+  "8.0.6": "2026-02-25T00:21:23.812Z",
+  "7.4.8": "2026-02-25T00:22:55.009Z",
+  "6.2.2": "2026-02-25T00:24:10.567Z",
+  "5.1.8": "2026-02-25T00:24:36.227Z",
+  "4.2.5": "2026-02-25T00:28:13.685Z",
+  "3.1.4": "2026-02-25T00:44:26.252Z",
+  "10.2.4": "2026-02-25T17:13:19.885Z",
+  "9.0.8": "2026-02-25T17:13:38.475Z",
+  "8.0.7": "2026-02-25T17:14:26.714Z",
+  "7.4.9": "2026-02-25T17:15:56.377Z",
+  "6.2.3": "2026-02-25T17:16:33.495Z",
+  "5.1.9": "2026-02-25T17:16:47.801Z",
+  "4.2.6": "2026-02-25T17:17:03.892Z",
+  "3.1.5": "2026-02-25T17:17:15.626Z",
+  "9.0.9": "2026-02-26T19:32:47.083Z",
+  "10.2.5": "2026-03-30T18:08:07.247Z",
+  "10.2.6": "2026-07-27T19:00:09.469Z"
+ },
+ "versions": {
+  "0.0.1": {
+   "dependencies": {
+    "lru-cache": "~1.0.2"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.0.2": {
+   "dependencies": {
+    "lru-cache": "~1.0.2"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.0.4": {
+   "dependencies": {
+    "lru-cache": "~1.0.2"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.0.5": {
+   "dependencies": {
+    "lru-cache": "~1.0.2"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.1.1": {
+   "dependencies": {
+    "lru-cache": "~1.0.5"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.1.2": {
+   "dependencies": {
+    "lru-cache": "~1.0.5"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.1.3": {
+   "dependencies": {
+    "lru-cache": "~1.0.5"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.1.4": {
+   "dependencies": {
+    "lru-cache": "~1.0.5"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.1.5": {
+   "dependencies": {
+    "lru-cache": "~1.0.5"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.2.0": {
+   "dependencies": {
+    "lru-cache": "~1.0.5"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.2.2": {
+   "dependencies": {
+    "lru-cache": "~1.0.5"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.2.3": {
+   "dependencies": {
+    "lru-cache": "~1.0.5"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.2.4": {
+   "dependencies": {
+    "lru-cache": "~1.0.5"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.2.5": {
+   "dependencies": {
+    "lru-cache": "~1"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.2.6": {
+   "dependencies": {
+    "lru-cache": "~2.0.0"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.2.7": {
+   "dependencies": {
+    "lru-cache": "~2.0.0"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.2.8": {
+   "dependencies": {
+    "lru-cache": "~2.0.0"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.2.9": {
+   "dependencies": {
+    "sigmund": "~1.0.0",
+    "lru-cache": "~2.0.0"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.2.10": {
+   "dependencies": {
+    "sigmund": "~1.0.0",
+    "lru-cache": "~2.0.0"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.2.11": {
+   "dependencies": {
+    "sigmund": "~1.0.0",
+    "lru-cache": "2"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.2.12": {
+   "dependencies": {
+    "sigmund": "~1.0.0",
+    "lru-cache": "2"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.2.13": {
+   "dependencies": {
+    "sigmund": "~1.0.0",
+    "lru-cache": "2"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.2.14": {
+   "dependencies": {
+    "sigmund": "~1.0.0",
+    "lru-cache": "2"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.3.0": {
+   "dependencies": {
+    "sigmund": "~1.0.0",
+    "lru-cache": "2"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "0.4.0": {
+   "dependencies": {
+    "sigmund": "~1.0.0",
+    "lru-cache": "2"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "1.0.0": {
+   "dependencies": {
+    "sigmund": "~1.0.0",
+    "lru-cache": "2"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "2.0.0": {
+   "dependencies": {
+    "brace-expansion": "^1.0.0"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "2.0.1": {
+   "dependencies": {
+    "brace-expansion": "^1.0.0"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "2.0.2": {
+   "dependencies": {
+    "brace-expansion": "^1.0.0"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "2.0.3": {
+   "dependencies": {
+    "brace-expansion": "^1.0.0"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "2.0.4": {
+   "dependencies": {
+    "brace-expansion": "^1.0.0"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "2.0.5": {
+   "dependencies": {
+    "brace-expansion": "^1.0.0"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "2.0.6": {
+   "dependencies": {
+    "brace-expansion": "^1.0.0"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "2.0.7": {
+   "dependencies": {
+    "brace-expansion": "^1.0.0"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "2.0.8": {
+   "dependencies": {
+    "brace-expansion": "^1.0.0"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "2.0.9": {
+   "dependencies": {
+    "brace-expansion": "^1.0.0"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "2.0.10": {
+   "dependencies": {
+    "brace-expansion": "^1.0.0"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "3.0.0": {
+   "dependencies": {
+    "brace-expansion": "^1.0.0"
+   },
+   "deprecated": "Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue"
+  },
+  "3.0.2": {
+   "dependencies": {
+    "brace-expansion": "^1.0.0"
+   }
+  },
+  "3.0.3": {
+   "dependencies": {
+    "brace-expansion": "^1.0.0"
+   }
+  },
+  "3.0.4": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "3.0.5": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "3.0.6": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "4.0.0": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "4.1.0": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "3.1.0": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "3.1.1": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "3.0.7": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "4.1.1": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "4.2.0": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "4.2.1": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "5.0.0": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "3.1.2": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "3.0.8": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "5.0.1": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "5.1.0": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "5.1.1": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "5.1.2": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "5.1.3": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "5.1.4": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "6.0.0": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "6.0.1": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "6.0.2": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "6.0.3": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "6.0.4": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "6.1.0": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "6.1.1": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "6.1.2": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "5.1.5": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "4.2.2": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "6.1.3": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "6.1.4": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "5.1.6": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "4.2.3": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "6.1.5": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "6.1.6": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "6.1.7": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "6.1.8": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "6.1.9": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "6.1.10": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "6.2.0": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.0.0": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.0.1": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.1.0": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.1.1": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.1.2": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.1.3": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.1.4": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.2.0": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.3.0": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.4.0": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.4.1": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.4.2": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.4.3": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.4.4": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "8.0.0": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "8.0.1": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "8.0.2": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.4.5": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "8.0.3": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "8.0.4": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.4.6": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "9.0.0": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "9.0.1": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "9.0.2": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "9.0.3": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "9.0.4": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "9.0.5": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "10.0.0": {
+   "dependencies": {
+    "brace-expansion": "^4.0.0"
+   }
+  },
+  "10.0.1": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "10.0.2": {
+   "dependencies": {
+    "brace-expansion": "^4.0.1"
+   }
+  },
+  "10.0.3": {
+   "dependencies": {
+    "@isaacs/brace-expansion": "^5.0.0"
+   }
+  },
+  "10.1.0": {
+   "dependencies": {
+    "@isaacs/brace-expansion": "^5.0.0"
+   }
+  },
+  "10.1.1": {
+   "dependencies": {
+    "@isaacs/brace-expansion": "^5.0.0"
+   }
+  },
+  "10.1.2": {
+   "dependencies": {
+    "@isaacs/brace-expansion": "^5.0.1"
+   }
+  },
+  "10.1.3": {
+   "dependencies": {
+    "brace-expansion": "^5.0.2"
+   }
+  },
+  "10.2.0": {
+   "dependencies": {
+    "brace-expansion": "^5.0.2"
+   }
+  },
+  "10.2.1": {
+   "dependencies": {
+    "brace-expansion": "^5.0.2"
+   }
+  },
+  "10.2.2": {
+   "dependencies": {
+    "brace-expansion": "^5.0.2"
+   }
+  },
+  "9.0.6": {
+   "dependencies": {
+    "brace-expansion": "^5.0.2"
+   }
+  },
+  "8.0.5": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.4.7": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "6.2.1": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "5.1.7": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "4.2.4": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "3.1.3": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "10.2.3": {
+   "dependencies": {
+    "brace-expansion": "^5.0.2"
+   }
+  },
+  "9.0.7": {
+   "dependencies": {
+    "brace-expansion": "^5.0.2"
+   }
+  },
+  "8.0.6": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.4.8": {
+   "dependencies": {
+    "brace-expansion": "^2.0.2"
+   }
+  },
+  "6.2.2": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "5.1.8": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "4.2.5": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "3.1.4": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "10.2.4": {
+   "dependencies": {
+    "brace-expansion": "^5.0.2"
+   }
+  },
+  "9.0.8": {
+   "dependencies": {
+    "brace-expansion": "^5.0.2"
+   }
+  },
+  "8.0.7": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "7.4.9": {
+   "dependencies": {
+    "brace-expansion": "^2.0.2"
+   }
+  },
+  "6.2.3": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "5.1.9": {
+   "dependencies": {
+    "brace-expansion": "^2.0.1"
+   }
+  },
+  "4.2.6": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "3.1.5": {
+   "dependencies": {
+    "brace-expansion": "^1.1.7"
+   }
+  },
+  "9.0.9": {
+   "dependencies": {
+    "brace-expansion": "^2.0.2"
+   }
+  },
+  "10.2.5": {
+   "dependencies": {
+    "brace-expansion": "^5.0.5"
+   }
+  },
+  "10.2.6": {
+   "dependencies": {
+    "brace-expansion": "^5.0.8"
+   }
+  }
+ }
+}

@@ -10,6 +10,7 @@ import { upsertRoot } from './config'
 import { upsertProject } from './projects'
 import { insertScan } from './scans'
 import {
+    applyRemediation,
     backfillFindingsLifecycle,
     countResolvedFindingsForProject,
     findFindingByIdentity,
@@ -19,13 +20,19 @@ import {
     listResolvedFindingsForLibrary,
     listResolvedFindingsForProject,
     mergeFindingsForScan,
-    applyFindingCorroborations
+    applyFindingCorroborations,
+    applyFixSettlement
 } from './findings'
+import { findings as findingsTable } from '../schema'
+import type { FixCheck, Remediation } from '@sentinello/core'
 import type { IncomingFinding } from './findings'
 
 // Runs against a real SQLite file rather than ':memory:'. The client applies WAL pragmas and the
 // worker's own flow opens the database by path, so a file exercises the same configuration
 // production uses; an in-memory database would quietly skip WAL and cannot be reopened.
+// A notifier lookup that knows no scan of any source: the row reads as re-checked.
+const NO_SCAN_CONTEXT = function noContext() { return null }
+
 const MIGRATIONS = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'drizzle')
 
 const ROOT_ID = 'root-1'
@@ -411,8 +418,26 @@ describe('legacy row fallbacks', function () {
             ecosystem: 'npm',
             advisoryId: 'GHSA-legacy',
             packageName: 'lodash'
-        })
+        }, NO_SCAN_CONTEXT)
         expect(found?.id).toBe('legacy-1')
+    })
+
+    // A pending event retried after its source's latest scan failed: the row says why it was not re-checked.
+    it('reads the row with its source\'s scan context', function () {
+        insertLegacyRow()
+        const asked: string[] = []
+        const found = findFindingByIdentity(db, {
+            projectId: PROJECT_ID,
+            source: 'npm-audit',
+            ecosystem: 'npm',
+            advisoryId: 'GHSA-legacy',
+            packageName: 'lodash'
+        }, function failedScan(projectId, source) {
+            asked.push(projectId + '|' + source)
+            return { latestStatus: 'unauditable', latestReasonCode: 'no_lockfile', lastOkScanAt: T0, projectState: 'cannot_scan' }
+        })
+        expect(asked).toEqual([PROJECT_ID + '|npm-audit'])
+        expect(found?.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: T0 })
     })
 })
 
@@ -502,7 +527,7 @@ describe('list queries', function () {
             ecosystem: 'npm',
             advisoryId: 'GHSA-nope',
             packageName: 'lodash'
-        })).toBeNull()
+        }, NO_SCAN_CONTEXT)).toBeNull()
     })
 
     // Only OPEN episodes have an identity to find; a resolved one must not be returned or the next scan
@@ -517,7 +542,7 @@ describe('list queries', function () {
             ecosystem: 'npm',
             advisoryId: 'GHSA-1',
             packageName: 'lodash'
-        })).toBeNull()
+        }, NO_SCAN_CONTEXT)).toBeNull()
     })
 })
 
@@ -620,7 +645,7 @@ describe('depPath decoding', function () {
             ecosystem: 'npm',
             advisoryId: 'GHSA-legacy',
             packageName: 'lodash'
-        })
+        }, NO_SCAN_CONTEXT)
         expect(found?.depPath).toEqual([])
     })
 })
@@ -725,5 +750,65 @@ describe('applyFindingCorroborations', function () {
         const id = seed()
         sqlite.prepare('UPDATE findings SET corroborations_json = ? WHERE id = ?').run('{"source":"osv"}', id)
         expect(listFindingsForProject(db, PROJECT_ID)[0]?.corroborations).toEqual([])
+    })
+})
+
+// Settlement writes the verdict after every source has run; the lifecycle merge writes the row unsettled,
+// so a verdict from the previous scan can never outlive the evidence it was reached on.
+describe('applyFixSettlement and the unsettled merge', function () {
+    const CHECK: FixCheck = { v: 1, checkedAt: T0, registry: 'ok', packageDataAsOf: T0 - HOUR, unevaluable: null, sources: [] }
+
+    it('writes every settlement in one pass and returns what a reader will see', function () {
+        const [a, b] = merge('scan-1', T0, [incoming('GHSA-1'), incoming('GHSA-2')]).active
+        const persisted = applyFixSettlement(db, [
+            { id: a?.id as string, fixStatus: 'released', fixVersion: '4.17.21', fixAvailable: true, fixCheck: CHECK },
+            { id: b?.id as string, fixStatus: 'none_released', fixVersion: null, fixAvailable: false, fixCheck: CHECK }
+        ])
+        expect(persisted.get(a?.id as string)).toEqual({ fixStatus: 'released', fixVersion: '4.17.21', fixAvailable: true, fixCheck: CHECK, remediation: null, notRecheckedBecause: null })
+        const rows = listFindingsForProject(db, PROJECT_ID)
+        expect(rows.find(function one(r) { return r.id === b?.id })).toMatchObject({ fixStatus: 'none_released', fixVersion: null, fixCheck: CHECK })
+    })
+
+    it('writes nothing for an empty settlement', function () {
+        expect(applyFixSettlement(db, []).size).toBe(0)
+    })
+
+    it('reads a freshly merged row as unsettled, withholding its stated fix', function () {
+        const result = merge('scan-1', T0, [incoming('GHSA-1')])
+        expect(result.active[0]).toMatchObject({ fixStatus: 'unverified', fixVersion: null, fixAvailable: false, fixCheck: null })
+        const row = db.select().from(findingsTable).all()[0]
+        expect(row).toMatchObject({ fixStatus: null, fixCheckJson: null, fixVersion: '4.17.21', remediationJson: null })
+    })
+
+    it('clears the last verdict when a continuing episode is merged again', function () {
+        const [a] = merge('scan-1', T0, [incoming('GHSA-1')]).active
+        applyFixSettlement(db, [{ id: a?.id as string, fixStatus: 'released', fixVersion: '4.17.21', fixAvailable: true, fixCheck: CHECK }])
+        const again = merge('scan-2', T0 + HOUR, [incoming('GHSA-1')])
+        expect(again.active[0]).toMatchObject({ id: a?.id, fixStatus: 'unverified', fixCheck: null })
+        expect(db.select().from(findingsTable).all()[0]).toMatchObject({ fixStatus: null, fixCheckJson: null })
+    })
+
+    it('clears a past way-out on every settlement, and writes one only onto a none_released row', function () {
+        const [a, b] = merge('scan-1', T0, [incoming('GHSA-1'), incoming('GHSA-2')]).active
+        applyFixSettlement(db, [
+            { id: a?.id as string, fixStatus: 'none_released', fixVersion: null, fixAvailable: false, fixCheck: CHECK },
+            { id: b?.id as string, fixStatus: 'released', fixVersion: '4.17.21', fixAvailable: true, fixCheck: CHECK }
+        ])
+        const way: Remediation = { v: 1, checkedAt: T0, package: 'lodash', health: { name: 'lodash', latest: null, lastPublishAt: null, maintainers: 0, weeklyDownloads: null, deprecated: null, daysSinceLastPublish: null, unmaintained: false }, chains: [], moreChains: 0, moreChainsAtLeast: false, alternatives: [], devOnly: null }
+        const written = applyRemediation(db, [{ id: a?.id as string, remediation: way }, { id: b?.id as string, remediation: way }])
+        expect([...written.keys()]).toEqual([a?.id])
+        expect(written.get(a?.id as string)).toEqual(way)
+        expect(listFindingsForProject(db, PROJECT_ID).find(function one(r) { return r.id === a?.id })?.remediation).toEqual(way)
+        // The next settlement — say the fix has since been published — takes the way-out away with it.
+        applyFixSettlement(db, [{ id: a?.id as string, fixStatus: 'released', fixVersion: '4.17.22', fixAvailable: true, fixCheck: CHECK }])
+        expect(db.select().from(findingsTable).all().every(function cleared(r) { return r.remediationJson === null })).toBe(true)
+        expect(applyRemediation(db, []).size).toBe(0)
+    })
+
+    it('reads the settled fix on resolved library findings too', function () {
+        const [a] = merge('scan-1', T0, [incoming('GHSA-1')]).active
+        applyFixSettlement(db, [{ id: a?.id as string, fixStatus: 'released', fixVersion: '4.17.21', fixAvailable: true, fixCheck: CHECK }])
+        merge('scan-2', T0 + HOUR, [])
+        expect(listResolvedFindingsForLibrary(db, 'lodash')[0]).toMatchObject({ fixStatus: 'released', fixVersion: '4.17.21', fixCheck: CHECK })
     })
 })

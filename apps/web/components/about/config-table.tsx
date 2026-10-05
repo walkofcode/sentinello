@@ -21,7 +21,9 @@ const ROWS: Row[] = [
     { variable: 'SENTINELLO_OSV_FEED_URL', def: 'OSV bucket', purposeKey: 'configRows.osvFeedUrl' },
     { variable: 'SENTINELLO_OSV_DB_PATH', def: '<data dir>/osv.db', purposeKey: 'configRows.osvDbPath' },
     { variable: 'SENTINELLO_GEMNASIUM_FEED_URL', def: 'gemnasium archive', purposeKey: 'configRows.gemnasiumFeedUrl' },
-    { variable: 'SENTINELLO_GEMNASIUM_DB_PATH', def: '<data dir>/gemnasium.db', purposeKey: 'configRows.gemnasiumDbPath' }
+    { variable: 'SENTINELLO_GEMNASIUM_DB_PATH', def: '<data dir>/gemnasium.db', purposeKey: 'configRows.gemnasiumDbPath' },
+    { variable: 'SENTINELLO_NPM_REGISTRY_URL', def: 'registry.npmjs.org', purposeKey: 'configRows.npmRegistryUrl' },
+    { variable: 'SENTINELLO_NPM_DOWNLOADS_URL', def: 'api.npmjs.org', purposeKey: 'configRows.npmDownloadsUrl' }
 ]
 
 export async function ConfigTable() {

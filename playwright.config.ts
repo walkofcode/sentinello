@@ -17,6 +17,8 @@ import {
 //   - scanning goes through OSV only, against a hand-seeded local cache (seed-osv.ts). npm audit
 //     spawns the package manager and needs the registry; OSV reads a lockfile and SQLite.
 //   - every advisory feed is switched off, so no sync ever reaches the network
+//   - the npm registry is a seeded cache behind a refused port (seed-registry.ts), so fix settlement
+//     never reaches it either
 //   - notifications are in dry-run, because a real worker dispatches after EVERY completed scan
 //
 // See tests/e2e/portal/paths.ts for the import rule that governs which files may touch packages/*.
@@ -36,6 +38,12 @@ const SHARED_ENV = {
     SENTINELLO_UPDATE_FEED_URL: 'off',
     SENTINELLO_OSV_FEED_URL: 'off',
     SENTINELLO_GEMNASIUM_FEED_URL: 'off',
+    // Fix settlement and the way-out guidance read the npm registry after every scan. Port 9 refuses at
+    // once, so nothing reaches registry.npmjs.org or api.npmjs.org: every package the fixture tree needs
+    // is answered from the registry cache the seed writes (seed-registry.ts), and anything else settles
+    // `unverified`.
+    SENTINELLO_NPM_REGISTRY_URL: 'http://127.0.0.1:9',
+    SENTINELLO_NPM_DOWNLOADS_URL: 'http://127.0.0.1:9',
     // Belt and braces on top of the dryRunNotify config the seed writes: blocks private ranges
     // outright if a target ever escapes the dry-run flag.
     SENTINELLO_WEBHOOK_STRICT: '1',

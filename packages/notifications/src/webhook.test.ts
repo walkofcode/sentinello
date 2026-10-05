@@ -54,6 +54,7 @@ function finding(overrides: Partial<Finding> = {}): Finding {
     return {
         packageName: 'lodash',
         installedVersion: '4.17.11',
+        fixStatus: 'released',
         fixAvailable: true,
         fixVersion: '4.17.21',
         severity: 'high',
@@ -76,6 +77,7 @@ function webhookContext(overrides: Partial<WebhookPayloadContext> = {}): Webhook
         project: { id: 'project-1', name: 'app', relPath: 'app', packageManager: 'npm' },
         findings: [finding()],
         failureSignature: null,
+        scanState: { state: 'scanned', reasons: [] },
         advisoryText: '# Advisory export',
         ...overrides
     }
@@ -179,13 +181,37 @@ describe('sendWebhook — body shape', function () {
             library: 'lodash',
             version: '4.17.11',
             recommendedVersion: '4.17.21',
+            fixStatus: 'released',
             advisory: { id: 'CVE-2024-1' }
         })
+    })
+
+    // recommendedVersion keeps its meaning: a version to install. A fix a source merely states is not one.
+    it('recommends no version for a fix that is not released', async function () {
+        const stated = finding({ fixStatus: 'unverified', fixVersion: '3.0.4' })
+        await sendWebhook(target(), message({ webhook: webhookContext({ findings: [stated] }) }))
+        const body = post.mock.calls[0]?.[1] as { vulnerabilities: Record<string, unknown>[] }
+        expect(body.vulnerabilities[0]).toMatchObject({ recommendedVersion: null, fixStatus: 'unverified' })
+    })
+
+    // A finding an earlier scan left, whose source's latest scan failed: the receiver gets why it was not
+    // re-checked, beside fix fields that are as of that earlier scan.
+    it('carries each finding\'s not-re-checked context, null for a re-checked one', async function () {
+        const reason = { reasonCode: 'no_lockfile' as const, side: 'project' as const, projectState: 'cannot_scan' as const, lastOkScanAt: 1 }
+        await sendWebhook(target(), message({ webhook: webhookContext({ findings: [finding(), finding({ notRecheckedBecause: reason })] }) }))
+        const body = post.mock.calls[0]?.[1] as { vulnerabilities: Record<string, unknown>[] }
+        expect(body.vulnerabilities.map(function context(v) { return v.notRecheckedBecause })).toEqual([null, reason])
     })
 
     it('sends just the advisory text for the text flavor', async function () {
         await sendWebhook(target({ flavor: 'text' }), message({ webhook: webhookContext() }))
         expect(post.mock.calls[0]?.[1]).toEqual({ text: '# Advisory export' })
+    })
+
+    it('carries the project scan state, so a receiver can tell cannot be scanned from clean', async function () {
+        const scanState = { state: 'cannot_scan' as const, reasons: [{ source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile' as const, side: 'project' as const, label: 'No lockfile' }] }
+        await sendWebhook(target(), message({ webhook: webhookContext({ event: 'scan_failure', findings: [], scanState }) }))
+        expect((post.mock.calls[0]?.[1] as Record<string, unknown>).scanState).toEqual(scanState)
     })
 
     it('carries the failure signature only for a scan_failure event', async function () {

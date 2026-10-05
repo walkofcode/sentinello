@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { revalidatePath } from 'next/cache'
-import { getConfigValue, setConfigValue } from '@sentinello/db'
-import { DEFAULT_EXPORT_PROMPT } from '@sentinello/core'
+import { applyFixSettlement, getConfigValue, schema, setConfigValue } from '@sentinello/db'
+import { DEFAULT_EXPORT_PROMPT, sourceEnabledKey } from '@sentinello/core'
 import {
     closePortalTestDb,
     finding,
@@ -88,8 +88,10 @@ describe('exportProjectAdvisoryMarkdownAction', function () {
 
 describe('exportLibraryAdvisoryMarkdownAction', function () {
     beforeEach(function seedFindings() {
-        scanProject(handle.db, 'project-1', [finding({ packageName: 'lodash', advisoryId: 'CVE-2024-1' })])
-        scanProject(handle.db, 'project-2', [finding({ packageName: 'lodash', advisoryId: 'CVE-2024-9' })])
+        // npm coverage recorded, as the worker records it: without it a project reads "not fully scanned".
+        const covered = { rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'ok' }] }) }
+        scanProject(handle.db, 'project-1', [finding({ packageName: 'lodash', advisoryId: 'CVE-2024-1' })], covered)
+        scanProject(handle.db, 'project-2', [finding({ packageName: 'lodash', advisoryId: 'CVE-2024-9' })], covered)
     })
 
     it('gathers the package usage across every project', async function () {
@@ -128,6 +130,57 @@ describe('exportLibraryAdvisoryMarkdownAction', function () {
         expect(npmOnly.markdown).not.toContain('PYSEC-1')
     })
 
+    // The section the project export has, for the projects this library's findings come from and no others.
+    describe('projects that could not be fully scanned', function () {
+        const NO_LOCKFILE = JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile' }] })
+
+        it('lists a project that cannot be scanned, with its reason and whose side it is on', async function () {
+            scanProject(handle.db, 'project-1', [], { status: 'unauditable', reasonCode: 'no_lockfile', rawJson: NO_LOCKFILE })
+
+            const { markdown } = await exportLibraryAdvisoryMarkdownAction('lodash', 'all')
+
+            expect(markdown).toContain('## Projects that could not be fully scanned')
+            expect(markdown).toContain('- **Billing API** — Project cannot be scanned')
+            expect(markdown).toContain("No lockfile — npm audit, npm — on the project's side")
+            expect(markdown).not.toContain('**Web Store** —')
+        })
+
+        // A partial project whose failed source is not the one reporting lodash: the row's own annotation is
+        // rightly null, so only this section warns about it.
+        it('lists a partially scanned project whose lodash row was re-checked', async function () {
+            setConfigValue(handle.db, sourceEnabledKey('osv', 'npm'), true)
+            scanProject(handle.db, 'project-2', [], { scanner: 'osv', status: 'error', reasonCode: 'osv_db_unavailable' })
+
+            const { markdown } = await exportLibraryAdvisoryMarkdownAction('lodash', 'all')
+
+            expect(markdown).toContain('- **Web Store** — Project cannot be fully scanned')
+            expect(markdown).toContain("on this Sentinello install's side")
+            expect(markdown).not.toContain('not re-checked —')
+        })
+
+        it('lists a project once, however many of its findings the export carries', async function () {
+            scanProject(handle.db, 'project-1', [
+                finding({ packageName: 'lodash', advisoryId: 'CVE-2024-1' }),
+                finding({ packageName: 'lodash', advisoryId: 'CVE-2024-3' })
+            ], { rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'ok' }] }) })
+            scanProject(handle.db, 'project-1', [], { status: 'unauditable', reasonCode: 'no_lockfile', rawJson: NO_LOCKFILE })
+
+            const { markdown } = await exportLibraryAdvisoryMarkdownAction('lodash', 'all')
+
+            expect(markdown).toContain('CVE-2024-3')
+            expect(markdown.split('- **Billing API** —')).toHaveLength(2)
+        })
+
+        it('leaves out a project none of the library\'s findings come from', async function () {
+            seedProject(handle.db, 'project-3', { name: 'Unrelated' })
+            scanProject(handle.db, 'project-3', [], { status: 'unauditable', reasonCode: 'no_lockfile', rawJson: NO_LOCKFILE })
+
+            const { markdown } = await exportLibraryAdvisoryMarkdownAction('lodash', 'all')
+
+            expect(markdown).not.toContain('## Projects that could not be fully scanned')
+        })
+    })
+
     it('produces a document even when the package has no findings', async function () {
         const result = await exportLibraryAdvisoryMarkdownAction('not-installed-anywhere', 'all')
 
@@ -148,17 +201,31 @@ describe('exportLibraryAdvisoryMarkdownAction', function () {
         expect(result.markdown).toContain('Fix these before Friday.')
     })
 
-    // The library-usage query does not select the dep path or fix columns, so the action marks every
-    // row as having no known fix. That makes the formatter print its "check the advisory" guidance
-    // rather than inventing an upgrade target the data cannot support.
-    // Note the finding fixture DOES carry fixVersion 4.17.21 — the project export renders it as an
-    // upgrade target, and this one still must not, because the data behind a library export cannot
-    // support the claim.
-    it('never claims a fix version is available', async function () {
+    // The library export renders each row's settled fix, read the same way as every other surface. The
+    // fixture's rows come straight from the lifecycle merge, unsettled, so their stated 4.17.21 is
+    // withheld: "rescan pending", never an upgrade target nobody checked.
+    it('withholds the fix of a row no settlement has written', async function () {
         const result = await exportLibraryAdvisoryMarkdownAction('lodash', 'all')
 
-        expect(result.markdown).toContain('no fix available yet')
+        expect(result.markdown).toContain('**Fix:** fix not re-checked yet — rescan pending')
         expect(result.markdown).not.toContain('**Fix:** upgrade to')
+    })
+
+    it('renders a settled row with its released fix', async function () {
+        const rows = handle.db.select().from(schema.findings).all()
+        applyFixSettlement(handle.db, rows.map(function released(r) {
+            return {
+                id: r.id,
+                fixStatus: 'released' as const,
+                fixVersion: '4.17.21',
+                fixAvailable: true,
+                fixCheck: { v: 1 as const, checkedAt: 1, registry: 'ok' as const, packageDataAsOf: 1, unevaluable: null, sources: [] }
+            }
+        }))
+
+        const result = await exportLibraryAdvisoryMarkdownAction('lodash', 'all')
+
+        expect(result.markdown).toContain('**Fix:** upgrade to `4.17.21`')
     })
 
     it('rejects a dependency-type value outside the allowed set', async function () {

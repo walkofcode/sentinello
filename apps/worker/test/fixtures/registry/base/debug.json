@@ -1,0 +1,503 @@
+{
+ "name": "debug",
+ "dist-tags": {
+  "latest": "4.4.3"
+ },
+ "maintainers": [
+  {
+   "name": "qix"
+  },
+  {
+   "name": "tootallnate"
+  }
+ ],
+ "repository": {
+  "type": "git",
+  "url": "git://github.com/debug-js/debug.git"
+ },
+ "time": {
+  "created": "2011-11-29T01:11:23.618Z",
+  "modified": "2025-09-13T17:25:19.913Z",
+  "0.0.1": "2011-11-29T01:11:25.405Z",
+  "0.1.0": "2011-12-02T23:16:56.971Z",
+  "0.2.0": "2012-01-22T18:26:41.329Z",
+  "0.3.0": "2012-01-27T00:37:12.739Z",
+  "0.4.0": "2012-02-01T21:20:47.417Z",
+  "0.4.1": "2012-02-02T19:54:44.139Z",
+  "0.5.0": "2012-02-03T00:56:44.457Z",
+  "0.6.0": "2012-03-16T21:58:51.296Z",
+  "0.7.0": "2012-07-09T19:11:59.699Z",
+  "0.7.1": "2013-02-06T21:53:43.587Z",
+  "0.7.2": "2013-02-06T23:40:19.513Z",
+  "0.7.3": "2013-10-31T00:51:26.848Z",
+  "0.7.4": "2013-11-13T20:08:37.779Z",
+  "0.8.0": "2014-03-30T16:00:17.026Z",
+  "0.8.1": "2014-04-15T02:04:45.652Z",
+  "1.0.0": "2014-06-05T03:55:56.207Z",
+  "1.0.1": "2014-06-06T20:23:09.807Z",
+  "1.0.2": "2014-06-11T00:50:47.529Z",
+  "1.0.3": "2014-07-09T16:16:47.588Z",
+  "1.0.4": "2014-07-15T23:16:08.284Z",
+  "2.0.0": "2014-09-01T07:21:43.687Z",
+  "2.1.0": "2014-10-15T21:58:41.028Z",
+  "2.1.1": "2014-12-29T21:51:01.149Z",
+  "2.1.2": "2015-03-02T01:39:40.274Z",
+  "2.1.3": "2015-03-13T18:50:21.566Z",
+  "2.2.0": "2015-05-10T07:21:25.639Z",
+  "2.3.0": "2016-11-07T17:40:37.812Z",
+  "2.3.1": "2016-11-10T00:14:23.056Z",
+  "2.3.2": "2016-11-10T06:30:04.055Z",
+  "2.3.3": "2016-11-19T19:59:18.541Z",
+  "2.4.0": "2016-12-14T06:52:06.597Z",
+  "2.4.1": "2016-12-14T07:25:40.783Z",
+  "2.4.2": "2016-12-14T19:40:21.566Z",
+  "2.4.3": "2016-12-14T21:50:00.788Z",
+  "2.4.4": "2016-12-15T01:27:05.600Z",
+  "2.4.5": "2016-12-18T07:13:49.109Z",
+  "2.5.0": "2016-12-21T05:03:29.680Z",
+  "2.5.1": "2016-12-21T05:33:20.503Z",
+  "2.5.2": "2016-12-26T02:39:46.961Z",
+  "2.6.0": "2016-12-29T05:50:33.866Z",
+  "2.6.1": "2017-02-10T19:00:28.639Z",
+  "2.6.2": "2017-03-10T19:44:26.365Z",
+  "2.6.3": "2017-03-14T03:50:34.042Z",
+  "2.6.4": "2017-04-20T18:08:07.089Z",
+  "2.6.5": "2017-04-27T16:04:12.415Z",
+  "2.6.6": "2017-04-27T23:35:02.119Z",
+  "2.6.7": "2017-05-17T04:33:51.578Z",
+  "2.6.8": "2017-05-18T20:07:01.168Z",
+  "1.0.5": "2017-06-15T00:14:24.388Z",
+  "3.0.0": "2017-08-08T21:55:59.088Z",
+  "3.0.1": "2017-08-24T19:44:31.890Z",
+  "2.6.9": "2017-09-22T13:32:35.541Z",
+  "3.1.0": "2017-09-26T19:13:51.492Z",
+  "3.2.0": "2018-09-11T06:19:14.567Z",
+  "3.2.1": "2018-09-11T06:28:53.798Z",
+  "3.2.2": "2018-09-11T07:50:29.987Z",
+  "3.2.3": "2018-09-11T08:30:38.788Z",
+  "4.0.0": "2018-09-11T08:58:14.825Z",
+  "3.2.4": "2018-09-11T09:12:30.102Z",
+  "3.2.5": "2018-09-11T23:12:21.584Z",
+  "4.0.1": "2018-09-11T23:16:32.204Z",
+  "4.1.0": "2018-10-08T17:51:43.321Z",
+  "3.2.6": "2018-10-10T06:48:00.226Z",
+  "4.1.1": "2018-12-22T16:40:22.538Z",
+  "4.2.0": "2020-05-19T09:51:27.149Z",
+  "4.3.0": "2020-09-19T08:36:29.497Z",
+  "4.3.1": "2020-11-19T12:23:08.941Z",
+  "3.2.7": "2020-11-19T12:57:17.399Z",
+  "4.3.2": "2020-12-09T15:36:20.909Z",
+  "4.3.3": "2021-11-27T13:14:24.425Z",
+  "4.3.4": "2022-03-17T13:38:47.641Z",
+  "4.3.5": "2024-05-31T11:40:15.895Z",
+  "4.3.6": "2024-07-27T09:23:24.842Z",
+  "4.3.7": "2024-09-06T00:52:57.702Z",
+  "4.4.0": "2024-12-06T12:32:46.280Z",
+  "4.4.1": "2025-05-13T20:56:36.431Z",
+  "4.4.3": "2025-09-13T17:25:19.732Z"
+ },
+ "versions": {
+  "0.0.1": {},
+  "0.1.0": {},
+  "0.2.0": {},
+  "0.3.0": {},
+  "0.4.0": {},
+  "0.4.1": {},
+  "0.5.0": {},
+  "0.6.0": {},
+  "0.7.0": {},
+  "0.7.1": {},
+  "0.7.2": {},
+  "0.7.3": {},
+  "0.7.4": {},
+  "0.8.0": {},
+  "0.8.1": {},
+  "1.0.0": {
+   "dependencies": {
+    "ms": "0.6.2"
+   }
+  },
+  "1.0.1": {
+   "dependencies": {
+    "ms": "0.6.2"
+   }
+  },
+  "1.0.2": {
+   "dependencies": {
+    "ms": "0.6.2"
+   }
+  },
+  "1.0.3": {
+   "dependencies": {
+    "ms": "0.6.2"
+   }
+  },
+  "1.0.4": {
+   "dependencies": {
+    "ms": "0.6.2"
+   }
+  },
+  "2.0.0": {
+   "dependencies": {
+    "ms": "0.6.2"
+   }
+  },
+  "2.1.0": {
+   "dependencies": {
+    "ms": "0.6.2"
+   }
+  },
+  "2.1.1": {
+   "dependencies": {
+    "ms": "0.6.2"
+   }
+  },
+  "2.1.2": {
+   "dependencies": {
+    "ms": "0.7.0"
+   }
+  },
+  "2.1.3": {
+   "dependencies": {
+    "ms": "0.7.0"
+   }
+  },
+  "2.2.0": {
+   "dependencies": {
+    "ms": "0.7.1"
+   }
+  },
+  "2.3.0": {
+   "dependencies": {
+    "ms": "0.7.2"
+   }
+  },
+  "2.3.1": {
+   "dependencies": {
+    "ms": "0.7.2"
+   }
+  },
+  "2.3.2": {
+   "dependencies": {
+    "ms": "0.7.2"
+   }
+  },
+  "2.3.3": {
+   "dependencies": {
+    "ms": "0.7.2"
+   }
+  },
+  "2.4.0": {
+   "dependencies": {
+    "ms": "0.7.2"
+   },
+   "deprecated": "critical bug fixed in 2.4.1"
+  },
+  "2.4.1": {
+   "dependencies": {
+    "ms": "0.7.2"
+   }
+  },
+  "2.4.2": {
+   "dependencies": {
+    "ms": "0.7.2"
+   }
+  },
+  "2.4.3": {
+   "dependencies": {
+    "ms": "0.7.2"
+   }
+  },
+  "2.4.4": {
+   "dependencies": {
+    "ms": "0.7.2"
+   }
+  },
+  "2.4.5": {
+   "dependencies": {
+    "ms": "0.7.2"
+   }
+  },
+  "2.5.0": {
+   "dependencies": {
+    "ms": "0.7.2"
+   },
+   "deprecated": "incompatible with babel-core"
+  },
+  "2.5.1": {
+   "dependencies": {
+    "ms": "0.7.2"
+   }
+  },
+  "2.5.2": {
+   "dependencies": {
+    "ms": "0.7.2"
+   }
+  },
+  "2.6.0": {
+   "dependencies": {
+    "ms": "0.7.2"
+   }
+  },
+  "2.6.1": {
+   "dependencies": {
+    "ms": "0.7.2"
+   }
+  },
+  "2.6.2": {
+   "dependencies": {
+    "ms": "0.7.2"
+   }
+  },
+  "2.6.3": {
+   "dependencies": {
+    "ms": "0.7.2"
+   }
+  },
+  "2.6.4": {
+   "dependencies": {
+    "ms": "0.7.3"
+   }
+  },
+  "2.6.5": {
+   "dependencies": {
+    "ms": "0.7.3"
+   },
+   "deprecated": "critical regression for web workers"
+  },
+  "2.6.6": {
+   "dependencies": {
+    "ms": "0.7.3"
+   },
+   "deprecated": "invalid release"
+  },
+  "2.6.7": {
+   "dependencies": {
+    "ms": "2.0.0"
+   }
+  },
+  "2.6.8": {
+   "dependencies": {
+    "ms": "2.0.0"
+   }
+  },
+  "1.0.5": {
+   "dependencies": {
+    "ms": "2.0.0"
+   }
+  },
+  "3.0.0": {
+   "dependencies": {
+    "ms": "2.0.0"
+   }
+  },
+  "3.0.1": {
+   "dependencies": {
+    "ms": "2.0.0"
+   }
+  },
+  "2.6.9": {
+   "dependencies": {
+    "ms": "2.0.0"
+   }
+  },
+  "3.1.0": {
+   "dependencies": {
+    "ms": "2.0.0"
+   }
+  },
+  "3.2.0": {
+   "dependencies": {
+    "ms": "^2.1.1"
+   },
+   "deprecated": "Debug versions >=3.2.0 <3.2.7 || >=4 <4.3.1 have a low-severity ReDos regression when used in a Node.js environment. It is recommended you upgrade to 3.2.7 or 4.3.1. (https://github.com/visionmedia/debug/issues/797)"
+  },
+  "3.2.1": {
+   "dependencies": {
+    "ms": "^2.1.1"
+   },
+   "deprecated": "Debug versions >=3.2.0 <3.2.7 || >=4 <4.3.1 have a low-severity ReDos regression when used in a Node.js environment. It is recommended you upgrade to 3.2.7 or 4.3.1. (https://github.com/visionmedia/debug/issues/797)"
+  },
+  "3.2.2": {
+   "dependencies": {
+    "ms": "^2.1.1"
+   },
+   "deprecated": "Debug versions >=3.2.0 <3.2.7 || >=4 <4.3.1 have a low-severity ReDos regression when used in a Node.js environment. It is recommended you upgrade to 3.2.7 or 4.3.1. (https://github.com/visionmedia/debug/issues/797)"
+  },
+  "3.2.3": {
+   "dependencies": {
+    "ms": "^2.1.1"
+   },
+   "deprecated": "Debug versions >=3.2.0 <3.2.7 || >=4 <4.3.1 have a low-severity ReDos regression when used in a Node.js environment. It is recommended you upgrade to 3.2.7 or 4.3.1. (https://github.com/visionmedia/debug/issues/797)"
+  },
+  "4.0.0": {
+   "dependencies": {
+    "ms": "^2.1.1"
+   },
+   "deprecated": "Debug versions >=3.2.0 <3.2.7 || >=4 <4.3.1 have a low-severity ReDos regression when used in a Node.js environment. It is recommended you upgrade to 3.2.7 or 4.3.1. (https://github.com/visionmedia/debug/issues/797)"
+  },
+  "3.2.4": {
+   "dependencies": {
+    "ms": "^2.1.1"
+   },
+   "deprecated": "Debug versions >=3.2.0 <3.2.7 || >=4 <4.3.1 have a low-severity ReDos regression when used in a Node.js environment. It is recommended you upgrade to 3.2.7 or 4.3.1. (https://github.com/visionmedia/debug/issues/797)"
+  },
+  "3.2.5": {
+   "dependencies": {
+    "ms": "^2.1.1"
+   },
+   "deprecated": "Debug versions >=3.2.0 <3.2.7 || >=4 <4.3.1 have a low-severity ReDos regression when used in a Node.js environment. It is recommended you upgrade to 3.2.7 or 4.3.1. (https://github.com/visionmedia/debug/issues/797)"
+  },
+  "4.0.1": {
+   "dependencies": {
+    "ms": "^2.1.1"
+   },
+   "deprecated": "Debug versions >=3.2.0 <3.2.7 || >=4 <4.3.1 have a low-severity ReDos regression when used in a Node.js environment. It is recommended you upgrade to 3.2.7 or 4.3.1. (https://github.com/visionmedia/debug/issues/797)"
+  },
+  "4.1.0": {
+   "dependencies": {
+    "ms": "^2.1.1"
+   },
+   "deprecated": "Debug versions >=3.2.0 <3.2.7 || >=4 <4.3.1 have a low-severity ReDos regression when used in a Node.js environment. It is recommended you upgrade to 3.2.7 or 4.3.1. (https://github.com/visionmedia/debug/issues/797)"
+  },
+  "3.2.6": {
+   "dependencies": {
+    "ms": "^2.1.1"
+   },
+   "deprecated": "Debug versions >=3.2.0 <3.2.7 || >=4 <4.3.1 have a low-severity ReDos regression when used in a Node.js environment. It is recommended you upgrade to 3.2.7 or 4.3.1. (https://github.com/visionmedia/debug/issues/797)"
+  },
+  "4.1.1": {
+   "dependencies": {
+    "ms": "^2.1.1"
+   },
+   "deprecated": "Debug versions >=3.2.0 <3.2.7 || >=4 <4.3.1 have a low-severity ReDos regression when used in a Node.js environment. It is recommended you upgrade to 3.2.7 or 4.3.1. (https://github.com/visionmedia/debug/issues/797)"
+  },
+  "4.2.0": {
+   "dependencies": {
+    "ms": "2.1.2"
+   },
+   "peerDependenciesMeta": {
+    "supports-color": {
+     "optional": true
+    }
+   },
+   "deprecated": "Debug versions >=3.2.0 <3.2.7 || >=4 <4.3.1 have a low-severity ReDos regression when used in a Node.js environment. It is recommended you upgrade to 3.2.7 or 4.3.1. (https://github.com/visionmedia/debug/issues/797)"
+  },
+  "4.3.0": {
+   "dependencies": {
+    "ms": "2.1.2"
+   },
+   "peerDependenciesMeta": {
+    "supports-color": {
+     "optional": true
+    }
+   },
+   "deprecated": "Debug versions >=3.2.0 <3.2.7 || >=4 <4.3.1 have a low-severity ReDos regression when used in a Node.js environment. It is recommended you upgrade to 3.2.7 or 4.3.1. (https://github.com/visionmedia/debug/issues/797)"
+  },
+  "4.3.1": {
+   "dependencies": {
+    "ms": "2.1.2"
+   },
+   "peerDependenciesMeta": {
+    "supports-color": {
+     "optional": true
+    }
+   }
+  },
+  "3.2.7": {
+   "dependencies": {
+    "ms": "^2.1.1"
+   }
+  },
+  "4.3.2": {
+   "dependencies": {
+    "ms": "2.1.2"
+   },
+   "peerDependenciesMeta": {
+    "supports-color": {
+     "optional": true
+    }
+   }
+  },
+  "4.3.3": {
+   "dependencies": {
+    "ms": "2.1.2"
+   },
+   "peerDependenciesMeta": {
+    "supports-color": {
+     "optional": true
+    }
+   }
+  },
+  "4.3.4": {
+   "dependencies": {
+    "ms": "2.1.2"
+   },
+   "peerDependenciesMeta": {
+    "supports-color": {
+     "optional": true
+    }
+   }
+  },
+  "4.3.5": {
+   "dependencies": {
+    "ms": "2.1.2"
+   },
+   "peerDependenciesMeta": {
+    "supports-color": {
+     "optional": true
+    }
+   }
+  },
+  "4.3.6": {
+   "dependencies": {
+    "ms": "2.1.2"
+   },
+   "peerDependenciesMeta": {
+    "supports-color": {
+     "optional": true
+    }
+   }
+  },
+  "4.3.7": {
+   "dependencies": {
+    "ms": "^2.1.3"
+   },
+   "peerDependenciesMeta": {
+    "supports-color": {
+     "optional": true
+    }
+   }
+  },
+  "4.4.0": {
+   "dependencies": {
+    "ms": "^2.1.3"
+   },
+   "peerDependenciesMeta": {
+    "supports-color": {
+     "optional": true
+    }
+   }
+  },
+  "4.4.1": {
+   "dependencies": {
+    "ms": "^2.1.3"
+   },
+   "peerDependenciesMeta": {
+    "supports-color": {
+     "optional": true
+    }
+   }
+  },
+  "4.4.3": {
+   "dependencies": {
+    "ms": "^2.1.3"
+   },
+   "peerDependenciesMeta": {
+    "supports-color": {
+     "optional": true
+    }
+   }
+  }
+ }
+}

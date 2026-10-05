@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { pickSafeFixVersion } from './version-fix'
+import { pickStatedFix } from './version-fix'
 
-// This produces the "upgrade to this version" advice shown next to every finding, so both ways of
-// being wrong are bad in a specific way: naming a version that is still inside the vulnerable range
-// tells someone they are safe when they are not, and naming a version below what is installed tells
-// them to downgrade. The function answers null rather than guessing, and these cases pin that.
+// This reads the fix a source STATES, which the worker later checks against the registry. Three ways of
+// being wrong are each bad in a specific way: naming a version still inside the vulnerable range tells
+// someone they are safe when they are not, naming one below what is installed tells them to downgrade, and
+// naming one the source never wrote — `<=X` read as "X+1" — sends them after a release that may not exist
+// (braces 3.0.4, node-forge 1.4.1). The function answers null rather than guessing, and these cases pin it.
 //
-// The three constraints are: satisfies `patched` (when parseable), does NOT satisfy `vulnerable`
-// (when parseable), and is >= `installed` (when known).
+// The constraints are: a version written in the source, satisfies `patched` (when parseable), does NOT
+// satisfy `vulnerable` (when parseable), and is >= `installed` (when known).
 
-function pick(args: Partial<Parameters<typeof pickSafeFixVersion>[0]> = {}): string | null {
-    return pickSafeFixVersion({
+function pick(args: Partial<Parameters<typeof pickStatedFix>[0]> = {}): string | null {
+    return pickStatedFix({
         patched: null,
         recommendation: null,
         vulnerable: '<4.17.21',
@@ -19,15 +20,15 @@ function pick(args: Partial<Parameters<typeof pickSafeFixVersion>[0]> = {}): str
     })
 }
 
-describe('pickSafeFixVersion — deriving from the vulnerable range', function () {
+describe('pickStatedFix — deriving from the vulnerable range', function () {
     // The upper bound of the vulnerable range is usually the actual fix.
     it('takes the exclusive upper bound as the fix', function () {
         expect(pick({ vulnerable: '<4.17.21' })).toBe('4.17.21')
     })
 
-    // '<=X' means X is still vulnerable, so the fix is the next patch.
-    it('bumps past an inclusive upper bound', function () {
-        expect(pick({ vulnerable: '<=4.17.20' })).toBe('4.17.21')
+    // '<=X' means X is still vulnerable and names nothing beyond it. X+1 is arithmetic, not a statement.
+    it('states no fix for an inclusive upper bound', function () {
+        expect(pick({ vulnerable: '<=4.17.20' })).toBeNull()
     })
 
     it('handles a bounded vulnerable range', function () {
@@ -39,14 +40,14 @@ describe('pickSafeFixVersion — deriving from the vulnerable range', function (
     })
 })
 
-describe('pickSafeFixVersion — the patched range', function () {
+describe('pickStatedFix — the patched range', function () {
     it('takes the lower bound of an inclusive patched range', function () {
         expect(pick({ patched: '>=4.17.21', vulnerable: '<4.17.21' })).toBe('4.17.21')
     })
 
-    // '>X' means X itself is not patched, so the approximation is the next patch version.
-    it('bumps past an exclusive patched lower bound', function () {
-        expect(pick({ patched: '>1.2.3', vulnerable: '<=1.2.3' })).toBe('1.2.4')
+    // '>X' means X itself is not patched; the first version above it is whatever the registry has.
+    it('states no fix for an exclusive patched lower bound', function () {
+        expect(pick({ patched: '>1.2.3', vulnerable: '<=1.2.3' })).toBeNull()
     })
 
     it('accepts an exact patched version', function () {
@@ -77,7 +78,7 @@ describe('pickSafeFixVersion — the patched range', function () {
     })
 })
 
-describe('pickSafeFixVersion — unparseable input', function () {
+describe('pickStatedFix — unparseable input', function () {
     // pnpm audit writes '<0.0.0' to mean "no fix available"; treating it as a real range would
     // produce nonsense bounds.
     it('does not treat the pnpm no-fix sentinel as a range', function () {
@@ -110,7 +111,7 @@ describe('pickSafeFixVersion — unparseable input', function () {
     })
 })
 
-describe('pickSafeFixVersion — never a downgrade', function () {
+describe('pickStatedFix — never a downgrade', function () {
     it('will not suggest a version below what is installed', function () {
         // 1.2.3 clears the vulnerable range but is older than the installed 2.0.0.
         expect(pick({ vulnerable: '<1.2.3', installed: '2.0.0' })).toBeNull()
@@ -140,7 +141,7 @@ describe('pickSafeFixVersion — never a downgrade', function () {
     })
 })
 
-describe('pickSafeFixVersion — never still vulnerable', function () {
+describe('pickStatedFix — never still vulnerable', function () {
     it('rejects every candidate that remains in the vulnerable range', function () {
         expect(pick({ patched: '>=1.0.0', vulnerable: '>=0.0.0' })).toBeNull()
     })
@@ -155,14 +156,21 @@ describe('pickSafeFixVersion — never still vulnerable', function () {
     })
 })
 
-describe('pickSafeFixVersion — the range shapes the common cases do not reach', function () {
+describe('pickStatedFix — the range shapes the common cases do not reach', function () {
     // Every advisory range shape below is one npm and OSV both emit. The comparator arms they take
     // are distinct, and getting one wrong is silent in the worst direction: the advice still LOOKS
     // like a version number.
 
-    // '<=X' means X itself is vulnerable, so the fix is the next patch — not X.
-    it('bumps the patch past an inclusive upper bound', function () {
-        expect(pick({ vulnerable: '<=4.17.20' })).toBe('4.17.21')
+    // '<=X' means X itself is vulnerable, so neither X nor an invented X+1 is a stated fix.
+    it('names neither the inclusive bound nor the next patch', function () {
+        expect(pick({ vulnerable: '<=4.17.20', installed: '4.17.0' })).toBeNull()
+    })
+
+    // node-semver desugars a partial bound (`<1.2` becomes `<1.2.0-0`); that prerelease was never written
+    // by the source, so it is not a stated fix.
+    it('ignores bounds node-semver synthesised from a partial version', function () {
+        expect(pick({ vulnerable: '<1.2' })).toBeNull()
+        expect(pick({ patched: '>=1.2', vulnerable: '<1.2.0' })).toBe('1.2.0')
     })
 
     // Range.set is an OR of ANDs, so a two-branch vulnerable range yields two candidate bounds and
@@ -184,9 +192,8 @@ describe('pickSafeFixVersion — the range shapes the common cases do not reach'
             expect(pick({ patched: patched as string })).toBe(expected)
         })
 
-        // '>X' excludes X, so the smallest allowed version is one patch above it. An approximation,
-        // but erring upward is the safe direction: it can never name a still-vulnerable version.
-        it('bumps the patch past an exclusive lower bound', function () {
+        // '>X' excludes X and names nothing; the fix here is the `<4.17.21` the vulnerable range states.
+        it('takes the stated fix, not a bump, beside an exclusive lower bound', function () {
             expect(pick({ patched: '>4.17.20', vulnerable: '<4.17.21' })).toBe('4.17.21')
         })
 
@@ -208,9 +215,8 @@ describe('pickSafeFixVersion — the range shapes the common cases do not reach'
             expect(pick({ patched: '>=4.18.0 >=4.17.21', vulnerable: '<4.17.21' })).toBe('4.18.0')
         })
 
-        // An exclusive bound that is NOT the binding one: >4.17.20 bumps to 4.17.21, which loses to
-        // the 5.0.0 already in hand. The bump must not overwrite a higher candidate.
-        it('keeps the higher bound when an exclusive one bumps below it', function () {
+        // An exclusive bound beside an inclusive one contributes nothing; the stated 5.0.0 binds.
+        it('keeps the inclusive bound when an exclusive one sits beside it', function () {
             expect(pick({ patched: '>=5.0.0 >4.17.20', vulnerable: '<4.17.21' })).toBe('5.0.0')
         })
     })
@@ -234,7 +240,7 @@ describe('pickSafeFixVersion — the range shapes the common cases do not reach'
     })
 })
 
-describe('pickSafeFixVersion — the installed floor', function () {
+describe('pickStatedFix — the installed floor', function () {
     // installed can be a comma-joined list when the same package is hoisted at several versions.
     // The HIGHEST is the floor, so the advice never tells someone to downgrade any installed copy.
     it('uses the highest of several installed versions as the floor', function () {
@@ -271,7 +277,7 @@ describe('pickSafeFixVersion — the installed floor', function () {
     })
 })
 
-describe('pickSafeFixVersion — version-like text that is not a version', function () {
+describe('pickStatedFix — version-like text that is not a version', function () {
     // The literal scanner is a regex, so it matches things semver then rejects. A prerelease with a
     // leading zero is the realistic one: "1.2.3-01" looks like a version in advisory prose and is
     // not one. Pushing it through unchecked would name a fix that cannot be installed.

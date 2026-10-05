@@ -79,6 +79,17 @@ describe('createOsvScanner', function () {
         expect(calls).toEqual([])
     })
 
+    // The scan records the coverage it was given, and its reason is the resolver's: a package-lock that
+    // could not be parsed is not a missing lockfile.
+    it('takes its reason and coverage from the resolver when there is no graph', async function () {
+        const { lookup } = recordingLookup({})
+        const scanner = createOsvScanner({ lookup, isSeeded: always(true), isEnabled: always(true) })
+        const coverage = [{ ecosystem: 'npm', status: 'unauditable' as const, reasonCode: 'unsupported_lockfile' as const, details: ['could not parse package-lock.json'] }]
+        const result = await scanner.scan('/p', { timeoutMs: 1000, resolvedGraph: null, coverage })
+        expect(result.reasonCode).toBe('unsupported_lockfile')
+        expect(JSON.parse(result.rawJson)).toEqual({ source: 'osv', packageCount: null, findingCount: 0, coverage })
+    })
+
     // The distinction that matters most: an unseeded database must never be reported as zero findings.
     it('reports osv_db_not_seeded rather than zero findings when nothing is seeded', async function () {
         const { lookup } = recordingLookup({})

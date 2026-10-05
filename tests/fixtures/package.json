@@ -1,0 +1,5 @@
+{
+    "private": true,
+    "description": "Test fixtures. ESM, so registry-stub.ts loads under tsx from the worker scripts as it does under vitest.",
+    "type": "module"
+}

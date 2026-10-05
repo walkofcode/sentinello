@@ -23,6 +23,7 @@ import {
     errorResult,
     looksLikeLegacyShape,
     modernAuditSchema,
+    NPM_AUDIT_SCANNER_NAME,
     normalizeAuditOutput,
     normalizePnpmAuditOutput,
     packageLockSchema,
@@ -33,8 +34,6 @@ import {
     unauditableResult
 } from './npm-audit-parse'
 import type { DepClassifier, InstalledVersionMap } from './npm-audit-parse'
-
-const SCANNER_NAME = 'npm-audit'
 
 type LockfileSnapshot = {
     installedVersions: InstalledVersionMap
@@ -347,7 +346,7 @@ async function detectYarnMajor(projectPath: string, lockfile: DetectedLockfile):
 // otherwise successful scan purely to record a statistic. Unknown stays null.
 function auditSummary(ctx: ScanContext, findingCount: number): string {
     const packageCount = ctx.resolvedGraph?.packages?.length ?? null
-    return JSON.stringify({ source: SCANNER_NAME, packageCount, findingCount })
+    return JSON.stringify({ source: NPM_AUDIT_SCANNER_NAME, packageCount, findingCount })
 }
 
 function logCrossCheckDrops(result: { droppedCount: number; droppedAdvisoryIds: string[] }, packageManager: string): void {
@@ -355,7 +354,7 @@ function logCrossCheckDrops(result: { droppedCount: number; droppedAdvisoryIds: 
     const MAX_LIST = 10
     const head = result.droppedAdvisoryIds.slice(0, MAX_LIST)
     const tail = result.droppedAdvisoryIds.length > MAX_LIST ? `, +${result.droppedAdvisoryIds.length - MAX_LIST} more` : ''
-    process.stderr.write(`[${SCANNER_NAME}] lockfile cross-check (${packageManager}): dropped ${result.droppedCount} finding(s) out of vulnerable range [${head.join(', ')}${tail}]\n`)
+    process.stderr.write(`[${NPM_AUDIT_SCANNER_NAME}] lockfile cross-check (${packageManager}): dropped ${result.droppedCount} finding(s) out of vulnerable range [${head.join(', ')}${tail}]\n`)
 }
 
 export async function runNpmAudit(projectPath: string, ctx: ScanContext, deps: NpmAuditDeps = REAL_DEPS): Promise<ScanResult> {
@@ -501,7 +500,7 @@ export async function runNpmAudit(projectPath: string, ctx: ScanContext, deps: N
 // result-shaping surface without a package manager on PATH.
 export function createNpmAuditScanner(deps: NpmAuditDeps): ScannerPlugin {
     return {
-        name: SCANNER_NAME,
+        name: NPM_AUDIT_SCANNER_NAME,
         scan: function scan(projectPath: string, ctx: ScanContext): Promise<ScanResult> {
             return runNpmAudit(projectPath, ctx, deps)
         }

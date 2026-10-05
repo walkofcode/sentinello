@@ -15,6 +15,18 @@ const ROWS: Row[] = [
         disableKey: 'rows.npm.disable'
     },
     {
+        destination: 'registry.npmjs.org (package metadata)',
+        purposeKey: 'rows.npmRegistry.purpose',
+        whenKey: 'rows.npmRegistry.when',
+        disableKey: 'rows.npmRegistry.disable'
+    },
+    {
+        destination: 'api.npmjs.org (download counts)',
+        purposeKey: 'rows.npmDownloads.purpose',
+        whenKey: 'rows.npmDownloads.when',
+        disableKey: 'rows.npmDownloads.disable'
+    },
+    {
         destination: 'osv-vulnerabilities.storage.googleapis.com/<ecosystem>',
         purposeKey: 'rows.osv.purpose',
         whenKey: 'rows.osv.when',

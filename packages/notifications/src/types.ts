@@ -1,4 +1,4 @@
-import type { Finding, NotificationTarget } from '@sentinello/core'
+import type { Finding, LabelledScanState, NotificationTarget } from '@sentinello/core'
 
 // Structured context the webhook sender needs to build its JSON / text flavors. Slack and Telegram
 // ignore it; it rides along on the shared RenderedMessage. The notifier populates it (with DB-derived
@@ -10,6 +10,9 @@ export type WebhookPayloadContext = {
     project: { id: string; name: string; relPath: string; packageManager: string }
     findings: Finding[]
     failureSignature: string | null
+    // The project's scan state as the notifier read it after recording the scan, labelled in the
+    // notification locale: whether it could be scanned at all, and why not.
+    scanState: LabelledScanState
     // The 'text' flavor body: the advisory export markdown (same as the portal's "Advisory export").
     advisoryText: string
 }

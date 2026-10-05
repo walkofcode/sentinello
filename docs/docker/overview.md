@@ -102,6 +102,8 @@ volumes:
 | `SENTINELLO_OSV_DB_PATH`     | `<data dir>/osv.db`           | Location of the rebuildable OSV advisory cache (defaults next to the main DB) |
 | `SENTINELLO_GEMNASIUM_FEED_URL` | GitLab gemnasium-db archive | gemnasium advisory archive URL (only used when a **GitLab gemnasium** cell is enabled); set to `off` to disable all gemnasium network access |
 | `SENTINELLO_GEMNASIUM_API_URL` | GitLab API for gemnasium-db | GitLab project API base used to read the advisory repository's HEAD commit and fetch only the files that changed, so a routine sync transfers a few KB instead of re-downloading the whole archive. Point it at a mirror's API if you host one |
+| `SENTINELLO_NPM_REGISTRY_URL` | `https://registry.npmjs.org` | npm registry the worker checks fix versions against after each scan, and reads package metadata from for the way out when no fix is released — packages with findings and their dependency chains, plus the candidate releases and alternatives the way out weighs, with their dependency trees. A successful answer is reused for 24 hours; after that it is asked again with the ETag it came with, so an unchanged package costs a `304` with no body. A failed request is not stored, so it can be retried sooner. Point it at a mirror if you use one. When it cannot be reached, the worker reuses package metadata it fetched earlier if that data is still usable, and marks the answer with the date it was fetched — current findings are evaluated against that cached metadata, so a finding's earlier answer is not frozen; without usable cached metadata, the fix shows as not checked against the registry. An outage on its own never produces "no fix" |
+| `SENTINELLO_NPM_DOWNLOADS_URL` | `https://api.npmjs.org` | npm download-count API, read for the weekly downloads shown beside a way out's packages and alternatives. When it cannot be reached, the last known count is shown, or unknown when there is none |
 | `SENTINELLO_USER_AGENT`      | `sentinello (+https://sentinello.org)` | User-Agent sent with every advisory-feed request. Override only if a proxy filters on agent strings |
 | `SENTINELLO_GEMNASIUM_DB_PATH`  | `<data dir>/gemnasium.db`   | Location of the rebuildable gemnasium advisory cache (defaults next to the main DB) |
 
@@ -155,7 +157,9 @@ The same check runs at worker startup, so a cache that finished downloading whil
 scan.
 
 Leave these sources off (or set `SENTINELLO_OSV_FEED_URL=off` /
-`SENTINELLO_GEMNASIUM_FEED_URL=off`) for a fully air-gapped install.
+`SENTINELLO_GEMNASIUM_FEED_URL=off`) for a fully air-gapped install. Fix versions are checked against the
+npm registry (`SENTINELLO_NPM_REGISTRY_URL`) after each scan; without one, findings still appear, with
+their fixes marked as not checked against the registry.
 
 ### Language
 

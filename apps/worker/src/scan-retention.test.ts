@@ -127,8 +127,8 @@ describe('sweepOldScans', function () {
         expect(countScansForProject(db, PROJECT_ID)).toBe(KEEP_PER_PROJECT)
     })
 
-    // The floor wins over the window, always. Below it getProjectEcosystemCoverage stops being able to
-    // reconstruct per-ecosystem coverage and a partially-audited project starts reading as a clean one.
+    // The floor wins over the window, always: it keeps the sparkline and every running source's latest
+    // scan, whose coverage getProjectEcosystemCoverage reads.
     it('keeps the per-project floor however far back the window reaches', async function () {
         seedOldScans(KEEP_PER_PROJECT)
         setConfigValue(db, 'scanRetentionDays', 1)

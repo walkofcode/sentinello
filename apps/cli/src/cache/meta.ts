@@ -2,11 +2,13 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-// Where the CLI keeps its advisory cache, and what it remembers about it.
+// Where the CLI keeps its cache, and what it remembers about it.
 //
-// This is the ONLY thing the CLI writes to disk. Nothing about the scanned code is ever persisted: no
-// findings, no history, no project list, no telemetry. The cache holds public advisory data and the
-// bookkeeping needed to refresh it incrementally, and deleting it costs nothing but a re-download.
+// The cache directory is the ONLY place the CLI writes to, apart from the advisory it was asked to write.
+// Nothing about the scanned code is ever persisted: no findings, no history, no project list, no
+// telemetry. The cache holds public data — the advisories, the npm registry metadata the fix check and the
+// way out read (cache/registry.ts) — and the bookkeeping needed to refresh it, and deleting it costs
+// nothing but a re-download.
 
 // Bump when the on-disk layout changes in a way older files cannot satisfy. A mismatch discards and
 // re-seeds, which is always safe here precisely because this is a cache and not a source of truth.
@@ -124,7 +126,8 @@ export type CacheLock = {
 }
 
 // A best-effort lock so two concurrent runs do not rebuild the same cache file at once. Uses exclusive
-// file creation, which is atomic on every platform we target. Held only while syncing; a scan that finds
+// file creation, which is atomic on every platform we target. Held only while syncing the advisories or
+// saving the registry cache (cache/registry.ts, which skips its save when the lock is held); a scan that finds
 // the lock held simply reads the existing cache rather than waiting, since a slightly stale read is far
 // better than blocking a developer's terminal behind someone else's 200 MB download.
 export async function tryAcquireLock(cacheDir: string): Promise<CacheLock | null> {

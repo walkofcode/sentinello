@@ -14,6 +14,7 @@ import { MuteDialog } from '@/components/triage/mute-dialog'
 import { cn } from '@/lib/cn'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { RowDisclosure } from './row-disclosure'
+import { NotRechecked } from './version-chain'
 
 type Props = {
     packageName: string
@@ -253,6 +254,8 @@ function ProjectCard({ packageName, group, activeMutes, isOpen, onToggle, now }:
                                         )) || <span>{u.advisoryTitle || u.advisoryId}</span>}
                                     </div>
                                 </div>
+                                {/* What an earlier scan left, kept at its severity: say why nothing re-checked it. */}
+                                {u.notRecheckedBecause ? <div className="mt-1"><NotRechecked reason={u.notRecheckedBecause} /></div> : null}
                                 <div className="mt-2 font-mono text-muted-foreground">
                                     {t('rangeLabel')} {u.vulnerableRange}
                                 </div>
@@ -342,6 +345,7 @@ function ExpandedAdvisories({ packageName, group, activeMutes, now }: ExpandedPr
                                             <ExternalLink className="h-3 w-3" />
                                         </Link>
                                     )) || <span>{u.advisoryTitle || u.advisoryId}</span>}
+                                    {u.notRecheckedBecause ? <div><NotRechecked reason={u.notRecheckedBecause} /></div> : null}
                                 </td>
                                 <td className="px-2 py-1.5 align-middle font-mono text-muted-foreground">
                                     {u.vulnerableRange}

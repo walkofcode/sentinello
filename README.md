@@ -200,6 +200,8 @@ A ready-to-use `docker-compose.yml` ships in the repo root.
 | `SENTINELLO_OSV_DB_PATH`     | `<data dir>/osv.db`           | Location of the rebuildable OSV advisory cache (defaults next to the main DB) |
 | `SENTINELLO_GEMNASIUM_FEED_URL` | GitLab gemnasium-db archive | gemnasium advisory archive URL (only used when a **GitLab gemnasium** cell is enabled); set to `off` to disable all gemnasium network access |
 | `SENTINELLO_GEMNASIUM_API_URL` | GitLab API for gemnasium-db | GitLab project API base used to read the advisory repository's HEAD commit and fetch only the files that changed, so a routine sync transfers a few KB instead of re-downloading the whole archive. Point it at a mirror's API if you host one |
+| `SENTINELLO_NPM_REGISTRY_URL` | `https://registry.npmjs.org` | npm registry the worker checks fix versions against after each scan, and reads package metadata from for the way out when no fix is released — packages with findings and their dependency chains, plus the candidate releases and alternatives the way out weighs, with their dependency trees. A successful answer is reused for 24 hours; after that it is asked again with the ETag it came with, so an unchanged package costs a `304` with no body. A failed request is not stored, so it can be retried sooner. Point it at a mirror if you use one. When it cannot be reached, the worker reuses package metadata it fetched earlier if that data is still usable, and marks the answer with the date it was fetched — current findings are evaluated against that cached metadata, so a finding's earlier answer is not frozen; without usable cached metadata, the fix shows as not checked against the registry. An outage on its own never produces "no fix" |
+| `SENTINELLO_NPM_DOWNLOADS_URL` | `https://api.npmjs.org` | npm download-count API, read for the weekly downloads shown beside a way out's packages and alternatives. When it cannot be reached, the last known count is shown, or unknown when there is none |
 | `SENTINELLO_USER_AGENT`      | `sentinello (+https://sentinello.org)` | User-Agent sent with every advisory-feed request. Override only if a proxy filters on agent strings |
 | `SENTINELLO_GEMNASIUM_DB_PATH`  | `<data dir>/gemnasium.db`   | Location of the rebuildable gemnasium advisory cache (defaults next to the main DB) |
 
@@ -298,6 +300,31 @@ will report it for other ecosystems when they are promoted:
 
 None of these are reported as "clean". A scan that could not resolve something says so.
 
+### Projects that cannot be scanned
+
+Every project carries one scan state, worked out over the sources this instance expects to have scanned
+it — every enabled source for each ecosystem detected in the project:
+
+| State | Shown as | Means |
+|---|---|---|
+| `scanned` | nothing extra | every expected source's latest scan succeeded and every ecosystem was fully read |
+| `partial` | **Project cannot be fully scanned** | something answered, something else did not (a source failed, has not run yet, or an ecosystem was only partly read) |
+| `cannot_scan` | **Project cannot be scanned** | no expected source could scan it, and at least one tried and failed |
+| `not_scanned_yet` | **Not scanned yet** | nothing expected has scanned it yet |
+
+Each state other than `scanned` lists its reasons and whose fix each one is: **the project's** (a
+`package.json` with no lockfile, an unsupported lockfile, Yarn 1 — change the project) or **this
+Sentinello install's** (a package manager missing, an advisory database not downloaded, a timeout — the
+operator's fix). A source that has not run yet is nobody's fault; the next scan settles it. The portal
+shows the state as a banner on the project page and a badge in the projects list; **All clear** appears
+only for a `scanned` project with no findings, because zero findings anywhere else means unknown, not
+safe.
+
+Findings an earlier scan recorded are kept at their severity when a later scan fails — a project that
+lost its lockfile does not look clean. They read **not re-checked — the project cannot be scanned: No
+lockfile (last scanned successfully …)**, after their historical fix if one was settled, instead of
+"rescan pending". The annotation goes away on the first successful rescan.
+
 **Provisioning.** Enabling **OSV** downloads the npm advisory export (**~204 MB**, needing ~600 MB
 free) into the data volume on first sync, then pulls ~daily incremental updates around 03:17. Enabling **GitLab gemnasium** downloads its advisory archive from
 `gitlab.com` (**~52 MB**, needing ~300 MB free) on first sync around 03:42, then keeps it fresh from
@@ -322,7 +349,16 @@ no scan you have to remember to run.
 
 For a fully air-gapped install, leave these
 sources off (or set `SENTINELLO_OSV_FEED_URL=off` / `SENTINELLO_GEMNASIUM_FEED_URL=off`) and Sentinello
-makes no OSV/gemnasium network calls at all.
+makes no OSV/gemnasium network calls at all. Fix versions are checked against the npm registry
+(`SENTINELLO_NPM_REGISTRY_URL`) after each scan; without one, findings still appear, with their fixes
+marked as not checked against the registry.
+
+The npm check has **no lookup cap**: every package a fix or a way out needs is read, so a way out is
+never left partial. Lookups run 16 at a time, a cached answer is reused for 24 hours and then
+revalidated by ETag, so the daily rescan of an unchanged package costs a `304`. On an instance that ran
+a pre-release build of 3.7.0, a package cached by that build is **fetched in full once, the next time a
+scan needs it** — the cached format now keeps prereleases, which those builds dropped — and is cached as
+usual after that. There is no sweep of the whole cache: a package no scan asks for stays as it is.
 
 ## Notifications & webhooks
 
@@ -362,6 +398,18 @@ The generic webhook has two **payload flavors**:
 
   Scan-failure events arrive as `{ "event": "scan_failure", "failureSignature": "...", "vulnerabilities": [] }`.
 
+  Both events also carry `scanState` — `{ state, reasons: [{ source, ecosystem, reasonCode, label, side }] }`,
+  as described in [Projects that cannot be scanned](#projects-that-cannot-be-scanned) — and each
+  vulnerability carries `fixStatus`, `remediation` (the way out when no fix is released) and
+  `notRecheckedBecause` (`{ reasonCode, side, projectState, lastOkScanAt }`, set when the row was left by
+  an earlier scan because its source's latest scan failed; `null` otherwise). A failure that is the
+  project's to fix is titled `[CANNOT BE SCANNED]` instead of `[SCAN FAILED]`.
+
+  **Which parts are translated.** The reason `label`s in the webhook's `scanState`, and the reason labels
+  inside a findings message, follow **Settings → Advanced → Notification language**. The rest of a
+  findings message — its headline ("Project cannot be scanned: …") included — is English, as are the
+  labels MCP and the CLI return.
+
 - **Plain-text advisory** — POSTs `{ "text": "<markdown>" }` containing the same advisory export the
   portal produces (**Settings → Export**), ready to pipe straight into an LLM to triage and fix.
 
@@ -395,6 +443,10 @@ so the export leaves those findings out rather than instructing an agent to fix 
 already signed off on. The same document is available over MCP as `get_project_advisory`, and as the
 plain-text webhook flavour above.
 
+A project that could not be fully scanned gets a **Projects that could not be fully scanned** section in
+the document — each project's state, every reason and whose fix it is — so an agent never reads a short
+list as a clean bill of health. The library export carries the same section for the projects it lists.
+
 ## MCP integration
 
 Sentinello exposes a [Model Context Protocol](https://modelcontextprotocol.io) server at
@@ -413,6 +465,19 @@ description and agents act on them:
   ends with a notice saying it is incomplete and giving the exact follow-up call (`offset`,
   `includePrompt: false`) to fetch the rest. Pass `minSeverity` to trim it instead. A document that
   stops early always says so — it never truncates silently.
+
+Scan state is reported the same way everywhere:
+
+- **`list_projects` and `get_project`** return `scanState` — `{ state, reasons }` with the four states
+  in [Projects that cannot be scanned](#projects-that-cannot-be-scanned), each reason
+  `{ source, ecosystem, reasonCode, label, side }` with `side` `project`, `environment` or `null`.
+- **`get_dashboard_summary`** adds `projectsCannotBeScanned` and `projectsCannotBeFullyScanned`.
+- **`list_findings`** returns `fixStatus`, `fixCheck`, `remediation` and `notRecheckedBecause` per row;
+  the last is set when the row's source last failed to scan the project, and then the fix fields are as
+  of the earlier scan.
+
+Labels are English. Every field is described in the tool's own schema, including that zero findings on
+a project that is not `scanned` means unknown, not safe.
 
 **The endpoint is off until you generate a token — the bearer token is the on/off switch.** No env
 vars are involved. Go to **Settings → MCP**, click **Generate token**, and the endpoint goes live

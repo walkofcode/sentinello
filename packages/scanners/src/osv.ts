@@ -1,4 +1,5 @@
 import type { VersionRange } from '@sentinello/versions'
+import { unresolvedGraphReason, unresolvedGraphRawJson } from './coverage'
 import { acceptedRangeTypesForEcosystem, comparatorForEcosystem } from './engine/comparators'
 import { matchAdvisories } from './engine/matcher'
 import type { CanonicalAdvisory } from './engine/types'
@@ -66,7 +67,14 @@ export function createOsvScanner(deps: OsvScannerDeps): ScannerPlugin {
         const graph = ctx.resolvedGraph
         if (!graph) {
             // No resolvable lockfile (yarn/unparseable/absent) — fail open, same posture as the cross-check.
-            return unauditable('no_lockfile', 'no resolvable lockfile for OSV', startedAt)
+            return {
+                status: 'unauditable',
+                reasonCode: unresolvedGraphReason(ctx.coverage),
+                findings: [],
+                rawJson: unresolvedGraphRawJson(OSV_SCANNER_NAME, ctx.coverage),
+                errorText: 'no resolvable lockfile for OSV',
+                durationMs: Date.now() - startedAt
+            }
         }
         // Only ecosystems whose (osv, ecosystem) cell is enabled are auditable by this source; a disabled
         // cell contributes nothing (the "not auditable because no source enabled" disclosure is Phase 5).

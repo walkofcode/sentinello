@@ -20,7 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { EmptyState } from '@/components/ui/empty-state'
 import { parseJsonArray, rootDisplayLabel } from '@/lib/format'
 import { rememberProjectsUrl } from '@/lib/home-url-memory'
-import { isProjectHealthy, problemScanStates, scanStateLabel } from '@/lib/project-state'
+import { isProjectHealthy, scanStateBadge, scanStateReasonsText } from '@/lib/project-state'
 import {
     buildProjectFiltersUrl,
     parseProjectFiltersFromSearch,
@@ -585,21 +585,22 @@ function RowActions({ project, depType, scanning }: { project: ProjectCatalogRow
     )
 }
 
-// One badge per source that could not answer. A source that returned ok shows nothing, so a healthy
-// project's State cell is empty and a project where npm audit worked but OSV was never seeded shows
-// exactly one badge — naming OSV, rather than condemning the whole project.
+// The project's scan state as one badge — "Cannot be scanned", "Cannot be fully scanned" or "Not scanned
+// yet" — with every reason and whose side it is on in its tooltip. A fully scanned project shows nothing.
 function ScanStateBadges({ row }: { row: ProjectCatalogRow }) {
+    const t = useTranslations('Home')
     const locale = useLocale() as Locale
+    const badge = scanStateBadge(row.scanState)
+    if (badge === null) return null
+    const reasons = scanStateReasonsText(row.scanState, locale, { project: t('stateSideProject'), environment: t('stateSideEnvironment') })
+    if (badge === 'notScannedYet') return <Badge variant="muted">{t('stateNotScannedYet')}</Badge>
     return (
-        <>
-            {problemScanStates(row).map(function stateBadge(state) {
-                return (
-                    <Badge key={state.source} variant="outline" title={state.errorText || ''}>
-                        {scanStateLabel(state, locale)}
-                    </Badge>
-                )
-            })}
-        </>
+        <span className="flex flex-col items-start gap-0.5">
+            <Badge variant={badge === 'cannotScan' ? 'high' : 'moderate'} title={reasons}>
+                {badge === 'cannotScan' ? t('stateCannotScan') : t('statePartial')}
+            </Badge>
+            <span className="text-[0.625rem] text-muted-foreground">{reasons}</span>
+        </span>
     )
 }
 

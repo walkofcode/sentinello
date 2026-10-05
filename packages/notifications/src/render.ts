@@ -1,4 +1,4 @@
-import { reasonCodeLabel, REASON_CODE_VALUES, type Finding, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
+import { describeFix, describeScanReasons, PLAIN_FIX_STYLE, scanStateHeadline, reasonSide, summarizeRemediation, reasonCodeLabel, REASON_CODE_VALUES, SCAN_STATE_SIDE_SHORT, type Finding, type LabelledScanState, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
 import type { RenderedMessage } from './types'
 
 const REASON_CODE_SET = new Set<string>(REASON_CODE_VALUES)
@@ -7,11 +7,17 @@ const REASON_CODE_SET = new Set<string>(REASON_CODE_VALUES)
 // "error:no_lockfile"); legacy events store a scrubbed errorText one-liner. We humanise the
 // structured form (in the configured notification locale) and pass the legacy form through unchanged.
 function humaniseFailureSignature(sig: string, locale: Locale): string {
+    const code = signatureReasonCode(sig)
+    return code === null ? sig : reasonCodeLabel(code, locale)
+}
+
+// The reason code a structured signature carries, or null for a legacy one-liner.
+function signatureReasonCode(sig: string): ReasonCode | null {
     const parts = sig.split(':')
-    if (parts.length !== 2) return sig
+    if (parts.length !== 2) return null
     const code = parts[1] || ''
-    if (!REASON_CODE_SET.has(code)) return sig
-    return reasonCodeLabel(code as ReasonCode, locale)
+    if (!REASON_CODE_SET.has(code)) return null
+    return code as ReasonCode
 }
 
 // Builds notification message bodies. Pure functions — render is stateless and side-effect free.
@@ -31,6 +37,11 @@ export type RenderBatchedFindingsInput = {
     findings: Finding[]
     isBaseline: boolean
     portalBaseUrl: string | null
+    // The project's scan state after the scan that triggered the message. A project that cannot be (fully)
+    // scanned says so above its findings: some of them are what an earlier scan left. Optional for a
+    // caller with no scan behind it.
+    scanState?: LabelledScanState | null
+    locale?: Locale
 }
 
 export type RenderScanFailureInput = {
@@ -70,7 +81,8 @@ function severityLabel(severity: string): string {
 
 export function renderSingleFinding(input: RenderFindingInput): RenderedMessage {
     const sev = severityLabel(input.finding.severity)
-    const fix = input.finding.fixAvailable && input.finding.fixVersion && (' → fix: ' + input.finding.fixVersion) || (input.finding.fixAvailable && ' → fix available' || ' → no fix available')
+    // The same wording as the advisory export's Fix line: only a released fix reads as an upgrade.
+    const fix = ' → ' + describeFix(input.finding, PLAIN_FIX_STYLE)
     const title = '[' + sev + '] ' + input.finding.packageName + '@' + input.finding.installedVersion + ' in ' + input.projectName
     const portalLink = buildProjectUrl(input.portalBaseUrl, input.finding.projectId)
     const lines: string[] = []
@@ -80,6 +92,9 @@ export function renderSingleFinding(input: RenderFindingInput): RenderedMessage 
     lines.push('*Package:* ' + input.finding.packageName + '@' + input.finding.installedVersion)
     lines.push('*Vulnerable range:* ' + input.finding.vulnerableRange)
     lines.push('*Severity:* ' + sev + fix)
+    if (input.finding.fixStatus === 'none_released' && input.finding.remediation) {
+        lines.push('*Way out:* ' + summarizeRemediation(input.finding.remediation, PLAIN_FIX_STYLE))
+    }
     if (input.finding.advisoryTitle) {
         lines.push('*Advisory:* ' + input.finding.advisoryTitle)
     }
@@ -107,6 +122,7 @@ export function renderBatchedFindings(input: RenderBatchedFindingsInput): Render
     const markdownLines: string[] = []
     markdownLines.push(headline)
     pushBranchLine(markdownLines, input.gitBranch)
+    pushScanStateLine(markdownLines, input.scanState ?? null, input.locale || 'en')
     markdownLines.push(top + more)
     if (portalLink) {
         markdownLines.push('')
@@ -122,16 +138,23 @@ export function renderBatchedFindings(input: RenderBatchedFindingsInput): Render
     }
 }
 
+// A failure whose cause is on the project's side (no lockfile, an unsupported lockfile, …) is not a scan
+// that broke: the project cannot be scanned until someone changes it, and the message says so. A failure
+// on this install's side (a tool missing, a database not downloaded, a timeout) keeps "[SCAN FAILED]": the
+// operator's fix. A legacy signature with no reason code cannot be placed, so it keeps the old wording.
 export function renderScanFailure(input: RenderScanFailureInput): RenderedMessage {
     const rawSig = input.event.failureSignature || 'unknown failure'
     const sig = humaniseFailureSignature(rawSig, input.locale || 'en')
-    const title = '[SCAN FAILED] ' + input.projectName + ' — ' + sig
+    const code = signatureReasonCode(rawSig)
+    const projectSide = code !== null && reasonSide(code) === 'project'
+    const title = (projectSide ? '[CANNOT BE SCANNED] ' : '[SCAN FAILED] ') + input.projectName + ' — ' + sig
     const portalLink = buildProjectUrl(input.portalBaseUrl, input.projectId)
     const lines: string[] = []
-    lines.push('*Scan failed* for *' + input.projectName + '*')
+    lines.push(projectSide ? '*Cannot be scanned:* *' + input.projectName + '*' : '*Scan failed* for *' + input.projectName + '*')
     pushBranchLine(lines, input.gitBranch)
     lines.push('*Scanner:* ' + input.event.scanner)
-    lines.push('*Failure:* ' + sig)
+    lines.push((projectSide ? '*Reason:* ' : '*Failure:* ') + sig)
+    if (code !== null) lines.push('*Whose fix:* ' + SCAN_STATE_SIDE_SHORT[reasonSide(code)])
     if (input.errorText) {
         lines.push('*Error:* ' + input.errorText)
     }
@@ -147,9 +170,19 @@ export function renderScanFailure(input: RenderScanFailureInput): RenderedMessag
     }
 }
 
+// "*Project cannot be scanned:* No lockfile (the project) — …". Only for the two states that mean a scan
+// failed: `not_scanned_yet` cannot carry findings, and `scanned` needs no line.
+function pushScanStateLine(lines: string[], scanState: LabelledScanState | null, locale: Locale): void {
+    if (scanState === null || (scanState.state !== 'cannot_scan' && scanState.state !== 'partial')) return
+    lines.push('*' + scanStateHeadline(scanState.state) + ':* ' + describeScanReasons(scanState.reasons, locale) +
+        ' — findings an earlier scan recorded are marked "not re-checked"')
+}
+
 function formatLine(finding: Finding): string {
     const sev = severityLabel(finding.severity)
-    return '• [' + sev + '] ' + finding.packageName + '@' + finding.installedVersion + ' (' + finding.advisoryId + ')'
+    const line = '• [' + sev + '] ' + finding.packageName + '@' + finding.installedVersion + ' (' + finding.advisoryId + ') — ' + describeFix(finding, PLAIN_FIX_STYLE)
+    if (finding.fixStatus !== 'none_released' || !finding.remediation) return line
+    return line + '\n    Way out: ' + summarizeRemediation(finding.remediation, PLAIN_FIX_STYLE)
 }
 
 function buildProjectUrl(baseUrl: string | null, projectId: string): string | null {

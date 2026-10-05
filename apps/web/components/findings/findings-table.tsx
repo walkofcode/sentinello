@@ -12,6 +12,7 @@ import { MuteDialog } from '@/components/triage/mute-dialog'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { VersionChain } from './version-chain'
+import { WayOut } from './way-out'
 import { DepPathPopover } from './dep-path-popover'
 import { SourceTags } from './source-tags'
 import { SourceGradesPopover } from './source-grades-popover'
@@ -61,10 +62,10 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                                 <dd>
                                     <VersionChain
                                         installed={f.installedVersion}
-                                        fix={f.fixVersion}
                                         vulnerableRange={f.vulnerableRange}
-                                        fixAvailable={f.fixAvailable}
+                                        fix={f}
                                     />
+                                    {f.fixStatus === 'none_released' && f.remediation ? <WayOut remediation={f.remediation} notRecheckedBecause={f.notRecheckedBecause} /> : null}
                                 </dd>
                                 <dt className="uppercase tracking-wide text-muted-foreground">{t('columns.advisory')}</dt>
                                 <dd className="min-w-0 break-words">
@@ -128,10 +129,10 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                                     <TableCell>
                                         <VersionChain
                                             installed={f.installedVersion}
-                                            fix={f.fixVersion}
                                             vulnerableRange={f.vulnerableRange}
-                                            fixAvailable={f.fixAvailable}
+                                            fix={f}
                                         />
+                                        {f.fixStatus === 'none_released' && f.remediation ? <WayOut remediation={f.remediation} notRecheckedBecause={f.notRecheckedBecause} /> : null}
                                     </TableCell>
                                     <TableCell className="text-xs">
                                         {f.advisoryUrl ? (

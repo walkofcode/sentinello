@@ -7,6 +7,6 @@
         "tsBuildInfoFile": "./.tsbuildinfo",
         "types": ["node"]
     },
-    "include": ["src/**/*.ts"],
+    "include": ["src/**/*.ts", "scripts/**/*.ts"],
     "exclude": ["node_modules"]
 }

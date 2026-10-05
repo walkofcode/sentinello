@@ -1,10 +1,13 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { DiscoveredProject, GemnasiumAdvisory, OsvAdvisory, RawFinding, ScanContext, ScanResult, ScannerPlugin } from '@sentinello/scanners'
+import type { NpmPackageResult } from '@sentinello/feeds'
+import { createMemoryRegistryStore, createNpmRegistryClient } from '@sentinello/fixes'
 import type { LoadedCache } from './cache/lookup'
-import { buildScanners, collectPackageNames, pick, resolveProjects, scanProject, type ResolvedProject, type ScanSetup } from './scan'
+import { buildScanners, cliScanState, collectPackageNames, pick, resolveProjects, scanProject, type ResolvedProject, type ScanSetup } from './scan'
 
 // The CLI's scan runner — structurally apps/worker/src/runner.ts with the database and notification calls
 // removed. The symmetry is the point: a CLI run and a portal scan of the same project must produce the
@@ -48,6 +51,8 @@ function setup(overrides: Partial<ScanSetup> = {}): ScanSetup {
         ecosystem: 'npm',
         includeNpmAudit: true,
         seeded: { osv: true, gemnasium: true },
+        settledAt: 0,
+        registry: null,
         ...overrides
     } as ScanSetup
 }
@@ -63,11 +68,19 @@ function finding(overrides: Partial<RawFinding> = {}): RawFinding {
         severity: 'high',
         fixAvailable: true,
         fixVersion: '4.17.21',
+        fixInputs: {
+            source: 'osv',
+            installed: ['4.17.11'],
+            affected: { ranges: '<4.17.21', exact: [], complete: true },
+            patched: null,
+            statedFix: '4.17.21',
+            fixViaParent: false
+        },
         depPath: ['lodash'],
         isProd: true,
         isDev: false,
         ...overrides
-    } as RawFinding
+    }
 }
 
 function result(overrides: Partial<ScanResult> = {}): ScanResult {
@@ -429,6 +442,60 @@ describe('scanProject', function () {
         expect(out.outcomes).toEqual([])
     })
 
+    // The fix is settled by the same settleProject the worker calls, against the run's registry client.
+    describe('fix settlement', function () {
+        const braces = finding({
+            advisoryId: 'GHSA-vfj7-8cjw-p6xm',
+            packageName: 'braces',
+            installedVersion: '3.0.3',
+            vulnerableRange: '<=3.0.3',
+            fixAvailable: false,
+            fixVersion: null,
+            fixInputs: { source: 'osv', installed: ['3.0.3'], affected: { ranges: '<=3.0.3', exact: [], complete: true }, patched: null, statedFix: null, fixViaParent: false }
+        })
+
+        function registry(fail = false) {
+            const asked: string[] = []
+            const client = createNpmRegistryClient(createMemoryRegistryStore(), {
+                now: function now() { return 1 },
+                fetchPackage: async function fetchPackage(name: string): Promise<NpmPackageResult> {
+                    asked.push(name)
+                    if (fail) return { status: 'error', reason: 'HTTP 503' }
+                    return { status: 'ok', summary: { v: 2, name, latest: '3.0.3', modified: 1, maintainers: 1, repository: null, versions: { '3.0.3': { publishedAt: 1, deprecated: null, edges: null } }, prereleases: {}, edges: [] }, etag: null, bytes: 1 }
+                },
+                fetchDownloads: async function fetchDownloads() { return { status: 'error', reason: 'down' } }
+            })
+            return { client, asked }
+        }
+
+        it('settles against the registry and carries the way out of a finding with no released fix', async function () {
+            const { client, asked } = registry()
+            // Reported by two sources: one identity, one lookup, one settlement, one way out.
+            const scanners = [fakeScanner('osv', result({ findings: [braces] })), fakeScanner('gemnasium', result({ findings: [{ ...braces, fixInputs: { ...braces.fixInputs, source: 'gemnasium' } }] }))]
+            const out = await scanProject(setup({ registry: client }), resolved(), scanners)
+            expect(out.findings).toHaveLength(1)
+            expect(asked).toEqual(['braces'])
+            const kept = first(out.findings, 'finding')
+            expect(out.fixes.get(kept)).toMatchObject({ fixStatus: 'none_released', fixVersion: null, fixCheck: { registry: 'ok' } })
+            expect(out.remediations.get(kept)).toMatchObject({ package: 'braces' })
+            expect(out.wayOutError).toBeNull()
+        })
+
+        it('leaves a finding unverified with no way out when the registry cannot answer', async function () {
+            const { client } = registry(true)
+            const out = await scanProject(setup({ registry: client }), resolved(), [fakeScanner('osv', result({ findings: [braces] }))])
+            const kept = first(out.findings, 'finding')
+            expect(out.fixes.get(kept)).toMatchObject({ fixStatus: 'unverified', fixCheck: { registry: 'error' } })
+            expect(out.remediations.size).toBe(0)
+        })
+
+        it('asks nothing offline, and marks the fix as not checked because of it', async function () {
+            const out = await scanProject(setup({ registry: null }), resolved(), [fakeScanner('osv', result({ findings: [braces] }))])
+            expect(out.fixes.get(first(out.findings, 'finding'))).toMatchObject({ fixStatus: 'unverified', fixCheck: { registry: 'offline' } })
+            expect(out.remediations.size).toBe(0)
+        })
+    })
+
     describe('per-scanner context', function () {
         // Only npm-audit touches the Node toolchain, and only when the project pins a version.
         it('enables nvm only for npm-audit on a project with an .nvmrc', async function () {
@@ -479,5 +546,57 @@ describe('scanProject', function () {
             expect(ctxOf(osv).abortSignal).toBe(controller.signal)
             expect(ctxOf(osv).timeoutMs).toBeGreaterThan(0)
         })
+    })
+})
+
+// tests/fixtures/projects/npm-no-lockfile: a package.json with nothing pinned. Every source the run enabled
+// is refused for the same reason, on the project's side, so the project cannot be scanned — never clean.
+describe('project cannot be scanned — a lockfile-less project', function () {
+    const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'tests', 'fixtures', 'projects', 'npm-no-lockfile')
+
+    it('reads as cannot be scanned: No lockfile, from the source and the npm dependencies', async function () {
+        const [entry] = await resolveProjects([project({ absolutePath: FIXTURE, relPath: 'npm-no-lockfile', name: 'npm-no-lockfile' })])
+        const scanners = buildScanners(setup({ includeNpmAudit: false, sources: ['osv'] }), emptyCache())
+        const scanned = await scanProject(setup({ includeNpmAudit: false, sources: ['osv'] }), entry as ResolvedProject, scanners)
+        expect(scanned.findings).toEqual([])
+        expect(scanned.scanState).toEqual({
+            state: 'cannot_scan',
+            reasons: [
+                { source: 'osv', ecosystem: null, reasonCode: 'no_lockfile', side: 'project' },
+                { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project' }
+            ]
+        })
+    })
+})
+
+describe('cliScanState — the run is its own expected sources', function () {
+    const ok = { ecosystem: 'npm', status: 'ok' as const, graph: { packages: [], edges: [] } } as unknown as ResolvedProject['results'][number]
+
+    it('is scanned when every scanner the run enabled answered and the run ecosystem was read', function () {
+        const outcomes = [{ scanner: 'osv', status: 'ok', reasonCode: 'ok', errorText: null, durationMs: 1 }]
+        expect(cliScanState({ ecosystem: 'npm' }, { results: [ok] }, [{ name: 'osv' }], outcomes)).toEqual({ state: 'scanned', reasons: [] })
+    })
+
+    // Another ecosystem the CLI does not audit is not something the run was asked to read.
+    it('ignores the coverage of an ecosystem the run does not audit', function () {
+        const pypi = { ecosystem: 'PyPI', status: 'unauditable', reasonCode: 'no_lockfile', details: [] } as ResolvedProject['results'][number]
+        const outcomes = [{ scanner: 'osv', status: 'ok', reasonCode: 'ok', errorText: null, durationMs: 1 }]
+        expect(cliScanState({ ecosystem: 'npm' }, { results: [ok, pypi] }, [{ name: 'osv' }], outcomes).state).toBe('scanned')
+    })
+
+    it('reads a scanner the run never reached as not yet run, and a partly read ecosystem by its reason', function () {
+        const partial = { ecosystem: 'npm', status: 'partial', reasonCode: 'partial_dependency_graph', details: [], graph: { packages: [], edges: [] } } as unknown as ResolvedProject['results'][number]
+        const outcomes = [{ scanner: 'npm-audit', status: 'ok', reasonCode: 'ok', errorText: null, durationMs: 1 }]
+        expect(cliScanState({ ecosystem: 'npm' }, { results: [partial] }, [{ name: 'npm-audit' }, { name: 'osv' }], outcomes)).toEqual({
+            state: 'partial',
+            reasons: [
+                { source: 'osv', ecosystem: null, reasonCode: 'not_yet_run', side: null },
+                { source: null, ecosystem: 'npm', reasonCode: 'partial_dependency_graph', side: 'project' }
+            ]
+        })
+    })
+
+    it('is not scanned yet when the run enabled no scanner', function () {
+        expect(cliScanState({ ecosystem: 'npm' }, { results: [ok] }, [], [])).toEqual({ state: 'not_scanned_yet', reasons: [] })
     })
 })

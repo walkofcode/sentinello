@@ -17,7 +17,7 @@ import {
     listResolvedFindingsForProject,
     listScansForProject,
     getActiveSources,
-    getProjectEcosystemCoverage
+    getProjectScanState
 } from '@sentinello/db'
 import { reasonCodeLabel, scanStatusLabel, type Locale } from '@sentinello/core'
 import { Badge } from '@/components/ui/badge'
@@ -29,7 +29,7 @@ import { ExportAdvisoryButton } from '@/components/triage/export-advisory-button
 import { ScanNowButton } from '@/components/triage/scan-now-button'
 import { TagEditor } from '@/components/triage/tag-editor'
 import { FindingsSection } from '@/components/findings/findings-section'
-import { CoverageNotice } from '@/components/findings/coverage-notice'
+import { ScanStateBanner } from '@/components/findings/scan-state-banner'
 import { SourceFilter } from '@/components/findings/source-filter'
 import { EcosystemFilter } from '@/components/findings/ecosystem-filter'
 import { orderEcosystems, orderSources } from '@/components/findings/source-order'
@@ -83,7 +83,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     const depType = parseDepTypeParam(resolvedSearchParams.dep) || defaults.depType
     const root = getRootById(db, project.rootId)
     const enabledSources = orderSources(getActiveSources(db))
-    const ecosystemCoverage = getProjectEcosystemCoverage(db, project.id)
+    const scanState = getProjectScanState(db, project.id)
     // listCurrentFindingsForProject annotates rather than filters — it returns every open row with an
     // isMuted flag and leaves the decision to the caller. A muted finding is a recorded accepted-risk
     // decision, so it is withheld from this page by default, and withholding the ROWS is what keeps every
@@ -218,10 +218,23 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                 ) : null}
             </header>
 
-            <CoverageNotice coverage={ecosystemCoverage} locale={locale} />
+            <ScanStateBanner scanState={scanState} locale={locale} />
 
             <section className="space-y-3">
-                {findings.length === 0 ? (
+                {/* "All clear" is a fact only about a project that was fully scanned. With nothing found
+                    in a project that could not be (fully) scanned, or was never scanned, nothing looked —
+                    which is unknown, not safe. */}
+                {findings.length === 0 && scanState.state !== 'scanned' ? (
+                    <div data-testid="no-findings-unknown" className="flex flex-col items-center justify-center rounded-(--radius-card) border border-dashed px-6 py-16 text-center">
+                        <p className="text-base font-medium">{t('project.noFindingsUnknownTitle')}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            {scanState.state === 'not_scanned_yet' ? t('project.noFindingsNotScannedBody') : t('project.noFindingsUnknownBody')}
+                        </p>
+                        <div className="mt-4">
+                            <MutedFilter value={showMuted} mutedCount={mutedCount} />
+                        </div>
+                    </div>
+                ) : findings.length === 0 ? (
                     <div className="flex flex-col items-center justify-center rounded-(--radius-card) border border-dashed border-emerald-500/30 bg-emerald-500/5 px-6 py-16 text-center">
                         <ShieldCheck className="h-10 w-10 text-emerald-500" aria-hidden="true" />
                         <p className="mt-3 text-base font-medium">{t('project.allClearTitle')}</p>

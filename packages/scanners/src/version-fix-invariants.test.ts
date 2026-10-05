@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { gte, satisfies, valid, Range } from 'semver'
-import { pickSafeFixVersion } from './version-fix'
+import { pickStatedFix } from './version-fix'
 
-// EXHAUSTIVE INVARIANT SWEEP over the "upgrade to X" advice — the third source's range surface, and the
+// EXHAUSTIVE INVARIANT SWEEP over the stated-fix advice — the third source's range surface, and the
 // completion of the argument made in packages/feeds/src/{gemnasium,osv}/range-grammar.test.ts.
 //
 // npm-audit does not parse ranges of its own: it carries npm's `range` string through verbatim, and this
@@ -84,7 +84,7 @@ function describeCase(c: Case): string {
     return JSON.stringify(c)
 }
 
-describe('pickSafeFixVersion — invariants over the whole input cross-product', function () {
+describe('pickStatedFix — invariants over the whole input cross-product', function () {
     it('generated the whole space', function () {
         expect(CASES).toHaveLength(VULNERABLE.length * PATCHED.length * RECOMMENDED.length * INSTALLED.length)
         expect(CASES.length).toBeGreaterThan(4000)
@@ -96,7 +96,7 @@ describe('pickSafeFixVersion — invariants over the whole input cross-product',
     it('never recommends a version that is still inside the vulnerable range', function () {
         const bad: string[] = []
         for (const c of CASES) {
-            const picked = pickSafeFixVersion(c)
+            const picked = pickStatedFix(c)
             if (picked === null) continue
             const vuln = parseRange(c.vulnerable)
             if (vuln && satisfies(picked, vuln)) bad.push(describeCase(c) + ' -> ' + picked)
@@ -109,7 +109,7 @@ describe('pickSafeFixVersion — invariants over the whole input cross-product',
     it('never recommends a downgrade from the installed version', function () {
         const bad: string[] = []
         for (const c of CASES) {
-            const picked = pickSafeFixVersion(c)
+            const picked = pickStatedFix(c)
             if (picked === null) continue
             const floor = highestInstalled(c.installed)
             if (floor && !gte(picked, floor)) bad.push(describeCase(c) + ' -> ' + picked + ' below ' + floor)
@@ -122,7 +122,7 @@ describe('pickSafeFixVersion — invariants over the whole input cross-product',
     it('returns a concrete valid semver version or nothing', function () {
         const bad: string[] = []
         for (const c of CASES) {
-            const picked = pickSafeFixVersion(c)
+            const picked = pickStatedFix(c)
             if (picked === null) continue
             if (!valid(picked)) bad.push(describeCase(c) + ' -> ' + picked)
         }
@@ -134,10 +134,27 @@ describe('pickSafeFixVersion — invariants over the whole input cross-product',
     it('never recommends a version outside a stated patched range', function () {
         const bad: string[] = []
         for (const c of CASES) {
-            const picked = pickSafeFixVersion(c)
+            const picked = pickStatedFix(c)
             if (picked === null) continue
             const patched = parseRange(c.patched)
             if (patched && !satisfies(picked, patched)) bad.push(describeCase(c) + ' -> ' + picked)
+        }
+        expect(bad).toEqual([])
+    })
+
+    // The invariant this file was missing, and the one braces 3.0.4 violated: the answer is a version the
+    // source WROTE. Nothing derived (`<=X` → X+1, `>X` → X+1, a desugared `-0` prerelease) may come back.
+    it('never names a version that is not written in its inputs', function () {
+        const bad: string[] = []
+        for (const c of CASES) {
+            const picked = pickStatedFix(c)
+            if (picked === null) continue
+            const written = [c.patched, c.recommendation, c.vulnerable].some(function mentions(text) {
+                if (text === null) return false
+                const literals: string[] = text.match(/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/g) ?? []
+                return literals.includes(picked)
+            })
+            if (!written) bad.push(describeCase(c) + ' -> ' + picked)
         }
         expect(bad).toEqual([])
     })
@@ -147,7 +164,7 @@ describe('pickSafeFixVersion — invariants over the whole input cross-product',
     it('is deterministic', function () {
         const bad: string[] = []
         for (const c of CASES) {
-            if (pickSafeFixVersion(c) !== pickSafeFixVersion(c)) bad.push(describeCase(c))
+            if (pickStatedFix(c) !== pickStatedFix(c)) bad.push(describeCase(c))
         }
         expect(bad).toEqual([])
     })
@@ -156,48 +173,45 @@ describe('pickSafeFixVersion — invariants over the whole input cross-product',
     // suite is most prone to. It does not: most cases produce real advice.
     it('actually produces advice for most of the space', function () {
         const answered = CASES.filter(function hasAdvice(c) {
-            return pickSafeFixVersion(c) !== null
+            return pickStatedFix(c) !== null
         })
         expect(answered.length).toBeGreaterThan(CASES.length / 2)
     })
 })
 
-describe('pickSafeFixVersion — the boundary cases the feed parsers kept getting wrong', function () {
+describe('pickStatedFix — the boundary cases the feed parsers kept getting wrong', function () {
     // npm/fresh GMS-2017-232 read correctly: 0.5.2 is the fix, and it is what a user on 0.5.1 is told.
     it('names 0.5.2 as the fix for fresh <0.5.2', function () {
-        expect(pickSafeFixVersion({ patched: null, recommendation: null, vulnerable: '<0.5.2', installed: '0.5.1' })).toBe('0.5.2')
+        expect(pickStatedFix({ patched: null, recommendation: null, vulnerable: '<0.5.2', installed: '0.5.1' })).toBe('0.5.2')
     })
 
     // The spaced spelling of the same range must give the same answer — the defect this whole change is
     // about, checked once more at the far end of the pipeline.
     it('gives the same answer for the spaced spelling', function () {
-        expect(pickSafeFixVersion({ patched: null, recommendation: null, vulnerable: '< 0.5.2', installed: '0.5.1' })).toBe('0.5.2')
+        expect(pickStatedFix({ patched: null, recommendation: null, vulnerable: '< 0.5.2', installed: '0.5.1' })).toBe('0.5.2')
     })
 
-    // An inclusive upper bound needs the NEXT version, not the bound itself: <=0.3.3 means 0.3.3 is still
-    // vulnerable, so recommending it would be advice to stay put.
-    it('steps past an inclusive upper bound', function () {
-        const picked = pickSafeFixVersion({ patched: null, recommendation: null, vulnerable: '<=0.3.3', installed: '0.3.0' })
-        expect(picked).not.toBe('0.3.3')
-        expect(picked === null || !satisfies(picked, '<=0.3.3')).toBe(true)
+    // An inclusive upper bound states no fix: <=0.3.3 means 0.3.3 is still vulnerable, and 0.3.4 is only
+    // arithmetic — whether it exists is the registry's question, not this function's.
+    it('states nothing for an inclusive upper bound', function () {
+        expect(pickStatedFix({ patched: null, recommendation: null, vulnerable: '<=0.3.3', installed: '0.3.0' })).toBeNull()
     })
 
     // npm/rc GMS-2021-3: the fix is to go DOWN to 1.2.8, and this function is forbidden from suggesting a
     // downgrade — so the honest answer is no advice rather than a version that does not exist.
     it('offers nothing rather than a wrong upgrade for the rc hijack', function () {
-        const picked = pickSafeFixVersion({ patched: null, recommendation: null, vulnerable: '>1.2.8', installed: '1.2.9' })
-        expect(picked === null || !satisfies(picked, '>1.2.8')).toBe(true)
+        expect(pickStatedFix({ patched: null, recommendation: null, vulnerable: '>1.2.8', installed: '1.2.9' })).toBeNull()
     })
 
     // pnpm's sentinel for "there is no fix". Reading it as a real range would make every version above
     // 0.0.0 look like a fix, and 0.0.1 would be recommended as the remediation for everything.
     it('treats pnpm <0.0.0 as no fix rather than as a range', function () {
-        expect(pickSafeFixVersion({ patched: null, recommendation: null, vulnerable: '<0.0.0', installed: '1.0.0' })).toBeNull()
+        expect(pickStatedFix({ patched: null, recommendation: null, vulnerable: '<0.0.0', installed: '1.0.0' })).toBeNull()
     })
 
     // A multi-branch advisory: someone on 7.x must be sent to their own branch's fix, not to 8.0.1.
     it('picks the branch fix a 7.x user can actually take', function () {
-        const picked = pickSafeFixVersion({
+        const picked = pickStatedFix({
             patched: null,
             recommendation: null,
             vulnerable: '>=7.0.0 <7.6.5 || >=8.0.0 <8.0.1',

@@ -4,11 +4,14 @@ import {
     buildAdvisoryMarkdown,
     buildExportFilename,
     isSourceUnavailableReason,
+    labelScanState,
     meetsSeverityFloor,
     type ExportFinding,
     type ExportScope,
+    type ScanState,
     type Severity
 } from '@sentinello/core'
+import type { FixSettlement } from '@sentinello/fixes'
 import type { RawFinding } from '@sentinello/scanners'
 import type { CliOptions, DepTypeFilter } from './options'
 import type { ProjectScanResult } from './scan'
@@ -28,6 +31,9 @@ export type ProjectSummary = {
     // Scanners that could not answer for this project, with the reason. Surfaced so "0 findings" is never
     // confused with "nothing could be checked".
     unauditable: { scanner: string; reasonCode: string; errorText: string | null }[]
+    // Whether the project could be scanned at all, and why not: a project that cannot be scanned is never
+    // counted clean, whatever its finding count.
+    scanState: ScanState
 }
 
 export type RunSummary = {
@@ -68,11 +74,18 @@ export function summarize(results: readonly ProjectScanResult[], options: CliOpt
             total[finding.severity]++
             projectFindings++
             totalFindings++
+            // Settled against the npm registry exactly as the worker settles it; only a `released` fix is
+            // rendered as "upgrade to". scanProject settles every finding it keeps, so the entry is there.
+            const fix = result.fixes.get(finding) as FixSettlement
             findings.push({
                 packageName: finding.packageName,
                 installedVersion: finding.installedVersion,
-                fixAvailable: finding.fixAvailable,
-                fixVersion: finding.fixVersion,
+                fixAvailable: fix.fixAvailable,
+                fixVersion: fix.fixVersion,
+                fixStatus: fix.fixStatus,
+                fixCheck: fix.fixCheck,
+                // Only a finding settled 'none_released' has one.
+                remediation: result.remediations.get(finding) ?? null,
                 severity: finding.severity,
                 advisoryId: finding.advisoryId,
                 advisoryTitle: finding.advisoryTitle,
@@ -83,7 +96,7 @@ export function summarize(results: readonly ProjectScanResult[], options: CliOpt
                 depPath: finding.depPath,
                 // Every finding carries its project, so a single severity-ordered document stays
                 // unambiguous about which project each one belongs to.
-                projectName: result.project.relPath === '.' ? result.project.name : result.project.relPath
+                projectName: projectLabel(result.project)
             })
         }
         projects.push({
@@ -97,7 +110,8 @@ export function summarize(results: readonly ProjectScanResult[], options: CliOpt
                 })
                 .map(function toEntry(o) {
                     return { scanner: o.scanner, reasonCode: o.reasonCode, errorText: o.errorText }
-                })
+                }),
+            scanState: result.scanState
         })
     }
     return { projects, totalFindings, counts: total, findings }
@@ -120,12 +134,22 @@ export function buildScope(options: CliOptions, projectCount: number): ExportSco
     }
 }
 
+// The project's name as the document and the summary show it: its path below the root, or its own name
+// when it is the root.
+export function projectLabel(project: Pick<ProjectSummary, 'name' | 'relPath'>): string {
+    return project.relPath === '.' ? project.name : project.relPath
+}
+
 export function renderMarkdown(summary: RunSummary, options: CliOptions, prompt: string, generatedAt: number): string {
     return buildAdvisoryMarkdown({
         scope: buildScope(options, summary.projects.length),
         prompt,
         findings: summary.findings,
-        generatedAt
+        generatedAt,
+        // Only the projects that could not be (fully) scanned are rendered, in their own section.
+        scanStates: summary.projects.map(function state(p) {
+            return { projectName: projectLabel(p), projectPath: null, scanState: p.scanState }
+        })
     })
 }
 
@@ -149,7 +173,9 @@ export function renderJson(summary: RunSummary, options: CliOptions, generatedAt
                 path: p.relPath,
                 findingCount: p.findingCount,
                 counts: p.counts,
-                unauditable: p.unauditable
+                unauditable: p.unauditable,
+                // { state, reasons: [{ source, ecosystem, reasonCode, label, side }] }, as MCP reports it.
+                scanState: labelScanState(p.scanState)
             }
         }),
         findings: summary.findings

@@ -140,7 +140,7 @@ function parseTags(json: string): string[] {
 
 // Parse the persisted ecosystems_json, keeping only values that are still known to the central registry
 // (so a renamed/removed ecosystem id can't reach the rest of the app as a phantom EcosystemId).
-function parseEcosystems(json: string): EcosystemId[] {
+export function parseEcosystems(json: string): EcosystemId[] {
     const parsed = JSON.parse(json) as unknown
     if (!Array.isArray(parsed)) return []
     const out: EcosystemId[] = []

@@ -58,8 +58,9 @@ function userAgent(): string {
 }
 
 // Base headers for every feed request. Accept is deliberately permissive — these endpoints serve JSON,
-// CSV, YAML, and zip archives — but stating it explicitly avoids content-negotiation surprises.
-function baseHeaders(): Record<string, string> {
+// CSV, YAML, and zip archives — but stating it explicitly avoids content-negotiation surprises. Exported
+// for the registry client, which sends the same identity with its own Accept.
+export function baseHeaders(): Record<string, string> {
     return { 'User-Agent': userAgent(), Accept: '*/*' }
 }
 

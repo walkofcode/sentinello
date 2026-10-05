@@ -1,0 +1,310 @@
+{
+ "name": "fill-range",
+ "dist-tags": {
+  "latest": "7.1.1"
+ },
+ "maintainers": [
+  {
+   "name": "es128"
+  },
+  {
+   "name": "jonschlinkert"
+  },
+  {
+   "name": "doowb"
+  }
+ ],
+ "repository": {
+  "url": "git+https://github.com/jonschlinkert/fill-range.git",
+  "type": "git"
+ },
+ "time": {
+  "created": "2014-11-25T07:08:17.514Z",
+  "modified": "2026-05-27T19:50:30.642Z",
+  "0.1.0": "2014-11-25T07:08:17.514Z",
+  "0.1.1": "2014-11-25T07:26:24.847Z",
+  "0.2.0": "2014-11-25T18:38:44.757Z",
+  "1.0.0": "2015-01-04T18:00:33.433Z",
+  "1.1.0": "2015-01-09T02:51:52.156Z",
+  "1.2.0": "2015-01-09T16:21:12.863Z",
+  "1.3.0": "2015-01-12T00:23:30.192Z",
+  "1.4.0": "2015-01-14T22:03:45.204Z",
+  "1.5.0": "2015-01-24T10:56:51.026Z",
+  "1.6.0": "2015-01-24T11:06:24.383Z",
+  "1.7.0": "2015-01-24T23:27:49.974Z",
+  "1.7.1": "2015-01-24T23:39:53.337Z",
+  "1.8.0": "2015-01-25T05:31:07.083Z",
+  "1.9.0": "2015-01-25T06:03:42.536Z",
+  "2.0.0": "2015-01-26T16:56:12.970Z",
+  "2.1.0": "2015-01-30T13:33:09.891Z",
+  "2.2.0": "2015-02-25T16:21:11.297Z",
+  "2.2.1": "2015-04-07T08:43:18.684Z",
+  "2.2.2": "2015-04-07T08:50:55.860Z",
+  "2.2.3": "2015-12-06T22:15:02.623Z",
+  "3.0.0": "2016-09-15T06:51:38.296Z",
+  "3.0.1": "2016-09-15T06:53:31.812Z",
+  "3.0.2": "2016-09-15T06:59:54.132Z",
+  "3.0.3": "2016-09-15T07:46:33.372Z",
+  "3.1.0": "2017-02-13T05:22:15.663Z",
+  "3.1.1": "2017-02-13T05:29:51.800Z",
+  "4.0.0": "2017-04-23T06:17:15.434Z",
+  "5.0.0": "2017-11-01T05:14:07.216Z",
+  "2.2.4": "2018-05-08T17:10:51.757Z",
+  "6.0.0": "2018-07-05T04:32:30.450Z",
+  "7.0.0": "2019-04-08T13:18:28.205Z",
+  "7.0.1": "2019-04-08T13:42:36.186Z",
+  "7.1.1": "2024-05-21T08:45:51.224Z"
+ },
+ "versions": {
+  "0.1.0": {
+   "dependencies": {
+    "is-number": "^0.1.1"
+   }
+  },
+  "0.1.1": {
+   "dependencies": {
+    "is-number": "^0.1.1"
+   }
+  },
+  "0.2.0": {
+   "dependencies": {
+    "alphabet": "^0.1.0",
+    "is-number": "^0.1.1"
+   }
+  },
+  "1.0.0": {
+   "dependencies": {
+    "is-number": "^0.1.1",
+    "randomatic": "^1.0.1",
+    "repeat-string": "^1.2.0"
+   }
+  },
+  "1.1.0": {
+   "dependencies": {
+    "is-number": "^0.1.1",
+    "randomatic": "^1.0.1",
+    "repeat-string": "^1.2.0"
+   }
+  },
+  "1.2.0": {
+   "dependencies": {
+    "is-number": "^0.1.1",
+    "randomatic": "^1.0.1",
+    "repeat-string": "^1.2.0"
+   }
+  },
+  "1.3.0": {
+   "dependencies": {
+    "is-number": "^0.1.1",
+    "randomatic": "^1.0.1",
+    "repeat-string": "^1.2.0",
+    "repeat-element": "^1.0.0"
+   }
+  },
+  "1.4.0": {
+   "dependencies": {
+    "is-number": "^0.1.1",
+    "randomatic": "^1.0.1",
+    "repeat-string": "^1.2.0",
+    "repeat-element": "^1.0.0"
+   }
+  },
+  "1.5.0": {
+   "dependencies": {
+    "is-number": "^1.1.0",
+    "randomatic": "^1.0.1",
+    "repeat-element": "^1.0.0"
+   }
+  },
+  "1.6.0": {
+   "dependencies": {
+    "is-number": "^1.1.0",
+    "randomatic": "^1.0.1",
+    "repeat-string": "^1.4.0",
+    "repeat-element": "^1.0.0"
+   }
+  },
+  "1.7.0": {
+   "dependencies": {
+    "is-number": "^1.1.0",
+    "randomatic": "^1.0.1",
+    "repeat-string": "^1.4.0",
+    "repeat-element": "^1.0.0"
+   }
+  },
+  "1.7.1": {
+   "dependencies": {
+    "is-number": "^1.1.0",
+    "randomatic": "^1.0.1",
+    "repeat-string": "^1.4.0",
+    "repeat-element": "^1.0.0"
+   }
+  },
+  "1.8.0": {
+   "dependencies": {
+    "isobject": "^0.2.0",
+    "is-number": "^1.1.0",
+    "randomatic": "^1.0.1",
+    "repeat-string": "^1.4.0",
+    "repeat-element": "^1.0.0"
+   }
+  },
+  "1.9.0": {
+   "dependencies": {
+    "isobject": "^0.2.0",
+    "is-number": "^1.1.0",
+    "randomatic": "^1.0.1",
+    "repeat-string": "^1.4.0",
+    "repeat-element": "^1.0.0"
+   }
+  },
+  "2.0.0": {
+   "dependencies": {
+    "isobject": "^0.2.0",
+    "is-number": "^1.1.0",
+    "randomatic": "^1.1.0",
+    "repeat-string": "^1.5.0",
+    "repeat-element": "^1.0.0"
+   }
+  },
+  "2.1.0": {
+   "dependencies": {
+    "isobject": "^0.2.0",
+    "is-number": "^1.1.0",
+    "randomatic": "^1.1.0",
+    "repeat-string": "^1.5.0",
+    "repeat-element": "^1.0.0"
+   }
+  },
+  "2.2.0": {
+   "dependencies": {
+    "isobject": "^0.2.0",
+    "is-number": "^1.1.0",
+    "randomatic": "^1.1.0",
+    "repeat-string": "^1.5.0",
+    "repeat-element": "^1.0.0"
+   }
+  },
+  "2.2.1": {
+   "dependencies": {
+    "isobject": "^1.0.0",
+    "is-number": "^1.1.2",
+    "randomatic": "^1.1.0",
+    "repeat-string": "^1.5.2",
+    "repeat-element": "^1.1.0"
+   }
+  },
+  "2.2.2": {
+   "dependencies": {
+    "isobject": "^1.0.0",
+    "is-number": "^1.1.2",
+    "randomatic": "^1.1.0",
+    "repeat-string": "^1.5.2",
+    "repeat-element": "^1.1.0"
+   }
+  },
+  "2.2.3": {
+   "dependencies": {
+    "isobject": "^2.0.0",
+    "is-number": "^2.1.0",
+    "randomatic": "^1.1.3",
+    "repeat-string": "^1.5.2",
+    "repeat-element": "^1.1.2"
+   }
+  },
+  "3.0.0": {
+   "dependencies": {
+    "is-number": "^3.0.0",
+    "repeat-string": "^1.5.4",
+    "extend-shallow": "^2.0.1",
+    "to-regex-range": "^0.2.0"
+   }
+  },
+  "3.0.1": {
+   "dependencies": {
+    "is-number": "^3.0.0",
+    "repeat-string": "^1.5.4",
+    "extend-shallow": "^2.0.1",
+    "to-regex-range": "^0.2.0"
+   }
+  },
+  "3.0.2": {
+   "dependencies": {
+    "is-number": "^3.0.0",
+    "repeat-string": "^1.5.4",
+    "extend-shallow": "^2.0.1",
+    "to-regex-range": "^0.2.0"
+   }
+  },
+  "3.0.3": {
+   "dependencies": {
+    "is-number": "^3.0.0",
+    "repeat-string": "^1.5.4",
+    "extend-shallow": "^2.0.1",
+    "to-regex-range": "^0.2.0"
+   }
+  },
+  "3.1.0": {
+   "dependencies": {
+    "is-number": "^3.0.0",
+    "repeat-string": "^1.6.1",
+    "extend-shallow": "^2.0.1",
+    "to-regex-range": "^1.0.2"
+   }
+  },
+  "3.1.1": {
+   "dependencies": {
+    "is-number": "^3.0.0",
+    "repeat-string": "^1.6.1",
+    "extend-shallow": "^2.0.1",
+    "to-regex-range": "^1.0.2"
+   }
+  },
+  "4.0.0": {
+   "dependencies": {
+    "is-number": "^3.0.0",
+    "repeat-string": "^1.6.1",
+    "extend-shallow": "^2.0.1",
+    "to-regex-range": "^2.1.0"
+   }
+  },
+  "5.0.0": {
+   "dependencies": {
+    "is-number": "^4.0.0",
+    "repeat-string": "^1.6.1",
+    "extend-shallow": "^2.0.1",
+    "to-regex-range": "^2.1.1"
+   }
+  },
+  "2.2.4": {
+   "dependencies": {
+    "isobject": "^2.0.0",
+    "is-number": "^2.1.0",
+    "randomatic": "^3.0.0",
+    "repeat-string": "^1.5.2",
+    "repeat-element": "^1.1.2"
+   }
+  },
+  "6.0.0": {
+   "dependencies": {
+    "is-number": "^7.0.0",
+    "to-regex-range": "^4.0.1"
+   }
+  },
+  "7.0.0": {
+   "dependencies": {
+    "to-regex-range": "^5.0.1"
+   }
+  },
+  "7.0.1": {
+   "dependencies": {
+    "to-regex-range": "^5.0.1"
+   }
+  },
+  "7.1.1": {
+   "dependencies": {
+    "to-regex-range": "^5.0.1"
+   }
+  }
+ }
+}

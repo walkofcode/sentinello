@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { Finding, NotificationEvent } from '@sentinello/core'
-import { renderBatchedFindings, renderScanFailure, renderSingleFinding } from './render'
+import { reasonCodeLabel, type Finding, type FixCheck, type Locale, type NotificationEvent, type Remediation } from '@sentinello/core'
+import { renderBatchedFindings, renderScanFailure, renderSingleFinding, type RenderBatchedFindingsInput } from './render'
 
 // Notification bodies are the part of Sentinello a recipient sees without opening the portal, so the
 // interesting assertions are about what is INCLUDED and what is OMITTED — a missing branch line, a
 // swallowed "no fix available", or a truncated batch are all silent information loss.
+
+const CHECK: FixCheck = { v: 1, checkedAt: Date.UTC(2026, 9, 3), registry: 'ok', packageDataAsOf: Date.UTC(2026, 9, 3), unevaluable: null, sources: [] }
 
 function finding(overrides: Partial<Finding> = {}): Finding {
     return {
@@ -21,8 +23,11 @@ function finding(overrides: Partial<Finding> = {}): Finding {
         installedVersion: '4.17.20',
         vulnerableRange: '<4.17.21',
         severity: 'high',
+        fixStatus: 'none_released',
         fixAvailable: false,
         fixVersion: null,
+        fixCheck: CHECK,
+        remediation: null,
         corroborations: [],
         depPath: [],
         isProd: true,
@@ -147,10 +152,10 @@ describe('renderSingleFinding', function () {
     })
 
     it.each([
-        [{ fixAvailable: true, fixVersion: '4.17.21' }, ' → fix: 4.17.21'],
-        [{ fixAvailable: true, fixVersion: null }, ' → fix available'],
-        [{ fixAvailable: false, fixVersion: null }, ' → no fix available'],
-        [{ fixAvailable: false, fixVersion: '4.17.21' }, ' → no fix available']
+        [{ fixStatus: 'released', fixAvailable: true, fixVersion: '4.17.21' }, ' → upgrade to 4.17.21'],
+        [{ fixStatus: 'none_released' }, ' → No fixed version released — no published version of lodash is outside the vulnerable range (registry checked 2026-10-03)'],
+        [{ fixStatus: 'unverified', fixAvailable: true, fixVersion: '4.17.21', fixCheck: { ...CHECK, registry: 'error' } }, ' → advisory names 4.17.21 as the fix · not checked against the registry (registry not reachable)'],
+        [{ fixStatus: 'unverified', fixCheck: null }, ' → fix not re-checked yet — rescan pending']
     ] as Array<[Partial<Finding>, string]>)('renders the fix suffix %j as %s', function (overrides, expected) {
         const out = renderSingleFinding({
             projectName: 'api',
@@ -261,7 +266,7 @@ describe('renderBatchedFindings', function () {
             isBaseline: false,
             portalBaseUrl: null
         })
-        expect(out.markdown).toContain('• [CRITICAL] lodash@4.17.20 (GHSA-1)')
+        expect(out.markdown).toContain('• [CRITICAL] lodash@4.17.20 (GHSA-1) — No fixed version released')
     })
 
     it('includes the branch line when set', function () {
@@ -304,6 +309,29 @@ describe('renderBatchedFindings', function () {
         expect(out.portalUrl).toBe(BASE_URL + '/projects/project-1')
         expect(out.markdown).toContain('Portal: ' + BASE_URL + '/projects/project-1')
     })
+
+    // Some findings of a project that cannot be (fully) scanned are what an earlier scan left; the message
+    // says so above them, in the notification locale.
+    describe('the project\'s scan state', function () {
+        function render(scanState: RenderBatchedFindingsInput['scanState'], locale?: Locale) {
+            return renderBatchedFindings({ projectName: 'api', projectId: 'project-1', gitBranch: null, findings: [finding()], isBaseline: false, portalBaseUrl: null, scanState, locale })
+        }
+
+        it('heads a project that cannot be scanned with its reasons and whose fix they are', function () {
+            const out = render({ state: 'cannot_scan', reasons: [{ source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' }] })
+            expect(out.markdown).toContain('*Project cannot be scanned:* No lockfile (the project) — findings an earlier scan recorded are marked "not re-checked"')
+        })
+
+        it('heads a partially scanned project in the notification locale', function () {
+            const out = render({ state: 'partial', reasons: [{ source: 'osv', ecosystem: null, reasonCode: 'osv_db_unavailable', side: 'environment', label: 'x' }] }, 'es')
+            expect(out.markdown).toContain('*Project cannot be fully scanned:* ' + reasonCodeLabel('osv_db_unavailable', 'es') + ' (this Sentinello install)')
+        })
+
+        it('adds nothing for a scanned project or when no state is given', function () {
+            expect(render({ state: 'scanned', reasons: [] }).markdown).not.toContain('Project ')
+            expect(render(undefined).markdown).not.toContain('Project ')
+        })
+    })
 })
 
 describe('renderScanFailure', function () {
@@ -314,12 +342,44 @@ describe('renderScanFailure', function () {
             projectName: 'api',
             projectId: 'project-1',
             gitBranch: null,
-            event: scanFailureEvent({ failureSignature: 'error:no_lockfile' }),
+            event: scanFailureEvent({ failureSignature: 'error:pm_missing' }),
             errorText: null,
             portalBaseUrl: null
         })
-        expect(out.title).not.toContain('error:no_lockfile')
-        expect(out.title.startsWith('[SCAN FAILED] api — ')).toBe(true)
+        expect(out.title).toBe('[SCAN FAILED] api — Package manager not on PATH')
+        expect(out.markdown).toContain('*Failure:* Package manager not on PATH')
+        expect(out.markdown).toContain('*Whose fix:* this Sentinello install')
+    })
+
+    // A cause on the project's side is not a scan that broke: the project cannot be scanned until someone
+    // changes it, and the title says so.
+    it('says a project cannot be scanned when the cause is on its side', function () {
+        const out = renderScanFailure({
+            projectName: 'ddns',
+            projectId: 'project-1',
+            gitBranch: null,
+            event: scanFailureEvent({ failureSignature: 'unauditable:no_lockfile' }),
+            errorText: null,
+            portalBaseUrl: null
+        })
+        expect(out.title).toBe('[CANNOT BE SCANNED] ddns — No lockfile')
+        expect(out.markdown).toContain('*Cannot be scanned:* *ddns*')
+        expect(out.markdown).toContain('*Reason:* No lockfile')
+        expect(out.markdown).toContain('*Whose fix:* the project')
+        expect(out.markdown).not.toContain('Scan failed')
+    })
+
+    it('says a project cannot be scanned in the configured locale', function () {
+        const out = renderScanFailure({
+            projectName: 'ddns',
+            projectId: 'project-1',
+            gitBranch: null,
+            event: scanFailureEvent({ failureSignature: 'unauditable:no_lockfile' }),
+            errorText: null,
+            portalBaseUrl: null,
+            locale: 'es'
+        })
+        expect(out.title).toBe('[CANNOT BE SCANNED] ddns — Sin lockfile')
     })
 
     it('passes a legacy one-liner signature through unchanged', function () {
@@ -410,5 +470,28 @@ describe('renderScanFailure', function () {
             portalBaseUrl: null
         })
         expect(out.text).not.toContain('*')
+    })
+})
+
+describe('the way out in a notification', function () {
+    const remediation: Remediation = {
+        v: 1, checkedAt: Date.UTC(2026, 9, 3), package: 'braces',
+        health: { name: 'braces', latest: '3.0.3', lastPublishAt: Date.UTC(2024, 4, 21), maintainers: 2, weeklyDownloads: 1, deprecated: null, daysSinceLastPublish: 865, unmaintained: true },
+        chains: [{ importer: '.', rootKind: 'dev', path: ['nodemon@3.1.14', 'chokidar@3.6.0', 'braces@3.0.3'], verdict: { kind: 'blocked', escapePackage: 'chokidar', escapeVersion: '4.0.0', blockedBy: 'nodemon', blockedByLatest: '3.1.14', blockedRange: '^3.5.2', proof: { release: 'chokidar@4.0.0', closureSize: 2 } } }],
+        moreChains: 0, moreChainsAtLeast: false, alternatives: [], devOnly: true
+    }
+    const expected = 'braces is unmaintained → replace it; chokidar ≥ 4.0.0 drops braces, but no released nodemon admits it (latest 3.1.14 requires ^3.5.2); dev tooling only'
+
+    it('adds one way-out line to a single none_released finding, and none otherwise', function () {
+        const single = renderSingleFinding({ projectName: 'api', gitBranch: null, finding: finding({ packageName: 'braces', remediation }), isBaseline: false, portalBaseUrl: null })
+        expect(single.markdown).toContain('*Way out:* ' + expected)
+        const released = renderSingleFinding({ projectName: 'api', gitBranch: null, finding: finding({ fixStatus: 'released', fixVersion: '4.17.21', remediation }), isBaseline: false, portalBaseUrl: null })
+        expect(released.markdown).not.toContain('Way out')
+    })
+
+    it('indents the way-out under its line in a batch', function () {
+        const out = renderBatchedFindings({ projectName: 'api', projectId: 'project-1', gitBranch: null, findings: [finding({ packageName: 'braces', remediation }), finding({ id: 'f2' })], isBaseline: false, portalBaseUrl: null })
+        expect(out.markdown).toContain('\n    Way out: ' + expected)
+        expect(out.markdown.match(/Way out/g)).toHaveLength(1)
     })
 })
