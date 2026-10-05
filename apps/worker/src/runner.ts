@@ -9,6 +9,8 @@ import {
     setProjectGitBranch,
     walCheckpoint,
     getConfigValue,
+    RAW_JSON_MAX_BYTES,
+    RAW_JSON_TRUNCATION_MARKER,
     type DrizzleDb,
     type IncomingFinding,
     type SqliteDb
@@ -271,20 +273,47 @@ function targetIdentity(target: ReportedAdvisory): string {
 
 // Every scan row records the project's resolver coverage, whatever its source and however it ended, so the
 // project's latest scan always says which ecosystems could be read and why not (getProjectEcosystemCoverage
-// reads it from there). The feed sources already write it into their summary; npm-audit, which is handed
-// none, and a failed scan with an empty summary get it here. A summary that is not a JSON object — the raw
-// audit output an error keeps for debugging — is left exactly as it is, and that row carries no coverage.
+// and the scan state read it from there, and only from there). The feed sources already write it into their
+// summary; npm-audit, which is handed none, and a failed scan with an empty summary get it here.
+//
+// A summary that is not a JSON object — the raw audit output an error keeps for debugging — is kept beside
+// the coverage, as `{ coverage, raw }`, never instead of it: a row with no coverage reads as unknown, and the
+// reason the project could not be read would be lost. So is a summary that would not fit under the raw_json
+// cap once the coverage is added, since capRawJson would cut the JSON itself and take the coverage with it.
 function withCoverage(rawJson: string, coverage: EcosystemCoverage[]): string {
     if (rawJson === '') return JSON.stringify({ coverage })
+    const summary = summaryObject(rawJson)
+    if (summary !== null) {
+        if (Array.isArray(summary.coverage)) return rawJson
+        const merged = JSON.stringify({ ...summary, coverage })
+        if (merged.length <= RAW_JSON_MAX_BYTES) return merged
+    }
+    return diagnosticEnvelope(rawJson, coverage)
+}
+
+function summaryObject(rawJson: string): Record<string, unknown> | null {
     let parsed: unknown
     try {
         parsed = JSON.parse(rawJson)
     } catch {
-        return rawJson
+        return null
     }
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return rawJson
-    if (Array.isArray((parsed as { coverage?: unknown }).coverage)) return rawJson
-    return JSON.stringify({ ...parsed, coverage })
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    return parsed as Record<string, unknown>
+}
+
+// `{ coverage, raw }` under the raw_json cap: the raw text is shortened (and marked) until the whole
+// envelope fits, so the cap never has to cut it. JSON escaping makes the encoded text at least as long as the
+// slice, so dropping the excess each round converges; the coverage alone is a few hundred bytes (fixed
+// resolver details, one entry per ecosystem), and `keep > 0` bounds the loop whatever it is.
+function diagnosticEnvelope(raw: string, coverage: EcosystemCoverage[]): string {
+    let keep = raw.length
+    let envelope = JSON.stringify({ coverage, raw })
+    while (envelope.length > RAW_JSON_MAX_BYTES && keep > 0) {
+        keep = Math.max(0, keep - (envelope.length - RAW_JSON_MAX_BYTES) - RAW_JSON_TRUNCATION_MARKER.length)
+        envelope = JSON.stringify({ coverage, raw: raw.slice(0, keep) + RAW_JSON_TRUNCATION_MARKER })
+    }
+    return envelope
 }
 
 // Flatten a classified ResolverResult into the compact per-ecosystem coverage the feed scanners record.

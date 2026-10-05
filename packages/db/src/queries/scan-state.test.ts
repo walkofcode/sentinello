@@ -20,7 +20,7 @@ import {
     listLatestSourceScans,
     listProjectScanStates
 } from './scan-state'
-import { insertScan } from './scans'
+import { deleteScansByIds, insertScan, listPrunableScanIds } from './scans'
 
 // The scan state every surface reads. Its inputs are the part with judgement in them: the expected
 // sources are passed in from configuration, never inferred from the scans that exist, because an absent
@@ -215,17 +215,28 @@ describe('scan state — getProjectEcosystemCoverage', function () {
         expect(getProjectEcosystemCoverage(db, PROJECT_ID).map(function e(c) { return c.ecosystem })).toEqual(['npm'])
     })
 
-    it('falls back to another source latest scan when the newest carries no coverage', function () {
+    // Another source's older coverage is not the project as it is now: it may predate this scan by any number
+    // of sweeps, or come from a source switched off since. A newest row with none means unknown.
+    it('does not borrow an older source coverage when the newest scan carries none', function () {
         ok('osv', T0, { coverage: [{ ecosystem: 'npm', status: 'ok' }] })
         failed('npm-audit', T0 + HOUR, 'timeout', { status: 'timeout', rawJson: 'raw audit text' })
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toHaveLength(1)
+        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([])
+        expect(expectedScanInputs(db, [PROJECT_ID]).get(PROJECT_ID)?.coverage).toBeNull()
     })
 
-    it('skips a latest scan whose coverage is not an array, or whose summary is not an object', function () {
+    it('reads coverage kept beside a raw diagnostic', function () {
+        ok('osv', T0, { coverage: [{ ecosystem: 'npm', status: 'ok' }] })
+        failed('npm-audit', T0 + HOUR, 'audit_parse_error', { rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'unsupported_lockfile' }], raw: 'raw audit text' }) })
+        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'unsupported_lockfile', details: [] }])
+    })
+
+    it('reads a latest scan whose coverage is not an array, or whose summary is not an object, as unknown', function () {
         ok('osv', T0, { coverage: [{ ecosystem: 'npm', status: 'ok' }] })
         ok('gemnasium', T0 + HOUR, { rawJson: 'null' })
+        expect(expectedScanInputs(db, [PROJECT_ID]).get(PROJECT_ID)?.coverage).toBeNull()
         ok('npm-audit', T0 + 2 * HOUR, { coverage: { ecosystem: 'npm' } })
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toHaveLength(1)
+        expect(expectedScanInputs(db, [PROJECT_ID]).get(PROJECT_ID)?.coverage).toBeNull()
+        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([])
     })
 
     it('breaks a finished_at tie between sources on the later id', function () {
@@ -320,9 +331,31 @@ describe('scan state — expected sources', function () {
         })
     })
 
+    // A successful npm-audit summary written before every scan recorded coverage proves the source answered,
+    // not that the shared resolver could read the graph (native Yarn audit succeeds on a yarn.lock it cannot).
+    it('reads a pre-coverage successful scan as partial, not yet run for its ecosystem, never scanned', function () {
+        ok('npm-audit', T0, { rawJson: JSON.stringify({ source: 'npm-audit', packageCount: null, findingCount: 0 }) })
+        expect(expectedScanInputs(db, [PROJECT_ID]).get(PROJECT_ID)).toMatchObject({ detectedEcosystems: ['npm'], coverage: null })
+        expect(getProjectScanState(db, PROJECT_ID)).toEqual({
+            state: 'partial',
+            reasons: [{ source: null, ecosystem: 'npm', reasonCode: 'not_yet_run', side: null }]
+        })
+        ok('npm-audit', T0 + HOUR, { coverage: [{ ecosystem: 'npm', status: 'ok' }] })
+        expect(getProjectScanState(db, PROJECT_ID)).toEqual({ state: 'scanned', reasons: [] })
+    })
+
+    it('reads an ecosystem detected since the latest scan as not yet run', function () {
+        addProject('polyglot', ['npm', 'PyPI'])
+        ok('npm-audit', T0, { projectId: 'polyglot', coverage: [{ ecosystem: 'npm', status: 'ok' }] })
+        expect(getProjectScanState(db, 'polyglot')).toEqual({
+            state: 'partial',
+            reasons: [{ source: null, ecosystem: 'PyPI', reasonCode: 'not_yet_run', side: null }]
+        })
+    })
+
     it('lists the state of every project', function () {
         ok('npm-audit', T0, { coverage: [{ ecosystem: 'npm', status: 'ok' }] })
-        failed('npm-audit', T0, 'pm_missing', { projectId: OTHER_PROJECT_ID })
+        failed('npm-audit', T0, 'pm_missing', { projectId: OTHER_PROJECT_ID, rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'ok' }] }) })
         const states = listProjectScanStates(db)
         expect(states.get(PROJECT_ID)?.state).toBe('scanned')
         expect(states.get(OTHER_PROJECT_ID)).toEqual({
@@ -384,5 +417,38 @@ describe('scan state — not re-checked findings', function () {
         const byProject = new Map(usage.map(function u(row) { return [row.projectId, row] }))
         expect(byProject.get(PROJECT_ID)?.notRecheckedBecause).toMatchObject({ reasonCode: 'no_lockfile', projectState: 'cannot_scan' })
         expect(byProject.get(OTHER_PROJECT_ID)?.notRecheckedBecause).toBeNull()
+    })
+})
+
+// Retention keeps the newest 100 scans per project. A source switched off for a while is out-scanned by the
+// others; its latest failure must survive anyway, or the state would read its older ok as current.
+describe('scan state — retention', function () {
+    it('reads the same state and recheck context after pruning, with no successful recheck', function () {
+        enable('osv')
+        const osvOk = ok('osv', T0, { coverage: [{ ecosystem: 'npm', status: 'ok' }] })
+        finding('osv-row', osvOk.id, true, { source: 'osv' })
+        const osvFailed = failed('osv', T0 + HOUR, 'osv_db_unavailable', { status: 'error', rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'ok' }] }) })
+        const audits: Scan[] = []
+        for (let n = 0; n < 101; n++) audits.push(ok('npm-audit', T0 + (2 + n) * HOUR, { coverage: [{ ecosystem: 'npm', status: 'ok' }] }))
+        const at = T0 + 200 * HOUR
+        function read(): unknown {
+            return {
+                state: getProjectScanState(db, PROJECT_ID),
+                context: findingScanContexts(db, [PROJECT_ID])(PROJECT_ID, 'osv'),
+                annotation: listCurrentFindingsForProject(db, PROJECT_ID, at).find(function osv(row) { return row.id === 'osv-row' })?.notRecheckedBecause
+            }
+        }
+        const before = read()
+        expect(before).toEqual({
+            state: { state: 'partial', reasons: [{ source: 'osv', ecosystem: null, reasonCode: 'osv_db_unavailable', side: 'environment' }] },
+            context: { latestStatus: 'error', latestReasonCode: 'osv_db_unavailable', lastOkScanAt: T0, projectState: 'partial' },
+            annotation: { reasonCode: 'osv_db_unavailable', side: 'environment', projectState: 'partial', lastOkScanAt: T0 }
+        })
+        const prunable = listPrunableScanIds(db, at, 100, 1000)
+        // Only the oldest npm-audit scan falls outside the newest 100; the OSV failure is OSV's latest scan.
+        expect(prunable).toEqual([audits[0]?.id])
+        expect(prunable).not.toContain(osvFailed.id)
+        deleteScansByIds(db, prunable)
+        expect(read()).toEqual(before)
     })
 })

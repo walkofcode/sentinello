@@ -244,7 +244,24 @@ describe('listPrunableScanIds', function () {
         insertScan(db, scan({ id: 'ok-last', finishedAt: T0 + HOUR }))
         insertScan(db, scan({ id: 'audit-ok', finishedAt: T0, source: 'npm-audit', scanner: 'npm-audit' }))
         insertScan(db, scan({ id: 'failed', finishedAt: T0 + 2 * HOUR, status: 'unauditable', reasonCode: 'no_lockfile' }))
-        expect(listPrunableScanIds(db, CUTOFF, 0, 100).sort()).toEqual(['failed', 'ok-old'])
+        expect(listPrunableScanIds(db, CUTOFF, 0, 100)).toEqual(['ok-old'])
+    })
+
+    // The source's latest scan is what the scan state reads: pruning a latest failure while sparing an older
+    // ok would make the source read as having answered, with no successful recheck. At most two rows per
+    // (project, source) are kept this way: the latest, and the latest ok.
+    it('spares the latest scan of each source, however old, as well as its latest ok', function () {
+        insertScan(db, scan({ id: 'ok', finishedAt: T0 }))
+        insertScan(db, scan({ id: 'failed-old', finishedAt: T0 + HOUR, status: 'error', reasonCode: 'osv_db_unavailable' }))
+        insertScan(db, scan({ id: 'failed-last', finishedAt: T0 + 2 * HOUR, status: 'error', reasonCode: 'osv_db_unavailable' }))
+        for (let n = 0; n < 3; n++) insertScan(db, scan({ id: 'audit-' + n, finishedAt: T0 + (10 + n) * HOUR, source: 'npm-audit', scanner: 'npm-audit' }))
+        expect(listPrunableScanIds(db, CUTOFF, 2, 100).sort()).toEqual(['audit-0', 'failed-old'])
+    })
+
+    it('breaks a finished_at tie for the latest scan on the later id', function () {
+        oldScan('failed-a')
+        oldScan('failed-b')
+        expect(listPrunableScanIds(db, CUTOFF, 0, 100)).toEqual(['failed-a'])
     })
 
     it('breaks a finished_at tie between ok scans on the later id', function () {
@@ -255,6 +272,7 @@ describe('listPrunableScanIds', function () {
 
     it('offers an old, unreferenced scan', function () {
         oldScan('old')
+        insertScan(db, scan({ id: 'newer', finishedAt: CUTOFF + HOUR, status: 'unauditable', reasonCode: 'no_lockfile' }))
         expect(listPrunableScanIds(db, CUTOFF, 0, 100)).toEqual(['old'])
     })
 
@@ -309,6 +327,7 @@ describe('listPrunableScanIds', function () {
     it('still finds prunable scans while an unresolved finding holds a NULL resolved_scan_id', function () {
         oldScan('pinned')
         oldScan('prunable')
+        insertScan(db, scan({ id: 'newer', finishedAt: CUTOFF + HOUR, status: 'unauditable', reasonCode: 'no_lockfile' }))
         pinWithFinding('open', 'pinned', null)
 
         expect(listPrunableScanIds(db, CUTOFF, 0, 100)).toEqual(['prunable'])

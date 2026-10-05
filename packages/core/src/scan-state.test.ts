@@ -61,26 +61,48 @@ describe('scan state — the side map', function () {
 
 describe('scan state — projectScanState', function () {
     it('is scanned when every expected source answered and coverage is ok', function () {
-        expect(projectScanState({ expectedSources: ['npm-audit', 'osv'], latestScans: [ok('npm-audit'), ok('osv')], coverage: [coverage('npm', 'ok')] }))
+        expect(projectScanState({ expectedSources: ['npm-audit', 'osv'], latestScans: [ok('npm-audit'), ok('osv')], detectedEcosystems: ['npm'], coverage: [coverage('npm', 'ok')] }))
             .toEqual({ state: 'scanned', reasons: [] })
     })
 
-    it('is scanned when no coverage was recorded and every source answered', function () {
-        expect(projectScanState({ expectedSources: ['npm-audit'], latestScans: [ok('npm-audit')], coverage: [] }).state).toBe('scanned')
+    // A scan written before every scan recorded coverage (pre-M4 npm-audit summaries) says nothing about
+    // whether the dependencies could be read: unknown, never complete. The source answered, so the project is
+    // partial — the next sweep records coverage and clears it.
+    it('is partial, never scanned, when the latest scan recorded no coverage', function () {
+        expect(projectScanState({ expectedSources: ['npm-audit'], latestScans: [ok('npm-audit')], detectedEcosystems: ['npm'], coverage: null })).toEqual({
+            state: 'partial',
+            reasons: [{ source: null, ecosystem: 'npm', reasonCode: 'not_yet_run', side: null }]
+        })
+    })
+
+    it('is partial when a detected ecosystem has no coverage entry', function () {
+        expect(projectScanState({ expectedSources: ['osv'], latestScans: [ok('osv')], detectedEcosystems: ['npm', 'PyPI'], coverage: [coverage('npm', 'ok')] })).toEqual({
+            state: 'partial',
+            reasons: [{ source: null, ecosystem: 'PyPI', reasonCode: 'not_yet_run', side: null }]
+        })
+    })
+
+    it('is scanned once the latest scan recorded ok coverage for every detected ecosystem', function () {
+        expect(projectScanState({ expectedSources: ['osv'], latestScans: [ok('osv')], detectedEcosystems: ['npm', 'PyPI'], coverage: [coverage('npm', 'ok'), coverage('PyPI', 'ok')] }))
+            .toEqual({ state: 'scanned', reasons: [] })
+    })
+
+    it('is scanned with no detected ecosystem to cover', function () {
+        expect(projectScanState({ expectedSources: ['npm-audit'], latestScans: [ok('npm-audit')], detectedEcosystems: [], coverage: null }).state).toBe('scanned')
     })
 
     // No scan history at all: the existing "never scanned", never "All clear", never "cannot be scanned".
     it('is not scanned yet when no expected source has a scan', function () {
-        expect(projectScanState({ expectedSources: ['npm-audit'], latestScans: [], coverage: [] })).toEqual({ state: 'not_scanned_yet', reasons: [] })
+        expect(projectScanState({ expectedSources: ['npm-audit'], latestScans: [], detectedEcosystems: [], coverage: [] })).toEqual({ state: 'not_scanned_yet', reasons: [] })
     })
 
     it('is not scanned yet when nothing is expected', function () {
-        expect(projectScanState({ expectedSources: [], latestScans: [failed('osv', 'osv_db_not_seeded')], coverage: [] })).toEqual({ state: 'not_scanned_yet', reasons: [] })
+        expect(projectScanState({ expectedSources: [], latestScans: [failed('osv', 'osv_db_not_seeded')], detectedEcosystems: [], coverage: [] })).toEqual({ state: 'not_scanned_yet', reasons: [] })
     })
 
     // A newly enabled source has no scan row yet: the project is not "scanned" by it.
     it('is partial when an expected source has not run yet, never scanned', function () {
-        expect(projectScanState({ expectedSources: ['npm-audit', 'osv'], latestScans: [ok('npm-audit')], coverage: [coverage('npm', 'ok')] })).toEqual({
+        expect(projectScanState({ expectedSources: ['npm-audit', 'osv'], latestScans: [ok('npm-audit')], detectedEcosystems: [], coverage: [coverage('npm', 'ok')] })).toEqual({
             state: 'partial',
             reasons: [{ source: 'osv', ecosystem: null, reasonCode: 'not_yet_run', side: null }]
         })
@@ -88,19 +110,19 @@ describe('scan state — projectScanState', function () {
 
     // A source no longer expected (disabled, or its ecosystem withdrawn) does not count, failed or not.
     it('ignores the scan of a source that is not expected', function () {
-        expect(projectScanState({ expectedSources: ['npm-audit'], latestScans: [ok('npm-audit'), failed('osv', 'osv_db_not_seeded')], coverage: [] }))
+        expect(projectScanState({ expectedSources: ['npm-audit'], latestScans: [ok('npm-audit'), failed('osv', 'osv_db_not_seeded')], detectedEcosystems: [], coverage: [] }))
             .toEqual({ state: 'scanned', reasons: [] })
     })
 
     it('is partial when one source answered and another failed', function () {
-        expect(projectScanState({ expectedSources: ['npm-audit', 'osv'], latestScans: [ok('npm-audit'), failed('osv', 'osv_db_not_seeded')], coverage: [] })).toEqual({
+        expect(projectScanState({ expectedSources: ['npm-audit', 'osv'], latestScans: [ok('npm-audit'), failed('osv', 'osv_db_not_seeded')], detectedEcosystems: [], coverage: [] })).toEqual({
             state: 'partial',
             reasons: [{ source: 'osv', ecosystem: null, reasonCode: 'osv_db_not_seeded', side: 'environment' }]
         })
     })
 
     it('is partial when the sources answered but an ecosystem could not be fully read', function () {
-        expect(projectScanState({ expectedSources: ['osv'], latestScans: [ok('osv')], coverage: [coverage('npm', 'ok'), coverage('PyPI', 'partial', 'partial_dependency_graph')] })).toEqual({
+        expect(projectScanState({ expectedSources: ['osv'], latestScans: [ok('osv')], detectedEcosystems: [], coverage: [coverage('npm', 'ok'), coverage('PyPI', 'partial', 'partial_dependency_graph')] })).toEqual({
             state: 'partial',
             reasons: [{ source: null, ecosystem: 'PyPI', reasonCode: 'partial_dependency_graph', side: 'project' }]
         })
@@ -110,7 +132,7 @@ describe('scan state — projectScanState', function () {
         expect(projectScanState({
             expectedSources: ['npm-audit', 'osv'],
             latestScans: [failed('npm-audit', 'no_lockfile'), failed('osv', 'no_lockfile')],
-            coverage: [coverage('npm', 'unauditable', 'no_lockfile')]
+            detectedEcosystems: [], coverage: [coverage('npm', 'unauditable', 'no_lockfile')]
         })).toEqual({
             state: 'cannot_scan',
             reasons: [
@@ -122,7 +144,7 @@ describe('scan state — projectScanState', function () {
     })
 
     it('cannot scan when one source failed and the other has not run yet', function () {
-        expect(projectScanState({ expectedSources: ['npm-audit', 'osv'], latestScans: [failed('npm-audit', 'pm_missing')], coverage: [] })).toEqual({
+        expect(projectScanState({ expectedSources: ['npm-audit', 'osv'], latestScans: [failed('npm-audit', 'pm_missing')], detectedEcosystems: [], coverage: [] })).toEqual({
             state: 'cannot_scan',
             reasons: [
                 { source: 'npm-audit', ecosystem: null, reasonCode: 'pm_missing', side: 'environment' },
@@ -132,7 +154,7 @@ describe('scan state — projectScanState', function () {
     })
 
     it('reads an unrecognised failure code as an unknown failure', function () {
-        expect(projectScanState({ expectedSources: ['npm-audit'], latestScans: [failed('npm-audit', null, 'error')], coverage: [coverage('npm', 'unauditable', null)] }).reasons).toEqual([
+        expect(projectScanState({ expectedSources: ['npm-audit'], latestScans: [failed('npm-audit', null, 'error')], detectedEcosystems: [], coverage: [coverage('npm', 'unauditable', null)] }).reasons).toEqual([
             { source: 'npm-audit', ecosystem: null, reasonCode: 'audit_unknown_failure', side: 'environment' },
             { source: null, ecosystem: 'npm', reasonCode: 'audit_unknown_failure', side: 'environment' }
         ])

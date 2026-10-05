@@ -17,7 +17,7 @@ type ScanRow = typeof scans.$inferSelect
 // instead of looking like a scanner that wrote something malformed. getProjectEcosystemCoverage
 // already skips anything it cannot parse (./scan-state).
 export const RAW_JSON_MAX_BYTES = 32 * 1024
-const RAW_JSON_TRUNCATION_MARKER = '…[truncated]'
+export const RAW_JSON_TRUNCATION_MARKER = '…[truncated]'
 
 export function capRawJson(rawJson: string): string {
     if (rawJson.length <= RAW_JSON_MAX_BYTES) return rawJson
@@ -122,17 +122,25 @@ export function countScansForProject(db: DrizzleDb, projectId: string): number {
 // them by age: cascadeDeleteProjects is scoped by projectId, for projects that vanish from disk. A
 // real instance reached 60k rows / 2.2 GB in under three months.
 //
-// A row is prunable only when all four hold, and each condition earns its place:
+// A row is prunable only when all five hold, and each condition earns its place:
 //
 //  1. It is older than the caller's cutoff.
 //  2. It is not among the newest `keepPerProject` scans for its project. This keeps
 //     listVulnTrendForProject's sparkline and the latest scan of every source that still runs, which
 //     carries the coverage getProjectEcosystemCoverage reads (./scan-state) — what lets the UI say
 //     "this Python scan was partial" rather than reading a coverage gap as a clean bill of health.
-//  3. It is not its source's latest ok scan of the project. A project that has failed to scan for
+//  3. It is not its source's latest scan of the project. The scan state and the "not re-checked"
+//     annotation read each source's latest row (listLatestSourceScans); with only an older ok row left, a
+//     source whose latest scan failed would read as having answered — "scanned" resurrected and the
+//     annotation gone, with no successful recheck. A source the operator disabled for a while is out-scanned
+//     by the others and would otherwise lose exactly that row before it is re-enabled.
+//  4. It is not its source's latest ok scan of the project. A project that has failed to scan for
 //     months says its retained findings were "last scanned successfully {date}" from that row; pruning
 //     it would turn the date into a false "never scanned successfully".
-//  4. Nothing references it. foreign_keys is ON (client.ts) and findings.scan_id,
+//
+//     3 and 4 keep at most two rows per (project, source), whatever their age, both ordered as the
+//     reader orders them (finished_at, then id).
+//  5. Nothing references it. foreign_keys is ON (client.ts) and findings.scan_id,
 //     findings.resolved_scan_id and notification_events.first_scan_id are all NO ACTION, so a
 //     referenced row does not merely deserve keeping — deleting it THROWS.
 //
@@ -146,6 +154,10 @@ export function listPrunableScanIds(db: DrizzleDb, cutoffAt: number, keepPerProj
             SELECT id, project_id, finished_at, status,
                    ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY finished_at DESC) AS rn,
                    ROW_NUMBER() OVER (
+                       PARTITION BY project_id, COALESCE(source, scanner)
+                       ORDER BY finished_at DESC, id DESC
+                   ) AS source_rn,
+                   ROW_NUMBER() OVER (
                        PARTITION BY project_id, COALESCE(source, scanner), status = 'ok'
                        ORDER BY finished_at DESC, id DESC
                    ) AS status_rn
@@ -155,6 +167,7 @@ export function listPrunableScanIds(db: DrizzleDb, cutoffAt: number, keepPerProj
         FROM ranked r
         WHERE r.rn > ${keepPerProject}
           AND r.finished_at < ${cutoffAt}
+          AND r.source_rn > 1
           AND NOT (r.status = 'ok' AND r.status_rn = 1)
           -- NOT IN, deliberately, and NOT NOT EXISTS. There is no index on findings.resolved_scan_id
           -- or on notification_events.first_scan_id, so NOT EXISTS degenerates into a full scan per

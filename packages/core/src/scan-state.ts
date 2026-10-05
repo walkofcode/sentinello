@@ -53,7 +53,7 @@ export function reasonSide(code: string | null): ScanStateSide {
     return REASON_SIDE[failureReasonCode(code)]
 }
 
-// `scanned` — every expected source's latest scan is ok and every ecosystem's coverage is ok.
+// `scanned` — every expected source's latest scan is ok and every detected ecosystem's coverage is known and ok.
 // `partial` — at least one expected source answered, but something else did not: another source failed,
 //   one has not run yet, or an ecosystem could not be fully read. Shown as "cannot be fully scanned".
 // `cannot_scan` — no expected source answered, and at least one tried and failed.
@@ -61,12 +61,15 @@ export function reasonSide(code: string | null): ScanStateSide {
 export type ScanStateValue = 'scanned' | 'partial' | 'cannot_scan' | 'not_scanned_yet'
 
 // One reason the project is not `scanned`. A source's failed scan names the source; an ecosystem whose
-// dependencies could not be (fully) read names the ecosystem. `not_yet_run` is an expected source with no
-// scan at all: it is nobody's fix — the next sweep runs it — so it has no side, and it is never a failure.
+// dependencies could not be (fully) read names the ecosystem. `not_yet_run` is something the next sweep
+// does that no scan has done yet: an expected source with no scan at all, or a detected ecosystem the
+// latest scan recorded no coverage for (a scan written before every scan recorded coverage, or before the
+// ecosystem was detected). It is nobody's fix, so it has no side, and it is never a failure.
 export type ScanStateReason =
     | { source: string; ecosystem: null; reasonCode: FailureReasonCode; side: ScanStateSide }
     | { source: null; ecosystem: string; reasonCode: FailureReasonCode; side: ScanStateSide }
     | { source: string; ecosystem: null; reasonCode: 'not_yet_run'; side: null }
+    | { source: null; ecosystem: string; reasonCode: 'not_yet_run'; side: null }
 
 export type ScanState = {
     state: ScanStateValue
@@ -90,11 +93,14 @@ export type ScanStateCoverage = {
 
 // Everything the state is computed from. `expectedSources` is the set the project should have heard from
 // (its runnable source cells, restricted to its detected ecosystems): it is passed in, never inferred from
-// the scans that exist, because an absent scan means "has not run", never "is fine".
+// the scans that exist, because an absent scan means "has not run", never "is fine". In the same way,
+// `detectedEcosystems` is what the coverage must answer for: an ecosystem with no coverage entry, or
+// `coverage: null` (the latest scan recorded none), is unknown — never read as fully covered.
 export type ScanStateInputs = {
     expectedSources: readonly string[]
     latestScans: readonly LatestSourceScan[]
-    coverage: readonly ScanStateCoverage[]
+    detectedEcosystems: readonly string[]
+    coverage: readonly ScanStateCoverage[] | null
 }
 
 export function projectScanState(inputs: ScanStateInputs): ScanState {
@@ -119,10 +125,15 @@ export function projectScanState(inputs: ScanStateInputs): ScanState {
         const reasonCode = failureReasonCode(scan.reasonCode)
         reasons.push({ source, ecosystem: null, reasonCode, side: REASON_SIDE[reasonCode] })
     }
-    for (const entry of inputs.coverage) {
+    const coverage = inputs.coverage ?? []
+    for (const entry of coverage) {
         if (entry.status === 'ok') continue
         const reasonCode = failureReasonCode(entry.reasonCode)
         reasons.push({ source: null, ecosystem: entry.ecosystem, reasonCode, side: REASON_SIDE[reasonCode] })
+    }
+    for (const ecosystem of inputs.detectedEcosystems) {
+        if (coverage.some(function recorded(entry) { return entry.ecosystem === ecosystem })) continue
+        reasons.push({ source: null, ecosystem, reasonCode: 'not_yet_run', side: null })
     }
     if (answered === 0) return { state: 'cannot_scan', reasons }
     if (reasons.length > 0) return { state: 'partial', reasons }

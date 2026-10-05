@@ -56,10 +56,9 @@ function sourceRankSql(expr: string): SQL {
 // stop at the project's newest row. One pass and one sort instead. Mirrors listPrunableScanIds. raw_json
 // is joined back for the winning rows only, so the window never drags every scan's summary through.
 //
-// Retention prunes per project rather than per source, so a source that ran once long ago and has
-// been out-scanned since can lose its only row and silently drop out of this map. keepPerProject
-// covers dozens of sweeps and a still-enabled source re-creates its row next sweep, so the window is
-// narrow — but it is why an absent source reads as "has not run", never as "is fine".
+// Retention never prunes a source's latest scan of a project (listPrunableScanIds), so a source drops out
+// of this map only when it never scanned the project — which is why an absent source reads as "has not
+// run", never as "is fine".
 //
 // Not filtered to the active source cells: callers that show sources filter (activeScanRows), and the
 // scan state counts only expected sources, which are runnable cells by construction.
@@ -179,30 +178,38 @@ function coverageOf(rawJson: string): EcosystemCoverageRow[] | null {
 }
 
 // The coverage of the project's LATEST scan: every scan row records the whole project's coverage (the
-// runner writes it whatever the source), so the newest of the sources' latest rows that carries one is
-// the project as its last scan saw it. Never merged with older scans: a project that loses its lockfile
-// must stop showing the "ok" an earlier scan recorded.
-function latestCoverage(rows: readonly LatestSourceScanRow[]): EcosystemCoverageRow[] {
-    const newestFirst = rows.slice().sort(function newer(a, b) {
-        // Scan ids are ULIDs (uppercase Crockford base32), so on a tie the later write sorts first.
-        return b.finishedAt - a.finishedAt || b.id.localeCompare(a.id)
-    })
-    for (const row of newestFirst) {
-        const coverage = coverageOf(row.rawJson)
-        if (coverage !== null) return coverage
+// runner writes it whatever the source and however the scan ended — a raw diagnostic is kept beside it, not
+// instead of it), so the newest of the sources' latest rows is the project as its last scan saw it. Null
+// when that row carries none — a row written before every scan recorded coverage, or one the runner could
+// not resolve (a project whose root is gone): coverage is then unknown. Never borrowed from an older row of
+// another source: it may predate the project's current state by any number of sweeps, or come from a source
+// switched off since — a project that loses its lockfile must stop showing the "ok" an earlier scan recorded.
+function latestCoverage(rows: readonly LatestSourceScanRow[]): EcosystemCoverageRow[] | null {
+    let newest: LatestSourceScanRow | null = null
+    for (const row of rows) {
+        // Scan ids are ULIDs (uppercase Crockford base32), so on a tie the later write wins.
+        if (newest === null || row.finishedAt > newest.finishedAt || row.finishedAt === newest.finishedAt && row.id > newest.id) newest = row
     }
-    return []
+    return newest === null ? null : coverageOf(newest.rawJson)
 }
 
+// The coverage list the project page and MCP get_project show. Unknown coverage lists nothing; whether the
+// project could be fully read is the scan state's to say (getProjectScanState), which never reads unknown
+// coverage as complete.
 export function getProjectEcosystemCoverage(db: DrizzleDb, projectId: string): EcosystemCoverageRow[] {
-    return latestCoverage(listLatestSourceScans(db, [projectId]))
+    return latestCoverage(listLatestSourceScans(db, [projectId])) ?? []
+}
+
+// The ecosystems discovery detected in a project: what its coverage must answer for. A project row written
+// before discovery recorded ecosystems carries none; it is read as npm, the only ecosystem such a row can
+// have come from.
+function detectedEcosystemsOf(ecosystems: readonly string[]): readonly string[] {
+    return ecosystems.length > 0 ? ecosystems : [DEFAULT_ECOSYSTEM]
 }
 
 // The sources a project should have heard from: its runnable cells (enabled, stable ecosystem) restricted
-// to the ecosystems discovery detected in it. A project row written before discovery recorded ecosystems
-// carries none; it is read as npm, the only ecosystem such a row can have come from.
-function expectedSourcesFor(ecosystems: readonly string[], runnable: readonly SourceCell[]): string[] {
-    const detected = ecosystems.length > 0 ? ecosystems : [DEFAULT_ECOSYSTEM]
+// to the ecosystems detected in it.
+function expectedSourcesFor(detected: readonly string[], runnable: readonly SourceCell[]): string[] {
     return SOURCE_IDS.filter(function expected(source) {
         return runnable.some(function cell(c) { return c.source === source && detected.includes(c.ecosystem) })
     })
@@ -229,13 +236,16 @@ function readScanInputs(db: DrizzleDb, projectIds: readonly string[] | null): Ma
         const rows = rowsByProject.get(project.id) ?? []
         const latestBySource = new Map<string, LatestSourceScanRow>()
         for (const row of rows) latestBySource.set(row.source, row)
+        const detected = detectedEcosystemsOf(parseEcosystems(project.ecosystems_json))
+        const coverage = latestCoverage(rows)
         out.set(project.id, {
             inputs: {
-                expectedSources: expectedSourcesFor(parseEcosystems(project.ecosystems_json), runnable),
+                expectedSources: expectedSourcesFor(detected, runnable),
                 latestScans: rows.map(function latest(row) {
                     return { source: row.source, status: row.status, reasonCode: row.reasonCode, finishedAt: row.finishedAt }
                 }),
-                coverage: latestCoverage(rows).map(function cov(c) {
+                detectedEcosystems: detected,
+                coverage: coverage === null ? null : coverage.map(function cov(c) {
                     return { ecosystem: c.ecosystem, status: c.status, reasonCode: c.reasonCode }
                 })
             },
@@ -245,7 +255,7 @@ function readScanInputs(db: DrizzleDb, projectIds: readonly string[] | null): Ma
     return out
 }
 
-// The one normalizer: { expectedSources, latestScans, coverage } per project, for one project or all.
+// The one normalizer: { expectedSources, latestScans, detectedEcosystems, coverage } per project, for one project or all.
 export function expectedScanInputs(db: DrizzleDb, projectIds: readonly string[] | null = null): Map<string, ScanStateInputs> {
     const out = new Map<string, ScanStateInputs>()
     for (const [id, read] of readScanInputs(db, projectIds)) out.set(id, read.inputs)

@@ -12,6 +12,7 @@ import {
     listProjectCatalog,
     listScansForProject,
     openDb,
+    RAW_JSON_MAX_BYTES,
     runMigrations,
     upsertProject,
     upsertRoot,
@@ -748,10 +749,47 @@ describe('runBatch — coverage on every scan row', function () {
         expect(storedRawJson()).toEqual({ coverage: [{ ecosystem: 'npm', status: 'partial' }] })
     })
 
-    // The raw audit output a failed scan keeps for debugging is not rewritten.
-    it.each([['raw audit text'], ['[1,2]'], ['null']])('leaves a summary that is not an object as it is: %s', async function (raw) {
+    // The raw audit output a failed scan keeps for debugging is kept beside the coverage, never instead of it.
+    it.each([['raw audit text'], ['[1,2]'], ['null']])('keeps a summary that is not an object beside the coverage: %s', async function (raw) {
+        await writeBarePackageJson()
         await batch([fakeScanner('npm-audit', { status: 'error', reasonCode: 'audit_parse_error', findings: [], rawJson: raw, errorText: 'bad', durationMs: 1 })], [project()])
-        expect(listScansForProject(db, PROJECT_ID)[0]?.rawJson).toBe(raw)
+        expect(storedRawJson()).toEqual({ coverage: NO_LOCKFILE, raw })
+    })
+
+    // capRawJson would cut the JSON and the coverage with it: the raw text is shortened instead, escapes and all.
+    it('shortens a raw diagnostic so the envelope fits under the cap', async function () {
+        await writeBarePackageJson()
+        const raw = 'line "one"\n\u0001'.repeat(RAW_JSON_MAX_BYTES / 4)
+        await batch([fakeScanner('npm-audit', { status: 'error', reasonCode: 'audit_parse_error', findings: [], rawJson: raw, errorText: 'bad', durationMs: 1 })], [project()])
+        const stored = listScansForProject(db, PROJECT_ID)[0]?.rawJson ?? ''
+        expect(stored.length).toBeLessThanOrEqual(RAW_JSON_MAX_BYTES)
+        const parsed = JSON.parse(stored) as { coverage: unknown; raw: string }
+        expect(parsed.coverage).toEqual(NO_LOCKFILE)
+        expect(parsed.raw.endsWith('…[truncated]')).toBe(true)
+        expect(raw.startsWith(parsed.raw.slice(0, -'…[truncated]'.length))).toBe(true)
+    })
+
+    it('wraps a summary object too large to take the coverage under the cap', async function () {
+        await writeBarePackageJson()
+        const summary = JSON.stringify({ source: 'npm-audit', blob: 'x'.repeat(RAW_JSON_MAX_BYTES - 40) })
+        await batch([fakeScanner('npm-audit', { status: 'error', reasonCode: 'audit_schema_mismatch', findings: [], rawJson: summary, errorText: 'bad', durationMs: 1 })], [project()])
+        const parsed = JSON.parse(listScansForProject(db, PROJECT_ID)[0]?.rawJson ?? '') as { coverage: unknown; raw: string }
+        expect(parsed.coverage).toEqual(NO_LOCKFILE)
+        expect(summary.startsWith(parsed.raw.slice(0, -'…[truncated]'.length))).toBe(true)
+    })
+
+    // The yarn.lock case: the resolver cannot read the graph, npm audit fails with raw output, and the scan
+    // still says why — not another source's older "ok".
+    it('records the current coverage on a raw failure after an older ok from another source', async function () {
+        const { mkdir, writeFile } = await import('node:fs/promises')
+        await mkdir(join(projectDir, 'app'), { recursive: true })
+        await writeFile(join(projectDir, 'app', 'package.json'), '{}', 'utf8')
+        await writeFile(join(projectDir, 'app', 'yarn.lock'), '# yarn lock', 'utf8')
+        await batch([fakeScanner('osv', { ...okResult([]), rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'ok' }] }) })], [project()])
+        await batch([fakeScanner('npm-audit', { status: 'error', reasonCode: 'audit_parse_error', findings: [], rawJson: 'raw audit text', errorText: 'bad', durationMs: 1 })], [project()])
+        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([
+            { ecosystem: 'npm', status: 'unauditable', reasonCode: 'unsupported_lockfile', details: ['yarn.lock is not a supported JavaScript lockfile format'] }
+        ])
     })
 
     it('records it on the error row of a scanner that threw', async function () {
