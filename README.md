@@ -355,10 +355,10 @@ marked as not checked against the registry.
 
 The npm check has **no lookup cap**: every package a fix or a way out needs is read, so a way out is
 never left partial. Lookups run 16 at a time, a cached answer is reused for 24 hours and then
-revalidated by ETag, so the daily rescan of an unchanged package costs a `304`. An instance that ran a
-pre-release build of 3.7.0 **refetches every cached package once** on its first scan after upgrading —
-the cached format now keeps prereleases, which those builds dropped — and uses the cache as before after
-that.
+revalidated by ETag, so the daily rescan of an unchanged package costs a `304`. On an instance that ran
+a pre-release build of 3.7.0, a package cached by that build is **fetched in full once, the next time a
+scan needs it** — the cached format now keeps prereleases, which those builds dropped — and is cached as
+usual after that. There is no sweep of the whole cache: a package no scan asks for stays as it is.
 
 ## Notifications & webhooks
 

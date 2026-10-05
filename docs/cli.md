@@ -109,8 +109,9 @@ npm is checked; other ecosystems are not offered yet.
 for the portal's worker.
 
 There is no lookup cap: every package the fix check and the way out need is read, 16 at a time, so a way
-out is never left partial. A registry cache written by a pre-release build of 3.7.0 is refetched once
-on the first run — its entries lack the prereleases the check now needs — and reused after that.
+out is never left partial. In a registry cache written by a pre-release build of 3.7.0, each package is
+fetched in full once, the next time a run needs it — those entries lack the prereleases the check now
+needs — and cached as usual after that. The rest of the cache is not refetched up front.
 
 ## Projects that cannot be scanned
 
