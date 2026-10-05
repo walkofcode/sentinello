@@ -37,6 +37,7 @@
         "@types/semver": "7.7.1",
         "@types/unzipper": "0.10.11",
         "nodemon": "3.1.14",
+        "npm-pick-manifest": "11.0.3",
         "tsx": "4.21.0"
     }
 }

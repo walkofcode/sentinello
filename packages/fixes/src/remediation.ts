@@ -14,7 +14,7 @@ import {
 } from '@sentinello/core'
 import type { NpmPackageSummary } from '@sentinello/feeds'
 import type { LockRoot, NodeGraph } from '@sentinello/scanners'
-import { createClosureWalker, effectiveDependencies, unalias, type ClosureWalker, type ProofTarget, type SummaryAnswer } from './closure'
+import { createClosureWalker, effectiveDependencies, registrySpec, unalias, type ClosureWalker, type RegistrySpec, type ProofTarget, type SummaryAnswer } from './closure'
 import type { RegistryClient } from './registry-client'
 import { createReplacementDataset, type ReplacementDataset } from './replacements'
 
@@ -316,7 +316,7 @@ async function admit(nodes: ChainNode[], level: number, version: string, closure
     const parent = nodes[level - 1] as ChainNode
     const declared = await declaredRange(parent, escaping.name, args.walker)
     if (declared.kind === 'unknown') return { kind: 'unknown', at: parent.name, reason: declared.reason }
-    const admits = semver.satisfies(version, unalias(escaping.name, declared.range).range)
+    const admits = accepts(declared.spec, version)
     if (admits) return { kind: 'upgrade', package: escaping.name, toAtLeast: version, proof }
     const parentEscape = await findEscape(parent, args)
     if (parentEscape.kind === 'unknown') return { kind: 'unknown', at: parent.name, reason: parentEscape.reason }
@@ -344,16 +344,26 @@ async function findEscape(node: ChainNode, args: BuildOneArgs): Promise<Escape> 
     return { kind: 'none' }
 }
 
-type Declared = { kind: 'known'; range: string; latest: string | null } | { kind: 'unknown'; reason: string }
+// `range` is the specifier as declared, `spec` how npm reads it.
+type Declared = { kind: 'known'; range: string; spec: RangeSpec; latest: string | null } | { kind: 'unknown'; reason: string }
+type RangeSpec = Exclude<RegistrySpec, { type: 'tag' }>
 
-// The range the installed parent declares for the child, from the registry's record of that release.
+// The range the installed parent declares for the child, from the registry's record of that release, read
+// the way npm reads it (loosely: `>=3.0.0 || insiders` is `>=3.0.0`).
 async function declaredRange(parent: ChainNode, child: string, walker: ClosureWalker): Promise<Declared> {
     const answer = await summaryOf(walker, parent.name)
     if (answer.status === 'missing') return { kind: 'unknown', reason: 'no registry data for ' + parent.name }
     const range = effectiveDependencies(answer.summary, parent.version)[child]
     if (range === undefined) return { kind: 'unknown', reason: parent.name + '@' + parent.version + ' does not declare ' + child + ' in the registry' }
-    if (semver.validRange(unalias(child, range).range) === null) return { kind: 'unknown', reason: parent.name + ' requires ' + child + ' as ' + range + ', which is not a registry range' }
-    return { kind: 'known', range, latest: answer.summary.latest }
+    const spec = registrySpec(unalias(child, range).range)
+    if (spec === null) return { kind: 'unknown', reason: parent.name + ' requires ' + child + ' as ' + range + ', which is not a registry range' }
+    if (spec.type === 'tag') return { kind: 'unknown', reason: parent.name + ' requires ' + child + ' as ' + range + ', a dist-tag, not a version range' }
+    return { kind: 'known', range, spec, latest: answer.summary.latest }
+}
+
+// Whether npm would accept `version` for the declared specifier.
+function accepts(spec: RangeSpec, version: string): boolean {
+    return spec.type === 'version' ? spec.version === version : spec.range.test(version)
 }
 
 // ---- Alternatives ------------------------------------------------------------------------------------

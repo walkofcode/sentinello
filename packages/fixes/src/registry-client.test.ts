@@ -300,4 +300,65 @@ describe('parseSummary', function () {
         expect(parseSummary(JSON.stringify({ ...summary('a'), versions: null }))).toBeNull()
         expect(parseSummary(JSON.stringify({ ...summary('a'), versions: 'x' }))).toBeNull()
     })
+
+    // Issue 033: a v2 summary missing what a closure proof reads is no summary either — a dangling edge index
+    // would read as "no dependencies" and certify a closure that does reach the target.
+    const edged: NpmPackageSummary = {
+        ...summary('a'),
+        versions: { '1.0.0': { publishedAt: NOW, deprecated: null, edges: 0 }, '2.0.0': { publishedAt: null, deprecated: 'old', edges: null } },
+        prereleases: { '2.0.0-rc.1': 0, '2.0.0-rc.2': null },
+        edges: [{ dependencies: { vuln: '1.0.0' }, optionalDependencies: {}, peerDependencies: { p: '^1' }, optionalPeers: ['p'] }]
+    }
+    const edgeSet = edged.edges[0] as NpmPackageSummary['edges'][number]
+
+    it('accepts a whole summary with edges, deprecations and prereleases', function () {
+        expect(parseSummary(JSON.stringify(edged))).toEqual(edged)
+    })
+
+    it.each([
+        ['an array for versions', { ...edged, versions: [] }],
+        ['an array for prereleases', { ...edged, prereleases: [] }],
+        ['a missing edge table', { ...edged, edges: undefined }],
+        ['an edge table that is not an array', { ...edged, edges: {} }],
+        ['a release pointing past the edge table', { ...edged, edges: [] }],
+        ['a negative edge index', { ...edged, versions: { '1.0.0': { publishedAt: NOW, deprecated: null, edges: -1 } } }],
+        ['a fractional edge index', { ...edged, versions: { '1.0.0': { publishedAt: NOW, deprecated: null, edges: 0.5 } } }],
+        ['a release without its edge index', { ...edged, versions: { '1.0.0': { publishedAt: NOW, deprecated: null } } }],
+        ['a release that is not an object', { ...edged, versions: { '1.0.0': 0 } }],
+        ['a release with a non-string deprecation', { ...edged, versions: { '1.0.0': { publishedAt: NOW, deprecated: true, edges: null } } }],
+        ['a release with a non-numeric publish time', { ...edged, versions: { '1.0.0': { publishedAt: 'today', deprecated: null, edges: null } } }],
+        ['a prerelease pointing past the edge table', { ...edged, prereleases: { '2.0.0-rc.1': 1 } }],
+        ['a prerelease edge index that is not a number', { ...edged, prereleases: { '2.0.0-rc.1': '0' } }],
+        ['an edge set that is not an object', { ...edged, edges: [null] }],
+        ['an edge set without its dependency map', { ...edged, edges: [{ ...edgeSet, dependencies: undefined }] }],
+        ['an edge set with a non-string range', { ...edged, edges: [{ ...edgeSet, optionalDependencies: { x: 1 } }] }],
+        ['an edge set with peers that are not a list', { ...edged, edges: [{ ...edgeSet, optionalPeers: 'p' }] }],
+        ['an edge set with a non-string optional peer', { ...edged, edges: [{ ...edgeSet, optionalPeers: [1] }] }],
+        ['a name that is not a string', { ...edged, name: 1 }],
+        ['a latest tag that is not a string', { ...edged, latest: 1 }],
+        ['a modified time that is not a number', { ...edged, modified: 'x' }],
+        ['a maintainer count that is not a number', { ...edged, maintainers: null }],
+        ['a repository that is not a string', { ...edged, repository: {} }]
+    ] as const)('rejects a v2 summary with %s', function (_label, broken) {
+        expect(parseSummary(JSON.stringify(broken))).toBeNull()
+    })
+
+    it('never revalidates an incomplete v2 summary: no validator is sent, and a stray 304 is an error, not evidence', async function () {
+        const old = NOW - REGISTRY_FRESH_MS - 1
+        cache('a', 'ok', old, JSON.stringify({ ...edged, edges: [] }), '"same-packument"')
+        const f = fetcher({ a: { status: 'not_modified', etag: '"same-packument"' } })
+        const out = await createNpmRegistryClient(store, { fetchPackage: f.fetchPackage, now: () => NOW }).lookup(['a'])
+        expect(f.validators).toEqual({ a: null })
+        expect(out.get('a')).toEqual({ status: 'error', reason: 'HTTP 304 with no cached packument to confirm' })
+        expect(store.get(['a']).get('a')).toMatchObject({ checkedAt: old })
+    })
+
+    it('refetches an incomplete v2 summary in full, even while it is fresh, and never falls back to it', async function () {
+        cache('a', 'ok', NOW, JSON.stringify({ ...edged, edges: [] }), '"e1"')
+        const refetched = await createNpmRegistryClient(store, { fetchPackage: fetcher({ a: { status: 'ok', summary: edged, etag: '"e2"', bytes: 10 } }).fetchPackage, now: () => NOW }).lookup(['a'])
+        expect(refetched.get('a')).toEqual({ status: 'ok', summary: edged, checkedAt: NOW, origin: 'fetched' })
+        cache('b', 'ok', NOW, JSON.stringify({ ...edged, name: 'b', edges: [] }), '"e1"')
+        const failed = await createNpmRegistryClient(store, { fetchPackage: fetcher({}).fetchPackage, now: () => NOW }).lookup(['b'])
+        expect(failed.get('b')).toEqual({ status: 'error', reason: 'no answer' })
+    })
 })

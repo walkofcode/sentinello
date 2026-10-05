@@ -1,5 +1,5 @@
 import semver from 'semver'
-import type { NpmPackageSummary } from '@sentinello/feeds'
+import type { NpmPackageSummary, NpmVersionSummary } from '@sentinello/feeds'
 import { affectedSetContains, type AffectedSet } from '@sentinello/scanners'
 import type { RegistryClient, RegistryEntry } from './registry-client'
 
@@ -9,8 +9,8 @@ import type { RegistryClient, RegistryEntry } from './registry-client'
 // key:
 //
 //   closureOf(pkg@version) — every package@version an install of that release would bring in, resolved
-//                            from registry summaries: each dependency range resolves to the highest
-//                            published release satisfying it (what an upgrade installs). dependencies,
+//                            from registry summaries: each dependency range resolves to the version
+//                            npm would pick for it (resolveRange; what an upgrade installs). dependencies,
 //                            optionalDependencies and peerDependencies, optional peers included, are all
 //                            followed: an escape that holds only while an optional dependency is absent is
 //                            not an escape. Target-independent, so it is memoized per package@version.
@@ -22,7 +22,7 @@ import type { RegistryClient, RegistryEntry } from './registry-client'
 //
 // There is no cap on how many packages a walk reads: a closure is walked to its end, and an 'unknown' only
 // ever comes from a real cause — a registry error, a package not on the registry, a range nothing
-// satisfies, a git or file specifier — which its reason names.
+// satisfies, a dist-tag, a git or file specifier — which its reason names.
 
 export type Closure = {
     // package@version keys, the release itself included.
@@ -240,11 +240,32 @@ function edgeIndexOf(summary: NpmPackageSummary, version: string): number | null
     return Object.hasOwn(summary.prereleases, version) ? summary.prereleases[version] : undefined
 }
 
-// What an install of `range` resolves to: the highest published version satisfying it, as npm picks it.
-// Prereleases are candidates under semver's own rule — only for a range that names a prerelease of the same
-// major.minor.patch (gensync@^1.0.0-beta.2) — so an ordinary range still resolves to a release. `latest`,
-// `*` and an empty range mean the latest tag. Null for anything not resolvable from the registry (a git or
-// file specifier, an unknown tag, a range nothing satisfies).
+// How npm reads a registry dependency specifier (npm-package-arg's fromRegistry, which parses loosely): an
+// exact version, a range, or a dist-tag. `>=3.0.0 || insiders` is a range to npm — loose parsing reads it as
+// `>=3.0.0` — so it is one here. Null for what npm would not send to the registry as a version at all: a git,
+// file or URL specifier (an `npm:` alias is unaliased before it gets here). '' means npm's default, the
+// `latest` tag's range path ('*').
+export type RegistrySpec = { type: 'version'; version: string } | { type: 'range'; range: semver.Range } | { type: 'tag'; tag: string }
+
+export function registrySpec(spec: string): RegistrySpec | null {
+    const trimmed = spec.trim()
+    const version = semver.valid(trimmed, LOOSE)
+    if (version !== null) return { type: 'version', version }
+    if (semver.validRange(trimmed, LOOSE) !== null) return { type: 'range', range: new semver.Range(trimmed, LOOSE) }
+    return encodeURIComponent(trimmed) === trimmed ? { type: 'tag', tag: trimmed } : null
+}
+
+const LOOSE = { loose: true }
+
+// What an install of `range` resolves to, as npm-pick-manifest picks it from the summary: an exact version
+// only itself; a dist-tag its version (only `latest` is recorded); a range the `latest` release when it
+// satisfies the range and is not deprecated, otherwise the highest satisfying version, a non-deprecated one
+// first. Prereleases are candidates under semver's own rule — only for a range that names a prerelease of
+// the same major.minor.patch (gensync@^1.0.0-beta.2) — so an ordinary range still resolves to a release.
+// Not modelled: npm's preference for a release whose `engines` accept the running node (the summary keeps no
+// `engines`) and a prerelease's deprecation (prereleases keep only their edges). Null for anything not
+// resolvable from the registry (a git or file specifier, a tag other than `latest`, a range nothing
+// satisfies).
 //
 // A walk resolves the same few ranges against the same summaries thousands of times, over release lists
 // thousands long (next: 2,369 releases and more canaries), so each summary's versions are parsed and sorted
@@ -264,25 +285,39 @@ export function resolveRange(summary: NpmPackageSummary, range: string): string 
     return answer
 }
 
-type Candidate = { key: string; version: semver.SemVer }
+type Candidate = { key: string; version: semver.SemVer; deprecated: boolean }
 type Candidates = { releases: Candidate[]; all: Candidate[] }
 
 const resolved = new WeakMap<NpmPackageSummary, Map<string, string | null>>()
 const candidates = new WeakMap<NpmPackageSummary, Candidates>()
 
 function resolveUncached(summary: NpmPackageSummary, trimmed: string): string | null {
-    if (trimmed === '' || trimmed === '*' || trimmed === 'latest') {
-        if (summary.latest !== null && summary.latest in summary.versions) return summary.latest
-        return candidatesOf(summary).releases[0]?.key ?? null
+    const spec = registrySpec(trimmed === '' ? '*' : trimmed)
+    if (spec === null) return null
+    if (spec.type === 'version') return isPublished(summary, spec.version) ? spec.version : null
+    if (spec.type === 'tag') return spec.tag === 'latest' && summary.latest !== null && isPublished(summary, summary.latest) ? summary.latest : null
+    const latest = summary.latest
+    // npm takes `latest` for '*' without testing it (a prerelease `latest` included), and for any other range
+    // when the range accepts it.
+    if (latest !== null && isPublished(summary, latest) && !isDeprecated(summary, latest) &&
+        (spec.range.raw === '*' || spec.range.test(latest))) return latest
+    const pool = namesPrerelease(spec.range) ? candidatesOf(summary).all : candidatesOf(summary).releases
+    let deprecated: string | null = null
+    for (const c of pool) {
+        if (!spec.range.test(c.version)) continue
+        if (!c.deprecated) return c.key
+        deprecated = deprecated ?? c.key
     }
-    let parsed: semver.Range
-    try {
-        parsed = new semver.Range(trimmed)
-    } catch {
-        return null
-    }
-    const pool = namesPrerelease(parsed) ? candidatesOf(summary).all : candidatesOf(summary).releases
-    return pool.find(function satisfies(c) { return parsed.test(c.version) })?.key ?? null
+    return deprecated
+}
+
+function isPublished(summary: NpmPackageSummary, version: string): boolean {
+    return Object.hasOwn(summary.versions, version) || Object.hasOwn(summary.prereleases, version)
+}
+
+// Only a release's deprecation is recorded; a prerelease reads as not deprecated.
+function isDeprecated(summary: NpmPackageSummary, version: string): boolean {
+    return Object.hasOwn(summary.versions, version) && (summary.versions[version] as NpmVersionSummary).deprecated !== null
 }
 
 // Whether any comparator of the range carries a prerelease tag: without one, semver never lets a prerelease
@@ -297,10 +332,11 @@ function namesPrerelease(range: semver.Range): boolean {
 function candidatesOf(summary: NpmPackageSummary): Candidates {
     const cached = candidates.get(summary)
     if (cached) return cached
+    // Parsed loosely, as the ranges are, so semver tests each one as it is instead of re-parsing it.
     function parse(keys: string[]): Candidate[] {
         return keys.flatMap(function toCandidate(key) {
-            const version = semver.parse(key)
-            return version === null ? [] : [{ key, version }]
+            const version = semver.parse(key, LOOSE)
+            return version === null ? [] : [{ key, version, deprecated: isDeprecated(summary, key) }]
         })
     }
     function newestFirst(a: Candidate, b: Candidate): number {

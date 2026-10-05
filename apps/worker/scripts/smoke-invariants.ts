@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module'
 import semver from 'semver'
 import type { FixCheck, Remediation } from '@sentinello/core'
 import type { NpmPackageSummary } from '@sentinello/feeds'
@@ -6,8 +7,9 @@ import type { RecordedNotification, RegistrySnapshotEntry } from './scratch-env'
 // The live invariant set. It judges each settled row against the registry data the run ACTUALLY used —
 // the recording client's snapshot, fetched this run or served from the cache — so a correct outcome that
 // changed because npm published something still passes, while an invented, stale or mis-attributed one
-// fails. Every check is made with the `semver` package directly, never through pickReleasedFix or the
-// worker's own helpers, so the code is not checking itself.
+// fails. Every check is made with the `semver` package directly (and a dependency range resolved with npm's
+// own npm-pick-manifest), never through pickReleasedFix or the worker's own helpers, so the code is not
+// checking itself.
 
 export const FRESH_WINDOW_MS = 24 * 60 * 60 * 1000
 
@@ -259,14 +261,32 @@ function snapshotSummaries(snapshot: RegistrySnapshotEntry[]): Map<string, NpmPa
     return out
 }
 
-// What an install of `range` resolves to, re-derived with semver: the highest version satisfying it under
-// semver's default prerelease rule (a prerelease only for a range naming one of the same major.minor.patch),
-// the latest tag for '', '*' and 'latest'.
+// What an install of `range` resolves to, re-derived by npm itself: npm-pick-manifest (the version npm 11
+// bundles) over a packument rebuilt from the summary — every version, each release's deprecation and the
+// `latest` tag. Null wherever npm would refuse the specifier or find nothing for it.
 function resolveWith(summary: NpmPackageSummary, range: string): string | null {
-    const releases = Object.keys(summary.versions)
-    const r = range.trim()
-    if (r === '' || r === '*' || r === 'latest') return summary.latest !== null && summary.latest in summary.versions ? summary.latest : semver.maxSatisfying(releases, '*')
-    return semver.validRange(r) === null ? null : semver.maxSatisfying([...releases, ...Object.keys(summary.prereleases)], r)
+    try {
+        return pickManifest(packumentOf(summary), range).version
+    } catch {
+        return null
+    }
+}
+
+type PickedManifest = { version: string }
+type Packument = { name: string; 'dist-tags': Record<string, string>; versions: Record<string, { version: string; deprecated?: string }> }
+const pickManifest = createRequire(import.meta.url)('npm-pick-manifest') as (packument: Packument, wanted: string) => PickedManifest
+
+const packuments = new WeakMap<NpmPackageSummary, Packument>()
+
+function packumentOf(summary: NpmPackageSummary): Packument {
+    const known = packuments.get(summary)
+    if (known) return known
+    const versions: Packument['versions'] = {}
+    for (const [version, release] of Object.entries(summary.versions)) versions[version] = release.deprecated === null ? { version } : { version, deprecated: release.deprecated }
+    for (const version of Object.keys(summary.prereleases)) versions[version] = { version }
+    const built: Packument = { name: summary.name, 'dist-tags': summary.latest === null ? {} : { latest: summary.latest }, versions }
+    packuments.set(summary, built)
+    return built
 }
 
 // The release's resolved dependency closure, walked over the snapshot alone. `missing` names what the

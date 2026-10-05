@@ -203,19 +203,50 @@ function settleFetch(store: RegistryStore, name: string, result: NpmPackageResul
     return { status: 'error', reason }
 }
 
+// A cached summary is evidence only when it is whole: every field of the v2 shape, and every edge reference
+// of a release or a prerelease pointing at an edge set that is there. Anything less — a v1 summary, which
+// lacks prereleases, or a v2 summary missing an edge set — is no summary, so it is refetched in full and
+// never revalidated: a 304 confirms the registry's packument, not that our reduction of it is complete.
 export function parseSummary(json: string | null): NpmPackageSummary | null {
     if (json === null) return null
+    let parsed: unknown
     try {
-        const parsed = JSON.parse(json) as Partial<NpmPackageSummary> | null
-        if (!parsed || parsed.v !== 2 || !isObject(parsed.versions) || !isObject(parsed.prereleases)) return null
-        return parsed as NpmPackageSummary
+        parsed = JSON.parse(json)
     } catch {
         return null
     }
+    return isSummary(parsed) ? parsed : null
 }
 
-function isObject(value: unknown): boolean {
-    return typeof value === 'object' && value !== null
+function isSummary(value: unknown): value is NpmPackageSummary {
+    if (!isRecord(value) || value.v !== 2 || typeof value.name !== 'string' || !isNullable(value.latest, 'string') ||
+        !isNullable(value.modified, 'number') || typeof value.maintainers !== 'number' || !isNullable(value.repository, 'string')) return false
+    const { versions, prereleases, edges } = value
+    if (!Array.isArray(edges) || !edges.every(isEdgeSet) || !isRecord(versions) || !isRecord(prereleases)) return false
+    function inBounds(index: unknown): boolean {
+        return index === null || (Number.isInteger(index) && (index as number) >= 0 && (index as number) < (edges as unknown[]).length)
+    }
+    return Object.values(versions).every(function isRelease(release) {
+        return isRecord(release) && isNullable(release.publishedAt, 'number') && isNullable(release.deprecated, 'string') && inBounds(release.edges)
+    }) && Object.values(prereleases).every(inBounds)
+}
+
+function isEdgeSet(value: unknown): boolean {
+    return isRecord(value) && isStringMap(value.dependencies) && isStringMap(value.optionalDependencies) && isStringMap(value.peerDependencies) &&
+        Array.isArray(value.optionalPeers) && value.optionalPeers.every(function isName(peer) { return typeof peer === 'string' })
+}
+
+function isStringMap(value: unknown): boolean {
+    return isRecord(value) && Object.values(value).every(function isRange(range) { return typeof range === 'string' })
+}
+
+function isNullable(value: unknown, type: 'string' | 'number'): boolean {
+    return value === null || typeof value === type
+}
+
+// A plain object: not null, not an array.
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 // A counting semaphore: `limit(work)` runs work once fewer than `max` are running, in arrival order. A

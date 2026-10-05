@@ -174,6 +174,7 @@ describe('the walk, level by level', function () {
         ['the parent is not on the registry', { v, a: { releases: { '1.0.0': {}, '2.0.0': {} } } }, { kind: 'unknown', at: 'p', reason: 'no registry data for p' }],
         ['the parent does not declare the child', { v, a: { releases: { '1.0.0': {}, '2.0.0': {} } }, p: { releases: { '1.0.0': {} } } }, { kind: 'unknown', at: 'p', reason: 'p@1.0.0 does not declare a in the registry' }],
         ['the parent requires the child from git', { v, a: { releases: { '1.0.0': {}, '2.0.0': {} } }, p: { releases: { '1.0.0': { dependencies: { a: 'github:x/a' } } } } }, { kind: 'unknown', at: 'p', reason: 'p requires a as github:x/a, which is not a registry range' }],
+        ['the parent requires the child by a dist-tag', { v, a: { releases: { '1.0.0': {}, '2.0.0': {} } }, p: { releases: { '1.0.0': { dependencies: { a: 'next' } } } } }, { kind: 'unknown', at: 'p', reason: 'p requires a as next, a dist-tag, not a version range' }],
         ['the parent\'s next release cannot be proven', { v, a: { releases: { '1.0.0': {}, '2.0.0': {} } }, p: { releases: { '1.0.0': { dependencies: { a: '1.0.0' } }, '2.0.0': { dependencies: { gone: '1' } } } } }, { kind: 'unknown', at: 'p', reason: 'p@2.0.0: gone: not on the npm registry' }]
     ] as const)('is unknown when %s', async function (_label, table, expected) {
         expect(await walk(table as unknown as Record<string, FakePackage>)).toEqual(expected)
@@ -198,6 +199,22 @@ describe('the walk, level by level', function () {
         // Reversed: the effective optional range admits a@2.
         expect(await walk({ v, a, p: { releases: { '1.0.0': { dependencies: { a: '1.0.0' }, optionalDependencies: { a: '^2.0.0' } } } } }))
             .toMatchObject({ kind: 'upgrade', package: 'a', toAtLeast: '2.0.0' })
+    })
+
+    it('admits by an exact version the parent pins', async function () {
+        expect(await walk({ v, a: { releases: { '1.0.0': { dependencies: { v: '1' } }, '1.5.0': {} } }, p: { releases: { '1.0.0': { dependencies: { a: '=v1.5.0' } } } } }))
+            .toMatchObject({ kind: 'upgrade', package: 'a', toAtLeast: '1.5.0' })
+    })
+
+    // Issue 032: npm reads `>=3.0.0 || insiders` loosely, as `>=3.0.0` — tailwindcss-animate@1.0.7 declares it,
+    // and chattonic-homepage, gestor-waba and risen reach braces through it. The parent admits tailwindcss@4.
+    it('admits by a range npm reads loosely (tailwindcss-animate → tailwindcss@>=3.0.0 || insiders)', async function () {
+        const chain = graph({ roots: [['tailwindcss-animate@1.0.7', 'prod']], edges: ['tailwindcss-animate@1.0.7 > tailwindcss@3.0.0', 'tailwindcss@3.0.0 > v@1.0.0'] })
+        expect(await walk({
+            v,
+            tailwindcss: { releases: { '3.0.0': { dependencies: { v: '1.0.0' } }, '4.0.0': {} } },
+            'tailwindcss-animate': { releases: { '1.0.7': { peerDependencies: { tailwindcss: '>=3.0.0 || insiders' } } } }
+        }, chain)).toEqual({ kind: 'upgrade', package: 'tailwindcss', toAtLeast: '4.0.0', proof: { release: 'tailwindcss@4.0.0', closureSize: 1 } })
     })
 
     it('follows an aliased declaration', async function () {

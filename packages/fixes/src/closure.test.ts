@@ -1,4 +1,4 @@
-import semver from 'semver'
+import { createRequire } from 'node:module'
 import { describe, expect, it } from 'vitest'
 import type { AffectedSet } from '@sentinello/scanners'
 import { createClosureWalker, edgesOf, resolveRange, targetIdentity, unalias, type ProofTarget } from './closure'
@@ -19,6 +19,18 @@ function deps(prefix: string, count: number): Record<string, string> {
 }
 
 const FORGE: ProofTarget = { name: 'node-forge', affected: [affected('<=1.4.0')] }
+
+type Packument = { name: string; 'dist-tags': Record<string, string>; versions: Record<string, { version: string; deprecated?: string }> }
+const pickManifest = createRequire(import.meta.url)('npm-pick-manifest') as (packument: Packument, wanted: string) => { version: string }
+
+// The version npm installs for `spec`, null where it refuses the specifier or finds nothing.
+function npmPick(packument: Packument, spec: string): string | null {
+    try {
+        return pickManifest(packument, spec).version
+    } catch {
+        return null
+    }
+}
 
 function walker(table: Record<string, FakePackage>, unavailable: string[] = []) {
     const registry = fakeRegistry(table, { unavailable })
@@ -60,7 +72,7 @@ describe('reaches — the closure, not the direct dependencies', function () {
         expect((await w.reaches('dependencyWinsOverPeer', '1.0.0', BRACES)).verdict).toBe('no')
     })
 
-    it('resolves each range to the highest published release, and proves a clean closure', async function () {
+    it('resolves a range latest is outside of to the highest release in it, and proves a clean closure', async function () {
         const { walker: w } = walker({
             chokidar: { releases: { '4.0.0': { dependencies: { readdirp: '^4.0.1' } } } },
             readdirp: { releases: { '4.0.1': {}, '4.1.2': {}, '5.0.0': { dependencies: { braces: '3.0.3' } } } },
@@ -256,21 +268,33 @@ describe('memoization', function () {
 describe('helpers', function () {
     const summary = fakeSummary('p', { latest: '2.0.0', releases: { '1.0.0': {}, '1.5.0': {}, '2.0.0': {}, '3.0.0': {} } })
 
+    // npm prefers the `latest` tag whenever the range accepts it (>=1 → 2.0.0, not 3.0.0); an exact version is
+    // only itself; a dist-tag other than latest is not recorded; a git specifier is not a registry range.
     it.each([
-        ['', '2.0.0'], ['*', '2.0.0'], ['latest', '2.0.0'], ['^1.0.0', '1.5.0'], ['>=1', '3.0.0'], ['^9', null], ['github:x/y', null], ['next', null]
+        ['', '2.0.0'], ['*', '2.0.0'], ['latest', '2.0.0'], ['^1.0.0', '1.5.0'], ['>=1', '2.0.0'], ['>=2.5', '3.0.0'], ['^9', null],
+        ['1.5.0', '1.5.0'], ['=v1.5.0', '1.5.0'], ['1.4.0', null], ['github:x/y', null], ['next', null], ['>=3.0.0 || insiders', '3.0.0']
     ])('resolves %j to %s', function (range, expected) {
         expect(resolveRange(summary, range)).toBe(expected)
     })
 
-    it('falls back to the highest release when latest is not a release', function () {
+    it('falls back to the highest release when latest is not published, and has nothing for a missing latest tag', function () {
         expect(resolveRange({ ...summary, latest: '4.0.0-rc.1' }, '*')).toBe('3.0.0')
-        expect(resolveRange({ ...summary, latest: null }, 'latest')).toBe('3.0.0')
+        expect(resolveRange({ ...summary, latest: null }, '*')).toBe('3.0.0')
+        expect(resolveRange({ ...summary, latest: null }, 'latest')).toBeNull()
+    })
+
+    it('passes over deprecated releases while a non-deprecated one satisfies the range', function () {
+        const deprecated = fakeSummary('p', { latest: '2.0.0', releases: { '1.0.0': {}, '1.5.0': { deprecated: 'broken' }, '2.0.0': { deprecated: 'broken' } } })
+        expect(resolveRange(deprecated, '*')).toBe('1.0.0')
+        expect(resolveRange(deprecated, '^1.0.0')).toBe('1.0.0')
+        expect(resolveRange(deprecated, '>=1.5.0')).toBe('2.0.0')
+        expect(resolveRange(deprecated, 'latest')).toBe('2.0.0')
     })
 
     it('answers nothing for "*" when there is no release at all, and skips a version key semver cannot read', function () {
         const empty = fakeSummary('p', { latest: null, releases: {}, prereleases: { '1.0.0-rc.1': {} } })
         expect(resolveRange(empty, '*')).toBeNull()
-        expect(resolveRange(fakeSummary('p', { releases: { junk: {}, '1.0.0': {} } }), '>=0')).toBe('1.0.0')
+        expect(resolveRange(fakeSummary('p', { latest: null, releases: { junk: {}, '1.0.0': {} } }), '>=0')).toBe('1.0.0')
     })
 
     it('remembers an answer per summary and range', function () {
@@ -280,26 +304,49 @@ describe('helpers', function () {
         expect(resolveRange(fresh, '^1')).toBe('1.0.0')
     })
 
-    // The parsed, sorted, memoized resolver must answer exactly what semver.maxSatisfying answers over every
-    // version (npm's pick for a semver range): swept over a grammar cross-product of operators, bounds and
-    // prerelease tags, against a version list mixing releases and prereleases around each bound.
-    it('agrees with semver.maxSatisfying over a generated sweep of ranges', function () {
+    // The parsed, sorted, memoized resolver must answer exactly what npm answers: npm-pick-manifest (the
+    // version npm 11 bundles), given a packument holding the same versions, deprecations and latest tag. Swept
+    // over a grammar cross-product of operators, bounds and prerelease tags — strict, loose (`>= 1.0.0`,
+    // `v1.2`, `1.2.3beta`) and loose unions with a tag (`>=3.0.0 || insiders`) — against version lists
+    // mixing releases and prereleases around each bound, under several `latest` tags and deprecations.
+    it('agrees with npm-pick-manifest over a generated sweep of specifiers', function () {
         const releases = ['0.9.0', '1.0.0', '1.0.1', '1.2.0', '1.2.3', '2.0.0', '2.1.0', '3.0.0']
         const prereleases = ['1.0.0-alpha', '1.0.0-beta.2', '1.2.3-rc.1', '2.0.0-0', '2.1.0-beta', '3.1.0-canary.4', '4.0.0-rc.1']
-        const table: FakePackage = { latest: '3.0.0', releases: Object.fromEntries(releases.map(function r(v) { return [v, {}] })), prereleases: Object.fromEntries(prereleases.map(function r(v) { return [v, {}] })) }
-        const bounds = ['1.0.0', '1.2.3', '2.0.0', '1.0.0-beta.2', '1.2.3-rc.0', '2.0.0-0', '3.1.0-canary.1', '4.0.0-rc.1', '1', '1.2', '2.x']
-        const operators = ['', '^', '~', '>=', '>', '<', '<=', '=']
-        const ranges: string[] = []
-        for (const op of operators) for (const bound of bounds) ranges.push(op + bound)
-        for (const lo of bounds) for (const hi of bounds) ranges.push('>=' + lo + ' <' + hi, lo + ' - ' + hi, '^' + lo + ' || ~' + hi)
+        const bounds = ['1.0.0', '1.2.3', '2.0.0', '1.0.0-beta.2', '1.2.3-rc.0', '2.0.0-0', '3.1.0-canary.1', '4.0.0-rc.1', '1', '1.2', '2.x', 'v1.2', '1.2.3beta', '=2.0.0']
+        const operators = ['', '^', '~', '>=', '>', '<', '<=', '=', '>= ', '~ ']
+        const specs = ['', '*', 'x', 'latest', 'next', 'insiders', 'github:x/y', 'file:../p', 'https://example.com/p.tgz', ' ^1 ']
+        for (const op of operators) for (const bound of bounds) specs.push(op + bound, op + bound + ' || insiders')
+        for (const lo of bounds) for (const hi of bounds) specs.push('>=' + lo + ' <' + hi, lo + ' - ' + hi, '^' + lo + ' || ~' + hi)
+        const scenarios: { latest: string | null; deprecated: string[] }[] = [
+            { latest: '3.0.0', deprecated: [] },
+            { latest: '2.0.0', deprecated: [] },
+            { latest: '4.0.0-rc.1', deprecated: [] },
+            { latest: null, deprecated: [] },
+            { latest: '2.1.0', deprecated: ['2.1.0', '1.2.3', '3.0.0'] }
+        ]
         let checked = 0
-        for (const range of ranges) {
-            if (semver.validRange(range) === null) continue
+        let resolvedByNpm = 0
+        for (const scenario of scenarios) {
+            const table: FakePackage = {
+                latest: scenario.latest,
+                releases: Object.fromEntries(releases.map(function r(v) { return [v, scenario.deprecated.includes(v) ? { deprecated: 'do not use' } : {}] })),
+                prereleases: Object.fromEntries(prereleases.map(function r(v) { return [v, {}] }))
+            }
+            const packument: Packument = {
+                name: 'p',
+                'dist-tags': scenario.latest === null ? {} : { latest: scenario.latest },
+                versions: Object.fromEntries([...releases, ...prereleases].map(function m(v) { return [v, scenario.deprecated.includes(v) ? { version: v, deprecated: 'do not use' } : { version: v }] }))
+            }
             const summary = fakeSummary('p', table)
-            expect([range, resolveRange(summary, range)]).toEqual([range, semver.maxSatisfying([...releases, ...prereleases], range)])
-            checked++
+            for (const spec of specs) {
+                const expected = npmPick(packument, spec)
+                expect([scenario.latest, spec, resolveRange(summary, spec)]).toEqual([scenario.latest, spec, expected])
+                checked++
+                if (expected !== null) resolvedByNpm++
+            }
         }
-        expect(checked).toBeGreaterThan(400)
+        expect(checked).toBeGreaterThan(3000)
+        expect(resolvedByNpm).toBeGreaterThan(1000)
     })
 
     it('unaliases npm: specifiers', function () {
