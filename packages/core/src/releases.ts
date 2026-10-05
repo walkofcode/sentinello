@@ -20,7 +20,7 @@ function stripVPrefix(value: string): string {
 // needs no empty-array fallback — and an accidental truncation to [] becomes a type error rather than a
 // silently null "latest release".
 export const RELEASES: [ReleaseEntry, ...ReleaseEntry[]] = [
-    { version: '3.7.0', date: '2026-10-04' },
+    { version: '3.7.0', date: '2026-10-05' },
     { version: '3.6.0', date: '2026-10-01' },
     { version: '3.5.1', date: '2026-09-19' },
     { version: '3.5.0', date: '2026-08-20' },
