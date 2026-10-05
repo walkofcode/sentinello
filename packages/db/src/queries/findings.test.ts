@@ -743,7 +743,7 @@ describe('applyFixSettlement and the unsettled merge', function () {
             { id: a?.id as string, fixStatus: 'released', fixVersion: '4.17.21', fixAvailable: true, fixCheck: CHECK },
             { id: b?.id as string, fixStatus: 'none_released', fixVersion: null, fixAvailable: false, fixCheck: CHECK }
         ])
-        expect(persisted.get(a?.id as string)).toEqual({ fixStatus: 'released', fixVersion: '4.17.21', fixAvailable: true, fixCheck: CHECK, remediation: null })
+        expect(persisted.get(a?.id as string)).toEqual({ fixStatus: 'released', fixVersion: '4.17.21', fixAvailable: true, fixCheck: CHECK, remediation: null, notRecheckedBecause: null })
         const rows = listFindingsForProject(db, PROJECT_ID)
         expect(rows.find(function one(r) { return r.id === b?.id })).toMatchObject({ fixStatus: 'none_released', fixVersion: null, fixCheck: CHECK })
     })

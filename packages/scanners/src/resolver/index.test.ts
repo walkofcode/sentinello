@@ -124,6 +124,19 @@ describe('detectManifests', function () {
         expect(found[0]?.absolutePath).toBe(join(dir, 'package-lock.json'))
     })
 
+    // A package.json with no lockfile is still the npm manifest: it resolves to unauditable / no_lockfile,
+    // so the scan records why the project could not be read instead of recording nothing.
+    it('detects a package.json with no lockfile as the npm manifest', async function () {
+        await write('package.json', '{}')
+        expect(await detectManifests(dir)).toEqual([{ kind: 'package.json', ecosystem: 'npm', absolutePath: join(dir, 'package.json') }])
+    })
+
+    it('prefers a lockfile over the bare package.json', async function () {
+        await write('package.json', '{}')
+        await write('pnpm-lock.yaml', PNPM_LOCK)
+        expect((await detectManifests(dir)).map(function k(m) { return m.kind })).toEqual(['pnpm-lock.yaml'])
+    })
+
     it('ignores a directory that happens to share a manifest name', async function () {
         await mkdir(join(dir, 'nested'))
         expect(await detectManifests(join(dir, 'nested'))).toEqual([])
@@ -141,6 +154,12 @@ describe('resolveManifest', function () {
     it('resolves a pnpm-lock.yaml manifest', async function () {
         const path = await write('pnpm-lock.yaml', PNPM_LOCK)
         expect((await resolveManifest(dir, manifest('pnpm-lock.yaml', 'npm', path))).status).toBe('ok')
+    })
+
+    it('reports a bare package.json as having no lockfile', async function () {
+        const path = await write('package.json', '{}')
+        const result = await resolveManifest(dir, manifest('package.json', 'npm', path))
+        expect(result).toMatchObject({ status: 'unauditable', ecosystem: 'npm', reasonCode: 'no_lockfile' })
     })
 
     it('reports yarn.lock as an unsupported JavaScript lockfile', async function () {

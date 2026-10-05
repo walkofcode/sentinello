@@ -17,6 +17,7 @@ function row(overrides: Partial<CurrentFindingRow> = {}): CurrentFindingRow {
         fixStatus: overrides.fixVersion ? 'released' : 'unverified',
         fixCheck: CHECK,
         remediation: null,
+        notRecheckedBecause: null,
         id: 'finding-1',
         scanId: 'scan-1',
         projectId: 'project-1',

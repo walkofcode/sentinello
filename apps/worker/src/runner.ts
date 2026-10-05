@@ -158,7 +158,7 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
         const isNpmAudit = scanner.name === NPM_AUDIT_SCANNER_NAME
         const graphForScanner = isNpmAudit ? npmGraph : mergedGraph
         const coverageForScanner = isNpmAudit ? undefined : coverage
-        const outcome = await runOneScanner(input, project, projectPath, scanner, reportedByPackage, corroborations, graphForScanner, coverageForScanner)
+        const outcome = await runOneScanner(input, project, projectPath, scanner, reportedByPackage, corroborations, graphForScanner, coverageForScanner, coverage)
         outcomes.push(outcome)
     }
     recordCorroborations(input.db, outcomes, corroborations)
@@ -269,6 +269,24 @@ function targetIdentity(target: ReportedAdvisory): string {
     return fixEvidenceKey(target)
 }
 
+// Every scan row records the project's resolver coverage, whatever its source and however it ended, so the
+// project's latest scan always says which ecosystems could be read and why not (getProjectEcosystemCoverage
+// reads it from there). The feed sources already write it into their summary; npm-audit, which is handed
+// none, and a failed scan with an empty summary get it here. A summary that is not a JSON object — the raw
+// audit output an error keeps for debugging — is left exactly as it is, and that row carries no coverage.
+function withCoverage(rawJson: string, coverage: EcosystemCoverage[]): string {
+    if (rawJson === '') return JSON.stringify({ coverage })
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(rawJson)
+    } catch {
+        return rawJson
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return rawJson
+    if (Array.isArray((parsed as { coverage?: unknown }).coverage)) return rawJson
+    return JSON.stringify({ ...parsed, coverage })
+}
+
 // Flatten a classified ResolverResult into the compact per-ecosystem coverage the feed scanners record.
 function toCoverage(result: ResolverResult): EcosystemCoverage {
     if (result.status === 'ok') return { ecosystem: result.ecosystem, status: 'ok' }
@@ -283,7 +301,8 @@ async function runOneScanner(
     reportedByPackage: Map<string, Map<string, ReportedAdvisory>>,
     corroborations: CorroborationEvent[],
     resolvedGraph: ResolvedGraph | null,
-    coverage: EcosystemCoverage[] | undefined
+    coverage: EcosystemCoverage[] | undefined,
+    projectCoverage: EcosystemCoverage[]
 ): Promise<ProjectScanOutcome> {
     const startedAt = Date.now()
     // nvm/Node tooling is JavaScript-only: only the npm-audit scanner ever invokes it. Feed sources are
@@ -301,6 +320,7 @@ async function runOneScanner(
     } catch (err) {
         const message = err instanceof Error && err.message || String(err)
         const outcome = makeErrorOutcome(project, 'scanner threw: ' + message, startedAt, scanner.name)
+        outcome.scan.rawJson = withCoverage(outcome.scan.rawJson, projectCoverage)
         insertScan(input.db, outcome.scan)
         return outcome
     }
@@ -319,7 +339,7 @@ async function runOneScanner(
         reasonCode: scanResult.reasonCode,
         durationMs: scanResult.durationMs,
         errorText: scanResult.errorText,
-        rawJson: scanResult.rawJson
+        rawJson: withCoverage(scanResult.rawJson, projectCoverage)
     }
     const reconciled = reconcileAgainstReported(scanResult.findings, reportedByPackage, scanner.name)
     for (const event of reconciled.corroborations) corroborations.push(event)

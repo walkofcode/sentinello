@@ -4,8 +4,12 @@ import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+    getProjectEcosystemCoverage,
+    getProjectScanState,
+    listCurrentFindingsForProject,
     listFindingsForProject,
     listFindingsForScan,
+    listProjectCatalog,
     listScansForProject,
     openDb,
     runMigrations,
@@ -14,8 +18,9 @@ import {
     type DrizzleDb,
     type SqliteDb
 } from '@sentinello/db'
-import type { Project } from '@sentinello/core'
+import { describeFix, PLAIN_FIX_STYLE, type Project } from '@sentinello/core'
 import type { RawFinding, ScanContext, ScannerPlugin, ScanResult } from '@sentinello/scanners'
+import type { RegistryClient, RegistryEntry } from '@sentinello/fixes'
 
 // Partial: notifyForCompletedScan runs for real in every test below (it writes the discovery ledger
 // against the same database), and is only diverted for the one case that needs it to fail.
@@ -37,7 +42,7 @@ vi.mock('./notifier', async function mockNotifier(importOriginal) {
     }
 })
 
-const { runBatch } = await import('./runner')
+const { runBatch, runProjectScanners } = await import('./runner')
 
 // runBatch already takes db, sqlite, scanners and projects as an injected object, so this drives the
 // real orchestration with fake ScannerPlugins and a real database — no seam was needed.
@@ -709,5 +714,185 @@ describe('runBatch — ecosystem coverage', function () {
         await batch([audit], [project()])
 
         expect(coverageOf(audit)).toBeUndefined()
+    })
+})
+
+describe('runBatch — coverage on every scan row', function () {
+    // Every scan row records the project's coverage, whatever the source and however it ended, so the
+    // project's latest scan always says which ecosystems could be read and why not.
+    async function writeBarePackageJson(): Promise<void> {
+        const { mkdir, writeFile } = await import('node:fs/promises')
+        await mkdir(join(projectDir, 'app'), { recursive: true })
+        await writeFile(join(projectDir, 'app', 'package.json'), '{}', 'utf8')
+    }
+
+    function storedRawJson(): unknown {
+        return JSON.parse(listScansForProject(db, PROJECT_ID)[0]?.rawJson ?? '')
+    }
+
+    const NO_LOCKFILE = [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile', details: ['package.json has no lockfile beside it (package-lock.json, pnpm-lock.yaml or yarn.lock)'] }]
+
+    it('records it on an npm-audit scan, which is handed none', async function () {
+        await writeBarePackageJson()
+        await batch([fakeScanner('npm-audit', { status: 'unauditable', reasonCode: 'no_lockfile', findings: [], rawJson: '', errorText: 'no lockfile', durationMs: 1 })], [project()])
+        expect(storedRawJson()).toEqual({ coverage: NO_LOCKFILE })
+    })
+
+    it('adds it to a summary object that has none', async function () {
+        await batch([fakeScanner('npm-audit', { ...okResult([]), rawJson: JSON.stringify({ source: 'npm-audit', findingCount: 0 }) })], [project()])
+        expect(storedRawJson()).toEqual({ source: 'npm-audit', findingCount: 0, coverage: [] })
+    })
+
+    it('keeps the coverage a feed source already wrote', async function () {
+        await batch([fakeScanner('osv', { ...okResult([]), rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'partial' }] }) })], [project()])
+        expect(storedRawJson()).toEqual({ coverage: [{ ecosystem: 'npm', status: 'partial' }] })
+    })
+
+    // The raw audit output a failed scan keeps for debugging is not rewritten.
+    it.each([['raw audit text'], ['[1,2]'], ['null']])('leaves a summary that is not an object as it is: %s', async function (raw) {
+        await batch([fakeScanner('npm-audit', { status: 'error', reasonCode: 'audit_parse_error', findings: [], rawJson: raw, errorText: 'bad', durationMs: 1 })], [project()])
+        expect(listScansForProject(db, PROJECT_ID)[0]?.rawJson).toBe(raw)
+    })
+
+    it('records it on the error row of a scanner that threw', async function () {
+        await writeBarePackageJson()
+        await batch([{ name: 'osv', async scan() { throw new Error('boom') } }], [project()])
+        expect(storedRawJson()).toEqual({ coverage: NO_LOCKFILE })
+    })
+})
+
+describe('runProjectScanners — lockfile loss and recovery', function () {
+    // The scenario the "not re-checked" annotation exists for: a project scanned and settled, then its
+    // lockfile goes, then it comes back. A failed scan leaves every earlier finding as it was — settled or
+    // not — so each must say it was not re-checked, until a successful scan re-settles it.
+    const LOCK = JSON.stringify({
+        lockfileVersion: 3,
+        packages: { '': { name: 'app', dependencies: { lodash: '4.17.11', minimist: '1.2.5' } }, 'node_modules/lodash': { version: '4.17.11' }, 'node_modules/minimist': { version: '1.2.5' } }
+    })
+    const LODASH = rawFinding()
+    const MINIMIST = rawFinding({
+        advisoryId: 'CVE-2024-2',
+        packageName: 'minimist',
+        installedVersion: '1.2.5',
+        vulnerableRange: '<1.2.6',
+        severity: 'critical',
+        fixVersion: '1.2.6',
+        fixInputs: { source: 'npm-audit', installed: ['1.2.5'], affected: { ranges: '<1.2.6', exact: [], complete: true }, patched: null, statedFix: '1.2.6', fixViaParent: false },
+        depPath: ['minimist']
+    })
+
+    function released(name: string, versions: string[]): RegistryEntry {
+        const entries = versions.map(function release(v) { return [v, { publishedAt: T0, deprecated: null, edges: null }] as const })
+        return {
+            status: 'ok',
+            checkedAt: T0,
+            origin: 'fetched',
+            summary: { v: 2, name, latest: versions[versions.length - 1] ?? null, modified: null, maintainers: 1, repository: null, versions: Object.fromEntries(entries), prereleases: {}, edges: [] }
+        }
+    }
+
+    const registry: RegistryClient = {
+        async lookup(names) {
+            const table: Record<string, RegistryEntry> = { lodash: released('lodash', ['4.17.11', '4.17.21']), minimist: released('minimist', ['1.2.5', '1.2.6']) }
+            return new Map(names.map(function entry(n) { return [n, table[n] ?? { status: 'not_found', checkedAt: T0, origin: 'fetched' }] as const }))
+        },
+        async weeklyDownloads(names) {
+            return new Map(names.map(function none(n) { return [n, null] as const }))
+        }
+    }
+
+    // npm audit's own behaviour, minus the subprocess: findings while the lockfile is there, no_lockfile
+    // once it is gone.
+    const audit: ScannerPlugin = {
+        name: 'npm-audit',
+        async scan(path) {
+            const { existsSync } = await import('node:fs')
+            if (!existsSync(join(path, 'package-lock.json'))) return { status: 'unauditable', reasonCode: 'no_lockfile', findings: [], rawJson: '', errorText: 'no lockfile', durationMs: 1 }
+            return okResult([LODASH, MINIMIST])
+        }
+    }
+
+    const appDir = (): string => join(projectDir, 'app')
+
+    async function writeApp(withLock: boolean): Promise<void> {
+        const { mkdir, rm: remove, writeFile } = await import('node:fs/promises')
+        await mkdir(appDir(), { recursive: true })
+        await writeFile(join(appDir(), 'package.json'), JSON.stringify({ name: 'app', dependencies: { lodash: '4.17.11', minimist: '1.2.5' } }), 'utf8')
+        if (withLock) await writeFile(join(appDir(), 'package-lock.json'), LOCK, 'utf8')
+        else await remove(join(appDir(), 'package-lock.json'), { force: true })
+    }
+
+    async function scan(): Promise<void> {
+        await runProjectScanners({ db, scanners: [audit], project: project(), registry, notify: async function quiet() {} })
+    }
+
+    function current() {
+        return new Map(listCurrentFindingsForProject(db, PROJECT_ID, Date.now()).map(function byPackage(f) { return [f.packageName, f] }))
+    }
+
+    it('annotates settled and legacy rows after the loss, and clears them on recovery', async function () {
+        await writeApp(true)
+        await scan()
+        const lastOk = listScansForProject(db, PROJECT_ID)[0]?.finishedAt ?? 0
+        // A legacy row: one no settlement ever wrote, as a build before settlement left it.
+        sqlite.prepare("UPDATE findings SET fix_status = NULL, fix_check_json = NULL WHERE package_name = 'minimist'").run()
+        const before = current()
+        expect(before.get('lodash')).toMatchObject({ fixStatus: 'released', fixVersion: '4.17.21', notRecheckedBecause: null })
+        expect(before.get('minimist')).toMatchObject({ fixCheck: null, notRecheckedBecause: null })
+        expect(getProjectScanState(db, PROJECT_ID).state).toBe('scanned')
+        const countsBefore = listProjectCatalog(db, Date.now())[0]?.severityCounts
+
+        await writeApp(false)
+        await scan()
+
+        const after = current()
+        const annotation = { reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: lastOk }
+        // Kept, at their severity and evidence, with the historical answer of the settled one.
+        for (const name of ['lodash', 'minimist']) {
+            const was = before.get(name)
+            const now = after.get(name)
+            expect(now).toMatchObject({ severity: was?.severity, depPathJson: was?.depPathJson, installedVersion: was?.installedVersion, firstDetectedAt: was?.firstDetectedAt, lastSeenAt: was?.lastSeenAt, notRecheckedBecause: annotation })
+        }
+        expect(after.get('lodash')).toMatchObject({ fixStatus: 'released', fixVersion: '4.17.21' })
+        expect(after.get('minimist')).toMatchObject({ fixStatus: 'unverified', fixCheck: null })
+        expect(listProjectCatalog(db, Date.now())[0]?.severityCounts).toEqual(countsBefore)
+        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toMatchObject([{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile' }])
+        expect(getProjectScanState(db, PROJECT_ID)).toEqual({
+            state: 'cannot_scan',
+            reasons: [
+                { source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project' },
+                { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project' }
+            ]
+        })
+        // The words every surface renders them with (portal FixTarget renders these fields in M5).
+        const date = new Date(lastOk).toISOString().slice(0, 10)
+        const lodash = after.get('lodash')
+        const minimist = after.get('minimist')
+        expect(lodash && describeFix(lodash, PLAIN_FIX_STYLE)).toBe('upgrade to 4.17.21 · not re-checked — the project cannot be scanned: No lockfile (last scanned successfully ' + date + ')')
+        expect(minimist && describeFix(minimist, PLAIN_FIX_STYLE)).toBe('not re-checked — the project cannot be scanned: No lockfile (last scanned successfully ' + date + ')')
+        expect(minimist && describeFix(minimist, PLAIN_FIX_STYLE)).not.toContain('rescan pending')
+
+        await writeApp(true)
+        await scan()
+
+        const recovered = current()
+        expect(recovered.get('lodash')).toMatchObject({ fixStatus: 'released', fixVersion: '4.17.21', notRecheckedBecause: null })
+        expect(recovered.get('minimist')).toMatchObject({ fixStatus: 'released', fixVersion: '1.2.6', notRecheckedBecause: null })
+        expect(recovered.get('minimist')?.fixCheck).not.toBeNull()
+        expect(getProjectScanState(db, PROJECT_ID)).toEqual({ state: 'scanned', reasons: [] })
+    })
+
+    it('reads a source that never scanned the project successfully', async function () {
+        await writeApp(false)
+        await scan()
+        const failedScan = listScansForProject(db, PROJECT_ID)[0]?.id ?? ''
+        // A row left by an earlier build, under a source that has never succeeded on this project since.
+        sqlite.prepare(
+            'INSERT INTO findings (id, scan_id, project_id, scanner, source, ecosystem, advisory_id, package_name, installed_version, vulnerable_range, severity, first_detected_at, last_seen_at)' +
+                " VALUES ('legacy', ?, ?, 'npm-audit', 'npm-audit', 'npm', 'CVE-2024-1', 'lodash', '4.17.11', '<4.17.21', 'high', ?, ?)"
+        ).run(failedScan, PROJECT_ID, T0, T0)
+        const row = current().get('lodash')
+        expect(row?.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: null })
+        expect(row && describeFix(row, PLAIN_FIX_STYLE)).toBe('not re-checked — the project cannot be scanned: No lockfile (never scanned successfully)')
     })
 })

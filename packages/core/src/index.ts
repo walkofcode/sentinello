@@ -1,5 +1,6 @@
 export * from './types'
 export * from './fix-status'
+export * from './scan-state'
 export * from './remediation'
 export * from './errors'
 export * from './advisory-rows'

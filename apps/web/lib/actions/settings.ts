@@ -376,9 +376,9 @@ const advancedSchema = z.object({
     dryRunNotify: z.boolean(),
     portalBaseUrl: z.string().optional(),
     notificationLocale: z.string().optional(),
-    // Floor of 7 rather than 1: getProjectEcosystemCoverage reconstructs per-ecosystem coverage from
-    // the last 100 scans per project, and while the sweep's own per-project floor protects that
-    // regardless, a window of a day or two invites someone to discard history they cannot get back.
+    // Floor of 7 rather than 1: the sweep's own per-project floor (the last 100 scans, and each source's
+    // latest ok scan) protects what the scan state reads regardless, but a window of a day or two invites
+    // someone to discard history they cannot get back.
     scanRetentionDays: z.number().int().min(7).max(3650)
 })
 

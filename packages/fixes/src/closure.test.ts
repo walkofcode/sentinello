@@ -309,6 +309,8 @@ describe('helpers', function () {
     // over a grammar cross-product of operators, bounds and prerelease tags — strict, loose (`>= 1.0.0`,
     // `v1.2`, `1.2.3beta`) and loose unions with a tag (`>=3.0.0 || insiders`) — against version lists
     // mixing releases and prereleases around each bound, under several `latest` tags and deprecations.
+    // Thousands of oracle comparisons: about a second alone, past 5 s once under the coverage run
+    // (5.6 s, M4), so it carries its own timeout rather than the default.
     it('agrees with npm-pick-manifest over a generated sweep of specifiers', function () {
         const releases = ['0.9.0', '1.0.0', '1.0.1', '1.2.0', '1.2.3', '2.0.0', '2.1.0', '3.0.0']
         const prereleases = ['1.0.0-alpha', '1.0.0-beta.2', '1.2.3-rc.1', '2.0.0-0', '2.1.0-beta', '3.1.0-canary.4', '4.0.0-rc.1']
@@ -347,7 +349,7 @@ describe('helpers', function () {
         }
         expect(checked).toBeGreaterThan(3000)
         expect(resolvedByNpm).toBeGreaterThan(1000)
-    })
+    }, 30_000)
 
     it('unaliases npm: specifiers', function () {
         expect(unalias('x', '^1.0.0')).toEqual({ name: 'x', range: '^1.0.0' })

@@ -1,4 +1,5 @@
 import type { VersionRange } from '@sentinello/versions'
+import { unresolvedGraphReason, unresolvedGraphRawJson } from './coverage'
 import { comparatorForEcosystem } from './engine/comparators'
 import { matchAdvisories } from './engine/matcher'
 import type { CanonicalAdvisory } from './engine/types'
@@ -58,7 +59,14 @@ export function createGemnasiumScanner(deps: GemnasiumScannerDeps): ScannerPlugi
         const graph = ctx.resolvedGraph
         if (!graph) {
             // No resolvable lockfile (yarn/unparseable/absent) — fail open, same posture as OSV.
-            return unauditable('no_lockfile', 'no resolvable lockfile for gemnasium', startedAt)
+            return {
+                status: 'unauditable',
+                reasonCode: unresolvedGraphReason(ctx.coverage),
+                findings: [],
+                rawJson: unresolvedGraphRawJson(GEMNASIUM_SCANNER_NAME, ctx.coverage),
+                errorText: 'no resolvable lockfile for gemnasium',
+                durationMs: Date.now() - startedAt
+            }
         }
         // The injected lookup is backed by the gemnasium.db cache, so a corrupt/locked/removed cache throws
         // here. Catch it so the failure is recorded under gemnasium's own reason code rather than the

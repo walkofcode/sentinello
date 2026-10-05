@@ -1,7 +1,8 @@
-import { sql, type SQL } from 'drizzle-orm'
-import { parseFindingCorroborations, readFixFields, SCAN_HEARTBEAT_STALE_MS, SOURCE_IDS, type DepTypeFilter, type FindingCorroboration, type FixCheck, type FixStatus, type Remediation } from '@sentinello/core'
+import { sql } from 'drizzle-orm'
+import { parseFindingCorroborations, readFixFields, SCAN_HEARTBEAT_STALE_MS, type DepTypeFilter, type NotRecheckedBecause, type FindingCorroboration, type FixCheck, type FixStatus, type Remediation } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { depTypeClause } from './dep-type'
+import { activeScanRows, findingScanContexts, listLatestSourceScans } from './scan-state'
 import { activeSourceCellClause } from './sources'
 import { advisoryIdentitySql, severityRankSql, findingMuteExclusionSql } from './advisory-identity'
 
@@ -188,86 +189,20 @@ export type ProjectCatalogRow = {
     severityCounts: SeverityCounts
 }
 
-// Display order (npm audit -> OSV -> gemnasium), derived from SOURCE_IDS so it cannot drift from the
-// registry's dedup-priority order. An unknown/legacy source value sorts after all of them; the
-// caller's second ORDER BY term makes that group alphabetical. Source ids are fixed registry
-// constants, never user input, so the inlined literals carry no injection risk — same reasoning as
-// activeSourceCellClause.
-function sourceRankSql(expr: string): SQL {
-    const whens = SOURCE_IDS.map(function when(id, index) {
-        return "WHEN '" + id + "' THEN " + index
-    }).join(' ')
-    return sql.raw('CASE ' + expr + ' ' + whens + ' ELSE ' + SOURCE_IDS.length + ' END')
-}
-
-// Latest scan per (project, source), for every source cell that is currently active.
-//
-// One row per source, deliberately. A sweep writes one scans row PER SOURCE and they finish
-// milliseconds apart, so "the project's latest scan" was whichever source finished last. Reading that
-// as the project's verdict discarded npm audit's answer silently: on a real instance every project
-// reported "OSV database not downloaded yet" while npm audit had scanned fine and produced findings.
-// Sources disagree; the row has to carry all of them.
-//
-// ROW_NUMBER rather than a correlated `s.id = (SELECT ... LIMIT 1)`: the correlation would have to
-// match on COALESCE(source, scanner), which no index can supply, and the inner scan could no longer
-// stop at the project's newest row. One pass and one sort instead. Mirrors listPrunableScanIds.
-//
-// Retention prunes per project rather than per source, so a source that ran once long ago and has
-// been out-scanned since can lose its only row and silently drop out of this map. keepPerProject
-// covers dozens of sweeps and a still-enabled source re-creates its row next sweep, so the window is
-// narrow — but it is why an absent source reads as "has not run", never as "is fine".
+// Latest scan per (project, source), for every source cell that is currently active
+// (listLatestSourceScans says why one row per source, and why an absent source means "has not run").
 function listLatestScanStates(db: DrizzleDb): Map<string, ProjectScanState[]> {
-    // The scans table carries source/scanner/ecosystem exactly like findings, so the shared cell
-    // filter applies verbatim: a source the operator has since switched off leaves its scan rows
-    // behind, and they must not badge.
-    const sourceFilter = activeSourceCellClause(db, 'r')
-    const rows = db.all<{
-        project_id: string
-        source: string
-        finished_at: number
-        status: string
-        reason_code: string | null
-        error_text: string | null
-    }>(sql`
-        WITH ranked AS (
-            SELECT s.project_id AS project_id,
-                   s.source AS source,
-                   s.scanner AS scanner,
-                   s.ecosystem AS ecosystem,
-                   s.finished_at AS finished_at,
-                   s.status AS status,
-                   s.reason_code AS reason_code,
-                   s.error_text AS error_text,
-                   -- id DESC breaks a finished_at tie deterministically: scan ids are ULIDs, so the
-                   -- higher id is the later write.
-                   ROW_NUMBER() OVER (
-                       PARTITION BY s.project_id, COALESCE(s.source, s.scanner)
-                       ORDER BY s.finished_at DESC, s.id DESC
-                   ) AS rn
-            FROM scans s
-        )
-        SELECT r.project_id AS project_id,
-               COALESCE(r.source, r.scanner) AS source,
-               r.finished_at AS finished_at,
-               r.status AS status,
-               r.reason_code AS reason_code,
-               r.error_text AS error_text
-        FROM ranked r
-        WHERE r.rn = 1
-          ${sourceFilter}
-        ORDER BY ${sourceRankSql('COALESCE(r.source, r.scanner)')}, COALESCE(r.source, r.scanner)
-    `)
     const byProject = new Map<string, ProjectScanState[]>()
-    for (const row of rows) {
-        const states = byProject.get(row.project_id) ?? []
+    for (const row of activeScanRows(db, listLatestSourceScans(db))) {
+        const states = byProject.get(row.projectId) ?? []
         states.push({
             source: row.source,
-            finishedAt: row.finished_at,
+            finishedAt: row.finishedAt,
             status: row.status,
-            reasonCode: row.reason_code,
-            errorText: row.error_text
+            reasonCode: row.reasonCode,
+            errorText: row.errorText
         })
-        byProject.set(row.project_id, states)
+        byProject.set(row.projectId, states)
     }
     return byProject
 }
@@ -398,6 +333,9 @@ export type CurrentFindingRow = {
     fixCheck: FixCheck | null
     // The way out, set only when fixStatus is 'none_released'.
     remediation: Remediation | null
+    // Set when the row's source last failed to scan the project: the row was retained, not re-checked,
+    // whether or not an earlier scan settled it. Null when that scan was ok.
+    notRecheckedBecause: NotRecheckedBecause | null
     depPathJson: string
     // Other sources that independently reported this same advisory for this same package, each with the
     // id IT uses and the grade IT assigned. `severity` above is already the worst of them.
@@ -417,6 +355,7 @@ export function listCurrentFindingsForProject(
 ): CurrentFindingRow[] {
     const depFilter = depTypeClause(depType)
     const sourceFilter = activeSourceCellClause(db)
+    const scanContext = findingScanContexts(db, [projectId])
     const rows = db.all<{
         id: string
         scan_id: string
@@ -490,7 +429,10 @@ export function listCurrentFindingsForProject(
             installedVersion: row.installed_version,
             vulnerableRange: row.vulnerable_range,
             severity: row.severity,
-            ...readFixFields({ fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json, remediationJson: row.remediation_json }),
+            ...readFixFields(
+                { fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json, remediationJson: row.remediation_json },
+                scanContext(row.project_id, row.source ?? row.scanner)
+            ),
             depPathJson: row.dep_path_json,
             corroborations: parseFindingCorroborations(row.corroborations_json),
             isMuted: row.muted === 1,

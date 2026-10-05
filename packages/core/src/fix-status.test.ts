@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
     describeFix,
     describeFixDisagreement,
+    describeNotRechecked,
     isFixStatus,
     parseFixCheck,
     PLAIN_FIX_STYLE,
@@ -9,6 +10,7 @@ import {
     type FixCheck,
     type FixFacts
 } from './fix-status'
+import type { NotRecheckedBecause } from './scan-state'
 
 const AT = Date.UTC(2026, 9, 3, 12)
 const DATA_AT = Date.UTC(2026, 9, 1, 8)
@@ -55,7 +57,7 @@ describe('readFixFields', function () {
 
     it('passes a settled row through', function () {
         expect(readFixFields({ fixStatus: 'released', fixVersion: '3.0.4', fixAvailable: true, fixCheckJson: json, remediationJson: null }))
-            .toEqual({ fixStatus: 'released', fixVersion: '3.0.4', fixAvailable: true, fixCheck: check(), remediation: null })
+            .toEqual({ fixStatus: 'released', fixVersion: '3.0.4', fixAvailable: true, fixCheck: check(), remediation: null, notRecheckedBecause: null })
     })
 
     // A way-out exists only for a settled none_released finding: one left on any other row is never read.
@@ -75,7 +77,18 @@ describe('readFixFields', function () {
         ['released without a version', { fixStatus: 'released', fixCheckJson: json, fixVersion: null }]
     ])('withholds the fix of a row with %s', function (_label, row) {
         expect(readFixFields({ fixVersion: '3.0.4', fixAvailable: true, remediationJson: null, ...row }))
-            .toEqual({ fixStatus: 'unverified', fixVersion: null, fixAvailable: false, fixCheck: null, remediation: null })
+            .toEqual({ fixStatus: 'unverified', fixVersion: null, fixAvailable: false, fixCheck: null, remediation: null, notRecheckedBecause: null })
+    })
+
+    // A row retained by a failed scan says so whether or not an earlier scan settled it; a row its source
+    // re-checked (latest scan ok) does not.
+    it('says a retained row was not re-checked, settled or not', function () {
+        const context = { latestStatus: 'unauditable', latestReasonCode: 'no_lockfile', lastOkScanAt: DATA_AT, projectState: 'cannot_scan' as const }
+        const reason = { reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: DATA_AT }
+        expect(readFixFields({ fixStatus: 'released', fixVersion: '3.0.4', fixAvailable: true, fixCheckJson: json, remediationJson: null }, context))
+            .toEqual({ fixStatus: 'released', fixVersion: '3.0.4', fixAvailable: true, fixCheck: check(), remediation: null, notRecheckedBecause: reason })
+        expect(readFixFields({ fixStatus: null, fixVersion: '3.0.4', fixAvailable: true, fixCheckJson: null, remediationJson: null }, context).notRecheckedBecause).toEqual(reason)
+        expect(readFixFields({ fixStatus: 'released', fixVersion: '3.0.4', fixAvailable: true, fixCheckJson: json, remediationJson: null }, { ...context, latestStatus: 'ok' }).notRecheckedBecause).toBeNull()
     })
 
     it('recognises exactly the three statuses', function () {
@@ -105,6 +118,34 @@ describe('describeFix', function () {
         ['incomplete range on stale data', facts({ fixVersion: '3.0.4', fixCheck: check({ registry: 'stale', unevaluable: 'affected_incomplete' }) }), 'advisory names 3.0.4 as the fix · not checked against the registry (affected range could not be evaluated) · cached data from 2026-10-01']
     ])('words %s', function (_label, f, expected) {
         expect(describeFix(f, PLAIN_FIX_STYLE)).toBe(expected)
+    })
+})
+
+describe('describeFix — not re-checked', function () {
+    const LAST_OK = Date.UTC(2026, 8, 30, 9)
+    function retained(projectState: NotRecheckedBecause['projectState'], lastOkScanAt: number | null): NotRecheckedBecause {
+        return { reasonCode: 'no_lockfile', side: 'project', projectState, lastOkScanAt }
+    }
+
+    it.each([
+        ['a settled row keeps its answer, then says so', facts({ fixStatus: 'released', fixVersion: '6.16.0', fixAvailable: true, notRecheckedBecause: retained('cannot_scan', LAST_OK) }),
+            'upgrade to 6.16.0 · not re-checked — the project cannot be scanned: No lockfile (last scanned successfully 2026-09-30)'],
+        ['a none-released row keeps its answer', facts({ fixStatus: 'none_released', notRecheckedBecause: retained('cannot_scan', LAST_OK) }),
+            'No fixed version released — no published version of braces is outside the vulnerable range (registry checked 2026-10-03) · not re-checked — the project cannot be scanned: No lockfile (last scanned successfully 2026-09-30)'],
+        ['a legacy row says it in place of rescan pending', facts({ fixCheck: null, notRecheckedBecause: retained('cannot_scan', LAST_OK) }),
+            'not re-checked — the project cannot be scanned: No lockfile (last scanned successfully 2026-09-30)'],
+        ['a source that never succeeded', facts({ fixCheck: null, notRecheckedBecause: retained('cannot_scan', null) }),
+            'not re-checked — the project cannot be scanned: No lockfile (never scanned successfully)'],
+        ['a partially scannable project', facts({ fixCheck: null, notRecheckedBecause: retained('partial', LAST_OK) }),
+            'not re-checked — the project cannot be fully scanned: No lockfile (last scanned successfully 2026-09-30)'],
+        ['an explicit null is a re-checked row', facts({ fixCheck: null, notRecheckedBecause: null }), 'fix not re-checked yet — rescan pending']
+    ])('words %s', function (_label, f, expected) {
+        expect(describeFix(f, PLAIN_FIX_STYLE)).toBe(expected)
+    })
+
+    it('names the side-less wording for an environment failure too', function () {
+        expect(describeNotRechecked({ reasonCode: 'pm_missing', side: 'environment', projectState: 'cannot_scan', lastOkScanAt: null }))
+            .toBe('not re-checked — the project cannot be scanned: Package manager not on PATH (never scanned successfully)')
     })
 })
 

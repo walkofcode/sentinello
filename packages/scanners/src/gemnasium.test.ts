@@ -116,6 +116,15 @@ describe('createGemnasiumScanner — gating', function () {
         expect(result.reasonCode).toBe('no_lockfile')
     })
 
+    it('takes its reason and coverage from the resolver when there is no graph', async function () {
+        const { lookup } = recordingLookup({})
+        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true) })
+        const coverage = [{ ecosystem: 'npm', status: 'unauditable' as const, reasonCode: 'no_lockfile' as const }]
+        const result = await scanner.scan('/p', { timeoutMs: 1000, resolvedGraph: null, coverage })
+        expect(result.reasonCode).toBe('no_lockfile')
+        expect(JSON.parse(result.rawJson)).toEqual({ source: 'gemnasium', packageCount: null, findingCount: 0, coverage })
+    })
+
     // A disabled cell must produce nothing even though the shared cache is seeded for every ecosystem.
     it('never consults the lookup for a disabled ecosystem', async function () {
         const { lookup, calls } = recordingLookup({ npm: { lodash: [advisory()] } })

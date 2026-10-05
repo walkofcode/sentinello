@@ -31,10 +31,10 @@ const DAY_MS = 24 * 60 * 60 * 1000
 // them silently.
 export const DEFAULT_RETENTION_DAYS = 90
 
-// Never prune a project below its most recent 100 scans, however old they are. getProjectEcosystemCoverage
-// reads exactly this many to reconstruct per-ecosystem coverage; below it, a partially-auditable project
-// starts reading as a clean one. It also keeps the vuln-trend sparkline and, for a rarely-scanned
-// project, the difference between "no findings" and "never successfully scanned".
+// Never prune a project below its most recent 100 scans, however old they are. That keeps the latest scan
+// of every source still running — the coverage getProjectEcosystemCoverage reads and the scan state is
+// computed from — and the vuln-trend sparkline. Each source's latest ok scan is kept on top of it
+// (listPrunableScanIds), so a long-failing project still says when it last scanned successfully.
 export const KEEP_PER_PROJECT = 100
 
 // Deleting a scan unlinks its overflow pages, so a large batch in one transaction builds a WAL that

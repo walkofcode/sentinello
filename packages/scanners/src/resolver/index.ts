@@ -36,18 +36,33 @@ export async function resolveProject(
 // Preview ecosystems are skipped rather than detected-and-then-ignored. Detecting them stamped their id
 // onto the project and produced per-ecosystem coverage rows for an ecosystem no source would ever answer
 // for, which reads to an operator as "found and handled" when nothing was scanned at all.
+//
+// A package.json with no lockfile beside it is still the npm manifest — discovery makes it an npm project
+// (detectEcosystems) — so it is detected too, and resolves to `unauditable / no_lockfile`. Detecting
+// nothing left the scan with no coverage at all, and so no recorded reason why the project could not be
+// read.
 export async function detectManifests(projectPath: string): Promise<DetectedManifest[]> {
     const out: DetectedManifest[] = []
     for (const eco of STABLE_ECOSYSTEMS) {
-        for (const kind of eco.resolverKinds) {
-            const absolutePath = join(projectPath, kind)
-            if (await fileExists(absolutePath)) {
-                out.push({ kind, ecosystem: eco.id, absolutePath })
-                break
-            }
+        const kind = await firstPresent(projectPath, eco.resolverKinds)
+        if (kind !== null) {
+            out.push({ kind, ecosystem: eco.id, absolutePath: join(projectPath, kind) })
+            continue
+        }
+        if (eco.id === 'npm' && await fileExists(join(projectPath, NPM_MANIFEST))) {
+            out.push({ kind: NPM_MANIFEST, ecosystem: eco.id, absolutePath: join(projectPath, NPM_MANIFEST) })
         }
     }
     return out
+}
+
+const NPM_MANIFEST = 'package.json'
+
+async function firstPresent(projectPath: string, kinds: readonly string[]): Promise<string | null> {
+    for (const kind of kinds) {
+        if (await fileExists(join(projectPath, kind))) return kind
+    }
+    return null
 }
 
 // Resolve one detected manifest into a classified ResolverResult, dispatching by ecosystem + lockfile kind.
@@ -61,6 +76,9 @@ export async function resolveManifest(projectPath: string, manifest: DetectedMan
         }
         if (kind === 'pnpm-lock.yaml') {
             return wrapNpm(ecosystem, await parsePnpmLock(absolutePath), kind)
+        }
+        if (kind === NPM_MANIFEST) {
+            return { status: 'unauditable', ecosystem, reasonCode: 'no_lockfile', details: ['package.json has no lockfile beside it (package-lock.json, pnpm-lock.yaml or yarn.lock)'] }
         }
         // yarn.lock (and anything else) is not parsed — unauditable, same posture as the JS-only path.
         return { status: 'unauditable', ecosystem, reasonCode: 'unsupported_lockfile', details: [kind + ' is not a supported JavaScript lockfile format'] }

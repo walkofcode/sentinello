@@ -1,4 +1,6 @@
+import { reasonCodeLabel } from './reason-code-labels'
 import { parseRemediation, type Remediation } from './remediation'
+import { notRecheckedBecause, type FindingScanContext, type NotRecheckedBecause } from './scan-state'
 import type { FixStatus } from './types'
 
 // What the registry said when a finding's fix was settled. `ok` — fresh package data; `stale` — a refetch
@@ -88,26 +90,39 @@ export function isFixStatus(value: unknown): value is FixStatus {
 //
 // The way out travels with them: it exists only for a settled 'none_released' finding, so a remediation
 // left on a row of any other status (or an unsettled one) is never read.
+//
+// `notRecheckedBecause` is set when the row's source last failed to scan the project: the row is what an
+// earlier scan left, settled or not, and nothing re-checked it since. It is only known to a reader that
+// passes the source's scan context; without one it is null. readFixFields always sets it; it is optional
+// here so the shapes built from these fields before it existed (a merged portal row) still are FixFields.
 export type FixFields = {
     fixStatus: FixStatus
     fixVersion: string | null
     fixAvailable: boolean
     fixCheck: FixCheck | null
     remediation: Remediation | null
+    notRecheckedBecause?: NotRecheckedBecause | null
 }
 
-export function readFixFields(row: { fixStatus: string | null; fixVersion: string | null; fixAvailable: boolean; fixCheckJson: string | null; remediationJson: string | null }): FixFields {
+export function readFixFields(
+    row: { fixStatus: string | null; fixVersion: string | null; fixAvailable: boolean; fixCheckJson: string | null; remediationJson: string | null },
+    scanContext: FindingScanContext | null = null
+): FixFields & { notRecheckedBecause: NotRecheckedBecause | null } {
     const fixCheck = parseFixCheck(row.fixCheckJson)
+    const notRechecked = notRecheckedBecause(scanContext)
     // A `released` row without its version is not something settlement writes; read it as unsettled too.
     const releasedWithoutVersion = row.fixStatus === 'released' && !row.fixVersion
     if (!isFixStatus(row.fixStatus) || fixCheck === null || releasedWithoutVersion) {
-        return { fixStatus: 'unverified', fixVersion: null, fixAvailable: false, fixCheck: null, remediation: null }
+        return { fixStatus: 'unverified', fixVersion: null, fixAvailable: false, fixCheck: null, remediation: null, notRecheckedBecause: notRechecked }
     }
     const remediation = row.fixStatus === 'none_released' ? parseRemediation(row.remediationJson) : null
-    return { fixStatus: row.fixStatus, fixVersion: row.fixVersion, fixAvailable: row.fixAvailable, fixCheck, remediation }
+    return { fixStatus: row.fixStatus, fixVersion: row.fixVersion, fixAvailable: row.fixAvailable, fixCheck, remediation, notRecheckedBecause: notRechecked }
 }
 
-export type FixFacts = Pick<FixFields, 'fixStatus' | 'fixVersion' | 'fixAvailable' | 'fixCheck'> & { packageName: string }
+export type FixFacts = Pick<FixFields, 'fixStatus' | 'fixVersion' | 'fixAvailable' | 'fixCheck'> & {
+    packageName: string
+    notRecheckedBecause?: NotRecheckedBecause | null
+}
 
 export type FixTextStyle = {
     // How a version or package name is set off: a markdown code span in the export, bare in a chat message.
@@ -141,10 +156,29 @@ function staleSuffix(check: FixCheck): string {
     return ' · cached data from ' + isoDate(check.packageDataAsOf)
 }
 
+// Why a retained row was not re-checked, in the words every surface uses: "not re-checked — the project
+// cannot be scanned: No lockfile (last scanned successfully 2026-10-01)".
+export function describeNotRechecked(reason: NotRecheckedBecause): string {
+    const project = reason.projectState === 'cannot_scan' ? 'the project cannot be scanned' : 'the project cannot be fully scanned'
+    const when = reason.lastOkScanAt === null ? 'never scanned successfully' : 'last scanned successfully ' + isoDate(reason.lastOkScanAt)
+    return 'not re-checked — ' + project + ': ' + reasonCodeLabel(reason.reasonCode) + ' (' + when + ')'
+}
+
 // The one wording of a finding's fix, shared by the advisory export, the notifications and the CLI so they
 // can never say different things. Only a `released` fix is phrased as an instruction: "upgrade to X" for
 // a version nobody checked against the registry is how agents came to chase releases that never existed.
+//
+// A row retained by a failed scan keeps its historical answer, as of the scan that settled it, and says it
+// was not re-checked; a row no settlement ever wrote says only that, in place of "rescan pending" — a
+// rescan of a project that cannot be scanned would change nothing.
 export function describeFix(f: FixFacts, style: FixTextStyle): string {
+    const notRechecked = f.notRecheckedBecause ?? null
+    if (notRechecked === null) return describeSettledFix(f, style)
+    if (f.fixCheck === null) return describeNotRechecked(notRechecked)
+    return describeSettledFix(f, style) + ' · ' + describeNotRechecked(notRechecked)
+}
+
+function describeSettledFix(f: FixFacts, style: FixTextStyle): string {
     const check = f.fixCheck
     if (check === null) return 'fix not re-checked yet — rescan pending'
     if (f.fixStatus === 'released' && f.fixVersion) {

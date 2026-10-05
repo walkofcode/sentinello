@@ -8,6 +8,7 @@ function row(overrides: Partial<CurrentFindingRow> = {}): CurrentFindingRow {
         fixStatus: overrides.fixVersion && overrides.fixAvailable ? 'released' : 'unverified',
         fixCheck: { v: 1, checkedAt: 1, registry: 'ok', packageDataAsOf: 1, unevaluable: null, sources: [] },
         remediation: null,
+        notRecheckedBecause: null,
         id: 'finding-1',
         scanId: 'scan-1',
         projectId: 'project-1',
