@@ -4,6 +4,7 @@
     "globalPassThroughEnv": ["SENTINELLO_*"],
     "tasks": {
         "build": {
+            "dependsOn": ["^build"],
             "outputs": [".next/**", "!.next/cache/**", "dist/**"],
             "env": ["SENTINELLO_VERSION"]
         },
@@ -14,7 +15,9 @@
         "lint": {
             "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/eslint.config.mjs"]
         },
-        "typecheck": {},
+        "typecheck": {
+            "dependsOn": ["^typecheck"]
+        },
         "clean": {
             "cache": false
         }
