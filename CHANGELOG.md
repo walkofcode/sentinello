@@ -1,5 +1,29 @@
 # Changelog
 
+## [3.7.1](https://github.com/walkofcode/sentinello/compare/v3.7.0...v3.7.1) (2026-10-07)
+
+
+### Bug Fixes
+
+* **build:** a change in packages/* invalidates the cached app build and typecheck ([f56c3b1](https://github.com/walkofcode/sentinello/commit/f56c3b1b41ec8fec93dfedcdfe8088404c5e399c))
+* **mcp:** answer GET with 405 so clients stop reconnecting a stream that closes at once ([d7a8ab3](https://github.com/walkofcode/sentinello/commit/d7a8ab38b67f7ba5f353715e601a42151c2911d5))
+
+
+### Performance
+
+* **db:** read each source's latest scan through a covering index ([d038488](https://github.com/walkofcode/sentinello/commit/d0384885e4c4ba2ce25367ecfc9f4c59e3b5e090))
+
+
+### Dependencies
+
+* drop nodemon from the worker; dev runs under node --watch ([266bf42](https://github.com/walkofcode/sentinello/commit/266bf4248a069765ff60381d4ff29e6fefba9631))
+* fix four advisories in Sentinello's own dependencies ([16aa6c7](https://github.com/walkofcode/sentinello/commit/16aa6c70c68d086e9082c4b384a7e7b8ab38bcb6))
+
+
+### Documentation
+
+* **releases:** 3.7.1 ships on 2026-10-07 ([d0c081c](https://github.com/walkofcode/sentinello/commit/d0c081cbe034a6843e6092ddd6156ed8bb31a9a0))
+
 ## [3.7.0](https://github.com/walkofcode/sentinello/compare/v3.6.0...v3.7.0) (2026-10-05)
 
 
