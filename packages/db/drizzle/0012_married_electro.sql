@@ -1,0 +1,1 @@
+CREATE INDEX `scans_latest_source_idx` ON `scans` (`project_id`,(CASE WHEN "source" IS NULL THEN "scanner" ELSE "source" END),`finished_at`,`id`,`status`);

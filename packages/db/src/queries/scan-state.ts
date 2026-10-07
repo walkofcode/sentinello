@@ -36,6 +36,13 @@ export type LatestSourceScanRow = {
 // caller's second ORDER BY term makes that group alphabetical. Source ids are fixed registry
 // constants, never user input, so the inlined literals carry no injection risk — same reasoning as
 // activeSourceCellClause.
+// A scan's source identity, COALESCE(source, scanner) — a legacy row is read by its scanner name. Spelled
+// exactly as scans_latest_source_idx spells it (schema.ts says why it is a CASE), because SQLite uses an
+// expression index only for a query that repeats its expression.
+function scanSourceSql(alias: string): SQL {
+    return sql.raw('(CASE WHEN ' + alias + '.source IS NULL THEN ' + alias + '.scanner ELSE ' + alias + '.source END)')
+}
+
 function sourceRankSql(expr: string): SQL {
     const whens = SOURCE_IDS.map(function when(id, index) {
         return "WHEN '" + id + "' THEN " + index
@@ -51,10 +58,12 @@ function sourceRankSql(expr: string): SQL {
 // reported "OSV database not downloaded yet" while npm audit had scanned fine and produced findings.
 // Sources disagree; the row has to carry all of them.
 //
-// ROW_NUMBER rather than a correlated `s.id = (SELECT ... LIMIT 1)`: the correlation would have to
-// match on COALESCE(source, scanner), which no index can supply, and the inner scan could no longer
-// stop at the project's newest row. One pass and one sort instead. Mirrors listPrunableScanIds. raw_json
-// is joined back for the winning rows only, so the window never drags every scan's summary through.
+// Every lookup runs inside scans_latest_source_idx, which carries (project, source, finished_at, id,
+// status): the (project, source) pairs come off it, and each pair's newest scan and newest ok scan are a
+// seek into it. Only the winning rows are read from the table, joined back by id for their remaining
+// columns. A window over the table instead (ROW_NUMBER partitioned by project and source) read source for
+// every row — and source sits after raw_json, so that walked every row's raw_json: ~1.1 s of every
+// home-page render on a real 109k-row table, against ~0.05 s for this.
 //
 // Retention never prunes a source's latest scan of a project (listPrunableScanIds), so a source drops out
 // of this map only when it never scanned the project — which is why an absent source reads as "has not
@@ -65,6 +74,7 @@ function sourceRankSql(expr: string): SQL {
 export function listLatestSourceScans(db: DrizzleDb, projectIds: readonly string[] | null = null): LatestSourceScanRow[] {
     if (projectIds !== null && projectIds.length === 0) return []
     const projectFilter = projectIds === null ? sql`` : sql`WHERE s.project_id IN (${sql.join(projectIds.map(function id(p) { return sql`${p}` }), sql`, `)})`
+    const xSource = scanSourceSql('x')
     const rows = db.all<{
         id: string
         project_id: string
@@ -77,43 +87,38 @@ export function listLatestSourceScans(db: DrizzleDb, projectIds: readonly string
         raw_json: string
         last_ok_scan_at: number | null
     }>(sql`
-        WITH ranked AS (
-            SELECT s.id AS id,
-                   s.project_id AS project_id,
-                   COALESCE(s.source, s.scanner) AS source,
-                   s.ecosystem AS ecosystem,
-                   s.finished_at AS finished_at,
-                   s.status AS status,
-                   s.reason_code AS reason_code,
-                   s.error_text AS error_text,
-                   -- id DESC breaks a finished_at tie deterministically: scan ids are ULIDs, so the
-                   -- higher id is the later write.
-                   ROW_NUMBER() OVER (
-                       PARTITION BY s.project_id, COALESCE(s.source, s.scanner)
-                       ORDER BY s.finished_at DESC, s.id DESC
-                   ) AS rn
+        WITH pairs AS (
+            SELECT DISTINCT s.project_id AS project_id, ${scanSourceSql('s')} AS source
             FROM scans s
             ${projectFilter}
+        ),
+        latest AS (
+            SELECT p.project_id AS project_id,
+                   p.source AS source,
+                   -- id DESC breaks a finished_at tie deterministically: scan ids are ULIDs, so the
+                   -- higher id is the later write.
+                   (SELECT x.id FROM scans x
+                     WHERE x.project_id = p.project_id AND ${xSource} = p.source
+                     ORDER BY x.finished_at DESC, x.id DESC
+                     LIMIT 1) AS id,
+                   (SELECT MAX(x.finished_at) FROM scans x
+                     WHERE x.project_id = p.project_id AND ${xSource} = p.source
+                       AND x.status = 'ok') AS last_ok_scan_at
+            FROM pairs p
         )
-        SELECT r.id AS id,
-               r.project_id AS project_id,
-               r.source AS source,
-               r.ecosystem AS ecosystem,
-               r.finished_at AS finished_at,
-               r.status AS status,
-               r.reason_code AS reason_code,
-               r.error_text AS error_text,
+        SELECT l.id AS id,
+               l.project_id AS project_id,
+               l.source AS source,
+               s2.ecosystem AS ecosystem,
+               s2.finished_at AS finished_at,
+               s2.status AS status,
+               s2.reason_code AS reason_code,
+               s2.error_text AS error_text,
                s2.raw_json AS raw_json,
-               -- Correlated, for the winning rows only, through scans_project_finished_idx: a second
-               -- window over every scan cost ~0.5 s on a real 113k-row table, this ~0.2 s.
-               (SELECT MAX(x.finished_at) FROM scans x
-                 WHERE x.project_id = r.project_id
-                   AND COALESCE(x.source, x.scanner) = r.source
-                   AND x.status = 'ok') AS last_ok_scan_at
-        FROM ranked r
-        INNER JOIN scans s2 ON s2.id = r.id
-        WHERE r.rn = 1
-        ORDER BY ${sourceRankSql('r.source')}, r.source
+               l.last_ok_scan_at AS last_ok_scan_at
+        FROM latest l
+        INNER JOIN scans s2 ON s2.id = l.id
+        ORDER BY ${sourceRankSql('l.source')}, l.source
     `)
     return rows.map(function toRow(row): LatestSourceScanRow {
         return {

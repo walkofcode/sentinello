@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { sourceEnabledKey, type EcosystemId, type Scan } from '@sentinello/core'
 import { openDb } from '../client'
 import type { DrizzleDb, SqliteDb } from '../client'
@@ -167,6 +167,30 @@ describe('scan state — listLatestSourceScans', function () {
     it('reads a legacy row by its scanner name', function () {
         sqlite.prepare("INSERT INTO scans (id, project_id, started_at, finished_at, scanner, source, status, reason_code, duration_ms, raw_json) VALUES ('legacy', ?, ?, ?, 'npm-audit', NULL, 'ok', 'ok', 0, '')").run(PROJECT_ID, T0, T0)
         expect(listLatestSourceScans(db, [PROJECT_ID])[0]?.source).toBe('npm-audit')
+    })
+
+    // source and ecosystem were added by ALTER TABLE, so they sit after raw_json in every row: reading them
+    // walks each row's raw_json overflow pages. On a real 109k-row table (445 MB of raw_json) that made this
+    // read ~1.1 s of every home-page render. Only the winning rows may be read from the table.
+    it('reads the fleet through an index, touching the table only for the winning rows', function () {
+        const statements: string[] = []
+        const prepare = sqlite.prepare.bind(sqlite)
+        const spy = vi.spyOn(sqlite, 'prepare').mockImplementation(function capture(source: string) {
+            statements.push(source)
+            return prepare(source)
+        })
+        listLatestSourceScans(db)
+        spy.mockRestore()
+        expect(statements).toHaveLength(1)
+        const plan = sqlite.prepare('EXPLAIN QUERY PLAN ' + statements[0]).all() as { detail: string }[]
+        const scansAccess = plan
+            .map(function detailOf(row) { return row.detail })
+            .filter(function touchesScans(detail) { return /^(SCAN|SEARCH) (scans|s|s2|x)\b/.test(detail) })
+        expect(scansAccess.length).toBeGreaterThan(0)
+        for (const detail of scansAccess) {
+            const byPrimaryKey = /USING INDEX sqlite_autoindex_scans_1 \(id=\?\)/.test(detail)
+            expect(byPrimaryKey || detail.includes('USING COVERING INDEX'), detail).toBe(true)
+        }
     })
 
     it('sorts an unknown source after the known ones', function () {

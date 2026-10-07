@@ -216,7 +216,8 @@ describe('the indexes the query layer depends on', function () {
         expect(indexNames(schema.scans)).toEqual([
             'scans_project_id_idx',
             'scans_finished_at_idx',
-            'scans_project_finished_idx'
+            'scans_project_finished_idx',
+            'scans_latest_source_idx'
         ])
     })
 
