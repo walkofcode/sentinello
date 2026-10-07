@@ -20,6 +20,7 @@ function stripVPrefix(value: string): string {
 // needs no empty-array fallback — and an accidental truncation to [] becomes a type error rather than a
 // silently null "latest release".
 export const RELEASES: [ReleaseEntry, ...ReleaseEntry[]] = [
+    { version: '3.7.1', date: '2026-10-07' },
     { version: '3.7.0', date: '2026-10-05' },
     { version: '3.6.0', date: '2026-10-01' },
     { version: '3.5.1', date: '2026-09-19' },
@@ -58,6 +59,15 @@ export const RELEASES: [ReleaseEntry, ...ReleaseEntry[]] = [
 // this is plain TS data, not a next-intl message key (next-intl forbids '.' in keys).
 export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     en: {
+        '3.7.1': {
+            title: 'A portal that idles at zero',
+            items: [
+                'The portal sat at 7–17% CPU with nothing happening. The cause was the MCP endpoint: a client such as Claude Code asks it for a stream with <code>GET /api/mcp</code>, the endpoint — which keeps no sessions — opened one and closed it within milliseconds, and the client reconnected at once. That came to about four requests a second for every open Claude Code session with Sentinello configured, each one checking the token and building a whole MCP server. <code>GET</code> and <code>DELETE</code> now answer <code>405 Method Not Allowed</code>, which is how the MCP specification has a server without a stream say so, and clients stop asking. Measured on a live instance: no reconnects afterwards, and the portal back to about 0.1% CPU at idle. Tool calls work as before.',
+                'The projects page cost about 1.3 seconds of CPU to render, and it re-renders every minute while a tab is open and every five seconds while a scan runs. Nearly all of it was one read: finding each source’s latest scan of each project went through every scan row, and on an instance with 109,000 scans that meant reading through 445 MB of stored scan output every time. A new index answers it directly — about 1.1 seconds down to about 30 milliseconds, with the same results — and the whole page now costs about a quarter of a second. The index is built once, on upgrade; on that instance’s 2.3 GB database it took about three seconds.',
+                'Four advisories in Sentinello’s own dependencies are cleared: <code>proxy-addr</code> 2.0.8 (critical, IP spoofing through an IPv4-mapped IPv6 trust subnet) and <code>@modelcontextprotocol/sdk</code> 1.31.0 (high, its OAuth client could send credentials to an authorization server chosen by the MCP server), both behind the MCP endpoint; <code>sharp</code> 0.35.5 (critical, in the librsvg it bundles), which Next uses for images; and <code>source-map-js</code> 1.2.2 (high, an event-loop denial of service) in the build and test tooling. Every version had cleared the seven-day quarantine Sentinello applies to new releases. One advisory remains: <code>braces</code> 3.0.3 has no fixed release and is reached only through development tooling. One of its two paths was <code>nodemon</code>, which nothing used, and it is gone; the other runs through Next’s lint plugin and clears when that moves off <code>fast-glob</code> 3.',
+                'Building Sentinello from source could leave an older portal inside the new build. The build cache did not take changes in Sentinello’s shared packages into account, so for a release that changed only those — the database queries, for example — <code>pnpm build</code> could restore the previous portal build instead of making a new one. A change in any shared package now invalidates the build and the type check of every app that uses it. The Docker images and the npm CLI are built from a clean slate and were not affected.'
+            ]
+        },
         '3.7.0': {
             title: 'A fix is only named when it was actually released',
             items: [
@@ -321,6 +331,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Initial open-source release', items: ['The first public release of Sentinello'] }
     },
     es: {
+        '3.7.1': {
+            title: 'Un portal que en reposo no consume nada',
+            items: [
+                'El portal se mantenía entre el 7 y el 17 % de CPU sin que pasara nada. La causa era el endpoint MCP: un cliente como Claude Code le pide un flujo con <code>GET /api/mcp</code>; el endpoint —que no guarda sesiones— abría uno y lo cerraba en milisegundos, y el cliente volvía a conectarse de inmediato. Eran unas cuatro peticiones por segundo por cada sesión de Claude Code abierta con Sentinello configurado, y cada una comprobaba el token y construía un servidor MCP completo. <code>GET</code> y <code>DELETE</code> responden ahora <code>405 Method Not Allowed</code>, que es como la especificación MCP indica que un servidor no ofrece flujo, y los clientes dejan de pedirlo. Medido en una instancia real: ninguna reconexión después y el portal de vuelta a un 0,1 % de CPU en reposo. Las llamadas a herramientas funcionan igual que antes.',
+                'La página de proyectos costaba unos 1,3 segundos de CPU en renderizarse, y se vuelve a renderizar cada minuto mientras haya una pestaña abierta y cada cinco segundos mientras se ejecuta un escaneo. Casi todo era una sola lectura: encontrar el último escaneo de cada fuente para cada proyecto recorría todas las filas de escaneos, y en una instancia con 109 000 escaneos eso suponía leer 445 MB de resultados guardados cada vez. Un índice nuevo lo resuelve directamente —de 1,1 segundos a unos 30 milisegundos, con los mismos resultados— y la página entera cuesta ahora alrededor de un cuarto de segundo. El índice se crea una sola vez, al actualizar; en la base de datos de 2,3 GB de esa instancia tardó unos tres segundos.',
+                'Se corrigen cuatro avisos en las propias dependencias de Sentinello: <code>proxy-addr</code> 2.0.8 (crítico, suplantación de IP mediante una subred de confianza IPv6 con IPv4 mapeada) y <code>@modelcontextprotocol/sdk</code> 1.31.0 (alto, su cliente OAuth podía enviar credenciales a un servidor de autorización elegido por el servidor MCP), ambos detrás del endpoint MCP; <code>sharp</code> 0.35.5 (crítico, en la librsvg que incluye), que Next usa para las imágenes; y <code>source-map-js</code> 1.2.2 (alto, denegación de servicio del bucle de eventos) en las herramientas de compilación y pruebas. Todas las versiones habían superado la cuarentena de siete días que Sentinello aplica a las publicaciones nuevas. Queda un aviso: <code>braces</code> 3.0.3 no tiene versión corregida publicada y solo llega a través de herramientas de desarrollo. Uno de sus dos caminos era <code>nodemon</code>, que nada usaba, y se ha eliminado; el otro pasa por el plugin de lint de Next y desaparecerá cuando este deje <code>fast-glob</code> 3.',
+                'Compilar Sentinello desde el código fuente podía dejar un portal antiguo dentro de la nueva compilación. La caché de compilación no tenía en cuenta los cambios en los paquetes compartidos de Sentinello, así que en una versión que solo cambiara esos paquetes —las consultas a la base de datos, por ejemplo— <code>pnpm build</code> podía restaurar la compilación anterior del portal en lugar de generar una nueva. Ahora, un cambio en cualquier paquete compartido invalida la compilación y la comprobación de tipos de cada aplicación que lo usa. Las imágenes Docker y la CLI de npm se compilan desde cero y no se vieron afectadas.'
+            ]
+        },
         '3.7.0': {
             title: 'Solo se indica una corrección cuando de verdad se publicó',
             items: [
@@ -587,6 +606,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primera versión de código abierto', items: ['El primer lanzamiento público de Sentinello'] }
     },
     fr: {
+        '3.7.1': {
+            title: 'Un portail qui ne consomme plus rien au repos',
+            items: [
+                'Le portail restait entre 7 et 17 % de CPU sans que rien ne se passe. En cause, le point d’accès MCP : un client comme Claude Code lui demande un flux avec <code>GET /api/mcp</code> ; le point d’accès — qui ne conserve aucune session — en ouvrait un et le refermait en quelques millisecondes, et le client se reconnectait aussitôt. Cela faisait environ quatre requêtes par seconde pour chaque session Claude Code ouverte avec Sentinello configuré, chacune vérifiant le jeton et construisant un serveur MCP complet. <code>GET</code> et <code>DELETE</code> répondent désormais <code>405 Method Not Allowed</code>, la manière dont la spécification MCP fait dire à un serveur qu’il n’offre pas de flux, et les clients cessent de le demander. Mesuré sur une instance réelle : plus aucune reconnexion, et le portail revenu à environ 0,1 % de CPU au repos. Les appels d’outils fonctionnent comme avant.',
+                'La page des projets coûtait environ 1,3 seconde de CPU à afficher, et elle se réaffiche chaque minute tant qu’un onglet est ouvert, et toutes les cinq secondes pendant une analyse. Presque tout venait d’une seule lecture : trouver la dernière analyse de chaque source pour chaque projet parcourait toutes les lignes d’analyses, et sur une instance de 109 000 analyses cela revenait à relire 445 Mo de résultats stockés à chaque fois. Un nouvel index y répond directement — d’environ 1,1 seconde à environ 30 millisecondes, avec les mêmes résultats — et la page entière coûte maintenant un quart de seconde environ. L’index est créé une seule fois, à la mise à jour ; sur la base de 2,3 Go de cette instance, cela a pris environ trois secondes.',
+                'Quatre avis visant les propres dépendances de Sentinello sont corrigés : <code>proxy-addr</code> 2.0.8 (critique, usurpation d’adresse IP via un sous-réseau de confiance IPv6 à adresse IPv4 mappée) et <code>@modelcontextprotocol/sdk</code> 1.31.0 (élevé, son client OAuth pouvait envoyer des identifiants à un serveur d’autorisation choisi par le serveur MCP), tous deux derrière le point d’accès MCP ; <code>sharp</code> 0.35.5 (critique, dans la librsvg qu’il embarque), que Next utilise pour les images ; et <code>source-map-js</code> 1.2.2 (élevé, déni de service de la boucle d’événements) dans les outils de compilation et de test. Toutes ces versions avaient passé la quarantaine de sept jours que Sentinello applique aux nouvelles publications. Un avis subsiste : <code>braces</code> 3.0.3 n’a aucune version corrigée publiée et n’est atteint que par des outils de développement. L’un de ses deux chemins était <code>nodemon</code>, que rien n’utilisait, et il a été retiré ; l’autre passe par le plugin de lint de Next et disparaîtra quand celui-ci abandonnera <code>fast-glob</code> 3.',
+                'Compiler Sentinello depuis les sources pouvait laisser un ancien portail dans la nouvelle compilation. Le cache de compilation ne tenait pas compte des modifications des paquets partagés de Sentinello : pour une version qui ne modifiait que ceux-ci — les requêtes à la base de données, par exemple —, <code>pnpm build</code> pouvait restaurer la compilation précédente du portail au lieu d’en produire une nouvelle. Une modification de n’importe quel paquet partagé invalide désormais la compilation et la vérification des types de chaque application qui l’utilise. Les images Docker et la CLI npm sont compilées à partir de zéro et n’étaient pas concernées.'
+            ]
+        },
         '3.7.0': {
             title: 'Un correctif n’est indiqué que s’il a vraiment été publié',
             items: [
@@ -855,6 +883,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Première version open source', items: ['La première version publique de Sentinello'] }
     },
     de: {
+        '3.7.1': {
+            title: 'Ein Portal, das im Leerlauf nichts verbraucht',
+            items: [
+                'Das Portal lag bei 7–17 % CPU, obwohl nichts geschah. Ursache war der MCP-Endpunkt: Ein Client wie Claude Code fordert mit <code>GET /api/mcp</code> einen Stream an; der Endpunkt – der keine Sitzungen führt – öffnete einen und schloss ihn nach wenigen Millisekunden, und der Client verband sich sofort neu. Das ergab etwa vier Anfragen pro Sekunde für jede offene Claude-Code-Sitzung mit eingerichtetem Sentinello, und jede prüfte das Token und baute einen vollständigen MCP-Server auf. <code>GET</code> und <code>DELETE</code> antworten jetzt mit <code>405 Method Not Allowed</code> – so teilt ein Server ohne Stream das laut MCP-Spezifikation mit –, und die Clients fragen nicht mehr. Auf einer laufenden Instanz gemessen: danach keine Neuverbindungen mehr, und das Portal liegt im Leerlauf wieder bei etwa 0,1 % CPU. Tool-Aufrufe funktionieren wie bisher.',
+                'Die Projektseite kostete beim Rendern etwa 1,3 Sekunden CPU, und sie wird jede Minute neu gerendert, solange ein Tab offen ist, während eines Scans sogar alle fünf Sekunden. Fast alles davon war ein einziger Lesevorgang: Den jeweils neuesten Scan jeder Quelle für jedes Projekt zu finden, ging durch alle Scan-Zeilen, und auf einer Instanz mit 109.000 Scans hieß das, jedes Mal 445 MB gespeicherter Scan-Ausgaben zu durchlaufen. Ein neuer Index beantwortet das direkt – von etwa 1,1 Sekunden auf etwa 30 Millisekunden, mit denselben Ergebnissen –, und die ganze Seite kostet jetzt etwa eine Viertelsekunde. Der Index wird einmalig beim Update angelegt; auf der 2,3 GB großen Datenbank dieser Instanz dauerte das etwa drei Sekunden.',
+                'Vier Sicherheitshinweise zu Sentinellos eigenen Abhängigkeiten sind behoben: <code>proxy-addr</code> 2.0.8 (kritisch, IP-Spoofing über ein vertrauenswürdiges IPv6-Subnetz mit IPv4-gemappten Adressen) und <code>@modelcontextprotocol/sdk</code> 1.31.0 (hoch, sein OAuth-Client konnte Zugangsdaten an einen vom MCP-Server gewählten Autorisierungsserver senden), beide hinter dem MCP-Endpunkt; <code>sharp</code> 0.35.5 (kritisch, in der mitgelieferten librsvg), das Next für Bilder nutzt; und <code>source-map-js</code> 1.2.2 (hoch, Denial of Service der Event-Loop) in den Build- und Testwerkzeugen. Jede dieser Versionen hatte die siebentägige Quarantäne durchlaufen, die Sentinello auf neue Veröffentlichungen anwendet. Ein Hinweis bleibt: Für <code>braces</code> 3.0.3 gibt es keine korrigierte Version, und es wird nur über Entwicklungswerkzeuge erreicht. Einer seiner beiden Pfade war <code>nodemon</code>, das nirgends genutzt wurde und entfernt ist; der andere führt über das Lint-Plugin von Next und entfällt, sobald dieses <code>fast-glob</code> 3 nicht mehr verwendet.',
+                'Wer Sentinello aus dem Quellcode baute, konnte ein älteres Portal im neuen Build erhalten. Der Build-Cache berücksichtigte Änderungen in Sentinellos gemeinsamen Paketen nicht, sodass <code>pnpm build</code> bei einer Version, die nur diese änderte – etwa die Datenbankabfragen –, den vorherigen Portal-Build wiederherstellen konnte, statt einen neuen zu erzeugen. Eine Änderung in einem beliebigen gemeinsamen Paket macht jetzt den Build und die Typprüfung jeder App ungültig, die es verwendet. Die Docker-Images und die npm-CLI werden von Grund auf neu gebaut und waren nicht betroffen.'
+            ]
+        },
         '3.7.0': {
             title: 'Ein Fix wird nur genannt, wenn er tatsächlich veröffentlicht wurde',
             items: [
@@ -1124,6 +1161,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         }
     },
     'pt-BR': {
+        '3.7.1': {
+            title: 'Um portal que em repouso não consome nada',
+            items: [
+                'O portal ficava entre 7% e 17% de CPU sem que nada acontecesse. A causa era o endpoint MCP: um cliente como o Claude Code pede a ele um fluxo com <code>GET /api/mcp</code>; o endpoint — que não mantém sessões — abria um e o fechava em milissegundos, e o cliente se reconectava na hora. Eram cerca de quatro requisições por segundo para cada sessão do Claude Code aberta com o Sentinello configurado, cada uma verificando o token e construindo um servidor MCP inteiro. <code>GET</code> e <code>DELETE</code> agora respondem <code>405 Method Not Allowed</code>, que é como a especificação MCP faz um servidor sem fluxo dizer isso, e os clientes param de pedir. Medido em uma instância real: nenhuma reconexão depois, e o portal de volta a cerca de 0,1% de CPU em repouso. As chamadas de ferramentas funcionam como antes.',
+                'A página de projetos custava cerca de 1,3 segundo de CPU para ser renderizada, e ela é renderizada de novo a cada minuto enquanto houver uma aba aberta e a cada cinco segundos durante uma varredura. Quase tudo era uma única leitura: encontrar a varredura mais recente de cada fonte para cada projeto passava por todas as linhas de varreduras, e em uma instância com 109.000 varreduras isso significava ler 445 MB de resultados armazenados toda vez. Um novo índice responde isso diretamente — de cerca de 1,1 segundo para cerca de 30 milissegundos, com os mesmos resultados —, e a página inteira agora custa cerca de um quarto de segundo. O índice é criado uma única vez, na atualização; no banco de dados de 2,3 GB dessa instância, levou cerca de três segundos.',
+                'Quatro alertas nas próprias dependências do Sentinello foram corrigidos: <code>proxy-addr</code> 2.0.8 (crítico, falsificação de IP por meio de uma sub-rede confiável IPv6 com IPv4 mapeado) e <code>@modelcontextprotocol/sdk</code> 1.31.0 (alto, seu cliente OAuth podia enviar credenciais a um servidor de autorização escolhido pelo servidor MCP), ambos por trás do endpoint MCP; <code>sharp</code> 0.35.5 (crítico, na librsvg que ele inclui), que o Next usa para imagens; e <code>source-map-js</code> 1.2.2 (alto, negação de serviço do loop de eventos) nas ferramentas de build e de testes. Todas as versões já tinham passado pela quarentena de sete dias que o Sentinello aplica a novas publicações. Resta um alerta: <code>braces</code> 3.0.3 não tem versão corrigida publicada e só é alcançado por ferramentas de desenvolvimento. Um de seus dois caminhos era o <code>nodemon</code>, que nada usava, e ele foi removido; o outro passa pelo plugin de lint do Next e some quando ele deixar o <code>fast-glob</code> 3.',
+                'Compilar o Sentinello a partir do código-fonte podia deixar um portal antigo dentro do novo build. O cache de build não levava em conta mudanças nos pacotes compartilhados do Sentinello, então, em uma versão que mudasse só esses pacotes — as consultas ao banco de dados, por exemplo —, o <code>pnpm build</code> podia restaurar o build anterior do portal em vez de gerar um novo. Agora, uma mudança em qualquer pacote compartilhado invalida o build e a verificação de tipos de cada aplicativo que o usa. As imagens Docker e a CLI do npm são compiladas do zero e não foram afetadas.'
+            ]
+        },
         '3.7.0': {
             title: 'Uma correção só é indicada quando foi de fato publicada',
             items: [
@@ -1390,6 +1436,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primeira versão de código aberto', items: ['O primeiro lançamento público do Sentinello'] }
     },
     it: {
+        '3.7.1': {
+            title: 'Un portale che a riposo non consuma nulla',
+            items: [
+                'Il portale restava tra il 7 e il 17% di CPU senza che succedesse nulla. La causa era l’endpoint MCP: un client come Claude Code gli chiede un flusso con <code>GET /api/mcp</code>; l’endpoint — che non mantiene sessioni — ne apriva uno e lo chiudeva nel giro di millisecondi, e il client si riconnetteva subito. Erano circa quattro richieste al secondo per ogni sessione di Claude Code aperta con Sentinello configurato, e ognuna verificava il token e costruiva un intero server MCP. <code>GET</code> e <code>DELETE</code> ora rispondono <code>405 Method Not Allowed</code>, il modo in cui la specifica MCP fa dire a un server che non offre flussi, e i client smettono di chiederlo. Misurato su un’istanza reale: nessuna riconnessione dopo la correzione e il portale tornato a circa lo 0,1% di CPU a riposo. Le chiamate agli strumenti funzionano come prima.',
+                'La pagina dei progetti costava circa 1,3 secondi di CPU per essere generata, e viene rigenerata ogni minuto finché una scheda è aperta e ogni cinque secondi durante una scansione. Quasi tutto dipendeva da un’unica lettura: trovare l’ultima scansione di ogni fonte per ogni progetto passava per tutte le righe delle scansioni, e su un’istanza con 109.000 scansioni significava rileggere ogni volta 445 MB di risultati salvati. Un nuovo indice risponde direttamente — da circa 1,1 secondi a circa 30 millisecondi, con gli stessi risultati — e l’intera pagina ora costa circa un quarto di secondo. L’indice viene creato una sola volta, all’aggiornamento; sul database da 2,3 GB di quell’istanza ha richiesto circa tre secondi.',
+                'Sono risolti quattro avvisi nelle dipendenze di Sentinello stesso: <code>proxy-addr</code> 2.0.8 (critico, falsificazione dell’IP tramite una sottorete fidata IPv6 con IPv4 mappato) e <code>@modelcontextprotocol/sdk</code> 1.31.0 (alto, il suo client OAuth poteva inviare credenziali a un server di autorizzazione scelto dal server MCP), entrambi dietro l’endpoint MCP; <code>sharp</code> 0.35.5 (critico, nella librsvg che include), che Next usa per le immagini; e <code>source-map-js</code> 1.2.2 (alto, negazione del servizio sul ciclo degli eventi) negli strumenti di build e di test. Tutte le versioni avevano superato la quarantena di sette giorni che Sentinello applica alle nuove pubblicazioni. Resta un avviso: per <code>braces</code> 3.0.3 non esiste una versione corretta e viene raggiunto solo tramite strumenti di sviluppo. Uno dei suoi due percorsi era <code>nodemon</code>, che nulla usava, ed è stato rimosso; l’altro passa per il plugin di lint di Next e sparirà quando questo abbandonerà <code>fast-glob</code> 3.',
+                'Compilare Sentinello dai sorgenti poteva lasciare un portale più vecchio dentro la nuova build. La cache di build non teneva conto delle modifiche ai pacchetti condivisi di Sentinello, quindi per una versione che cambiava solo quelli — le query al database, per esempio — <code>pnpm build</code> poteva ripristinare la build precedente del portale invece di crearne una nuova. Ora una modifica a qualsiasi pacchetto condiviso invalida la build e il controllo dei tipi di ogni app che lo usa. Le immagini Docker e la CLI npm vengono compilate da zero e non erano interessate.'
+            ]
+        },
         '3.7.0': {
             title: 'Una correzione viene indicata solo se è stata davvero pubblicata',
             items: [
@@ -1656,6 +1711,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Prima versione open source', items: ['La prima versione pubblica di Sentinello'] }
     },
     ja: {
+        '3.7.1': {
+            title: 'アイドル時に CPU を使わないポータル',
+            items: [
+                '何も起きていないのに、ポータルが CPU を 7〜17% 使い続けていました。原因は MCP エンドポイントです。Claude Code などのクライアントは <code>GET /api/mcp</code> でストリームを要求しますが、セッションを持たないこのエンドポイントはストリームを開いて数ミリ秒で閉じてしまい、クライアントはすぐに再接続していました。Sentinello を設定した Claude Code のセッションが一つ開いているごとに毎秒約 4 回のリクエストが発生し、そのたびにトークンを検証して MCP サーバーを丸ごと構築していました。<code>GET</code> と <code>DELETE</code> は今後 <code>405 Method Not Allowed</code> を返します。これはストリームを提供しないサーバーが MCP 仕様に沿ってそれを伝える方法で、クライアントは要求をやめます。稼働中のインスタンスで計測したところ、再接続はなくなり、アイドル時のポータルの CPU 使用率は約 0.1% に戻りました。ツール呼び出しは従来どおり動作します。',
+                'プロジェクトページの描画には約 1.3 秒の CPU 時間がかかっていました。このページはタブが開いている間は毎分、スキャン中は 5 秒ごとに再描画されます。そのほとんどは一つの読み取りでした。各プロジェクトについてソースごとの最新スキャンを探すためにスキャンの全行をたどっており、スキャンが 109,000 件あるインスタンスでは、毎回 445 MB の保存済みスキャン結果を読み通していました。新しいインデックスで直接求められるようになり、結果は同じまま約 1.1 秒から約 30 ミリ秒に短縮され、ページ全体でも約 0.25 秒になりました。インデックスはアップグレード時に一度だけ作成されます。そのインスタンスの 2.3 GB のデータベースでは約 3 秒でした。',
+                'Sentinello 自身の依存関係に関する 4 件のアドバイザリを解消しました。<code>proxy-addr</code> 2.0.8（重大、IPv4 マップド IPv6 の信頼済みサブネットを介した IP なりすまし）と <code>@modelcontextprotocol/sdk</code> 1.31.0（高、OAuth クライアントが MCP サーバーの選んだ認可サーバーに資格情報を送る可能性）は、どちらも MCP エンドポイントの背後にあります。<code>sharp</code> 0.35.5（重大、同梱の librsvg）は Next が画像処理に使用し、<code>source-map-js</code> 1.2.2（高、イベントループのサービス拒否）はビルドとテストのツールで使われています。いずれのバージョンも、Sentinello が新しいリリースに適用する 7 日間の隔離期間を経ています。残るアドバイザリは 1 件です。<code>braces</code> 3.0.3 には修正版がリリースされておらず、開発用ツール経由でしか到達しません。二つの経路のうち一つは、どこからも使われていなかった <code>nodemon</code> で、これは削除しました。もう一つは Next の lint プラグイン経由で、プラグインが <code>fast-glob</code> 3 を使わなくなれば解消します。',
+                'Sentinello をソースからビルドすると、新しいビルドの中に古いポータルが残る可能性がありました。ビルドキャッシュが Sentinello の共有パッケージの変更を考慮していなかったため、共有パッケージだけが変わったリリース（たとえばデータベースクエリ）では、<code>pnpm build</code> が新しくビルドせずに以前のポータルのビルドを復元することがありました。今後は、どの共有パッケージを変更しても、それを使うすべてのアプリのビルドと型チェックが無効になります。Docker イメージと npm の CLI は毎回ゼロからビルドされるため、影響はありませんでした。'
+            ]
+        },
         '3.7.0': {
             title: '修正版は、実際に公開されている場合にだけ示すように',
             items: [
@@ -1918,6 +1982,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '初のオープンソースリリース', items: ['Sentinello の最初の一般公開リリース'] }
     },
     'zh-CN': {
+        '3.7.1': {
+            title: '空闲时不再占用 CPU 的门户',
+            items: [
+                '在没有任何操作时，门户仍持续占用 7%–17% 的 CPU。原因在 MCP 端点：Claude Code 等客户端会通过 <code>GET /api/mcp</code> 请求一个流，而这个不保存会话的端点打开流后几毫秒内就将其关闭，客户端随即重新连接。每个配置了 Sentinello 的 Claude Code 会话在打开期间每秒约产生四次请求，每次都要校验令牌并构建一个完整的 MCP 服务器。现在 <code>GET</code> 和 <code>DELETE</code> 返回 <code>405 Method Not Allowed</code>，这正是 MCP 规范中不提供流的服务器表明这一点的方式，客户端随之停止请求。在一个运行中的实例上实测：此后不再有重新连接，门户空闲时的 CPU 回落到约 0.1%。工具调用不受影响。',
+                '项目页面渲染一次约耗费 1.3 秒 CPU，而只要有标签页打开，它每分钟都会重新渲染，扫描进行时则每五秒一次。几乎所有开销都来自一次读取：为每个项目查找各来源的最新一次扫描时，会遍历所有扫描记录；在一个有 109,000 次扫描的实例上，这意味着每次都要读过 445 MB 的已存扫描结果。新增的索引可以直接给出答案——从约 1.1 秒降到约 30 毫秒，结果完全相同——整个页面现在约需四分之一秒。该索引只在升级时创建一次；在该实例 2.3 GB 的数据库上耗时约三秒。',
+                'Sentinello 自身依赖中的四条安全公告已修复：<code>proxy-addr</code> 2.0.8（严重，可通过 IPv4 映射的 IPv6 受信任子网伪造 IP）和 <code>@modelcontextprotocol/sdk</code> 1.31.0（高，其 OAuth 客户端可能把凭据发送给由 MCP 服务器选定的授权服务器），两者都位于 MCP 端点之后；<code>sharp</code> 0.35.5（严重，问题在其内置的 librsvg 中），Next 用它处理图片；以及构建和测试工具中的 <code>source-map-js</code> 1.2.2（高，事件循环拒绝服务）。所有这些版本都已度过 Sentinello 对新发布版本设置的七天隔离期。还剩一条公告：<code>braces</code> 3.0.3 没有已发布的修复版本，且只能经由开发工具引入。它的两条路径之一是从未被使用的 <code>nodemon</code>，现已移除；另一条经过 Next 的 lint 插件，待该插件不再使用 <code>fast-glob</code> 3 后即可消除。',
+                '从源码构建 Sentinello 时，新构建中可能残留旧版门户。构建缓存没有考虑 Sentinello 共享包的改动，因此对于只改动了这些包的版本（例如数据库查询），<code>pnpm build</code> 可能直接恢复上一次的门户构建，而不是重新构建。现在，任何共享包的改动都会使所有使用它的应用的构建和类型检查失效。Docker 镜像和 npm CLI 都是从零开始构建的，不受影响。'
+            ]
+        },
         '3.7.0': {
             title: '只有真正发布过的修复版本才会给出',
             items: [
@@ -2160,6 +2233,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '首个开源版本', items: ['Sentinello 的首个公开发布版本'] }
     },
     ko: {
+        '3.7.1': {
+            title: '유휴 상태에서 CPU를 쓰지 않는 포털',
+            items: [
+                '아무 일도 일어나지 않는데도 포털이 CPU를 7~17% 사용하고 있었습니다. 원인은 MCP 엔드포인트였습니다. Claude Code 같은 클라이언트는 <code>GET /api/mcp</code>로 스트림을 요청하는데, 세션을 유지하지 않는 이 엔드포인트가 스트림을 열고 몇 밀리초 만에 닫아 버렸고, 클라이언트는 즉시 다시 연결했습니다. Sentinello가 설정된 Claude Code 세션이 하나 열려 있을 때마다 초당 약 네 번의 요청이 발생했고, 요청마다 토큰을 확인하고 MCP 서버 전체를 새로 만들었습니다. 이제 <code>GET</code>과 <code>DELETE</code>는 <code>405 Method Not Allowed</code>로 응답합니다. MCP 사양에서 스트림을 제공하지 않는 서버가 이를 알리는 방식이며, 클라이언트는 더 이상 요청하지 않습니다. 실제 인스턴스에서 측정한 결과 이후 재연결은 없었고, 유휴 상태의 포털 CPU 사용률은 약 0.1%로 돌아왔습니다. 도구 호출은 이전과 같이 동작합니다.',
+                '프로젝트 페이지를 한 번 렌더링하는 데 CPU 시간이 약 1.3초 들었는데, 이 페이지는 탭이 열려 있는 동안 매분, 스캔 중에는 5초마다 다시 렌더링됩니다. 그 대부분이 하나의 읽기 작업이었습니다. 프로젝트마다 소스별 최신 스캔을 찾느라 모든 스캔 행을 훑었고, 스캔이 109,000건인 인스턴스에서는 매번 저장된 스캔 결과 445MB를 읽어야 했습니다. 새 인덱스가 이를 바로 찾아 주어 결과는 그대로이면서 약 1.1초에서 약 30밀리초로 줄었고, 페이지 전체도 이제 약 0.25초면 됩니다. 인덱스는 업그레이드할 때 한 번만 만들어지며, 해당 인스턴스의 2.3GB 데이터베이스에서는 약 3초가 걸렸습니다.',
+                'Sentinello 자체 의존성에 대한 보안 권고 네 건을 해결했습니다. <code>proxy-addr</code> 2.0.8(심각, IPv4 매핑 IPv6 신뢰 서브넷을 통한 IP 스푸핑)과 <code>@modelcontextprotocol/sdk</code> 1.31.0(높음, OAuth 클라이언트가 MCP 서버가 고른 인증 서버로 자격 증명을 보낼 수 있음)은 모두 MCP 엔드포인트 뒤에 있습니다. <code>sharp</code> 0.35.5(심각, 내장된 librsvg)는 Next가 이미지 처리에 사용하고, <code>source-map-js</code> 1.2.2(높음, 이벤트 루프 서비스 거부)는 빌드 및 테스트 도구에 쓰입니다. 모든 버전이 Sentinello가 새 릴리스에 적용하는 7일 격리 기간을 통과했습니다. 남은 권고는 하나입니다. <code>braces</code> 3.0.3은 수정된 버전이 출시되지 않았고 개발 도구를 통해서만 들어옵니다. 두 경로 중 하나는 아무 데서도 쓰이지 않던 <code>nodemon</code>이었고 제거했습니다. 다른 하나는 Next의 lint 플러그인을 거치며, 플러그인이 <code>fast-glob</code> 3을 더 이상 쓰지 않으면 사라집니다.',
+                'Sentinello를 소스에서 빌드하면 새 빌드 안에 이전 포털이 남을 수 있었습니다. 빌드 캐시가 Sentinello 공유 패키지의 변경을 반영하지 않았기 때문에, 공유 패키지만 바뀐 릴리스(예: 데이터베이스 쿼리)에서는 <code>pnpm build</code>가 새로 빌드하지 않고 이전 포털 빌드를 복원할 수 있었습니다. 이제 어떤 공유 패키지가 바뀌어도 그것을 사용하는 모든 앱의 빌드와 타입 검사가 무효화됩니다. Docker 이미지와 npm CLI는 매번 처음부터 빌드되므로 영향을 받지 않았습니다.'
+            ]
+        },
         '3.7.0': {
             title: '수정 버전은 실제로 공개된 경우에만 알려 줍니다',
             items: [
@@ -2416,6 +2498,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '첫 오픈 소스 릴리스', items: ['Sentinello의 첫 공개 릴리스'] }
     },
     ru: {
+        '3.7.1': {
+            title: 'Портал, который в простое ничего не потребляет',
+            items: [
+                'Портал держал загрузку CPU на уровне 7–17 %, хотя ничего не происходило. Причина была в MCP-эндпоинте: клиент вроде Claude Code запрашивает у него поток через <code>GET /api/mcp</code>; эндпоинт, не хранящий сессий, открывал поток и закрывал его через несколько миллисекунд, а клиент тут же подключался снова. Выходило около четырёх запросов в секунду на каждую открытую сессию Claude Code с настроенным Sentinello, и каждый из них проверял токен и собирал целый MCP-сервер. Теперь <code>GET</code> и <code>DELETE</code> отвечают <code>405 Method Not Allowed</code> — так по спецификации MCP сервер без потока сообщает об этом, — и клиенты перестают его запрашивать. Замер на работающем экземпляре: повторных подключений больше нет, а портал в простое снова потребляет около 0,1 % CPU. Вызовы инструментов работают как прежде.',
+                'Отрисовка страницы проектов стоила около 1,3 секунды процессорного времени, а перерисовывается она каждую минуту, пока открыта вкладка, и каждые пять секунд во время сканирования. Почти всё уходило на одно чтение: чтобы найти последнее сканирование каждого источника для каждого проекта, перебирались все строки сканирований, и на экземпляре со 109 000 сканирований это означало каждый раз прочитывать 445 МБ сохранённых результатов. Новый индекс отвечает на этот вопрос напрямую — примерно с 1,1 секунды до 30 миллисекунд при тех же результатах, — и вся страница теперь обходится примерно в четверть секунды. Индекс создаётся один раз, при обновлении; на базе этого экземпляра объёмом 2,3 ГБ это заняло около трёх секунд.',
+                'Устранены четыре уязвимости в собственных зависимостях Sentinello: <code>proxy-addr</code> 2.0.8 (критическая, подмена IP-адреса через доверенную подсеть IPv6 с отображёнными IPv4-адресами) и <code>@modelcontextprotocol/sdk</code> 1.31.0 (высокая, его OAuth-клиент мог отправить учётные данные серверу авторизации, выбранному MCP-сервером) — обе за MCP-эндпоинтом; <code>sharp</code> 0.35.5 (критическая, во встроенной librsvg), который Next использует для изображений; и <code>source-map-js</code> 1.2.2 (высокая, отказ в обслуживании цикла событий) в инструментах сборки и тестирования. Все эти версии прошли семидневный карантин, который Sentinello применяет к новым выпускам. Остаётся одна уязвимость: для <code>braces</code> 3.0.3 нет исправленного выпуска, и он попадает в проект только через инструменты разработки. Один из двух путей к нему шёл через <code>nodemon</code>, который нигде не использовался, — он удалён; второй проходит через lint-плагин Next и исчезнет, когда тот откажется от <code>fast-glob</code> 3.',
+                'При сборке Sentinello из исходников в новой сборке мог оказаться старый портал. Кэш сборки не учитывал изменения в общих пакетах Sentinello, поэтому для выпуска, менявшего только их — например, запросы к базе данных, — <code>pnpm build</code> мог восстановить предыдущую сборку портала вместо новой. Теперь изменение любого общего пакета делает недействительными сборку и проверку типов каждого приложения, которое его использует. Образы Docker и CLI в npm собираются с нуля, и их это не затронуло.'
+            ]
+        },
         '3.7.0': {
             title: 'Исправление указывается, только если оно действительно выпущено',
             items: [
