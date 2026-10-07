@@ -6,7 +6,7 @@
     "description": "Sentinello long-lived worker: scheduler, discovery, audit runner, scan-request poller.",
     "type": "module",
     "scripts": {
-        "dev": "tsx watch src/index.ts",
+        "dev": "node --watch --import tsx src/index.ts",
         "start": "tsx src/index.ts",
         "lint": "eslint . --max-warnings 0",
         "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -36,7 +36,6 @@
         "@types/proper-lockfile": "4.1.4",
         "@types/semver": "7.7.1",
         "@types/unzipper": "0.10.11",
-        "nodemon": "3.1.14",
         "npm-pick-manifest": "11.0.3",
         "tsx": "4.21.0"
     }

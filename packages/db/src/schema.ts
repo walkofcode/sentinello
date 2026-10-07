@@ -1,4 +1,5 @@
 import { sqliteTable, text, integer, index, primaryKey, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { sql } from 'drizzle-orm'
 
 // Sentinello SQLite schema. Two-process architecture (apps/web + apps/worker) coordinates exclusively
 // through this DB in WAL mode; this file is the literal contract between both apps.
@@ -114,7 +115,25 @@ export const scans = sqliteTable(
             // a TEMP B-TREE on finished_at — per row of a full scans scan. On a real instance with
             // ~30k scans across 45 projects that measured 8.85s for the CTE alone; this composite
             // index supplies the ordering directly and takes it to 0.019s.
-            projectFinishedIdx: index('scans_project_finished_idx').on(table.projectId, table.finishedAt)
+            projectFinishedIdx: index('scans_project_finished_idx').on(table.projectId, table.finishedAt),
+            // Each source's latest scan of each project (listLatestSourceScans) — read by every home-page
+            // render. source and ecosystem were added by ALTER TABLE, so they sit after raw_json and a
+            // table read of them walks every row's raw_json overflow pages: on a real instance with 109k
+            // scans and 445 MB of raw_json that read took ~1.1 s. Everything the lookup needs is in here, so
+            // only the winning rows are read from the table.
+            //
+            // The source expression is COALESCE(source, scanner) spelled as a CASE because drizzle-kit
+            // (0.31.x) stores SQLite index columns comma-joined and splits them on every comma, so an
+            // expression containing one is emitted as two broken quoted column names. SQLite only uses an
+            // expression index for a query that repeats the expression, so the query must spell it this
+            // same way (scanSourceSql in queries/scan-state.ts).
+            latestSourceIdx: index('scans_latest_source_idx').on(
+                table.projectId,
+                sql`(CASE WHEN "source" IS NULL THEN "scanner" ELSE "source" END)`,
+                table.finishedAt,
+                table.id,
+                table.status
+            )
         }
     }
 )
