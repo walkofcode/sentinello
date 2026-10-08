@@ -20,6 +20,7 @@ function stripVPrefix(value: string): string {
 // needs no empty-array fallback — and an accidental truncation to [] becomes a type error rather than a
 // silently null "latest release".
 export const RELEASES: [ReleaseEntry, ...ReleaseEntry[]] = [
+    { version: '3.7.2', date: '2026-10-08' },
     { version: '3.7.1', date: '2026-10-07' },
     { version: '3.7.0', date: '2026-10-05' },
     { version: '3.6.0', date: '2026-10-01' },
@@ -59,6 +60,12 @@ export const RELEASES: [ReleaseEntry, ...ReleaseEntry[]] = [
 // this is plain TS data, not a next-intl message key (next-intl forbids '.' in keys).
 export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     en: {
+        '3.7.2': {
+            title: 'A Next.js upgrade for six security advisories',
+            items: [
+                'The portal and the homepage move from Next.js 16.3.6 to 16.4.0, which clears six advisories in Next itself: a server-side request forgery in image optimization (high); two cache-poisoning flaws in SSG and ISR pages on self-hosted instances, which is how Sentinello runs; Draft Mode content leaking into regular responses through a pending <code>use cache</code> fill; metadata image routes that ignored <code>dynamicParams</code>; and an information leak from the development server’s MCP endpoint, which only <code>pnpm dev</code> exposes. 16.4.0 was more than a day old but still inside the seven-day quarantine Sentinello applies to new releases, so the quarantine was lowered for this one upgrade only. <code>braces</code> 3.0.3 still has no fixed release and is reached only through development tooling.'
+            ]
+        },
         '3.7.1': {
             title: 'A portal that idles at zero',
             items: [
@@ -331,6 +338,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Initial open-source release', items: ['The first public release of Sentinello'] }
     },
     es: {
+        '3.7.2': {
+            title: 'Una actualización de Next.js para seis avisos de seguridad',
+            items: [
+                'El portal y la página principal pasan de Next.js 16.3.6 a 16.4.0, que resuelve seis avisos del propio Next: una falsificación de solicitudes del lado del servidor (SSRF) en la optimización de imágenes (alta); dos fallos de envenenamiento de caché en páginas SSG e ISR de instancias autoalojadas, que es como se ejecuta Sentinello; contenido de Draft Mode que se filtraba en respuestas normales a través de un llenado pendiente de <code>use cache</code>; rutas de imágenes de metadatos que ignoraban <code>dynamicParams</code>; y una fuga de información desde el endpoint MCP del servidor de desarrollo, que solo expone <code>pnpm dev</code>. La 16.4.0 tenía más de un día, pero seguía dentro de la cuarentena de siete días que Sentinello aplica a las versiones nuevas, así que la cuarentena se redujo solo para esta actualización. <code>braces</code> 3.0.3 sigue sin una versión corregida y solo se alcanza a través de herramientas de desarrollo.'
+            ]
+        },
         '3.7.1': {
             title: 'Un portal que en reposo no consume nada',
             items: [
@@ -606,6 +619,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primera versión de código abierto', items: ['El primer lanzamiento público de Sentinello'] }
     },
     fr: {
+        '3.7.2': {
+            title: 'Une mise à jour de Next.js pour six avis de sécurité',
+            items: [
+                'Le portail et la page d’accueil passent de Next.js 16.3.6 à 16.4.0, qui corrige six avis touchant Next lui-même : une falsification de requêtes côté serveur (SSRF) dans l’optimisation d’images (élevée) ; deux failles d’empoisonnement de cache dans les pages SSG et ISR des instances auto-hébergées, ce qui est le cas de Sentinello ; du contenu Draft Mode qui fuyait dans les réponses ordinaires via un remplissage <code>use cache</code> en attente ; des routes d’images de métadonnées qui ignoraient <code>dynamicParams</code> ; et une fuite d’informations par le point de terminaison MCP du serveur de développement, que seul <code>pnpm dev</code> expose. La 16.4.0 avait plus d’un jour mais restait dans la quarantaine de sept jours que Sentinello applique aux nouvelles versions ; la quarantaine a donc été abaissée pour cette seule mise à jour. <code>braces</code> 3.0.3 n’a toujours pas de version corrigée et n’est atteint que par l’outillage de développement.'
+            ]
+        },
         '3.7.1': {
             title: 'Un portail qui ne consomme plus rien au repos',
             items: [
@@ -883,6 +902,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Première version open source', items: ['La première version publique de Sentinello'] }
     },
     de: {
+        '3.7.2': {
+            title: 'Ein Next.js-Update für sechs Sicherheitshinweise',
+            items: [
+                'Portal und Homepage wechseln von Next.js 16.3.6 auf 16.4.0, das sechs Hinweise in Next selbst behebt: eine serverseitige Anfragefälschung (SSRF) in der Bildoptimierung (hoch); zwei Cache-Poisoning-Lücken in SSG- und ISR-Seiten selbst gehosteter Instanzen – so läuft Sentinello; Draft-Mode-Inhalte, die über ein ausstehendes <code>use cache</code>-Befüllen in normale Antworten gelangten; Metadaten-Bildrouten, die <code>dynamicParams</code> ignorierten; und ein Informationsleck am MCP-Endpunkt des Entwicklungsservers, den nur <code>pnpm dev</code> bereitstellt. 16.4.0 war älter als einen Tag, lag aber noch in der siebentägigen Quarantäne, die Sentinello auf neue Releases anwendet; die Quarantäne wurde deshalb nur für dieses eine Update gesenkt. <code>braces</code> 3.0.3 hat weiterhin kein korrigiertes Release und wird nur über Entwicklungswerkzeuge erreicht.'
+            ]
+        },
         '3.7.1': {
             title: 'Ein Portal, das im Leerlauf nichts verbraucht',
             items: [
@@ -1161,6 +1186,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         }
     },
     'pt-BR': {
+        '3.7.2': {
+            title: 'Uma atualização do Next.js para seis avisos de segurança',
+            items: [
+                'O portal e a página inicial passam do Next.js 16.3.6 para o 16.4.0, que corrige seis avisos do próprio Next: uma falsificação de requisição do lado do servidor (SSRF) na otimização de imagens (alta); duas falhas de envenenamento de cache em páginas SSG e ISR de instâncias auto-hospedadas, que é como o Sentinello roda; conteúdo do Draft Mode vazando em respostas comuns por meio de um preenchimento pendente de <code>use cache</code>; rotas de imagens de metadados que ignoravam <code>dynamicParams</code>; e um vazamento de informações pelo endpoint MCP do servidor de desenvolvimento, que só o <code>pnpm dev</code> expõe. O 16.4.0 tinha mais de um dia, mas ainda estava dentro da quarentena de sete dias que o Sentinello aplica a versões novas, então a quarentena foi reduzida só para esta atualização. O <code>braces</code> 3.0.3 continua sem versão corrigida e só é alcançado pelas ferramentas de desenvolvimento.'
+            ]
+        },
         '3.7.1': {
             title: 'Um portal que em repouso não consome nada',
             items: [
@@ -1436,6 +1467,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primeira versão de código aberto', items: ['O primeiro lançamento público do Sentinello'] }
     },
     it: {
+        '3.7.2': {
+            title: 'Un aggiornamento di Next.js per sei avvisi di sicurezza',
+            items: [
+                'Il portale e la homepage passano da Next.js 16.3.6 a 16.4.0, che risolve sei avvisi di Next stesso: una falsificazione di richieste lato server (SSRF) nell’ottimizzazione delle immagini (alta); due falle di cache poisoning nelle pagine SSG e ISR delle istanze self-hosted, che è il modo in cui gira Sentinello; contenuti in Draft Mode che finivano nelle risposte normali tramite un riempimento <code>use cache</code> in sospeso; route delle immagini dei metadati che ignoravano <code>dynamicParams</code>; e una fuga di informazioni dall’endpoint MCP del server di sviluppo, esposto solo da <code>pnpm dev</code>. La 16.4.0 aveva più di un giorno ma era ancora nella quarantena di sette giorni che Sentinello applica alle nuove release, quindi la quarantena è stata abbassata solo per questo aggiornamento. <code>braces</code> 3.0.3 non ha ancora una release corretta ed è raggiunto solo dagli strumenti di sviluppo.'
+            ]
+        },
         '3.7.1': {
             title: 'Un portale che a riposo non consuma nulla',
             items: [
@@ -1711,6 +1748,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Prima versione open source', items: ['La prima versione pubblica di Sentinello'] }
     },
     ja: {
+        '3.7.2': {
+            title: '6 件のセキュリティアドバイザリに対応する Next.js の更新',
+            items: [
+                'ポータルとホームページを Next.js 16.3.6 から 16.4.0 に更新し、Next 本体の 6 件のアドバイザリを解消しました。画像最適化におけるサーバーサイドリクエストフォージェリ（high）、Sentinello と同じセルフホスト環境の SSG・ISR ページにおける 2 件のキャッシュポイズニング、保留中の <code>use cache</code> の書き込みを通じて Draft Mode のコンテンツが通常のレスポンスに漏れる問題、<code>dynamicParams</code> を無視していたメタデータ画像ルート、そして <code>pnpm dev</code> でのみ公開される開発サーバーの MCP エンドポイントからの情報漏えいです。16.4.0 は公開から 1 日以上経っていましたが、Sentinello が新しいリリースに課す 7 日間の隔離期間内だったため、この更新に限って隔離期間を下げました。<code>braces</code> 3.0.3 には依然として修正版がなく、開発ツール経由でのみ使われています。'
+            ]
+        },
         '3.7.1': {
             title: 'アイドル時に CPU を使わないポータル',
             items: [
@@ -1982,6 +2025,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '初のオープンソースリリース', items: ['Sentinello の最初の一般公開リリース'] }
     },
     'zh-CN': {
+        '3.7.2': {
+            title: '针对六项安全公告的 Next.js 升级',
+            items: [
+                '门户和主页从 Next.js 16.3.6 升级到 16.4.0，修复了 Next 本身的六项公告：图片优化中的服务端请求伪造（高危）；自托管实例（Sentinello 正是这样运行的）中 SSG 和 ISR 页面的两处缓存投毒；Draft Mode 内容通过尚未完成的 <code>use cache</code> 填充泄露到普通响应中；元数据图片路由忽略 <code>dynamicParams</code>；以及开发服务器 MCP 端点的信息泄露，该端点只有 <code>pnpm dev</code> 会暴露。16.4.0 发布已超过一天，但仍处在 Sentinello 对新版本设置的七天隔离期内，因此仅为这一次升级降低了隔离期。<code>braces</code> 3.0.3 仍没有修复版本，且只通过开发工具被使用。'
+            ]
+        },
         '3.7.1': {
             title: '空闲时不再占用 CPU 的门户',
             items: [
@@ -2233,6 +2282,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '首个开源版本', items: ['Sentinello 的首个公开发布版本'] }
     },
     ko: {
+        '3.7.2': {
+            title: '보안 권고 6건을 위한 Next.js 업그레이드',
+            items: [
+                '포털과 홈페이지가 Next.js 16.3.6에서 16.4.0으로 올라가며 Next 자체의 권고 6건이 해결됩니다. 이미지 최적화의 서버 측 요청 위조(high), Sentinello처럼 자체 호스팅되는 인스턴스의 SSG·ISR 페이지에서 발생하는 캐시 포이즈닝 2건, 대기 중인 <code>use cache</code> 채우기를 통해 Draft Mode 콘텐츠가 일반 응답으로 새어 나가던 문제, <code>dynamicParams</code>를 무시하던 메타데이터 이미지 라우트, 그리고 <code>pnpm dev</code>에서만 노출되는 개발 서버 MCP 엔드포인트의 정보 유출입니다. 16.4.0은 공개된 지 하루가 넘었지만 Sentinello가 새 릴리스에 적용하는 7일 격리 기간 안에 있어서, 이번 업그레이드에 한해서만 격리 기간을 낮췄습니다. <code>braces</code> 3.0.3은 여전히 수정된 릴리스가 없으며 개발 도구를 통해서만 사용됩니다.'
+            ]
+        },
         '3.7.1': {
             title: '유휴 상태에서 CPU를 쓰지 않는 포털',
             items: [
@@ -2498,6 +2553,12 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '첫 오픈 소스 릴리스', items: ['Sentinello의 첫 공개 릴리스'] }
     },
     ru: {
+        '3.7.2': {
+            title: 'Обновление Next.js ради шести уведомлений безопасности',
+            items: [
+                'Портал и домашняя страница переходят с Next.js 16.3.6 на 16.4.0, где закрыты шесть уведомлений в самом Next: подделка серверных запросов (SSRF) в оптимизации изображений (высокая); две уязвимости отравления кэша в страницах SSG и ISR самостоятельно размещённых экземпляров — именно так работает Sentinello; утечка содержимого Draft Mode в обычные ответы через незавершённое заполнение <code>use cache</code>; маршруты изображений метаданных, игнорировавшие <code>dynamicParams</code>; и утечка информации через MCP-эндпоинт сервера разработки, который открывает только <code>pnpm dev</code>. Версии 16.4.0 был уже больше суток, но она ещё находилась в семидневном карантине, который Sentinello применяет к новым релизам, поэтому карантин был снижен только для этого обновления. У <code>braces</code> 3.0.3 по-прежнему нет исправленного релиза, и он используется только инструментами разработки.'
+            ]
+        },
         '3.7.1': {
             title: 'Портал, который в простое ничего не потребляет',
             items: [
