@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.7.3](https://github.com/walkofcode/sentinello/compare/v3.7.2...v3.7.3) (2026-10-22)
+
+
+### Chores
+
+* release 3.7.3 on Node 24.22.1 ([c2794f2](https://github.com/walkofcode/sentinello/commit/c2794f2b04a6e0bdad679d37cd3433e1cc9aa7ef))
+
 ## [3.7.2](https://github.com/walkofcode/sentinello/compare/v3.7.1...v3.7.2) (2026-10-08)
 
 
