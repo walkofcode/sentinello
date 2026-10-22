@@ -545,7 +545,7 @@ effect within ~5s — no container restart required.
   shrinking; it reuses that space for new scans.
 - `/home/sentinello/.nvm` — Node versions installed on demand by `nvm` for
   projects that pin one via `.nvmrc`. Persist it so each version downloads only
-  once (the image's baked-in Node 24.14.0 is seeded into the volume on first
+  once (the image's baked-in Node 24.22.1 is seeded into the volume on first
   create). Mount path moved from `/root/.nvm` in the non-root release — see
   [Upgrading](#upgrading) if you ran an earlier image.
 - `/roots/<name>` (read-only) — mount each code portfolio root you want
@@ -720,7 +720,7 @@ pm2 stop ecosystem.config.js
 pm2 startup && pm2 save    # survive reboots
 ```
 
-Requires Node >= 24.14.0, pnpm >= 10.33.0, and pm2 (`npm install -g pm2`).
+Requires Node >= 24.22.1, pnpm >= 10.33.0, and pm2 (`npm install -g pm2`).
 
 ## Development
 
@@ -729,7 +729,7 @@ pnpm install
 pnpm dev
 ```
 
-Requires Node >= 24.14.0 and pnpm >= 10.33.0. See [`CONTRIBUTING.md`](CONTRIBUTING.md)
+Requires Node >= 24.22.1 and pnpm >= 10.33.0. See [`CONTRIBUTING.md`](CONTRIBUTING.md)
 for development setup, contribution conventions, and the release process.
 
 ### Tests

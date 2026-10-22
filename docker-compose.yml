@@ -62,7 +62,7 @@ services:
             # The DB + WAL + lock live here — survives container restarts.
             - sentinello-data:/app/data
             # nvm-installed Node versions live here. Persisting it means each .nvmrc version is
-            # downloaded once and reused across restarts (the image's Node 24.14.0 is seeded into the
+            # downloaded once and reused across restarts (the image's Node 24.22.1 is seeded into the
             # volume on first create, so it is not masked). NOTE: the mount path moved to the non-root
             # user's home this release. Upgrading from a pre-non-root image? Delete the old volume
             # first (`docker volume rm sentinello-nvm`) so it is recreated owned by the runtime user —

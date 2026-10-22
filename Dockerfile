@@ -1,14 +1,14 @@
 # Sentinello v1 — multi-stage single-image deployment running both apps under pm2-runtime.
 #
 # Stages:
-#   base    — minimal runtime foundation (node:24.14.0-bookworm-slim + corepack/pnpm + nvm + tini)
+#   base    — minimal runtime foundation (node:24.22.1-bookworm-slim + corepack/pnpm + nvm + tini)
 #   deps    — adds python3/build-essential so better-sqlite3 / esbuild / sharp can compile
 #   build   — copies full source and runs `pnpm turbo run build`
 #   runtime — copies build output onto `base` (no compilers, no apt cache) and starts pm2-runtime
 #
 # Why nvm is in the runtime image: the worker shells out to `nvm install` for .nvmrc-aware scans of
 # user-mounted portfolio roots (apps/worker/src/discovery.ts, apps/worker/src/runner.ts). The
-# *runtime* Node version is pinned to 24.14.0 by the base image — nvm is only there so scans of
+# *runtime* Node version is pinned to 24.22.1 by the base image — nvm is only there so scans of
 # arbitrary `.nvmrc` files in mounted roots behave the same as on a PM2 host. `nvm install` pulls
 # any missing version on first scan; persist /home/sentinello/.nvm (see docker-compose.yml) so it
 # happens once.
@@ -21,7 +21,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1: base — the foundation for both `deps` and `runtime`. Keep this lean.
 # ---------------------------------------------------------------------------
-FROM node:24.14.0-bookworm-slim AS base
+FROM node:24.22.1-bookworm-slim AS base
 
 ENV PNPM_HOME="/root/.local/share/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
@@ -146,7 +146,7 @@ RUN corepack prepare pnpm@10.33.0 --activate \
     && echo "${NVM_INSTALL_SHA256}  /tmp/nvm-install.sh" | sha256sum -c - \
     && bash /tmp/nvm-install.sh \
     && rm /tmp/nvm-install.sh \
-    && bash -lc "source $NVM_DIR/nvm.sh && nvm install 24.14.0 && nvm alias default 24.14.0"
+    && bash -lc "source $NVM_DIR/nvm.sh && nvm install 24.22.1 && nvm alias default 24.22.1"
 
 # Version label baked in at build time. docker-publish.yml passes the resolved SemVer
 # from the triggering git tag. Local `pnpm docker:build` injects the root package.json

@@ -14,7 +14,7 @@
     },
     "author": "Walk of Code LLC <info@sentinello.org> (https://walkofcode.io)",
     "engines": {
-        "node": ">=24.14.0",
+        "node": ">=24.22.1",
         "pnpm": ">=10.33.0"
     },
     "packageManager": "pnpm@10.33.0",

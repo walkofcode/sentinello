@@ -10,7 +10,7 @@ opening a public issue.
 ## Getting started
 
 1. Fork the repo and create a topic branch.
-2. Install dependencies with `pnpm install` (Node >= 24.14.0, pnpm >= 10.33.0).
+2. Install dependencies with `pnpm install` (Node >= 24.22.1, pnpm >= 10.33.0).
 3. Run the app locally with `pnpm dev`.
 4. Make your change, then run `pnpm test`, `pnpm typecheck` and `pnpm lint` before pushing.
 5. Open a pull request and fill out the template. CI runs the same checks on every PR.

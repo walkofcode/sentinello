@@ -228,7 +228,7 @@ required.
   filesystem, so the file stops growing rather than shrinking, reusing the space.
 - `/home/sentinello/.nvm` — Node versions installed on demand by `nvm` for
   projects that pin one via `.nvmrc`. Persist it so each version downloads only
-  once (the image's baked-in Node 24.14.0 is seeded into the volume on first
+  once (the image's baked-in Node 24.22.1 is seeded into the volume on first
   create). Moved from `/root/.nvm` in the non-root release: upgrading from an
   older image, delete the old cache volume so it is recreated owned by the runtime
   user (it's a pure cache — nothing is lost). With Docker Compose the volume is
