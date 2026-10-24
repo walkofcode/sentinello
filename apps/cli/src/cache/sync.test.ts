@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GEMNASIUM_NORMALIZER_VERSION, GEMNASIUM_SEED_DOWNLOAD_BYTES, OSV_NORMALIZER_VERSION, type GemnasiumAdvisoryRow, type OsvAdvisoryRow } from '@sentinello/core'
 import { advisoryFilePath, ensureCacheDir, getSourceState, readCacheMeta, setSourceState, writeCacheMeta, type SourceId, type SourceState } from './meta'
-import { createRowWriter } from './store'
+import { createRowWriter, readRowsForPackages } from './store'
 
 // Turns the shared feed package into a refreshed on-disk cache. @sentinello/feeds is the only thing
 // stubbed, and only because it owns the network — every cache file below is real gzipped NDJSON written
@@ -215,6 +215,8 @@ describe('planSync', function () {
     // HEAD. Quoting the measured constant the portal already shows beats asking to approve an unknown
     // quantity; the estimated flag is what keeps it rendering as "~80 MB" rather than an exact figure.
     it('quotes the measured constant for a gemnasium seed and flags it as an estimate', async function () {
+        // OSV's feed is off so gemnasium is the only item: no withdrawal evidence can be planned.
+        feeds.osvFeedDisabled.mockReturnValue(true)
         const plan = await planSync(options({ sources: ['gemnasium'] }))
         expect(plan.items[0]).toMatchObject({
             downloadBytes: GEMNASIUM_SEED_DOWNLOAD_BYTES,
@@ -246,6 +248,65 @@ describe('planSync', function () {
         const plan = await planSync(options())
         expect(plan.items).toEqual([])
         expect(plan.needsConsent).toBe(false)
+    })
+
+    it('marks every selected source as planned for findings', async function () {
+        const plan = await planSync(options())
+        expect(plan.items.map(function p(i) { return i.source + ':' + i.purpose })).toEqual(['osv:findings', 'gemnasium:findings'])
+    })
+})
+
+// gemnasium-db records no withdrawal, so a gemnasium run needs OSV as its withdrawal evidence even when
+// OSV is not a selected source (SENTINEL-45). It rides the same plan: a first download goes through the
+// same consent prompt and --yes, and every later run refreshes it, so the evidence is as fresh as the run.
+describe('planSync — withdrawal evidence for gemnasium', function () {
+    it('adds an OSV evidence seed, listed for consent, when OSV is not seeded', async function () {
+        await seedState('gemnasium')
+        const plan = await planSync(options({ sources: ['gemnasium'] }))
+        expect(plan.items.map(function p(i) { return i.source + ':' + i.kind + ':' + i.purpose })).toEqual(['gemnasium:refresh:findings', 'osv:seed:withdrawal-evidence'])
+        expect(plan.items[1]).toMatchObject({ downloadBytes: 96 * 1024 * 1024 })
+        expect(plan.seedBytes).toBe(96 * 1024 * 1024)
+        expect(plan.needsConsent).toBe(true)
+    })
+
+    it('adds an OSV evidence refresh, needing no consent, once OSV is seeded', async function () {
+        await seedState('gemnasium')
+        await seedState('osv')
+        const plan = await planSync(options({ sources: ['gemnasium'] }))
+        expect(plan.items.map(function p(i) { return i.source + ':' + i.kind + ':' + i.purpose })).toEqual(['gemnasium:refresh:findings', 'osv:refresh:withdrawal-evidence'])
+        expect(plan.needsConsent).toBe(false)
+    })
+
+    it('re-seeds the evidence when it came from an older normalizer', async function () {
+        await seedState('gemnasium')
+        await seedState('osv', { normalizerVersion: OSV_NORMALIZER_VERSION - 1 })
+        const plan = await planSync(options({ sources: ['gemnasium'] }))
+        expect(plan.items[1]).toMatchObject({ source: 'osv', kind: 'seed', purpose: 'withdrawal-evidence' })
+    })
+
+    it('plans no evidence when the OSV feed is switched off', async function () {
+        feeds.osvFeedDisabled.mockReturnValue(true)
+        const plan = await planSync(options({ sources: ['gemnasium'] }))
+        expect(plan.items.map(function s(i) { return i.source })).toEqual(['gemnasium'])
+    })
+
+    it('plans no evidence when OSV is selected anyway, since it is already synced for findings', async function () {
+        const plan = await planSync(options())
+        expect(plan.items.filter(function e(i) { return i.purpose === 'withdrawal-evidence' })).toEqual([])
+    })
+
+    it('plans no evidence for a run without gemnasium', async function () {
+        const plan = await planSync(options({ sources: ['osv'] }))
+        expect(plan.items.map(function p(i) { return i.source + ':' + i.purpose })).toEqual(['osv:findings'])
+    })
+
+    it('syncs the evidence item through the OSV refresh like any other', async function () {
+        await seedState('gemnasium', { headSha: 'a'.repeat(40) })
+        await seedFile('osv', [osvRow()])
+        await seedState('osv')
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'unchanged' })
+        const outcomes = await runSync(options({ sources: ['gemnasium'] }), await planSync(options({ sources: ['gemnasium'] })))
+        expect(outcomes.map(function o(x) { return x.source + ':' + x.status })).toEqual(['gemnasium:unchanged', 'osv:unchanged'])
     })
 })
 
@@ -370,6 +431,22 @@ describe('runSync — OSV', function () {
         const outcomes = await runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
         expect(outcomes[0]).toMatchObject({ status: 'refreshed', rowCount: 3, message: '1 advisor(ies) updated' })
         expect(await stateOf('osv')).toMatchObject({ cursorIso: '2026-07-02T00:00:00Z', etag: 'etag-2' })
+    })
+
+    // A withdrawn advisory is not a deletion: its rows come back flagged and replace the active ones, so
+    // nothing matches on them while gemnasium can still see the withdrawal (SENTINEL-42). The old refresh
+    // dropped the advisory, which is how a withdrawal published after the seed vanished from the cache.
+    it('keeps the rows of an advisory that came back withdrawn, flagged', async function () {
+        const withdrawnAt = Date.UTC(2026, 9, 23)
+        await seedFile('osv', [osvRow({ advisoryId: 'GHSA-keep' }), osvRow({ advisoryId: 'GHSA-gone', packageName: 'braces' })])
+        await seedState('osv', { recordCount: 2 })
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-gone'], etag: 'etag-2', newestIso: '2026-10-23T12:53:02Z' })
+        // Range-less too (SENTINEL-47): the row is evidence only, so it needs no ranges or versions.
+        feeds.fetchOsvAdvisoryRows.mockResolvedValue([osvRow({ advisoryId: 'GHSA-gone', packageName: 'braces', withdrawn: withdrawnAt })])
+        const outcomes = await runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
+        expect(outcomes[0]).toMatchObject({ status: 'refreshed', rowCount: 2 })
+        const rows = await readRowsForPackages<OsvAdvisoryRow>(advisoryFilePath(dir, 'osv', 'npm'), new Set(['braces']))
+        expect(rows.get('braces')).toEqual([expect.objectContaining({ advisoryId: 'GHSA-gone', withdrawn: withdrawnAt, ranges: [], versions: [] })])
     })
 
     // Past the threshold, one request per advisory costs more than re-downloading the whole export.
@@ -615,7 +692,7 @@ describe('runSync — the cursor and record-count fallbacks', function () {
         feeds.fetchOsvChangedIds.mockResolvedValue(changed)
 
         const outcomes = await runSync(options({ sources: ['osv'] }), {
-            items: [{ source: 'osv', ecosystem: 'npm', kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false }],
+            items: [{ source: 'osv', ecosystem: 'npm', purpose: 'findings', kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false }],
             seedBytes: 0,
             needsConsent: false
         })
@@ -678,7 +755,7 @@ describe('runSync — gemnasium paths that are not advisories', function () {
         ])
 
         const outcomes = await runSync(options({ sources: ['gemnasium'], ecosystem: 'PyPI' }), {
-            items: [{ source: 'gemnasium', ecosystem: 'PyPI', kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false }],
+            items: [{ source: 'gemnasium', ecosystem: 'PyPI', purpose: 'findings', kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false }],
             seedBytes: 0,
             needsConsent: false
         })

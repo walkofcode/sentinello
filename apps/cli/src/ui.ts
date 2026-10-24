@@ -88,6 +88,7 @@ export type Ui = {
     syncProgress(item: SyncPlanItem, bytesRead: number, totalBytes: number | null): void
     syncRetry(item: SyncPlanItem, notice: RetryNotice): void
     syncDone(outcomes: readonly SyncOutcome[]): void
+    withdrawalsUnchecked(): void
     scanStart(count: number): void
     scanProject(project: DiscoveredProject): void
     scanProjectDone(result: ProjectScanResult): void
@@ -163,6 +164,9 @@ export function createUi(options: CliOptions): Ui {
         write('')
         for (const item of seeds) {
             write('    ' + sourceLabel(item.source) + c.dim + '  ' + formatBytes(item.downloadBytes, item.downloadBytesEstimated) + c.reset)
+            if (item.purpose === 'withdrawal-evidence') {
+                write('      ' + c.dim + 'used only to drop advisories GitHub has withdrawn' + c.reset)
+            }
         }
         write('')
         write('  ' + c.dim + 'Downloaded once from the upstream feeds, then kept fresh incrementally —' + c.reset)
@@ -297,6 +301,10 @@ export function createUi(options: CliOptions): Ui {
             const verb = outcome.status === 'seeded' ? 'downloaded' : 'updated'
             write('    ' + c.green + '✓' + c.reset + ' ' + sourceLabel(outcome.source) + c.dim + ' ' + verb + ' (' + outcome.rowCount.toLocaleString() + ' advisories)' + c.reset)
         }
+    }
+
+    function withdrawalsUnchecked(): void {
+        write('    ' + c.yellow + '!' + c.reset + c.dim + ' OSV withdrawal data is not downloaded — GitLab gemnasium may list advisories GitHub has withdrawn' + c.reset)
     }
 
     function sourceLabel(source: string): string {
@@ -482,6 +490,7 @@ export function createUi(options: CliOptions): Ui {
         syncProgress,
         syncRetry,
         syncDone,
+        withdrawalsUnchecked,
         scanStart,
         scanProject,
         scanProjectDone,

@@ -49,6 +49,10 @@ import { countRows, createRowWriter, rewriteRows } from './store'
 export type SyncPlanItem = {
     source: SourceId
     ecosystem: EcosystemId
+    // 'findings' is a source the run matches against. 'withdrawal-evidence' is the OSV cache fetched only
+    // so gemnasium can drop advisories GitHub has withdrawn, when OSV itself is not a selected source:
+    // gemnasium-db records no withdrawal, and OSV mirrors GitHub's.
+    purpose: 'findings' | 'withdrawal-evidence'
     // 'seed' is the big first download; 'refresh' is the cheap incremental catch-up.
     kind: 'seed' | 'refresh'
     // Bytes the seed will transfer, when known. Populated for 'seed' so the consent prompt can state a
@@ -87,19 +91,34 @@ export type SyncOptions = {
     onStatus?: (item: SyncPlanItem, phase: 'start' | 'done') => void
 }
 
+// What the run must sync: every selected source, plus OSV as gemnasium's withdrawal evidence when gemnasium
+// is selected and OSV is not. The evidence rides the same plan, so a first download goes through the same
+// consent prompt and --yes, and every later run refreshes it just like a selected source.
+export type SyncTarget = { source: SourceId; purpose: SyncPlanItem['purpose'] }
+
+export function syncTargets(sources: readonly SourceId[]): SyncTarget[] {
+    const targets = sources.map(function forFindings(source): SyncTarget {
+        return { source, purpose: 'findings' }
+    })
+    if (sources.includes('gemnasium') && !sources.includes('osv')) {
+        targets.push({ source: 'osv', purpose: 'withdrawal-evidence' })
+    }
+    return targets
+}
+
 // Works out what each enabled source needs before anything is downloaded, so the caller can show the cost
 // and ask for consent. A source already seeded at the current normalizer version needs only a refresh.
 export async function planSync(options: SyncOptions): Promise<SyncPlan> {
     const meta = await readCacheMeta(options.cacheDir)
     const items: SyncPlanItem[] = []
     let seedBytes = 0
-    for (const source of options.sources) {
+    for (const { source, purpose } of syncTargets(options.sources)) {
         if (source === 'osv' && osvFeedDisabled()) continue
         if (source === 'gemnasium' && gemnasiumFeedDisabled()) continue
         const normalizerVersion = source === 'osv' ? OSV_NORMALIZER_VERSION : GEMNASIUM_NORMALIZER_VERSION
         const seeded = isSeeded(meta, source, options.ecosystem, normalizerVersion)
         if (seeded) {
-            items.push({ source, ecosystem: options.ecosystem, kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false })
+            items.push({ source, ecosystem: options.ecosystem, purpose, kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false })
             continue
         }
         const estimate = await estimateSeedBytes(source, options.ecosystem, options.abortSignal)
@@ -107,6 +126,7 @@ export async function planSync(options: SyncOptions): Promise<SyncPlan> {
         items.push({
             source,
             ecosystem: options.ecosystem,
+            purpose,
             kind: 'seed',
             downloadBytes: estimate.bytes,
             downloadBytesEstimated: estimate.estimated

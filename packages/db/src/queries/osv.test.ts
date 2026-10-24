@@ -12,6 +12,7 @@ import {
     deleteOsvAdvisoriesForEcosystem,
     getOsvMeta,
     lookupOsvByPackages,
+    lookupOsvLinksByPackages,
     OSV_META_KEYS,
     osvMetaKeyFor,
     setOsvMeta,
@@ -142,6 +143,47 @@ describe('lookupOsvByPackages', function () {
         }
         upsertOsvAdvisories(db, rows)
         expect(lookupOsvByPackages(db, 'npm', names).size).toBe(600)
+    })
+})
+
+// The withdrawal evidence gemnasium stamps from: every row's identity, withdrawn or not, which is the one
+// thing lookupOsvByPackages must never return.
+describe('lookupOsvLinksByPackages', function () {
+    it('returns withdrawn and active rows alike, with only their identity', function () {
+        const at = Date.UTC(2026, 9, 23)
+        upsertOsvAdvisories(db, [advisory(), advisory({ advisoryId: 'GHSA-2', aliases: [], withdrawn: at })])
+        const links = lookupOsvLinksByPackages(db, 'npm', ['lodash']).get('lodash')
+        expect(links?.slice().sort(function byId(a, b) { return a.advisoryId.localeCompare(b.advisoryId) })).toEqual([
+            { advisoryId: 'GHSA-1', aliases: ['CVE-2024-1'], withdrawn: null },
+            { advisoryId: 'GHSA-2', aliases: [], withdrawn: at }
+        ])
+    })
+
+    it('keys results by package name and omits a package with no rows', function () {
+        upsertOsvAdvisories(db, [advisory(), advisory({ packageName: 'braces' })])
+        const links = lookupOsvLinksByPackages(db, 'npm', ['lodash', 'braces', 'left-pad'])
+        expect(Array.from(links.keys()).sort()).toEqual(['braces', 'lodash'])
+    })
+
+    it('returns an empty map for no package names', function () {
+        upsertOsvAdvisories(db, [advisory()])
+        expect(lookupOsvLinksByPackages(db, 'npm', []).size).toBe(0)
+    })
+
+    it('does not cross ecosystems', function () {
+        upsertOsvAdvisories(db, [advisory({ ecosystem: 'PyPI' })])
+        expect(lookupOsvLinksByPackages(db, 'npm', ['lodash']).size).toBe(0)
+    })
+
+    it('handles more package names than one query chunk', function () {
+        const rows: OsvAdvisoryRow[] = []
+        const names: string[] = []
+        for (let i = 0; i < 600; i++) {
+            rows.push(advisory({ packageName: 'pkg' + i, withdrawn: i % 2 === 0 ? 1 : null }))
+            names.push('pkg' + i)
+        }
+        upsertOsvAdvisories(db, rows)
+        expect(lookupOsvLinksByPackages(db, 'npm', names).size).toBe(600)
     })
 })
 

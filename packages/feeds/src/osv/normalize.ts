@@ -98,9 +98,18 @@ export function normalizeOsvRecord(record: unknown, ecosystem: string): OsvAdvis
     }
     for (const row of byPackage.values()) {
         // A record we can't match on at all (no range AND no enumerated version) is only worth keeping
-        // for malware, where the engine falls back to flag-by-presence; otherwise skip it. Checked after
-        // the merge, so a package whose ranges all arrived on a later `affected` entry is kept.
-        if (row.ranges.length === 0 && row.versions.length === 0 && !malicious) continue
+        // for malware, where the engine falls back to flag-by-presence, or when it is withdrawn; otherwise
+        // skip it. Checked after the merge, so a package whose ranges all arrived on a later `affected`
+        // entry is kept.
+        //
+        // A withdrawn row is evidence only: nothing can match on it (the matcher rejects `withdrawn` first
+        // and lookupOsvByPackages filters it out), but it records that the advisory was retracted for this
+        // package, which is what lets gemnasium drop the same advisory. A withdrawal that also strips the
+        // ranges must survive here, or it would be purged exactly like the old incremental sync purged every
+        // withdrawal. A withdrawn record with no `affected` entry for this ecosystem at all (identity-only)
+        // produces no row and stays out of reach: there is no package to scope it to, and the per-ecosystem
+        // export and modified_id.csv list a record only through its affected packages.
+        if (row.ranges.length === 0 && row.versions.length === 0 && !malicious && row.withdrawn === null) continue
         rows.push(row)
     }
     return rows

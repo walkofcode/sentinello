@@ -8,6 +8,7 @@ import {
     countOsvAdvisories,
     getOsvMeta,
     lookupOsvByPackages,
+    lookupOsvLinksByPackages,
     openOsvDb,
     osvMetaKeyFor,
     runOsvMigrations,
@@ -435,6 +436,38 @@ describe('incrementalSyncOsv', function () {
 
         expect(result.recordCount).toBe(0)
         expect(countOsvAdvisories(db, ECO)).toBe(0)
+    })
+
+    // SENTINEL-42: a withdrawn advisory is not a deletion. Its rows come back flagged and REPLACE the active
+    // ones, so OSV matching skips them while gemnasium can read the withdrawal. The old sync dropped the
+    // advisory instead, which is how GHSA-vfj7-8cjw-p6xm vanished from the live cache after its withdrawal.
+    it('stores an advisory that came back withdrawn, flagged, in place of its active rows', async function () {
+        const withdrawnAt = Date.UTC(2026, 9, 23, 12, 53, 2)
+        upsertOsvAdvisories(db, [row({ packageName: 'braces' })])
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-aaaa'], newestIso: null, etag: null })
+        feeds.fetchOsvAdvisoryRows.mockResolvedValue([row({ packageName: 'braces', withdrawn: withdrawnAt })])
+
+        const result = await incrementalSyncOsv(db, ECO)
+
+        expect(result).toMatchObject({ status: 'ok', upserted: 1, recordCount: 1 })
+        expect(lookupOsvLinksByPackages(db, ECO, ['braces']).get('braces')).toEqual([
+            { advisoryId: 'GHSA-aaaa', aliases: ['CVE-2024-1'], withdrawn: withdrawnAt }
+        ])
+        // Still never matched.
+        expect(lookupOsvByPackages(db, ECO, ['braces']).get('braces')).toBeUndefined()
+    })
+
+    // SENTINEL-47: the withdrawal stripped the ranges too. The row is evidence only and is kept all the same.
+    it('stores a range-less withdrawn advisory as an evidence row', async function () {
+        const withdrawnAt = Date.UTC(2026, 9, 23, 12, 53, 2)
+        upsertOsvAdvisories(db, [row({ packageName: 'braces' })])
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-aaaa'], newestIso: null, etag: null })
+        feeds.fetchOsvAdvisoryRows.mockResolvedValue([row({ packageName: 'braces', ranges: [], withdrawn: withdrawnAt })])
+
+        await incrementalSyncOsv(db, ECO)
+
+        expect(lookupOsvLinksByPackages(db, ECO, ['braces']).get('braces')?.[0]?.withdrawn).toBe(withdrawnAt)
+        expect(lookupOsvByPackages(db, ECO, ['braces']).get('braces')).toBeUndefined()
     })
 
     // One advisory failing must not abort the pass, and must not cost the operator that advisory.

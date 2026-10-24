@@ -218,6 +218,29 @@ describe('the scheduled tick', function () {
 })
 
 describe('sweepActiveProjects', function () {
+    // SENTINEL-45: the scheduled sweep is a batch entry point like the poller's, so it re-checks
+    // gemnasium's withdrawal evidence before matching. The refresh itself is osv-runtime's.
+    it('awaits the withdrawal evidence refresh before handing runBatch its scanners', async function () {
+        const order: string[] = []
+        const osvController = {
+            getScanner: function getScanner() { return null },
+            evidence: { ready: function ready() { return true }, links: function links() { return null } },
+            reload: function reload() {},
+            refresh: async function refresh() {},
+            refreshEvidence: async function refreshEvidence() {
+                await Promise.resolve()
+                order.push('refreshed')
+            },
+            stop: function stop() {}
+        }
+        runBatch.mockImplementationOnce(async function recordBatch() {
+            order.push('batch')
+            return []
+        })
+        await sweepActiveProjects({ ...input(), osvController })
+        expect(order).toEqual(['refreshed', 'batch'])
+    })
+
     it('discovers projects before scanning, so a new one is picked up on the same sweep', async function () {
         await sweepActiveProjects(input())
         expect(lastBatch().projects.map(function rel(p) { return p.relPath })).toEqual(['web'])

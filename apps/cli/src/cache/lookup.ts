@@ -1,6 +1,6 @@
-import type { GemnasiumAdvisoryRow, OsvAdvisoryRow } from '@sentinello/core'
-import type { GemnasiumAdvisory, OsvAdvisory } from '@sentinello/scanners'
-import { advisoryFilePath, type SourceId } from './meta'
+import { OSV_NORMALIZER_VERSION, type GemnasiumAdvisoryRow, type OsvAdvisoryRow } from '@sentinello/core'
+import { stampWithdrawnByPackage, type GemnasiumAdvisory, type OsvAdvisory } from '@sentinello/scanners'
+import { advisoryFilePath, isSeeded, type CacheMeta, type SourceId } from './meta'
 import { readRowsForPackages } from './store'
 
 // Adapts the file-backed cache to the lookup contracts the scanners already declare:
@@ -18,33 +18,51 @@ import { readRowsForPackages } from './store'
 export type LoadedCache = {
     osv: Map<string, OsvAdvisory[]>
     gemnasium: Map<string, GemnasiumAdvisory[]>
+    // Whether the gemnasium advisories were stamped from a complete OSV snapshot. False means an advisory
+    // GitHub has withdrawn may still be listed; the run says so rather than refusing the scan.
+    withdrawalsChecked: boolean
 }
 
 // Reads only the rows matching the packages actually installed. The npm corpus holds ~217k distinct
 // package names; a real project resolves under a thousand, so this discards over 99% of the file without
 // parsing it.
+//
+// The OSV file is also gemnasium's withdrawal evidence, so it is read whenever gemnasium is selected,
+// whether or not OSV is, but only when its meta says it is complete at the current normalizer version: a
+// partial or old-shape file could hold a withdrawn duplicate without its active twin and drop a live
+// advisory.
 export async function loadCacheForPackages(
     cacheDir: string,
     ecosystem: string,
     packageNames: readonly string[],
-    sources: readonly SourceId[]
+    sources: readonly SourceId[],
+    meta: CacheMeta
 ): Promise<LoadedCache> {
     const wanted = new Set(packageNames)
     const osv = new Map<string, OsvAdvisory[]>()
     const gemnasium = new Map<string, GemnasiumAdvisory[]>()
+    const withGemnasium = sources.includes('gemnasium')
+    const evidenceComplete = withGemnasium && isSeeded(meta, 'osv', ecosystem, OSV_NORMALIZER_VERSION)
+    let osvRows = new Map<string, OsvAdvisoryRow[]>()
+    if (sources.includes('osv') || evidenceComplete) {
+        osvRows = await readRowsForPackages<OsvAdvisoryRow>(advisoryFilePath(cacheDir, 'osv', ecosystem), wanted)
+    }
     if (sources.includes('osv')) {
-        const rows = await readRowsForPackages<OsvAdvisoryRow>(advisoryFilePath(cacheDir, 'osv', ecosystem), wanted)
-        for (const [name, list] of rows.entries()) {
+        for (const [name, list] of osvRows.entries()) {
             osv.set(name, list.map(toOsvAdvisory))
         }
     }
-    if (sources.includes('gemnasium')) {
+    if (withGemnasium) {
         const rows = await readRowsForPackages<GemnasiumAdvisoryRow>(advisoryFilePath(cacheDir, 'gemnasium', ecosystem), wanted)
         for (const [name, list] of rows.entries()) {
             gemnasium.set(name, list.map(toGemnasiumAdvisory))
         }
     }
-    return { osv, gemnasium }
+    return {
+        osv,
+        gemnasium: evidenceComplete ? stampWithdrawnByPackage(gemnasium, osvRows) : gemnasium,
+        withdrawalsChecked: evidenceComplete
+    }
 }
 
 // Moved to @sentinello/core so the worker's OSV lookup shares this one implementation instead of
@@ -67,6 +85,7 @@ function toOsvAdvisory(row: OsvAdvisoryRow): OsvAdvisory {
 
 // gemnasium carries no malware threat class, so GemnasiumAdvisory deliberately has no `malicious` flag —
 // the cached row's field is always false and is dropped here rather than invented into the scanner's shape.
+// Its `withdrawn` is always null in gemnasium-db; loadCacheForPackages stamps it from the OSV evidence.
 function toGemnasiumAdvisory(row: GemnasiumAdvisoryRow): GemnasiumAdvisory {
     return {
         advisoryId: row.advisoryId,
@@ -75,6 +94,7 @@ function toGemnasiumAdvisory(row: GemnasiumAdvisoryRow): GemnasiumAdvisory {
         versions: row.versions,
         severity: row.severity,
         summary: row.summary,
-        url: row.url
+        url: row.url,
+        withdrawn: null
     }
 }

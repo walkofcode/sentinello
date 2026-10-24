@@ -15,13 +15,12 @@ import {
     type SqliteDb,
     type WorkerSignal
 } from '@sentinello/db'
-import { npmAuditPlugin } from '@sentinello/scanners'
 import {
     CONFIG_KEYS,
     DEFAULT_GLOBAL_IGNORE,
     DEFAULT_PARALLELISM
 } from './config-loader'
-import { selectScanners, extraSourceCells, type OsvController } from './osv-runtime'
+import { scannersForBatch, type OsvController } from './osv-runtime'
 import { type GemnasiumController } from './gemnasium-runtime'
 import { discoverProjects } from './discovery'
 import { runBatch } from './runner'
@@ -113,7 +112,7 @@ async function runSingleProject(input: StartPollerInput, projectId: string, requ
     await runBatch({
         db: input.db,
         sqlite: input.sqlite,
-        scanners: selectScanners(input.db, npmAuditPlugin, extraSourceCells(input)),
+        scanners: await scannersForBatch(input),
         projects: [project],
         parallelism,
         abortSignal: input.runtime.abortController.signal
@@ -137,7 +136,7 @@ async function runFullSweep(input: StartPollerInput, requestId: string): Promise
     await runBatch({
         db: input.db,
         sqlite: input.sqlite,
-        scanners: selectScanners(input.db, npmAuditPlugin, extraSourceCells(input)),
+        scanners: await scannersForBatch(input),
         projects,
         parallelism,
         abortSignal: input.runtime.abortController.signal
@@ -164,7 +163,7 @@ async function runRootSweep(input: StartPollerInput, rootId: string, requestId: 
     await runBatch({
         db: input.db,
         sqlite: input.sqlite,
-        scanners: selectScanners(input.db, npmAuditPlugin, extraSourceCells(input)),
+        scanners: await scannersForBatch(input),
         projects,
         parallelism,
         abortSignal: input.runtime.abortController.signal

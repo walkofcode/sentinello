@@ -107,14 +107,17 @@ export async function main(): Promise<void> {
         console.log('[worker] pruned ' + pruned.removed + ' stale root' + (pruned.removed === 1 ? '' : 's') + ' from /roots')
     }
     const runtime = createWorkerRuntime()
-    // OSV source controller. Starts the runtime now if the operator already enabled the source (default
-    // is off, so by default this opens nothing and touches no network), and reacts to later Settings
+    // OSV source controller. Starts the runtime now if the operator already enabled an OSV cell, or a
+    // gemnasium cell that needs OSV as its withdrawal evidence (both default to off, so by default this
+    // opens nothing and touches no network), and reacts to later Settings
     // toggles via the 'reload-sources' worker signal. The scheduler + poller read its getScanner() per
     // batch so selectScanners() reflects the live flag without a worker restart.
     const osvController: OsvController = createOsvController(db, runtime)
     // gemnasium source controller, same lifecycle as OSV (off by default, opened lazily, reacts to the
     // 'reload-sources' signal). Passed alongside osvController so selectScanners() can offer both cells.
-    const gemnasiumController: GemnasiumController = createGemnasiumController(db, runtime)
+    // It reads its withdrawal evidence through the OSV controller, whose cache is synced for every
+    // gemnasium cell too.
+    const gemnasiumController: GemnasiumController = createGemnasiumController(db, runtime, osvController.evidence)
     const scheduler = startScheduler({ db, sqlite, runtime, osvController, gemnasiumController })
     const poller = startScanRequestPoller({
         db, sqlite, runtime, scheduler, osvController, gemnasiumController,

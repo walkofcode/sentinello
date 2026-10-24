@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
-import { OSV_NORMALIZER_VERSION, type OsvAdvisoryRow, type OsvRange } from '@sentinello/core'
+import { OSV_NORMALIZER_VERSION, type OsvAdvisoryLink, type OsvAdvisoryRow, type OsvRange } from '@sentinello/core'
 import { parseVersionRanges } from '@sentinello/versions'
 import type { OsvDrizzleDb } from '../osv-client'
 import { osvAdvisories, osvMeta } from '../osv-schema'
@@ -81,7 +81,7 @@ export function upsertOsvAdvisories(db: OsvDrizzleDb, rows: OsvAdvisoryRow[]): v
 
 // Remove package-rows belonging to the given advisory ids. Used by the incremental sync to clear an
 // advisory before re-inserting its current package set (so a package dropped from an advisory's `affected`
-// list does not linger), and to purge withdrawn advisories. When `ecosystem` is given the delete is scoped
+// list does not linger, and an advisory removed upstream is purged). When `ecosystem` is given the delete is scoped
 // to that ecosystem only — each ecosystem syncs independently from its own per-ecosystem feed, so a PyPI
 // sync must not wipe an advisory's npm rows (one OSV record can affect several ecosystems).
 export function deleteOsvAdvisories(db: OsvDrizzleDb, advisoryIds: string[], ecosystem?: string): void {
@@ -136,6 +136,44 @@ export function lookupOsvByPackages(
             } else {
                 out.set(parsed.packageName, [parsed])
             }
+        }
+    }
+    return out
+}
+
+// The identity of EVERY cached row for the given packages in one ecosystem, withdrawn or not — unlike
+// lookupOsvByPackages, which serves matching and so skips withdrawn rows. This is the withdrawal evidence
+// gemnasium stamps from: a withdrawn row is exactly what it is looking for. Only the id fields are read,
+// so the ranges JSON of a hot package is never parsed for nothing.
+export function lookupOsvLinksByPackages(
+    db: OsvDrizzleDb,
+    ecosystem: string,
+    packageNames: string[]
+): Map<string, OsvAdvisoryLink[]> {
+    const out = new Map<string, OsvAdvisoryLink[]>()
+    if (packageNames.length === 0) return out
+    const CHUNK = 500
+    for (let i = 0; i < packageNames.length; i += CHUNK) {
+        const slice = packageNames.slice(i, i + CHUNK)
+        const rows = db
+            .select({
+                packageName: osvAdvisories.packageName,
+                advisoryId: osvAdvisories.advisoryId,
+                aliasesJson: osvAdvisories.aliasesJson,
+                withdrawn: osvAdvisories.withdrawn
+            })
+            .from(osvAdvisories)
+            .where(and(eq(osvAdvisories.ecosystem, ecosystem), inArray(osvAdvisories.packageName, slice)))
+            .all()
+        for (const row of rows) {
+            const link: OsvAdvisoryLink = {
+                advisoryId: row.advisoryId,
+                aliases: parseStringArray(row.aliasesJson),
+                withdrawn: row.withdrawn
+            }
+            const list = out.get(row.packageName)
+            if (list) list.push(link)
+            else out.set(row.packageName, [link])
         }
     }
     return out

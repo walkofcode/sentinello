@@ -135,7 +135,8 @@ export async function seedOsv(
 
 // Incremental sync for ONE ecosystem: conditionally fetch <ecosystem>/modified_id.csv, take every id
 // modified after the stored cursor, fetch each id's current JSON, and replace its rows FOR THIS ECOSYSTEM
-// ONLY. Advisories that 404 (deleted upstream) or come back withdrawn are purged. Advances the ecosystem's
+// ONLY. Advisories that 404 (deleted upstream) are purged; one that comes back withdrawn keeps its rows
+// with `withdrawn` set, as the seed does, because gemnasium reads them as withdrawal evidence. Advances the ecosystem's
 // cursor to the newest seen. When the feed has not been republished since the stored ETag, this costs a
 // single round trip and transfers nothing.
 export async function incrementalSyncOsv(
@@ -185,8 +186,10 @@ export async function incrementalSyncOsv(
     // cursor then advanced regardless, putting the id permanently behind it. The comment claimed the cursor
     // only advanced on success; it did not, so the loss was silent and survived until the next full re-seed.
     //
-    // A 404 is not a failure here: fetchOsvAdvisoryRows returns [] for an advisory removed upstream or come
-    // back withdrawn, which is exactly the deletion signal, and the replace below applies it.
+    // A 404 is not a failure here: fetchOsvAdvisoryRows returns [] for an advisory removed upstream, which
+    // is exactly the deletion signal, and the replace below applies it. A withdrawn advisory is not a
+    // deletion: its rows come back with `withdrawn` set and replace the active ones, so nothing matches on
+    // them any more while gemnasium can still see the withdrawal.
     let skipped = 0
     for (const id of changed.ids) {
         if (abortSignal && abortSignal.aborted) {

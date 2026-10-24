@@ -156,16 +156,21 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
     }
 
     // 3. Resolve every project's dependency graph, then read the cache ONCE for the union of their
-    // packages rather than re-reading a multi-megabyte file per project.
+    // packages rather than re-reading a multi-megabyte file per project. The metadata is read after the
+    // sync, so it describes the files as they now are.
+    const meta = await readCacheMeta(cacheDir)
     const resolved = await resolveProjects(projects)
     const packageNames = collectPackageNames(resolved)
-    const cache = await loadCacheForPackages(cacheDir, DEFAULT_ECOSYSTEM, packageNames, sources)
+    const cache = await loadCacheForPackages(cacheDir, DEFAULT_ECOSYSTEM, packageNames, sources, meta)
+    // A one-shot report over-reports rather than refusing the scan: without complete OSV evidence (a
+    // failed or declined download, --offline before one, the OSV feed switched off) gemnasium is reported
+    // unstamped, and the run says what that means.
+    if (sources.includes('gemnasium') && !cache.withdrawalsChecked) ui.withdrawalsUnchecked()
 
     // 4. Scan. Seeded state comes from the cache metadata, not from whether this project happened to match
     // any rows, so a dependency-free project is reported as scanned-and-clean rather than unauditable.
     // Every fix is settled against the npm registry through one client for the whole run, over the
     // registry cache; --offline makes no request at all, so it gets no client.
-    const meta = await readCacheMeta(cacheDir)
     const registryStore = options.offline ? null : await loadRegistryStore(cacheDir)
     const setup = {
         cacheDir,

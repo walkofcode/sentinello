@@ -75,6 +75,50 @@ describe('normalizeOsvRecord — record gating', function () {
         expect(normalizeOsvRecord({ id: 'MAL-1', ...empty }, 'npm')).toHaveLength(1)
     })
 
+    // SENTINEL-47: a withdrawn record keeps its package row even with neither ranges nor versions. Nothing
+    // can match on it (the matcher rejects withdrawn first), but it is the evidence gemnasium drops the
+    // same advisory by; skipping it would purge exactly the withdrawals that also stripped the ranges.
+    it('keeps an unmatchable withdrawn advisory as an evidence row', function () {
+        const rows = normalizeOsvRecord({
+            id: 'GHSA-vfj7-8cjw-p6xm',
+            aliases: ['CVE-2026-93687'],
+            withdrawn: '2026-10-23T12:53:02Z',
+            affected: [{ package: { name: 'braces', ecosystem: 'npm' } }]
+        }, 'npm')
+        expect(rows).toEqual([expect.objectContaining({
+            advisoryId: 'GHSA-vfj7-8cjw-p6xm',
+            packageName: 'braces',
+            aliases: ['CVE-2026-93687'],
+            ranges: [],
+            versions: [],
+            withdrawn: Date.parse('2026-10-23T12:53:02Z')
+        })])
+    })
+
+    it('keeps a withdrawn advisory whose only ranges cannot be read', function () {
+        const rows = normalizeOsvRecord(record({
+            withdrawn: '2026-10-23T12:53:02Z',
+            affected: [{ package: { name: 'lodash', ecosystem: 'npm' }, ranges: [{ type: 'GIT', events: [{ introduced: 'abc123' }] }] }]
+        }), 'npm')
+        expect(rows).toHaveLength(1)
+        expect(rows[0]?.ranges).toEqual([])
+    })
+
+    // Identity-only withdrawals (D11): no affected entry for the ecosystem means no package to scope the
+    // evidence to, so there is still no row.
+    it('produces no row for a withdrawn advisory with no affected package in the ecosystem', function () {
+        const rows = normalizeOsvRecord(record({
+            withdrawn: '2026-10-23T12:53:02Z',
+            affected: [{ package: { name: 'requests', ecosystem: 'PyPI' } }]
+        }), 'npm')
+        expect(rows).toEqual([])
+    })
+
+    it('still drops an unmatchable advisory whose withdrawn value does not parse', function () {
+        const rows = normalizeOsvRecord({ id: 'GHSA-1', withdrawn: 'whenever', affected: [{ package: { name: 'lodash', ecosystem: 'npm' } }] }, 'npm')
+        expect(rows).toEqual([])
+    })
+
     // The emptiness check has to run AFTER the merge. An entry carrying only a package name followed by
     // one carrying the ranges is a single package whose affected set arrives in pieces; testing the first
     // entry alone would discard the advisory before its ranges were ever seen.

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GEMNASIUM_NORMALIZER_VERSION, OSV_NORMALIZER_VERSION } from '@sentinello/core'
-import type { NpmDownloadsResult, NpmPackageResult } from '@sentinello/feeds'
+import { normalizeOsvRecord, type NpmDownloadsResult, type NpmPackageResult } from '@sentinello/feeds'
 import { registryFilePath } from './cache/registry'
 import { tryAcquireLock, type CacheLock, type CacheMeta } from './cache/meta'
 import type { CliOptions } from './options'
@@ -503,6 +503,112 @@ async function seedVulnerableLodash(): Promise<void> {
 function seededScanArgs(...extra: string[]): string[] {
     return [dir, '--cache-dir', join(dir, '.cache'), '--source', 'osv', '--yes', ...extra]
 }
+
+// gemnasium-db records no withdrawal, so a gemnasium run fetches OSV as its withdrawal evidence even when
+// OSV is not a selected source, refreshes it on every run like any source, and stamps gemnasium from it
+// (SENTINEL-42, 45). The fixture is the live case: gemnasium's CVE-2026-93687 for braces <= 3.0.3, aliasing
+// GHSA-vfj7-8cjw-p6xm, which GitHub withdrew on 2026-10-23.
+describe('gemnasium withdrawals', function () {
+    const GHSA = 'GHSA-vfj7-8cjw-p6xm'
+    const CVE = 'CVE-2026-93687'
+
+    function osvRows(withdrawn: string | null) {
+        return normalizeOsvRecord({
+            id: GHSA,
+            aliases: [CVE],
+            ...(withdrawn ? { withdrawn } : {}),
+            affected: [{ package: { name: 'braces', ecosystem: 'npm' }, ranges: [{ type: 'SEMVER', events: [{ introduced: '0' }, { last_affected: '3.0.3' }] }] }]
+        }, 'npm')
+    }
+
+    async function makeBracesProject(): Promise<void> {
+        const target = join(dir, 'web')
+        await mkdir(target, { recursive: true })
+        await writeFile(join(target, 'package.json'), JSON.stringify({ name: 'web', version: '1.0.0', dependencies: { braces: '^3.0.0' } }), 'utf8')
+        await writeFile(join(target, 'package-lock.json'), JSON.stringify({
+            name: 'web',
+            lockfileVersion: 3,
+            packages: {
+                '': { name: 'web', version: '1.0.0', dependencies: { braces: '^3.0.0' } },
+                'node_modules/braces': { version: '3.0.3' }
+            }
+        }), 'utf8')
+    }
+
+    beforeEach(function feedsWithBraces() {
+        feeds.streamGemnasiumArchive.mockImplementation(async function* archive() {
+            yield {
+                rows: [{
+                    advisoryId: CVE, ecosystem: 'npm', packageName: 'braces', aliases: [GHSA],
+                    ranges: [{ introduced: '0', fixed: null, lastAffected: '3.0.3' }], versions: [],
+                    severity: 'high', summary: 'Uncontrolled resource consumption', url: null, malicious: false, withdrawn: null
+                }]
+            }
+        })
+        feeds.streamOsvSeed.mockImplementation(async function* seed() {
+            yield { rows: osvRows(null), lastModified: '2026-10-22T00:00:00Z' }
+        })
+    })
+
+    function gemnasiumRun(...extra: string[]): string[] {
+        return [dir, '--cache-dir', join(dir, '.cache'), '--source', 'gemnasium', '--json', ...extra]
+    }
+
+    it('stops reporting an advisory on the first run after GitHub withdraws it', async function () {
+        await makeBracesProject()
+        argv(...gemnasiumRun('--yes'))
+        expect(await main()).toBe(EXIT_OK)
+        expect(out()).toContain(CVE)
+        // The evidence was downloaded although OSV is not a selected source.
+        expect(feeds.streamOsvSeed).toHaveBeenCalledTimes(1)
+
+        // Cast: the doubles are typed by their defaults, an empty manifest and no rows.
+        feeds.fetchOsvChangedIds.mockResolvedValueOnce({ status: 'ok', ids: [GHSA], etag: 'etag-2', newestIso: '2026-10-23T12:53:02Z' } as never)
+        feeds.fetchOsvAdvisoryRows.mockResolvedValueOnce(osvRows('2026-10-23T12:53:02Z') as never)
+        stdout.length = 0
+        argv(...gemnasiumRun())
+        expect(await main()).toBe(EXIT_OK)
+        // The next run refreshed the evidence, saw the withdrawal and dropped the advisory.
+        expect(feeds.fetchOsvAdvisoryRows).toHaveBeenCalledWith(GHSA, 'npm', expect.anything())
+        expect(out()).not.toContain(CVE)
+        expect(err()).not.toContain('OSV withdrawal data is not downloaded')
+    })
+
+    it('lists the evidence download in the consent prompt', async function () {
+        await makeBracesProject()
+        argv(...gemnasiumRun())
+        expect(await main()).toBe(EXIT_OK)
+        expect(err()).toContain('used only to drop advisories GitHub has withdrawn')
+        expect(feeds.streamOsvSeed).not.toHaveBeenCalled()
+    })
+
+    // A one-shot report over-reports rather than refusing: without the evidence it says what that means.
+    it('reports gemnasium unstamped, with a warning, when the evidence was never downloaded', async function () {
+        await makeBracesProject()
+        feeds.osvFeedDisabled.mockReturnValue(true)
+        argv(...gemnasiumRun('--yes'))
+        expect(await main()).toBe(EXIT_OK)
+        expect(feeds.streamOsvSeed).not.toHaveBeenCalled()
+        expect(out()).toContain(CVE)
+        expect(err()).toContain('OSV withdrawal data is not downloaded')
+    })
+
+    it('stamps from the evidence already on disk under --offline', async function () {
+        await makeBracesProject()
+        feeds.streamOsvSeed.mockImplementation(async function* seed() {
+            yield { rows: osvRows('2026-10-23T12:53:02Z'), lastModified: '2026-10-24T00:00:00Z' }
+        })
+        argv(...gemnasiumRun('--yes'))
+        expect(await main()).toBe(EXIT_OK)
+        expect(out()).not.toContain(CVE)
+        stdout.length = 0
+        feeds.fetchOsvChangedIds.mockClear()
+        argv(...gemnasiumRun('--offline'))
+        expect(await main()).toBe(EXIT_OK)
+        expect(feeds.fetchOsvChangedIds).not.toHaveBeenCalled()
+        expect(out()).not.toContain(CVE)
+    })
+})
 
 describe('exit codes', function () {
     // The gate is what makes the CLI usable in CI, so the distinct code matters more than the message.
