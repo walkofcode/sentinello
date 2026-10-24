@@ -20,6 +20,7 @@ function stripVPrefix(value: string): string {
 // needs no empty-array fallback — and an accidental truncation to [] becomes a type error rather than a
 // silently null "latest release".
 export const RELEASES: [ReleaseEntry, ...ReleaseEntry[]] = [
+    { version: '3.7.4', date: '2026-10-24' },
     { version: '3.7.2', date: '2026-10-08' },
     { version: '3.7.1', date: '2026-10-07' },
     { version: '3.7.0', date: '2026-10-05' },
@@ -60,6 +61,14 @@ export const RELEASES: [ReleaseEntry, ...ReleaseEntry[]] = [
 // this is plain TS data, not a next-intl message key (next-intl forbids '.' in keys).
 export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     en: {
+        '3.7.4': {
+            title: 'Advisories GitHub has withdrawn stop counting as findings',
+            items: [
+                'GitHub withdrew GHSA-vfj7-8cjw-p6xm, the <code>braces</code> 3.0.3 advisory, on October 23, but Sentinello kept reporting it as CVE-2026-93687 in every project that installs braces 3.0.3, with no fixed version and on the “no fixed version released” list. The report came from GitLab’s gemnasium database, which has no way to record a withdrawal. gemnasium advisories are now checked against OSV, which mirrors GitHub’s withdrawals: when every OSV record for the same package that shares the advisory’s id or one of its aliases is withdrawn, the advisory is dropped on the next scan, and its open findings resolve the way a fixed one does — out of the severity counts, the no-fix list, the advisory export and MCP. An advisory GitHub withdrew as a duplicate of another that is still active keeps reporting.',
+                'OSV’s own cache was losing withdrawals. The full download kept withdrawn advisories, but the daily update deleted any advisory that came back withdrawn, so every withdrawal published after the last full download vanished from it — GHSA-vfj7-8cjw-p6xm among them. The update now keeps them, flagged, including withdrawn records that no longer list an affected range; nothing ever matches on them, and they are what the check above reads. Because of this, the OSV database is downloaded again once after upgrading, in the portal and in <code>npx sentinello</code>. Until that download finishes, OSV and gemnasium both show “OSV database not downloaded yet” for that ecosystem rather than briefly reporting withdrawn advisories again.',
+                'With gemnasium enabled, the portal now keeps OSV’s database for each gemnasium ecosystem even when the OSV source is off — about 200 MB to download for npm — and uses it only to recognise withdrawals: OSV findings still appear only for the OSV cells you turn on, and Settings → Sources shows the download. It is re-checked before every scan with a conditional request that transfers nothing when OSV has published nothing new, so a withdrawal is picked up by the first scan after OSV publishes it rather than the next day. With <code>SENTINELLO_OSV_FEED_URL=off</code>, a database downloaded earlier is still used and nothing new is learnt. <code>npx sentinello --source gemnasium</code> lists the same download in its first-run prompt and refreshes it on every run; when it is missing — declined, failed, or <code>--offline</code> before it was ever fetched — gemnasium results are reported as before, with a warning that withdrawn advisories may be listed.'
+            ]
+        },
         '3.7.2': {
             title: 'A Next.js upgrade for six security advisories',
             items: [
@@ -338,6 +347,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Initial open-source release', items: ['The first public release of Sentinello'] }
     },
     es: {
+        '3.7.4': {
+            title: 'Los avisos que GitHub ha retirado dejan de contar como hallazgos',
+            items: [
+                'GitHub retiró GHSA-vfj7-8cjw-p6xm, el aviso de <code>braces</code> 3.0.3, el 23 de octubre, pero Sentinello lo seguía notificando como CVE-2026-93687 en todos los proyectos que instalan braces 3.0.3, sin versión corregida y en la lista de «No se ha publicado ninguna versión corregida». El aviso venía de la base de datos gemnasium de GitLab, que no tiene forma de registrar una retirada. Ahora los avisos de gemnasium se contrastan con OSV, que refleja las retiradas de GitHub: cuando todos los registros de OSV del mismo paquete que comparten el identificador del aviso o uno de sus alias están retirados, el aviso se descarta en el siguiente análisis y sus hallazgos abiertos se resuelven igual que uno corregido — fuera de los recuentos por severidad, de la lista sin corrección, de la exportación de avisos y de MCP. Un aviso que GitHub retiró por duplicar otro que sigue activo se sigue notificando.',
+                'La propia caché de OSV perdía las retiradas. La descarga completa conservaba los avisos retirados, pero la actualización diaria borraba cualquier aviso que volviera retirado, así que cada retirada publicada después de la última descarga completa desaparecía de ella — GHSA-vfj7-8cjw-p6xm entre ellas. La actualización ahora los conserva, marcados, incluidos los registros retirados que ya no indican un rango afectado; nada coincide nunca con ellos, y son lo que lee la comprobación anterior. Por eso la base de datos de OSV se vuelve a descargar una vez tras actualizar, en el portal y en <code>npx sentinello</code>. Hasta que termina esa descarga, OSV y gemnasium muestran «Base de datos OSV aún no descargada» para ese ecosistema en lugar de volver a notificar brevemente avisos retirados.',
+                'Con gemnasium activado, el portal guarda ahora la base de datos de OSV de cada ecosistema de gemnasium aunque la fuente OSV esté desactivada — unos 200 MB de descarga para npm — y la usa solo para reconocer retiradas: los hallazgos de OSV siguen apareciendo solo en las celdas de OSV que actives, y Ajustes → Fuentes muestra la descarga. Se vuelve a comprobar antes de cada análisis con una petición condicional que no transfiere nada cuando OSV no ha publicado nada nuevo, así que una retirada la recoge el primer análisis después de que OSV la publique, no el día siguiente. Con <code>SENTINELLO_OSV_FEED_URL=off</code> se sigue usando una base de datos descargada antes y no se aprende nada nuevo. <code>npx sentinello --source gemnasium</code> incluye la misma descarga en su aviso de primera ejecución y la actualiza en cada ejecución; si falta — rechazada, fallida o con <code>--offline</code> antes de haberla descargado nunca — los resultados de gemnasium se muestran como antes, con una advertencia de que pueden aparecer avisos retirados.'
+            ]
+        },
         '3.7.2': {
             title: 'Una actualización de Next.js para seis avisos de seguridad',
             items: [
@@ -619,6 +636,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primera versión de código abierto', items: ['El primer lanzamiento público de Sentinello'] }
     },
     fr: {
+        '3.7.4': {
+            title: 'Les avis retirés par GitHub ne comptent plus comme des résultats',
+            items: [
+                'GitHub a retiré GHSA-vfj7-8cjw-p6xm, l’avis sur <code>braces</code> 3.0.3, le 23 octobre, mais Sentinello continuait de le signaler sous CVE-2026-93687 dans chaque projet qui installe braces 3.0.3, sans version corrigée et dans la liste « Aucune version corrigée publiée ». Le signalement venait de la base gemnasium de GitLab, qui n’a aucun moyen d’enregistrer un retrait. Les avis gemnasium sont désormais confrontés à OSV, qui reprend les retraits de GitHub : quand tous les enregistrements OSV du même paquet qui partagent l’identifiant de l’avis ou l’un de ses alias sont retirés, l’avis est écarté au scan suivant et ses résultats ouverts se résolvent comme un résultat corrigé — hors des décomptes par sévérité, de la liste sans correctif, de l’export des avis et de MCP. Un avis que GitHub a retiré comme doublon d’un autre toujours actif reste signalé.',
+                'Le cache d’OSV lui-même perdait les retraits. Le téléchargement complet conservait les avis retirés, mais la mise à jour quotidienne supprimait tout avis revenu retiré, si bien que chaque retrait publié après le dernier téléchargement complet en disparaissait — GHSA-vfj7-8cjw-p6xm parmi eux. La mise à jour les conserve désormais, marqués, y compris les enregistrements retirés qui n’indiquent plus de plage affectée ; rien ne correspond jamais à eux, et c’est eux que lit la vérification ci-dessus. Pour cette raison, la base OSV est retéléchargée une fois après la mise à jour, dans le portail comme dans <code>npx sentinello</code>. Tant que ce téléchargement n’est pas terminé, OSV et gemnasium affichent « Base de données OSV pas encore téléchargée » pour cet écosystème plutôt que de signaler brièvement à nouveau des avis retirés.',
+                'Avec gemnasium activé, le portail conserve désormais la base OSV de chaque écosystème gemnasium même quand la source OSV est désactivée — environ 200 Mo à télécharger pour npm — et ne s’en sert que pour reconnaître les retraits : les résultats OSV n’apparaissent toujours que pour les cellules OSV que vous activez, et Paramètres → Sources affiche le téléchargement. Elle est revérifiée avant chaque scan par une requête conditionnelle qui ne transfère rien quand OSV n’a rien publié de nouveau, si bien qu’un retrait est pris en compte par le premier scan qui suit sa publication par OSV, et non le lendemain. Avec <code>SENTINELLO_OSV_FEED_URL=off</code>, une base téléchargée auparavant reste utilisée et rien de nouveau n’est appris. <code>npx sentinello --source gemnasium</code> annonce le même téléchargement dans son invite de premier lancement et le rafraîchit à chaque exécution ; s’il manque — refusé, échoué, ou <code>--offline</code> avant d’avoir jamais été récupéré — les résultats gemnasium sont présentés comme avant, avec un avertissement indiquant que des avis retirés peuvent y figurer.'
+            ]
+        },
         '3.7.2': {
             title: 'Une mise à jour de Next.js pour six avis de sécurité',
             items: [
@@ -902,6 +927,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Première version open source', items: ['La première version publique de Sentinello'] }
     },
     de: {
+        '3.7.4': {
+            title: 'Von GitHub zurückgezogene Hinweise zählen nicht mehr als Befunde',
+            items: [
+                'GitHub hat GHSA-vfj7-8cjw-p6xm, den Hinweis zu <code>braces</code> 3.0.3, am 23. Oktober zurückgezogen, doch Sentinello meldete ihn weiter als CVE-2026-93687 in jedem Projekt, das braces 3.0.3 installiert – ohne korrigierte Version und auf der Liste „Keine korrigierte Version veröffentlicht“. Die Meldung stammte aus GitLabs gemnasium-Datenbank, die einen Rückzug nicht erfassen kann. gemnasium-Hinweise werden jetzt mit OSV abgeglichen, das GitHubs Rückzüge übernimmt: Sind alle OSV-Einträge desselben Pakets, die die Kennung des Hinweises oder einen seiner Aliase teilen, zurückgezogen, entfällt der Hinweis beim nächsten Scan, und seine offenen Befunde werden wie ein behobener Befund aufgelöst – aus den Schweregrad-Zählungen, der Liste ohne Korrektur, dem Hinweis-Export und MCP. Ein Hinweis, den GitHub als Duplikat eines weiterhin aktiven zurückgezogen hat, wird weiter gemeldet.',
+                'OSVs eigener Cache verlor Rückzüge. Der vollständige Download behielt zurückgezogene Hinweise, doch die tägliche Aktualisierung löschte jeden Hinweis, der zurückgezogen zurückkam, sodass jeder nach dem letzten vollständigen Download veröffentlichte Rückzug daraus verschwand – darunter GHSA-vfj7-8cjw-p6xm. Die Aktualisierung behält sie jetzt, markiert, auch zurückgezogene Einträge, die keinen betroffenen Bereich mehr nennen; nichts wird je gegen sie abgeglichen, und genau sie liest die Prüfung oben. Deshalb wird die OSV-Datenbank nach dem Update einmal neu heruntergeladen, im Portal wie in <code>npx sentinello</code>. Bis dieser Download fertig ist, zeigen OSV und gemnasium für dieses Ökosystem „OSV-Datenbank noch nicht heruntergeladen“, statt kurzzeitig wieder zurückgezogene Hinweise zu melden.',
+                'Mit aktiviertem gemnasium hält das Portal jetzt OSVs Datenbank für jedes gemnasium-Ökosystem vor, auch wenn die OSV-Quelle aus ist – für npm rund 200 MB Download – und nutzt sie nur, um Rückzüge zu erkennen: OSV-Befunde erscheinen weiterhin nur für die OSV-Zellen, die Sie einschalten, und Einstellungen → Quellen zeigt den Download. Sie wird vor jedem Scan mit einer bedingten Anfrage neu geprüft, die nichts überträgt, wenn OSV nichts Neues veröffentlicht hat; ein Rückzug wird also vom ersten Scan nach seiner Veröffentlichung durch OSV erfasst statt erst am nächsten Tag. Mit <code>SENTINELLO_OSV_FEED_URL=off</code> wird eine früher heruntergeladene Datenbank weiter genutzt, und nichts Neues kommt hinzu. <code>npx sentinello --source gemnasium</code> nennt denselben Download in seiner Abfrage beim ersten Lauf und aktualisiert ihn bei jedem Lauf; fehlt er – abgelehnt, fehlgeschlagen oder <code>--offline</code>, bevor er je geladen wurde –, werden die gemnasium-Ergebnisse wie bisher gemeldet, mit dem Hinweis, dass zurückgezogene Hinweise darunter sein können.'
+            ]
+        },
         '3.7.2': {
             title: 'Ein Next.js-Update für sechs Sicherheitshinweise',
             items: [
@@ -1186,6 +1219,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         }
     },
     'pt-BR': {
+        '3.7.4': {
+            title: 'Avisos que o GitHub retirou deixam de contar como achados',
+            items: [
+                'O GitHub retirou o GHSA-vfj7-8cjw-p6xm, o aviso do <code>braces</code> 3.0.3, em 23 de outubro, mas o Sentinello continuava a reportá-lo como CVE-2026-93687 em todo projeto que instala o braces 3.0.3, sem versão corrigida e na lista “Nenhuma versão corrigida publicada”. O aviso vinha do banco de dados gemnasium do GitLab, que não tem como registrar uma retirada. Agora os avisos do gemnasium são conferidos com o OSV, que espelha as retiradas do GitHub: quando todos os registros do OSV do mesmo pacote que compartilham o identificador do aviso ou um de seus aliases estão retirados, o aviso é descartado na próxima varredura, e seus achados abertos são resolvidos como um achado corrigido — fora das contagens por severidade, da lista sem correção, da exportação de avisos e do MCP. Um aviso que o GitHub retirou como duplicata de outro ainda ativo continua sendo reportado.',
+                'O próprio cache do OSV perdia as retiradas. O download completo mantinha os avisos retirados, mas a atualização diária apagava qualquer aviso que voltasse retirado, então cada retirada publicada depois do último download completo sumia dele — o GHSA-vfj7-8cjw-p6xm entre elas. A atualização agora os mantém, marcados, inclusive registros retirados que não indicam mais um intervalo afetado; nada nunca é comparado com eles, e são eles que a verificação acima lê. Por isso, o banco de dados do OSV é baixado de novo uma vez após a atualização, no portal e no <code>npx sentinello</code>. Até esse download terminar, OSV e gemnasium mostram “Banco de dados OSV ainda não baixado” para esse ecossistema, em vez de voltar a reportar avisos retirados por alguns minutos.',
+                'Com o gemnasium ativado, o portal agora mantém o banco de dados do OSV de cada ecossistema do gemnasium mesmo com a fonte OSV desligada — cerca de 200 MB de download para o npm — e o usa só para reconhecer retiradas: achados do OSV continuam aparecendo só nas células do OSV que você liga, e Configurações → Fontes mostra o download. Ele é reverificado antes de cada varredura com uma requisição condicional que não transfere nada quando o OSV não publicou nada novo, então uma retirada é percebida pela primeira varredura depois que o OSV a publica, e não no dia seguinte. Com <code>SENTINELLO_OSV_FEED_URL=off</code>, um banco baixado antes continua em uso e nada novo é aprendido. O <code>npx sentinello --source gemnasium</code> lista o mesmo download no aviso da primeira execução e o atualiza a cada execução; se ele faltar — recusado, com falha, ou <code>--offline</code> antes de ter sido baixado —, os resultados do gemnasium saem como antes, com um alerta de que avisos retirados podem aparecer.'
+            ]
+        },
         '3.7.2': {
             title: 'Uma atualização do Next.js para seis avisos de segurança',
             items: [
@@ -1467,6 +1508,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primeira versão de código aberto', items: ['O primeiro lançamento público do Sentinello'] }
     },
     it: {
+        '3.7.4': {
+            title: 'Gli avvisi ritirati da GitHub non contano più come rilevamenti',
+            items: [
+                'GitHub ha ritirato GHSA-vfj7-8cjw-p6xm, l’avviso su <code>braces</code> 3.0.3, il 23 ottobre, ma Sentinello continuava a segnalarlo come CVE-2026-93687 in ogni progetto che installa braces 3.0.3, senza versione corretta e nell’elenco «Nessuna versione corretta pubblicata». La segnalazione veniva dal database gemnasium di GitLab, che non ha modo di registrare un ritiro. Ora gli avvisi gemnasium vengono confrontati con OSV, che riporta i ritiri di GitHub: quando tutti i record OSV dello stesso pacchetto che condividono l’identificativo dell’avviso o uno dei suoi alias sono ritirati, l’avviso viene scartato alla scansione successiva e i suoi rilevamenti aperti si risolvono come uno corretto — fuori dai conteggi per gravità, dall’elenco senza correzione, dall’esportazione degli avvisi e da MCP. Un avviso che GitHub ha ritirato perché duplicato di un altro ancora attivo continua a essere segnalato.',
+                'La cache stessa di OSV perdeva i ritiri. Il download completo conservava gli avvisi ritirati, ma l’aggiornamento giornaliero cancellava qualsiasi avviso tornato ritirato, così ogni ritiro pubblicato dopo l’ultimo download completo spariva — GHSA-vfj7-8cjw-p6xm compreso. Ora l’aggiornamento li conserva, contrassegnati, compresi i record ritirati che non indicano più un intervallo interessato; nulla viene mai confrontato con essi, e sono ciò che legge il controllo descritto sopra. Per questo il database OSV viene riscaricato una volta dopo l’aggiornamento, nel portale e in <code>npx sentinello</code>. Finché quel download non termina, OSV e gemnasium mostrano «Database OSV non ancora scaricato» per quell’ecosistema invece di tornare a segnalare per breve tempo avvisi ritirati.',
+                'Con gemnasium attivo, il portale ora tiene il database OSV di ogni ecosistema gemnasium anche quando la fonte OSV è disattivata — circa 200 MB da scaricare per npm — e lo usa solo per riconoscere i ritiri: i rilevamenti OSV compaiono sempre solo per le celle OSV che attivi, e Impostazioni → Fonti mostra il download. Viene ricontrollato prima di ogni scansione con una richiesta condizionale che non trasferisce nulla quando OSV non ha pubblicato niente di nuovo, così un ritiro viene recepito dalla prima scansione dopo la pubblicazione su OSV, non il giorno dopo. Con <code>SENTINELLO_OSV_FEED_URL=off</code> continua a essere usato un database scaricato in precedenza e non si apprende nulla di nuovo. <code>npx sentinello --source gemnasium</code> elenca lo stesso download nella richiesta del primo avvio e lo aggiorna a ogni esecuzione; se manca — rifiutato, non riuscito o con <code>--offline</code> prima di averlo mai scaricato — i risultati gemnasium vengono riportati come prima, con un avviso che potrebbero comparire avvisi ritirati.'
+            ]
+        },
         '3.7.2': {
             title: 'Un aggiornamento di Next.js per sei avvisi di sicurezza',
             items: [
@@ -1748,6 +1797,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Prima versione open source', items: ['La prima versione pubblica di Sentinello'] }
     },
     ja: {
+        '3.7.4': {
+            title: 'GitHub が取り下げたアドバイザリは検出結果として数えなくなりました',
+            items: [
+                'GitHub は 10 月 23 日に <code>braces</code> 3.0.3 のアドバイザリ GHSA-vfj7-8cjw-p6xm を取り下げましたが、Sentinello は braces 3.0.3 をインストールしているすべてのプロジェクトで、これを CVE-2026-93687 として報告し続けていました。修正済みバージョンはなく、「修正済みバージョンは未公開」の一覧にも載っていました。報告元は GitLab の gemnasium データベースで、取り下げを記録する手段がありません。gemnasium のアドバイザリは、GitHub の取り下げを反映している OSV と照合されるようになりました。同じパッケージについて、アドバイザリの ID またはエイリアスのいずれかを共有する OSV レコードがすべて取り下げられている場合、そのアドバイザリは次のスキャンで除外され、未解決の検出結果は修正済みのものと同じように解決されます。重大度の件数、修正なしの一覧、アドバイザリのエクスポート、MCP のいずれからも外れます。GitHub が、まだ有効な別のアドバイザリの重複として取り下げたものは、引き続き報告されます。',
+                'OSV のキャッシュ自体も取り下げを失っていました。全件ダウンロードでは取り下げ済みのアドバイザリが残っていましたが、毎日の更新では取り下げとして返ってきたアドバイザリを削除していたため、前回の全件ダウンロード以降に公開された取り下げはすべてキャッシュから消えていました。GHSA-vfj7-8cjw-p6xm もその一つです。更新でもこれらを取り下げ済みの印を付けて残すようになり、影響範囲が記載されなくなった取り下げレコードも残します。これらと照合されることはなく、上記の確認が読み取るのはこのデータです。このため、アップグレード後に OSV データベースがポータルでも <code>npx sentinello</code> でも一度だけ再ダウンロードされます。そのダウンロードが終わるまで、OSV と gemnasium はそのエコシステムについて「OSV データベースは未ダウンロード」と表示し、取り下げ済みのアドバイザリを一時的に再び報告することはありません。',
+                'gemnasium を有効にしている場合、ポータルは OSV ソースがオフでも gemnasium の各エコシステムについて OSV のデータベースを保持するようになりました（npm で約 200 MB のダウンロード）。用途は取り下げの判定だけで、OSV の検出結果は引き続き有効にした OSV のセルにのみ表示されます。ダウンロードの状況は 設定 → ソース に表示されます。このデータベースはスキャンのたびに条件付きリクエストで再確認され、OSV に新しい公開がなければ何も転送しません。そのため、取り下げは翌日ではなく、OSV が公開した直後の最初のスキャンで反映されます。<code>SENTINELLO_OSV_FEED_URL=off</code> の場合は、以前にダウンロードしたデータベースが引き続き使われ、新しい情報は取り込まれません。<code>npx sentinello --source gemnasium</code> は初回実行時の確認で同じダウンロードを示し、実行のたびに更新します。拒否された、失敗した、または一度も取得する前に <code>--offline</code> で実行したなどで存在しない場合は、gemnasium の結果をこれまでどおり報告し、取り下げ済みのアドバイザリが含まれている可能性があると警告します。'
+            ]
+        },
         '3.7.2': {
             title: '6 件のセキュリティアドバイザリに対応する Next.js の更新',
             items: [
@@ -2025,6 +2082,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '初のオープンソースリリース', items: ['Sentinello の最初の一般公開リリース'] }
     },
     'zh-CN': {
+        '3.7.4': {
+            title: 'GitHub 已撤回的公告不再计为发现',
+            items: [
+                'GitHub 于 10 月 23 日撤回了 <code>braces</code> 3.0.3 的公告 GHSA-vfj7-8cjw-p6xm，但 Sentinello 仍在每个安装了 braces 3.0.3 的项目中以 CVE-2026-93687 报告它，没有修复版本，并列在“尚未发布修复版本”清单中。这条报告来自 GitLab 的 gemnasium 数据库，而它无法记录撤回。现在 gemnasium 公告会与 OSV 对照，OSV 会同步 GitHub 的撤回：如果同一软件包中与该公告共享 ID 或任一别名的 OSV 记录全部已撤回，该公告会在下一次扫描时被排除，其未解决的发现会像已修复的发现一样被解决——不再计入严重性统计、无修复清单、公告导出和 MCP。若 GitHub 撤回某条公告是因为它与另一条仍然有效的公告重复，该公告仍会继续报告。',
+                'OSV 自身的缓存也在丢失撤回信息。完整下载会保留已撤回的公告，但每日更新会删除任何以撤回状态返回的公告，因此上次完整下载之后发布的每一次撤回都会从缓存中消失，GHSA-vfj7-8cjw-p6xm 就是其中之一。现在更新会保留这些公告并加以标记，包括不再列出受影响范围的已撤回记录；任何内容都不会与它们匹配，上面的检查读取的正是这些记录。因此，升级后门户和 <code>npx sentinello</code> 都会重新下载一次 OSV 数据库。在下载完成之前，OSV 和 gemnasium 对该生态系统都会显示“OSV 数据库尚未下载”，而不会短暂地再次报告已撤回的公告。',
+                '启用 gemnasium 后，即使 OSV 来源已关闭，门户现在也会为每个 gemnasium 生态系统保留 OSV 数据库（npm 约需下载 200 MB），且只用于识别撤回：OSV 的发现仍只会出现在你启用的 OSV 单元中，下载状态显示在 设置 → 来源 中。每次扫描前都会通过条件请求重新检查它，OSV 没有发布新内容时不传输任何数据，因此撤回会在 OSV 发布后的第一次扫描中生效，而不是等到第二天。设置 <code>SENTINELLO_OSV_FEED_URL=off</code> 时，仍会使用之前下载的数据库，但不会获取新信息。<code>npx sentinello --source gemnasium</code> 会在首次运行的确认提示中列出同一下载，并在每次运行时刷新；如果缺少它（被拒绝、下载失败，或在从未获取前使用了 <code>--offline</code>），gemnasium 的结果会照常报告，并提示其中可能包含已撤回的公告。'
+            ]
+        },
         '3.7.2': {
             title: '针对六项安全公告的 Next.js 升级',
             items: [
@@ -2282,6 +2347,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '首个开源版本', items: ['Sentinello 的首个公开发布版本'] }
     },
     ko: {
+        '3.7.4': {
+            title: 'GitHub가 철회한 권고는 더 이상 발견 항목으로 집계되지 않습니다',
+            items: [
+                'GitHub는 10월 23일 <code>braces</code> 3.0.3 권고인 GHSA-vfj7-8cjw-p6xm을 철회했지만, Sentinello는 braces 3.0.3을 설치한 모든 프로젝트에서 이를 CVE-2026-93687로 계속 보고했고, 수정된 버전 없이 “수정된 버전이 공개되지 않음” 목록에도 올렸습니다. 이 보고는 철회를 기록할 방법이 없는 GitLab의 gemnasium 데이터베이스에서 나온 것이었습니다. 이제 gemnasium 권고는 GitHub의 철회를 반영하는 OSV와 대조됩니다. 같은 패키지에서 권고의 ID나 별칭 중 하나를 공유하는 OSV 레코드가 모두 철회되었으면, 그 권고는 다음 스캔에서 제외되고 열린 발견 항목은 수정된 항목처럼 해결됩니다. 심각도 집계, 수정 없음 목록, 권고 내보내기, MCP 어디에서도 빠집니다. GitHub가 아직 유효한 다른 권고의 중복으로 철회한 권고는 계속 보고됩니다.',
+                'OSV 자체 캐시도 철회 정보를 잃고 있었습니다. 전체 다운로드는 철회된 권고를 유지했지만, 일일 업데이트는 철회 상태로 돌아온 권고를 삭제했기 때문에 마지막 전체 다운로드 이후 공개된 철회는 모두 캐시에서 사라졌습니다. GHSA-vfj7-8cjw-p6xm도 그중 하나입니다. 이제 업데이트는 이런 권고를 표시해 두고 유지하며, 영향 범위를 더 이상 명시하지 않는 철회 레코드도 유지합니다. 이 레코드와 일치하는 것은 없으며, 위의 확인이 읽는 것이 바로 이 레코드입니다. 이 때문에 업그레이드 후 포털과 <code>npx sentinello</code> 모두에서 OSV 데이터베이스를 한 번 다시 다운로드합니다. 다운로드가 끝날 때까지 OSV와 gemnasium은 해당 생태계에 대해 “OSV 데이터베이스가 아직 다운로드되지 않음”으로 표시하며, 철회된 권고를 잠시 다시 보고하지 않습니다.',
+                'gemnasium을 켜 두면, 이제 포털은 OSV 소스가 꺼져 있어도 gemnasium 생태계마다 OSV 데이터베이스를 보관합니다(npm 기준 약 200 MB 다운로드). 이 데이터베이스는 철회를 알아보는 데만 쓰입니다. OSV 발견 항목은 여전히 켜 둔 OSV 셀에만 나타나며, 다운로드 상태는 설정 → 소스에 표시됩니다. 매 스캔 전에 조건부 요청으로 다시 확인하며, OSV가 새로 공개한 것이 없으면 아무것도 전송하지 않습니다. 따라서 철회는 다음 날이 아니라 OSV가 공개한 뒤 첫 스캔에 반영됩니다. <code>SENTINELLO_OSV_FEED_URL=off</code>이면 이전에 다운로드한 데이터베이스를 계속 사용하며 새로운 정보는 받지 않습니다. <code>npx sentinello --source gemnasium</code>은 첫 실행 확인 화면에 같은 다운로드를 표시하고 실행할 때마다 새로 고칩니다. 거부했거나, 실패했거나, 한 번도 받기 전에 <code>--offline</code>으로 실행해 데이터가 없으면, gemnasium 결과는 예전처럼 보고하되 철회된 권고가 포함될 수 있다는 경고를 함께 표시합니다.'
+            ]
+        },
         '3.7.2': {
             title: '보안 권고 6건을 위한 Next.js 업그레이드',
             items: [
@@ -2553,6 +2626,14 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '첫 오픈 소스 릴리스', items: ['Sentinello의 첫 공개 릴리스'] }
     },
     ru: {
+        '3.7.4': {
+            title: 'Уведомления, отозванные GitHub, больше не считаются находками',
+            items: [
+                'GitHub отозвал GHSA-vfj7-8cjw-p6xm, уведомление о <code>braces</code> 3.0.3, 23 октября, но Sentinello продолжал сообщать о нём как о CVE-2026-93687 в каждом проекте, где установлен braces 3.0.3, — без исправленной версии и в списке «Исправленная версия не выпущена». Сообщение приходило из базы gemnasium от GitLab, в которой нет способа отметить отзыв. Теперь уведомления gemnasium сверяются с OSV, которая отражает отзывы GitHub: если все записи OSV для того же пакета, разделяющие идентификатор уведомления или один из его псевдонимов, отозваны, уведомление отбрасывается при следующем сканировании, а его открытые находки закрываются так же, как исправленные, — они исчезают из подсчётов по уровням серьёзности, из списка без исправления, из экспорта уведомлений и из MCP. Уведомление, которое GitHub отозвал как дубликат другого, всё ещё действующего, по-прежнему сообщается.',
+                'Собственный кеш OSV тоже терял отзывы. Полная загрузка сохраняла отозванные уведомления, но ежедневное обновление удаляло любое уведомление, вернувшееся отозванным, поэтому каждый отзыв, опубликованный после последней полной загрузки, из него пропадал — в том числе GHSA-vfj7-8cjw-p6xm. Теперь обновление сохраняет их с пометкой, включая отозванные записи, в которых больше не указан затронутый диапазон; с ними ничего не сопоставляется, и именно их читает описанная выше проверка. Из-за этого база OSV один раз загружается заново после обновления — и в портале, и в <code>npx sentinello</code>. Пока загрузка не завершится, OSV и gemnasium показывают для этой экосистемы «База данных OSV ещё не загружена», а не сообщают ненадолго снова об отозванных уведомлениях.',
+                'Если gemnasium включён, портал теперь хранит базу OSV для каждой экосистемы gemnasium, даже когда источник OSV выключен, — около 200 МБ загрузки для npm — и использует её только для распознавания отзывов: находки OSV по-прежнему появляются только в тех ячейках OSV, которые вы включили, а загрузку показывает раздел Настройки → Источники. Перед каждым сканированием база перепроверяется условным запросом, который ничего не передаёт, если OSV не опубликовала ничего нового, поэтому отзыв учитывается первым же сканированием после его публикации в OSV, а не на следующий день. С <code>SENTINELLO_OSV_FEED_URL=off</code> продолжает использоваться база, загруженная ранее, и ничего нового не узнаётся. <code>npx sentinello --source gemnasium</code> указывает ту же загрузку в запросе при первом запуске и обновляет её при каждом запуске; если её нет — отказ, ошибка или <code>--offline</code> до того, как она была загружена хоть раз, — результаты gemnasium выводятся как раньше, с предупреждением, что среди них могут быть отозванные уведомления.'
+            ]
+        },
         '3.7.2': {
             title: 'Обновление Next.js ради шести уведомлений безопасности',
             items: [
