@@ -30,10 +30,11 @@ import type { OsvAdvisoryRow } from '@sentinello/core'
 //   - the ecosystem is marked UNSEEDED before its rows are cleared, and seedComplete flips back only
 //     after the full stream succeeds. In between, a concurrent scan must treat the ecosystem as
 //     not-downloaded — a half-rebuilt cache that still reports seeded reads as "no vulnerabilities".
-//   - an advisory is REPLACED, not cleared-then-refetched. The rows go only once the replacement is in
-//     hand, and the cursor advances only when every changed id was processed. Deleting first meant any
-//     timeout erased that advisory, and the cursor moved past it regardless — losing it until the next
-//     full re-seed, silently, on a sync that reported success.
+//   - an incremental pass is STAGED, then published in one transaction only when every changed id was
+//     re-read, cursor included. Deleting first meant any timeout erased that advisory, and the cursor
+//     moved past it regardless — losing it until the next full re-seed, silently, on a sync that reported
+//     success. Publishing each advisory as it landed exposed partial passes to gemnasium's withdrawal
+//     evidence (SENTINEL-48).
 //
 // @sentinello/feeds is stubbed — the real thing downloads ~100 MB per ecosystem — but the cache is a real
 // migrated osv.db, so every meta write, upsert, delete and count below is the production query.
@@ -44,10 +45,10 @@ const feeds = vi.hoisted(function makeFeedsDouble() {
         // The incremental-vs-reseed threshold, as a field rather than a literal so a test can lower it.
         // The number itself is not what the boundary tests are about — `=== MAX` stays incremental and
         // `> MAX` re-seeds is the same branch at 2 as at 20,000 — but the COST is entirely about the
-        // number: incrementalSyncOsv calls deleteOsvAdvisories once per id, and each of those opens its
-        // own transaction against a real on-disk SQLite file. At 20,000 that is 20,000 BEGIN/DELETE/COMMIT
-        // cycles, which took ~2s alone and 6-7s under the full suite's parallel load, so the test failed
-        // the 5s default timeout intermittently for reasons that had nothing to do with what it asserts.
+        // number: incrementalSyncOsv once replaced each id in its own transaction against a real on-disk
+        // SQLite file. At 20,000 that was 20,000 BEGIN/DELETE/COMMIT cycles, which took ~2s alone and 6-7s
+        // under the full suite's parallel load, so the test failed the 5s default timeout intermittently
+        // for reasons that had nothing to do with what it asserts.
         // The production value stays pinned where it belongs, by packages/feeds/src/osv/feed.test.ts.
         incrementalMaxIds: 20_000,
         streamOsvSeed: vi.fn(),
@@ -470,22 +471,120 @@ describe('incrementalSyncOsv', function () {
         expect(lookupOsvByPackages(db, ECO, ['braces']).get('braces')).toBeUndefined()
     })
 
-    // One advisory failing must not abort the pass, and must not cost the operator that advisory.
-    it('skips an advisory whose fetch failed and keeps going', async function () {
+    // A pass is all or nothing. Nothing of it is published when one advisory fails, so fetching the rest
+    // would be wasted: the next sync repeats the whole window.
+    it('publishes nothing from a pass in which one advisory failed, and stops fetching', async function () {
         feeds.fetchOsvChangedIds.mockResolvedValue({
             status: 'ok',
-            ids: ['GHSA-bad', 'GHSA-aaaa'],
+            ids: ['GHSA-aaaa', 'GHSA-bad', 'GHSA-cccc'],
             newestIso: null,
             etag: null
         })
         feeds.fetchOsvAdvisoryRows
-            .mockRejectedValueOnce(new Error('connection reset'))
             .mockResolvedValueOnce([row()])
+            .mockRejectedValueOnce(new Error('connection reset'))
 
         const result = await incrementalSyncOsv(db, ECO)
 
-        expect(result).toMatchObject({ status: 'ok', upserted: 1 })
-        expect(countOsvAdvisories(db, ECO)).toBe(1)
+        expect(result).toMatchObject({ status: 'error', upserted: 0, recordCount: 0 })
+        expect(result.message).toContain('GHSA-bad could not be re-read (connection reset)')
+        expect(feeds.fetchOsvAdvisoryRows).toHaveBeenCalledTimes(2)
+        expect(countOsvAdvisories(db, ECO)).toBe(0)
+    })
+
+    // SENTINEL-48. GitHub withdraws GHSA-A as a duplicate of a newly published GHSA-B, both aliasing CVE-X.
+    // Publishing A's withdrawal while B's fetch failed left every record linked to CVE-X withdrawn, and
+    // gemnasium, which reads this cache as withdrawal evidence, suppressed a live advisory. The cache must
+    // keep the last complete snapshot until a pass that re-read both lands.
+    describe('a withdrawn duplicate whose active replacement failed to fetch (SENTINEL-48)', function () {
+        const withdrawnAt = Date.UTC(2026, 9, 23, 12, 53, 2)
+        const activeA = row({ advisoryId: 'GHSA-a', packageName: 'braces', aliases: ['CVE-X'] })
+        const withdrawnA = row({ advisoryId: 'GHSA-a', packageName: 'braces', aliases: ['CVE-X'], withdrawn: withdrawnAt })
+        const activeB = row({ advisoryId: 'GHSA-b', packageName: 'braces', aliases: ['CVE-X'] })
+
+        function links() {
+            return lookupOsvLinksByPackages(db, ECO, ['braces']).get('braces')
+        }
+
+        beforeEach(function seedActiveA() {
+            upsertOsvAdvisories(db, [activeA])
+            setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastModified, ECO), '2026-10-22T00:00:00Z')
+            setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.refreshedAt, ECO), 1)
+            feeds.fetchOsvChangedIds.mockResolvedValue({
+                status: 'ok',
+                ids: ['GHSA-a', 'GHSA-b'],
+                newestIso: '2026-10-23T12:53:02Z',
+                etag: 'etag-new'
+            })
+        })
+
+        it('keeps the active record and the cursor, then lands both on the retry', async function () {
+            feeds.fetchOsvAdvisoryRows
+                .mockResolvedValueOnce([withdrawnA])
+                .mockRejectedValueOnce(new Error('503'))
+
+            const failed = await incrementalSyncOsv(db, ECO)
+
+            expect(failed.status).toBe('error')
+            expect(links()).toEqual([{ advisoryId: 'GHSA-a', aliases: ['CVE-X'], withdrawn: null }])
+            expect(meta<string>(OSV_META_KEYS.lastModified)).toBe('2026-10-22T00:00:00Z')
+            expect(meta<string>(OSV_META_KEYS.modifiedIdsEtag)).toBeNull()
+            // The snapshot is still the one the previous sync produced.
+            expect(meta<number>(OSV_META_KEYS.refreshedAt)).toBe(1)
+
+            feeds.fetchOsvAdvisoryRows.mockReset()
+            feeds.fetchOsvAdvisoryRows
+                .mockResolvedValueOnce([withdrawnA])
+                .mockResolvedValueOnce([activeB])
+
+            const retried = await incrementalSyncOsv(db, ECO)
+
+            expect(retried).toMatchObject({ status: 'ok', upserted: 2, recordCount: 2 })
+            expect(links()).toEqual(expect.arrayContaining([
+                { advisoryId: 'GHSA-a', aliases: ['CVE-X'], withdrawn: withdrawnAt },
+                { advisoryId: 'GHSA-b', aliases: ['CVE-X'], withdrawn: null }
+            ]))
+            expect(meta<string>(OSV_META_KEYS.lastModified)).toBe('2026-10-23T12:53:02Z')
+            expect(meta<string>(OSV_META_KEYS.modifiedIdsEtag)).toBe('etag-new')
+            expect(meta<string>(OSV_META_KEYS.lastError)).toBeNull()
+        })
+
+        // A scan that reads the cache while the pass is still fetching sees the previous snapshot, never
+        // A's withdrawal without B.
+        it('serves the previous snapshot to a reader while the pass is in progress', async function () {
+            let releaseB: (rows: OsvAdvisoryRow[]) => void = function unset() {}
+            feeds.fetchOsvAdvisoryRows
+                .mockResolvedValueOnce([withdrawnA])
+                .mockReturnValueOnce(new Promise<OsvAdvisoryRow[]>(function hold(resolve) {
+                    releaseB = resolve
+                }))
+
+            const pass = incrementalSyncOsv(db, ECO)
+            await vi.waitFor(function bothRequested() {
+                expect(feeds.fetchOsvAdvisoryRows).toHaveBeenCalledTimes(2)
+            })
+
+            expect(links()).toEqual([{ advisoryId: 'GHSA-a', aliases: ['CVE-X'], withdrawn: null }])
+
+            releaseB([activeB])
+            await pass
+            expect(links()).toHaveLength(2)
+        })
+
+        it('publishes nothing when the sync is aborted part-way', async function () {
+            const controller = new AbortController()
+            feeds.fetchOsvAdvisoryRows.mockImplementationOnce(async function abortAfterA() {
+                controller.abort()
+                return [withdrawnA]
+            })
+
+            const result = await incrementalSyncOsv(db, ECO, controller.signal)
+
+            expect(result.status).toBe('error')
+            expect(result.message).toContain('aborted')
+            expect(links()).toEqual([{ advisoryId: 'GHSA-a', aliases: ['CVE-X'], withdrawn: null }])
+            expect(meta<string>(OSV_META_KEYS.lastModified)).toBe('2026-10-22T00:00:00Z')
+        })
     })
 
     // The rows go only once their replacement is in hand. Clearing first traded a stale advisory for no
@@ -513,8 +612,9 @@ describe('incrementalSyncOsv', function () {
         })
         feeds.fetchOsvAdvisoryRows.mockRejectedValue(new Error('connection reset'))
 
-        await incrementalSyncOsv(db, ECO)
+        const result = await incrementalSyncOsv(db, ECO)
 
+        expect(result.status).toBe('error')
         expect(meta<string>(OSV_META_KEYS.lastModified)).toBe('2026-01-01T00:00:00Z')
         expect(meta<string>(OSV_META_KEYS.modifiedIdsEtag)).toBeNull()
         expect(meta<string>(OSV_META_KEYS.lastError)).toContain('could not be re-read')
@@ -525,7 +625,8 @@ describe('incrementalSyncOsv', function () {
     //
     // Both boundary tests drive the threshold down to 2. What they pin is the comparison at the boundary,
     // and one id either side of it proves that as completely as 20,000 did — while the id count is what
-    // decided how long the test took, because the incremental path opens one SQLite transaction per id.
+    // decided how long the test took, because the incremental path used to open one SQLite transaction
+    // per id.
     it('re-seeds instead of fetching when the change set is enormous', async function () {
         feeds.incrementalMaxIds = 2
         const ids = ['GHSA-1', 'GHSA-2', 'GHSA-3']

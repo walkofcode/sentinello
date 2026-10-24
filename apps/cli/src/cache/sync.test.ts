@@ -477,24 +477,90 @@ describe('runSync — OSV', function () {
 
         const outcomes = await runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
 
-        expect(outcomes[0]?.rowCount).toBe(1)
+        expect(outcomes[0]).toMatchObject({ status: 'error', rowCount: 1 })
+        expect(outcomes[0]?.message).toContain('GHSA-bad could not be re-read (connection reset)')
+        expect(await cacheRowCount(dir, 'osv', 'npm')).toBe(1)
         // Cursor held so the id is retried, and the ETag cleared so the retry is not answered by a 304.
-        expect(await stateOf('osv')).toMatchObject({ cursorIso: '2026-06-01T00:00:00Z', etag: null })
+        expect(await stateOf('osv')).toMatchObject({ cursorIso: '2026-06-01T00:00:00Z', etag: null, refreshedAt: T0 })
     })
 
-    // One advisory failing must not abort the pass; the cursor only advances on a completed pass, so it
-    // is simply re-read next time.
-    it('drops an advisory that fails to fetch and keeps the rest of the pass', async function () {
+    // A pass is all or nothing: one advisory failing writes nothing of it, so fetching the rest would be
+    // wasted. The error outcome is what offers the run's retry.
+    it('writes nothing of a pass in which one advisory failed, and stops fetching', async function () {
         await seedFile('osv', [osvRow({ advisoryId: 'GHSA-keep' })])
         await seedState('osv')
-        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-bad', 'GHSA-good'], etag: null, newestIso: null })
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-good', 'GHSA-bad', 'GHSA-later'], etag: null, newestIso: null })
         feeds.fetchOsvAdvisoryRows.mockImplementation(async function fetchRows(id: string) {
-            if (id === 'GHSA-bad') throw new Error('404')
-            return [osvRow({ advisoryId: 'GHSA-good' })]
+            if (id === 'GHSA-bad') throw new Error('503')
+            return [osvRow({ advisoryId: id })]
         })
         const outcomes = await runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
-        expect(outcomes[0]?.status).toBe('refreshed')
-        expect(outcomes[0]?.rowCount).toBe(2)
+        expect(outcomes[0]?.status).toBe('error')
+        expect(feeds.fetchOsvAdvisoryRows).toHaveBeenCalledTimes(2)
+        expect(await cacheRowCount(dir, 'osv', 'npm')).toBe(1)
+    })
+
+    // SENTINEL-48. GitHub withdraws GHSA-A as a duplicate of a newly published GHSA-B, both aliasing CVE-X.
+    // Writing A's withdrawal while B's fetch failed left every record linked to CVE-X withdrawn, and the
+    // run stamped a live gemnasium advisory from it. The file keeps the last complete snapshot until a
+    // refresh that re-read both lands.
+    it('keeps a withdrawn duplicate out of the file until its replacement is re-read too', async function () {
+        const withdrawnAt = Date.UTC(2026, 9, 23)
+        await seedFile('osv', [osvRow({ advisoryId: 'GHSA-a', packageName: 'braces', aliases: ['CVE-X'] })])
+        await seedState('osv', { cursorIso: '2026-10-22T00:00:00Z', etag: 'etag-1' })
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-a', 'GHSA-b'], etag: 'etag-2', newestIso: '2026-10-23T12:53:02Z' })
+        feeds.fetchOsvAdvisoryRows.mockImplementation(async function partial(id: string) {
+            if (id === 'GHSA-b') throw new Error('503')
+            return [osvRow({ advisoryId: 'GHSA-a', packageName: 'braces', aliases: ['CVE-X'], withdrawn: withdrawnAt })]
+        })
+        const plan = await planSync(options({ sources: ['osv'] }))
+
+        const failed = await runSync(options({ sources: ['osv'] }), plan)
+
+        expect(failed[0]?.status).toBe('error')
+        const before = await readRowsForPackages<OsvAdvisoryRow>(advisoryFilePath(dir, 'osv', 'npm'), new Set(['braces']))
+        expect(before.get('braces')).toEqual([expect.objectContaining({ advisoryId: 'GHSA-a', withdrawn: null })])
+
+        // The retry the run offers: same plan item, now every advisory reads.
+        feeds.fetchOsvAdvisoryRows.mockImplementation(async function complete(id: string) {
+            return [osvRow({ advisoryId: id, packageName: 'braces', aliases: ['CVE-X'], withdrawn: id === 'GHSA-a' ? withdrawnAt : null })]
+        })
+        const retried = await runSync(options({ sources: ['osv'] }), plan)
+
+        expect(feeds.fetchOsvChangedIds.mock.calls.at(-1)?.slice(1, 3)).toEqual([Date.parse('2026-10-22T00:00:00Z'), null])
+        expect(retried[0]).toMatchObject({ status: 'refreshed', rowCount: 2 })
+        const after = await readRowsForPackages<OsvAdvisoryRow>(advisoryFilePath(dir, 'osv', 'npm'), new Set(['braces']))
+        expect(after.get('braces')).toEqual(expect.arrayContaining([
+            expect.objectContaining({ advisoryId: 'GHSA-a', withdrawn: withdrawnAt }),
+            expect.objectContaining({ advisoryId: 'GHSA-b', withdrawn: null })
+        ]))
+        expect(await stateOf('osv')).toMatchObject({ cursorIso: '2026-10-23T12:53:02Z', etag: 'etag-2' })
+    })
+
+    // A run reading the cache while another one refreshes it (the lock makes it read rather than wait)
+    // sees the previous file whole until the pass is complete.
+    it('leaves the previous file in place for a concurrent reader while the pass is fetching', async function () {
+        await seedFile('osv', [osvRow({ advisoryId: 'GHSA-a', packageName: 'braces', aliases: ['CVE-X'] })])
+        await seedState('osv')
+        let releaseB: (rows: OsvAdvisoryRow[]) => void = function unset() {}
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-a', 'GHSA-b'], etag: 'etag-2', newestIso: null })
+        feeds.fetchOsvAdvisoryRows
+            .mockResolvedValueOnce([osvRow({ advisoryId: 'GHSA-a', packageName: 'braces', aliases: ['CVE-X'], withdrawn: 1 })])
+            .mockReturnValueOnce(new Promise<OsvAdvisoryRow[]>(function hold(resolve) {
+                releaseB = resolve
+            }))
+
+        const pass = runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
+        await vi.waitFor(function bothRequested() {
+            expect(feeds.fetchOsvAdvisoryRows).toHaveBeenCalledTimes(2)
+        })
+
+        const during = await readRowsForPackages<OsvAdvisoryRow>(advisoryFilePath(dir, 'osv', 'npm'), new Set(['braces']))
+        expect(during.get('braces')).toEqual([expect.objectContaining({ advisoryId: 'GHSA-a', withdrawn: null })])
+
+        releaseB([osvRow({ advisoryId: 'GHSA-b', packageName: 'braces', aliases: ['CVE-X'] })])
+        expect((await pass)[0]?.status).toBe('refreshed')
+        expect(await cacheRowCount(dir, 'osv', 'npm')).toBe(2)
     })
 
     it('keeps the previous cursor when the refresh reports no newer one', async function () {
@@ -506,7 +572,7 @@ describe('runSync — OSV', function () {
         expect((await stateOf('osv'))?.cursorIso).toBe('2026-06-01T00:00:00Z')
     })
 
-    it('stops fetching advisories partway through once aborted', async function () {
+    it('stops fetching advisories partway through once aborted, writing nothing', async function () {
         await seedFile('osv', [osvRow()])
         await seedState('osv')
         const controller = new AbortController()
@@ -515,8 +581,12 @@ describe('runSync — OSV', function () {
             controller.abort()
             return [osvRow({ advisoryId: 'a' })]
         })
-        await runSync(options({ sources: ['osv'], abortSignal: controller.signal }), await planSync(options({ sources: ['osv'] })))
+        const plan = await planSync(options({ sources: ['osv'] }))
+        // The abort is raised mid-pass, so the item is reached; runSync's own between-items check is not.
+        const outcomes = await runSync(options({ sources: ['osv'], abortSignal: controller.signal }), plan)
         expect(feeds.fetchOsvAdvisoryRows).toHaveBeenCalledTimes(1)
+        expect(outcomes[0]).toMatchObject({ status: 'error', message: expect.stringContaining('cancelled') })
+        expect(await cacheRowCount(dir, 'osv', 'npm')).toBe(1)
     })
 })
 

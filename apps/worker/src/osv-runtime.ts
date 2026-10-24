@@ -70,7 +70,9 @@ export type WithdrawalEvidence = {
     ready: (ecosystem: string) => boolean
     // Every OSV row's identity for the packages, withdrawn or not, or null when there is no complete
     // snapshot to read. Never served from a partial one: a rebuild that has streamed a withdrawn duplicate
-    // but not yet its active twin would suppress a live advisory.
+    // but not yet its active twin would suppress a live advisory. A rebuild is gated by seedComplete; an
+    // incremental pass never shows a partial state, because incrementalSyncOsv publishes it in one
+    // transaction and only when every changed advisory was re-read.
     links: (ecosystem: string, packageNames: string[]) => Map<string, OsvAdvisoryLink[]> | null
 }
 

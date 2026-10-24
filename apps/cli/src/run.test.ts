@@ -510,11 +510,12 @@ function seededScanArgs(...extra: string[]): string[] {
 // GHSA-vfj7-8cjw-p6xm, which GitHub withdrew on 2026-10-23.
 describe('gemnasium withdrawals', function () {
     const GHSA = 'GHSA-vfj7-8cjw-p6xm'
+    const DUPLICATE = 'GHSA-2222-3333-4444'
     const CVE = 'CVE-2026-93687'
 
-    function osvRows(withdrawn: string | null) {
+    function osvRows(withdrawn: string | null, id = GHSA) {
         return normalizeOsvRecord({
-            id: GHSA,
+            id,
             aliases: [CVE],
             ...(withdrawn ? { withdrawn } : {}),
             affected: [{ package: { name: 'braces', ecosystem: 'npm' }, ranges: [{ type: 'SEMVER', events: [{ introduced: '0' }, { last_affected: '3.0.3' }] }] }]
@@ -536,6 +537,8 @@ describe('gemnasium withdrawals', function () {
     }
 
     beforeEach(function feedsWithBraces() {
+        // Restored explicitly: a test that swaps in its own implementation would otherwise leak it.
+        feeds.fetchOsvAdvisoryRows.mockImplementation(async function rows() { return [] })
         feeds.streamGemnasiumArchive.mockImplementation(async function* archive() {
             yield {
                 rows: [{
@@ -572,6 +575,39 @@ describe('gemnasium withdrawals', function () {
         expect(feeds.fetchOsvAdvisoryRows).toHaveBeenCalledWith(GHSA, 'npm', expect.anything())
         expect(out()).not.toContain(CVE)
         expect(err()).not.toContain('OSV withdrawal data is not downloaded')
+    })
+
+    // SENTINEL-48: GitHub withdraws GHSA-A as a duplicate of a newly published GHSA-B, both aliasing CVE-X,
+    // and B's fetch fails. Writing A's withdrawal alone made every linked record look withdrawn, so the run
+    // dropped a live CVE-X and passed --fail-on high. The run must stamp from the last complete snapshot,
+    // and the next run, which re-reads both, must still report CVE-X.
+    it('keeps failing the gate on a live duplicate whose replacement could not be fetched', async function () {
+        await makeBracesProject()
+        argv(...gemnasiumRun('--yes', '--fail-on', 'high'))
+        expect(await main()).toBe(EXIT_THRESHOLD)
+
+        // Cast: the doubles are typed by their defaults, an empty manifest and no rows.
+        const manifest = { status: 'ok', ids: [GHSA, DUPLICATE], etag: 'etag-2', newestIso: '2026-10-23T12:53:02Z' } as never
+        feeds.fetchOsvChangedIds.mockResolvedValueOnce(manifest)
+        feeds.fetchOsvAdvisoryRows.mockImplementation(async function partial(id: string) {
+            if (id === DUPLICATE) throw new Error('HTTP 503')
+            return osvRows('2026-10-23T12:53:02Z') as never
+        })
+        stdout.length = 0
+        argv(...gemnasiumRun('--fail-on', 'high'))
+        expect(await main()).toBe(EXIT_THRESHOLD)
+        expect(out()).toContain(CVE)
+        expect(err()).toContain(DUPLICATE + ' could not be re-read')
+
+        feeds.fetchOsvChangedIds.mockResolvedValueOnce(manifest)
+        feeds.fetchOsvAdvisoryRows.mockImplementation(async function complete(id: string) {
+            return osvRows(id === GHSA ? '2026-10-23T12:53:02Z' : null, id) as never
+        })
+        stdout.length = 0
+        argv(...gemnasiumRun('--fail-on', 'high'))
+        expect(await main()).toBe(EXIT_THRESHOLD)
+        expect(feeds.fetchOsvAdvisoryRows).toHaveBeenCalledWith(DUPLICATE, 'npm', expect.anything())
+        expect(out()).toContain(CVE)
     })
 
     it('lists the evidence download in the consent prompt', async function () {

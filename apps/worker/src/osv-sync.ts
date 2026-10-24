@@ -3,7 +3,8 @@ import { dirname } from 'node:path'
 import {
     OSV_REQUIRED_FREE_BYTES,
     OSV_SEED_DOWNLOAD_BYTES,
-    type EcosystemId
+    type EcosystemId,
+    type OsvAdvisoryRow
 } from '@sentinello/core'
 import {
     OSV_INCREMENTAL_MAX_IDS,
@@ -136,7 +137,8 @@ export async function seedOsv(
 // Incremental sync for ONE ecosystem: conditionally fetch <ecosystem>/modified_id.csv, take every id
 // modified after the stored cursor, fetch each id's current JSON, and replace its rows FOR THIS ECOSYSTEM
 // ONLY. Advisories that 404 (deleted upstream) are purged; one that comes back withdrawn keeps its rows
-// with `withdrawn` set, as the seed does, because gemnasium reads them as withdrawal evidence. Advances the ecosystem's
+// with `withdrawn` set, as the seed does, because gemnasium reads them as withdrawal evidence. The whole
+// pass is published atomically, and only once every changed id was re-read, advancing the ecosystem's
 // cursor to the newest seen. When the feed has not been republished since the stored ETag, this costs a
 // single round trip and transfers nothing.
 export async function incrementalSyncOsv(
@@ -180,60 +182,68 @@ export async function incrementalSyncOsv(
         if (changed.etag) setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.modifiedIdsEtag, ecosystem), changed.etag)
         return { status: 'ok', upserted: 0, recordCount: ecoCount(), message: 'no changes' }
     }
-    let upserted = 0
-    // An advisory we could not re-read is an advisory we must not drop. This loop used to delete the old
-    // rows FIRST and fetch second, so any timeout, 5xx or worker shutdown erased that advisory — and the
-    // cursor then advanced regardless, putting the id permanently behind it. The comment claimed the cursor
-    // only advanced on success; it did not, so the loss was silent and survived until the next full re-seed.
+    // The pass is staged, then published as ONE transaction, and only when every changed id was re-read.
+    //
+    // An advisory we could not re-read is an advisory we must not drop: an early version of this loop
+    // deleted the old rows first and fetched second, so any timeout erased that advisory and the cursor
+    // moved past it regardless. Replacing each advisory as its fetch landed fixed that, but still exposed
+    // every partial pass to the scans running meanwhile and left it in place after a failure. That is
+    // harmless to OSV matching, which reads each advisory on its own, and not to gemnasium, which reads
+    // this cache as withdrawal EVIDENCE across advisories: GitHub withdraws GHSA-A as a duplicate of a newly
+    // published GHSA-B, both aliasing CVE-X; with A's withdrawal applied and B's fetch failed (or not yet
+    // reached), every record linked to CVE-X looks withdrawn and gemnasium suppresses a live advisory. So
+    // the cache only ever moves from one complete snapshot to the next: scans during the pass read the
+    // previous one, a failed or aborted pass leaves it untouched for the next sync to retry, and a worker
+    // killed mid-publish rolls the transaction back.
     //
     // A 404 is not a failure here: fetchOsvAdvisoryRows returns [] for an advisory removed upstream, which
     // is exactly the deletion signal, and the replace below applies it. A withdrawn advisory is not a
     // deletion: its rows come back with `withdrawn` set and replace the active ones, so nothing matches on
     // them any more while gemnasium can still see the withdrawal.
-    let skipped = 0
+    const staged: OsvAdvisoryRow[] = []
+    let failure: string | null = null
     for (const id of changed.ids) {
         if (abortSignal && abortSignal.aborted) {
-            // Every id not yet reached is unprocessed, so the cursor must not move past them either.
-            skipped += 1
+            failure = 'the sync was aborted before every changed advisory was re-read'
             break
         }
-        let rows
         try {
-            rows = await fetchOsvAdvisoryRows(id, ecosystem, { abortSignal })
-        } catch {
-            skipped += 1
-            continue
-        }
-        // Replace only now that the replacement is in hand. Scoped to the ecosystem so a sibling
-        // ecosystem's rows for the same id survive, and so a package dropped from `affected` does not linger.
-        deleteOsvAdvisories(db, [id], ecosystem)
-        if (rows.length > 0) {
-            upsertOsvAdvisories(db, rows)
-            upserted += rows.length
+            const rows = await fetchOsvAdvisoryRows(id, ecosystem, { abortSignal })
+            for (const row of rows) staged.push(row)
+        } catch (err) {
+            // Nothing of this pass will be published, so the remaining fetches would be wasted.
+            failure = id + ' could not be re-read (' + errText(err) + ')'
+            break
         }
     }
-    const recordCount = ecoCount()
-    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.recordCount, ecosystem), recordCount)
-    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.refreshedAt, ecosystem), Date.now())
-    // The cursor advances only when every changed id was actually processed. Leaving it where it is costs a
-    // repeat of this window next sync — idempotent, and self-limiting because a window that keeps growing
-    // eventually crosses OSV_INCREMENTAL_MAX_IDS and re-seeds outright. Advancing it while ids went
-    // unprocessed is the one outcome that cannot be recovered from.
-    if (skipped === 0) {
+    if (failure !== null) {
+        // The cursor is held, so the next sync repeats this window — idempotent, and self-limiting because a
+        // window that keeps growing eventually crosses OSV_INCREMENTAL_MAX_IDS and re-seeds outright. The
+        // stored ETag is cleared too, and both halves are needed: holding the cursor alone would not retry
+        // anything, because the next sync would send the old ETag, OSV would answer 304, and the pass would
+        // return "not modified" without ever revisiting the window. refreshedAt stays where it is: the
+        // cache is still the snapshot that sync produced.
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.modifiedIdsEtag, ecosystem), null)
+        const message = failure + '; none of the ' + changed.ids.length + ' changed advisories were applied and the pass is retried from the previous cursor'
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), message)
+        console.warn('[osv-sync] ' + ecosystem + ': ' + message)
+        return { status: 'error', upserted: 0, recordCount: ecoCount(), message }
+    }
+    const recordCount = db.transaction(function publish(): number {
+        // Scoped to the ecosystem so a sibling ecosystem's rows for the same id survive, and so a package
+        // dropped from `affected` does not linger.
+        deleteOsvAdvisories(db, changed.ids, ecosystem)
+        upsertOsvAdvisories(db, staged)
+        const count = ecoCount()
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.recordCount, ecosystem), count)
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.refreshedAt, ecosystem), Date.now())
         setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), null)
         if (changed.newestIso) setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastModified, ecosystem), changed.newestIso)
         if (changed.etag) setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.modifiedIdsEtag, ecosystem), changed.etag)
-    } else {
-        // The stored ETag is cleared as well as the cursor being held, and both halves are needed. Holding
-        // the cursor alone would not retry anything: the next sync would send the old ETag, OSV would answer
-        // 304, and the pass would return "not modified" without ever revisiting the ids it failed to read.
-        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.modifiedIdsEtag, ecosystem), null)
-        const message = skipped + ' of ' + changed.ids.length + ' changed advisories could not be re-read; keeping the previous cursor so they are retried'
-        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), message)
-        console.warn('[osv-sync] ' + ecosystem + ': ' + message)
-    }
-    console.log('[osv-sync] incremental sync (' + ecosystem + '): ' + changed.ids.length + ' changed advisor(ies), ' + upserted + ' rows upserted')
-    return { status: 'ok', upserted, recordCount, message: null }
+        return count
+    })
+    console.log('[osv-sync] incremental sync (' + ecosystem + '): ' + changed.ids.length + ' changed advisor(ies), ' + staged.length + ' rows upserted')
+    return { status: 'ok', upserted: staged.length, recordCount, message: null }
 }
 
 function getCursorMs(db: OsvDrizzleDb, ecosystem: EcosystemId): number {

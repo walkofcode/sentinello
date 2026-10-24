@@ -30,7 +30,8 @@ export type LoadedCache = {
 // The OSV file is also gemnasium's withdrawal evidence, so it is read whenever gemnasium is selected,
 // whether or not OSV is, but only when its meta says it is complete at the current normalizer version: a
 // partial or old-shape file could hold a withdrawn duplicate without its active twin and drop a live
-// advisory.
+// advisory. A refresh never leaves a partial file behind: refreshOsv rewrites it only once every changed
+// advisory was re-read, so a seeded file is always a complete snapshot.
 export async function loadCacheForPackages(
     cacheDir: string,
     ecosystem: string,

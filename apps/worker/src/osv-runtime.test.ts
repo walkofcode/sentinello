@@ -1412,6 +1412,68 @@ describe('every batch re-checks withdrawals — end to end', function () {
         expect(getOsvMeta<string>(osv.db, osvMetaKeyFor(OSV_META_KEYS.lastError, 'npm'))).toContain('ECONNRESET')
     })
 
+    // SENTINEL-48: GitHub withdraws GHSA-A as a duplicate of a newly published GHSA-B, both aliasing CVE-X,
+    // and B's fetch fails. Publishing A's withdrawal alone made every linked record look withdrawn, so the
+    // batch resolved a live CVE-X. The batch must scan the last complete snapshot, and the retry that
+    // lands B must keep CVE-X open.
+    it('keeps a live duplicate open when its replacement failed to fetch, and after the retry lands it', async function () {
+        completeSnapshot(osvRows(GHSA, null))
+        const c = await controllers()
+        await batch(c)
+        expect(openFindings()).toEqual([CVE])
+
+        feed.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: [GHSA, DUPLICATE], newestIso: WITHDRAWN_AT, etag: 'etag-2' })
+        feed.fetchOsvAdvisoryRows.mockImplementation(async function partial(id: string) {
+            if (id === DUPLICATE) throw new Error('503 Service Unavailable')
+            return osvRows(GHSA, WITHDRAWN_AT)
+        })
+        await batch(c)
+
+        expect(getOsvMeta<string>(osv.db, osvMetaKeyFor(OSV_META_KEYS.lastError, 'npm'))).toContain(DUPLICATE + ' could not be re-read')
+        expect(c.osvController.evidence.ready('npm')).toBe(true)
+        expect(latestScan('gemnasium')).toMatchObject({ status: 'ok' })
+        expect(openFindings()).toEqual([CVE])
+        expect(highCount()).toBe(1)
+
+        // The retry: the cursor and ETag were held back, so the next batch re-reads the whole window.
+        feed.fetchOsvAdvisoryRows.mockImplementation(async function complete(id: string) {
+            return osvRows(id, id === GHSA ? WITHDRAWN_AT : null)
+        })
+        await batch(c)
+
+        expect(feed.fetchOsvChangedIds.mock.calls.at(-1)?.slice(0, 3)).toEqual(['npm', Date.parse('2026-10-22T00:00:00Z'), null])
+        expect(getOsvMeta<string>(osv.db, osvMetaKeyFor(OSV_META_KEYS.lastError, 'npm'))).toBeNull()
+        expect(openFindings()).toEqual([CVE])
+        expect(highCount()).toBe(1)
+    })
+
+    // A scan that reads the evidence while a multi-id pass is still fetching (a batch that started before
+    // the cron's sync, say) sees the previous snapshot, never A's withdrawal without B.
+    it('serves the previous snapshot as evidence while a multi-id refresh is in progress', async function () {
+        completeSnapshot(osvRows(GHSA, null))
+        const c = await controllers()
+        const replacement = deferred<ReturnType<typeof osvRows>>()
+        feed.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: [GHSA, DUPLICATE], newestIso: WITHDRAWN_AT, etag: 'etag-2' })
+        feed.fetchOsvAdvisoryRows.mockImplementation(async function held(id: string) {
+            if (id === DUPLICATE) return await replacement.promise
+            return osvRows(GHSA, WITHDRAWN_AT)
+        })
+        const refresh = c.osvController.refresh()
+        await vi.waitFor(function bothRequested() {
+            expect(feed.fetchOsvAdvisoryRows).toHaveBeenCalledTimes(2)
+        })
+
+        expect(c.osvController.evidence.links('npm', ['braces'])?.get('braces')).toEqual([
+            { advisoryId: GHSA, aliases: [CVE], withdrawn: null }
+        ])
+
+        replacement.resolve(osvRows(DUPLICATE, null))
+        await refresh
+        expect(c.osvController.evidence.links('npm', ['braces'])?.get('braces')).toHaveLength(2)
+        await batch(c)
+        expect(openFindings()).toEqual([CVE])
+    })
+
     // SENTINEL-45: every OSV cell off. The cache is still opened, seeded and refreshed as evidence, and no
     // OSV scanner ever joins the batch.
     it('seeds and refreshes the evidence with OSV matching disabled', async function () {
