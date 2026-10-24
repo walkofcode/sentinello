@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.7.4](https://github.com/walkofcode/sentinello/compare/v3.7.3...v3.7.4) (2026-10-24)
+
+
+### Bug Fixes
+
+* **deps:** bump next to 16.4.2 ([1bd305b](https://github.com/walkofcode/sentinello/commit/1bd305b5ba2a220a9e096ccc46cdd23d577b1c9f))
+* **deps:** bump next to 16.4.2 (security) ([e9b4346](https://github.com/walkofcode/sentinello/commit/e9b434619d8af6ca7e90bc9c29bbf6d661ba6d08))
+* **scanners:** drop gemnasium advisories GitHub has withdrawn (M1) ([01d1940](https://github.com/walkofcode/sentinello/commit/01d194035f03219c1b1839e3459f989746f22520))
+
+
+### Documentation
+
+* **releases:** 3.7.4 notes say what npx sentinello does when the OSV download is declined ([9cf506b](https://github.com/walkofcode/sentinello/commit/9cf506b34f5bd279bc4ffd92a64a08b44e788d75))
+* **releases:** 3.7.4 ships on 2026-10-24 ([6de02df](https://github.com/walkofcode/sentinello/commit/6de02dfbe403fd1c9416663aa6d6c224212ffbb2))
+
 ## [3.7.3](https://github.com/walkofcode/sentinello/compare/v3.7.2...v3.7.3) (2026-10-22)
 
 
