@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.7.5](https://github.com/walkofcode/sentinello/compare/v3.7.4...v3.7.5) (2026-10-24)
+
+
+### Bug Fixes
+
+* **deps:** security updates ([f91c0d8](https://github.com/walkofcode/sentinello/commit/f91c0d816aae2f1305a54b20bcf069e622dcabb3))
+
 ## [3.7.4](https://github.com/walkofcode/sentinello/compare/v3.7.3...v3.7.4) (2026-10-24)
 
 
