@@ -771,6 +771,22 @@ describe('runSync — the cursor and record-count fallbacks', function () {
         // touch() found nothing to touch, so no state row was invented for a cache that is not there.
         expect(await stateOf('osv')).toBeNull()
     })
+
+    // The same vanished state on a pass that fails: there is no ETag to clear and no count to report, and
+    // the failure must not invent a state row either.
+    it('reports zero rows and invents no state when a pass fails after the state disappeared', async function () {
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-bad'], etag: 'etag-9', newestIso: null })
+        feeds.fetchOsvAdvisoryRows.mockRejectedValue(new Error('connection reset'))
+
+        const outcomes = await runSync(options({ sources: ['osv'] }), {
+            items: [{ source: 'osv', ecosystem: 'npm', purpose: 'findings', kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false }],
+            seedBytes: 0,
+            needsConsent: false
+        })
+
+        expect(outcomes[0]).toMatchObject({ status: 'error', rowCount: 0 })
+        expect(await stateOf('osv')).toBeNull()
+    })
 })
 
 describe('runSync — gemnasium paths that are not advisories', function () {

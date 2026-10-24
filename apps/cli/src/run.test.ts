@@ -589,10 +589,11 @@ describe('gemnasium withdrawals', function () {
         // Cast: the doubles are typed by their defaults, an empty manifest and no rows.
         const manifest = { status: 'ok', ids: [GHSA, DUPLICATE], etag: 'etag-2', newestIso: '2026-10-23T12:53:02Z' } as never
         feeds.fetchOsvChangedIds.mockResolvedValueOnce(manifest)
-        feeds.fetchOsvAdvisoryRows.mockImplementation(async function partial(id: string) {
+        // Cast: the double's default takes no id; this one answers per id.
+        feeds.fetchOsvAdvisoryRows.mockImplementation((async function partial(id: string) {
             if (id === DUPLICATE) throw new Error('HTTP 503')
-            return osvRows('2026-10-23T12:53:02Z') as never
-        })
+            return osvRows('2026-10-23T12:53:02Z')
+        }) as never)
         stdout.length = 0
         argv(...gemnasiumRun('--fail-on', 'high'))
         expect(await main()).toBe(EXIT_THRESHOLD)
@@ -600,9 +601,9 @@ describe('gemnasium withdrawals', function () {
         expect(err()).toContain(DUPLICATE + ' could not be re-read')
 
         feeds.fetchOsvChangedIds.mockResolvedValueOnce(manifest)
-        feeds.fetchOsvAdvisoryRows.mockImplementation(async function complete(id: string) {
-            return osvRows(id === GHSA ? '2026-10-23T12:53:02Z' : null, id) as never
-        })
+        feeds.fetchOsvAdvisoryRows.mockImplementation((async function complete(id: string) {
+            return osvRows(id === GHSA ? '2026-10-23T12:53:02Z' : null, id)
+        }) as never)
         stdout.length = 0
         argv(...gemnasiumRun('--fail-on', 'high'))
         expect(await main()).toBe(EXIT_THRESHOLD)
