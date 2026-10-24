@@ -49,6 +49,10 @@ import { countRows, createRowWriter, rewriteRows } from './store'
 export type SyncPlanItem = {
     source: SourceId
     ecosystem: EcosystemId
+    // 'findings' is a source the run matches against. 'withdrawal-evidence' is the OSV cache fetched only
+    // so gemnasium can drop advisories GitHub has withdrawn, when OSV itself is not a selected source:
+    // gemnasium-db records no withdrawal, and OSV mirrors GitHub's.
+    purpose: 'findings' | 'withdrawal-evidence'
     // 'seed' is the big first download; 'refresh' is the cheap incremental catch-up.
     kind: 'seed' | 'refresh'
     // Bytes the seed will transfer, when known. Populated for 'seed' so the consent prompt can state a
@@ -87,19 +91,34 @@ export type SyncOptions = {
     onStatus?: (item: SyncPlanItem, phase: 'start' | 'done') => void
 }
 
+// What the run must sync: every selected source, plus OSV as gemnasium's withdrawal evidence when gemnasium
+// is selected and OSV is not. The evidence rides the same plan, so a first download goes through the same
+// consent prompt and --yes, and every later run refreshes it just like a selected source.
+export type SyncTarget = { source: SourceId; purpose: SyncPlanItem['purpose'] }
+
+export function syncTargets(sources: readonly SourceId[]): SyncTarget[] {
+    const targets = sources.map(function forFindings(source): SyncTarget {
+        return { source, purpose: 'findings' }
+    })
+    if (sources.includes('gemnasium') && !sources.includes('osv')) {
+        targets.push({ source: 'osv', purpose: 'withdrawal-evidence' })
+    }
+    return targets
+}
+
 // Works out what each enabled source needs before anything is downloaded, so the caller can show the cost
 // and ask for consent. A source already seeded at the current normalizer version needs only a refresh.
 export async function planSync(options: SyncOptions): Promise<SyncPlan> {
     const meta = await readCacheMeta(options.cacheDir)
     const items: SyncPlanItem[] = []
     let seedBytes = 0
-    for (const source of options.sources) {
+    for (const { source, purpose } of syncTargets(options.sources)) {
         if (source === 'osv' && osvFeedDisabled()) continue
         if (source === 'gemnasium' && gemnasiumFeedDisabled()) continue
         const normalizerVersion = source === 'osv' ? OSV_NORMALIZER_VERSION : GEMNASIUM_NORMALIZER_VERSION
         const seeded = isSeeded(meta, source, options.ecosystem, normalizerVersion)
         if (seeded) {
-            items.push({ source, ecosystem: options.ecosystem, kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false })
+            items.push({ source, ecosystem: options.ecosystem, purpose, kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false })
             continue
         }
         const estimate = await estimateSeedBytes(source, options.ecosystem, options.abortSignal)
@@ -107,6 +126,7 @@ export async function planSync(options: SyncOptions): Promise<SyncPlan> {
         items.push({
             source,
             ecosystem: options.ecosystem,
+            purpose,
             kind: 'seed',
             downloadBytes: estimate.bytes,
             downloadBytesEstimated: estimate.estimated
@@ -268,40 +288,52 @@ async function refreshOsv(options: SyncOptions, meta: CacheMeta, item: SyncPlanI
         touch(meta, 'osv', item.ecosystem, changed.etag)
         return { source: 'osv', ecosystem: item.ecosystem, status: 'unchanged', rowCount: state?.recordCount ?? 0, message: null }
     }
-    // Only the advisories we actually re-read are replaced. Dropping the whole changed set while appending
-    // just the successful subset deleted every id that timed out or was cut short by an abort — and the
-    // cursor then moved past them, so no later refresh reconsidered them. Each flaky run monotonically
-    // eroded the user's cache while reporting the sync as successful.
+    // The pass is staged and the cache file rewritten only when every changed id was re-read.
+    //
+    // Rewriting the file with just the advisories that were re-read kept a failed id's old rows, but
+    // still published a partial pass. That is harmless to OSV matching, which reads each advisory on its
+    // own, and not to gemnasium, which reads this file as withdrawal EVIDENCE across advisories: GitHub
+    // withdraws GHSA-A as a duplicate of a newly published GHSA-B, both aliasing CVE-X; with A's withdrawal
+    // written and B's fetch failed, every record linked to CVE-X looks withdrawn and gemnasium drops a live
+    // advisory. So the file only ever moves from one complete snapshot to the next. The rewrite lands on a
+    // temp file renamed into place, so a concurrent run reading the cache sees either snapshot whole.
     const append: OsvAdvisoryRow[] = []
-    const replaced = new Set<string>()
-    let skipped = 0
+    let failure: string | null = null
     for (const id of changed.ids) {
         if (options.abortSignal && options.abortSignal.aborted) {
-            skipped += 1
+            failure = 'the refresh was cancelled before every changed advisory was re-read'
             break
         }
         try {
             const rows = await fetchOsvAdvisoryRows(id, item.ecosystem, fetchOptionsFor(options, item))
             for (const row of rows) append.push(row)
-            replaced.add(id)
-        } catch {
-            // One advisory failing must not abort the pass; its existing rows stay put until it is re-read.
-            skipped += 1
-            continue
+        } catch (err) {
+            // Nothing of this pass will be written, so the remaining fetches would be wasted.
+            failure = id + ' could not be re-read (' + errText(err) + ')'
+            break
+        }
+    }
+    if (failure !== null) {
+        // The cursor is held so the next refresh repeats this window, and the ETag is cleared — holding
+        // the cursor alone would let the next refresh answer "unchanged" from the ETag and never retry.
+        // The failure is an error outcome, so the run offers its usual retry.
+        if (state) state.etag = null
+        return {
+            source: 'osv',
+            ecosystem: item.ecosystem,
+            status: 'error',
+            rowCount: state?.recordCount ?? 0,
+            message: failure + '; the previous OSV data is kept until a refresh re-reads all ' + changed.ids.length + ' changed advisories'
         }
     }
     const path = advisoryFilePath(options.cacheDir, 'osv', item.ecosystem)
-    const rowCount = await rewriteRows(path, { dropAdvisoryIds: replaced, append })
-    // The cursor advances only on a complete pass, and the ETag is cleared when it does not — holding the
-    // cursor alone would let the next refresh answer "unchanged" from the ETag and never retry.
-    const complete = skipped === 0
-    const previousCursor = state?.cursorIso ?? null
+    const rowCount = await rewriteRows(path, { dropAdvisoryIds: new Set(changed.ids), append })
     setSourceState(meta, 'osv', item.ecosystem, {
         normalizerVersion: OSV_NORMALIZER_VERSION,
         recordCount: rowCount,
         refreshedAt: Date.now(),
-        cursorIso: complete ? (changed.newestIso ?? previousCursor) : previousCursor,
-        etag: complete ? changed.etag : null
+        cursorIso: changed.newestIso ?? state?.cursorIso ?? null,
+        etag: changed.etag
     })
     return {
         source: 'osv',

@@ -12,10 +12,31 @@ import {
     upsertOsvAdvisories,
     type OsvDrizzleDb
 } from '@sentinello/db'
-import { OSV_META_KEYS, insertScan, listRecentScanRequests, upsertProject, upsertRoot } from '@sentinello/db'
+import {
+    GEMNASIUM_META_KEYS,
+    GEMNASIUM_NORMALIZER_VERSION,
+    OSV_META_KEYS,
+    countOsvAdvisories,
+    getDashboardSummary,
+    getOsvMeta,
+    insertScan,
+    listCurrentFindingsForProject,
+    listFindingsForProject,
+    listProjects,
+    listRecentScanRequests,
+    listScansForProject,
+    openGemnasiumDb,
+    runGemnasiumMigrations,
+    setGemnasiumMeta,
+    upsertGemnasiumAdvisories,
+    upsertProject,
+    upsertRoot,
+    type GemnasiumDrizzleDb
+} from '@sentinello/db'
 import { sourceEnabledKey, sourceStatusKey } from '@sentinello/core'
+import { normalizeOsvRecord } from '@sentinello/feeds'
 import type { SqliteDb } from '@sentinello/db'
-import { closeWorkerTestDb, openWorkerTestDb, type WorkerTestDb } from './worker-test-db.fixture'
+import { closeWorkerTestDb, makeTree, openWorkerTestDb, type WorkerTestDb } from './worker-test-db.fixture'
 import { createWorkerRuntime, type WorkerRuntime } from './runtime'
 
 // The OSV runtime is the piece that decides whether an operator's estate is auditable against OSV at all,
@@ -52,34 +73,56 @@ vi.mock('node-cron', function mockNodeCron() {
 })
 
 const sync = vi.hoisted(function makeSyncDouble() {
+    // The 4th parameter is the cache-discard announcement. Carried on the double even though the default
+    // implementation ignores it, so a test can drive the mid-rebuild mirror.
+    async function stubSync(_db: unknown, _ecosystem: string, _signal?: AbortSignal, _onCacheDiscarded?: () => void) {
+        return { status: 'ok', upserted: 0, recordCount: 0, message: null }
+    }
     return {
         feedDisabled: false,
-        // The 4th parameter is the cache-discard announcement. Carried on the double even though the
-        // default implementation ignores it, so a test can drive the mid-rebuild mirror.
-        seedOsv: vi.fn(async function seedOsv(
-            _db: unknown,
-            _ecosystem: string,
-            _signal?: AbortSignal,
-            _onCacheDiscarded?: () => void
-        ) {
-            return { status: 'ok', upserted: 0, recordCount: 0, message: null }
-        }),
-        incrementalSyncOsv: vi.fn(async function incrementalSyncOsv(
-            _db: unknown,
-            _ecosystem: string,
-            _signal?: AbortSignal,
-            _onCacheDiscarded?: () => void
-        ) {
-            return { status: 'ok', upserted: 0, recordCount: 0, message: null }
-        })
+        stubSync,
+        // The real module, captured by the mock factory, for the end-to-end batches below: they drive the
+        // real seed and incremental sync against a faked feed rather than this double.
+        real: null as typeof import('./osv-sync') | null,
+        seedOsv: vi.fn(stubSync),
+        incrementalSyncOsv: vi.fn(stubSync)
     }
 })
 
-vi.mock('./osv-sync', function mockOsvSync() {
+vi.mock('./osv-sync', async function mockOsvSync(importOriginal) {
+    sync.real = await importOriginal<typeof import('./osv-sync')>()
     return {
         seedOsv: sync.seedOsv,
         incrementalSyncOsv: sync.incrementalSyncOsv,
         osvFeedDisabled: function osvFeedDisabled() { return sync.feedDisabled }
+    }
+})
+
+// The OSV feed itself, for the end-to-end batches: the real osv-sync reads it through these three, the way
+// osv-sync.test.ts fakes it. Everything else in @sentinello/feeds is real.
+const feed = vi.hoisted(function makeFeedDouble() {
+    return {
+        fetchOsvChangedIds: vi.fn(),
+        fetchOsvAdvisoryRows: vi.fn(),
+        streamOsvSeed: vi.fn()
+    }
+})
+
+vi.mock('@sentinello/feeds', async function mockFeeds(importOriginal) {
+    return { ...(await importOriginal<typeof import('@sentinello/feeds')>()), ...feed }
+})
+
+// The npm registry the batch settles fixes against: answers nothing, so no test reaches the network.
+vi.mock('@sentinello/fixes', async function mockFixes(importOriginal) {
+    const actual = await importOriginal<typeof import('@sentinello/fixes')>()
+    return {
+        ...actual,
+        createNpmRegistryClient: function createNpmRegistryClient() {
+            return {
+                lookup: async function lookup() { return new Map() },
+                weeklyDownloads: async function weeklyDownloads() { return new Map() }
+            }
+        }
     }
 })
 
@@ -88,11 +131,16 @@ const {
     enabledOsvEcosystems,
     extraSourceCells,
     npmAuditSourceEnabled,
+    osvCacheNeeded,
     osvSourceEnabled,
     runSync,
     selectScanners,
-    startOsvRuntime
+    startOsvRuntime,
+    syncedOsvEcosystems,
+    withdrawalEvidenceFrom
 } = await import('./osv-runtime')
+const { createGemnasiumController } = await import('./gemnasium-runtime')
+const { sweepActiveProjects } = await import('./scheduler')
 
 let handle: WorkerTestDb
 let runtime: WorkerRuntime
@@ -125,8 +173,13 @@ function openCache(): { db: OsvDrizzleDb; sqlite: SqliteDb } {
 beforeEach(async function setup() {
     cron.reset()
     sync.feedDisabled = false
-    sync.seedOsv.mockClear()
-    sync.incrementalSyncOsv.mockClear()
+    // mockReset, not mockClear: an end-to-end test swaps in the real implementation, and vi.restoreAllMocks
+    // does not undo an implementation set on a vi.fn.
+    sync.seedOsv.mockReset().mockImplementation(sync.stubSync)
+    sync.incrementalSyncOsv.mockReset().mockImplementation(sync.stubSync)
+    feed.fetchOsvChangedIds.mockReset()
+    feed.fetchOsvAdvisoryRows.mockReset()
+    feed.streamOsvSeed.mockReset()
     handle = await openWorkerTestDb('worker-osv-runtime')
     runtime = createWorkerRuntime()
     osvPath = join(handle.dir, 'osv.db')
@@ -278,7 +331,7 @@ describe('createOsvController — lazy lifecycle', function () {
         enable('npm', false)
         controller.reload()
         expect(controller.getScanner()).toBeNull()
-        expect(logLines()).toContain('[osv] source disabled; runtime stopped')
+        expect(logLines()).toContain('[osv] no OSV or gemnasium cell enabled; runtime stopped')
     })
 
     it('is idempotent — reloading with no change leaves the same scanner in place', function () {
@@ -812,5 +865,671 @@ describe('the scanner the runtime produces', function () {
         const rt = startOsvRuntime(handle.db, runtime)
         const result = await scanWith(rt.scanner as never, [{ ecosystem: 'npm', name: 'left-pad', version: '1.0.0' }])
         expect((result as unknown as { findings: unknown[] }).findings).toEqual([])
+    })
+})
+
+// --- The OSV cache as gemnasium's withdrawal evidence (SENTINEL-42, 45, 46) ---
+//
+// gemnasium-db records no withdrawal, so the OSV cache is synced for every gemnasium cell as well as every
+// OSV cell, and the gemnasium scanner stamps withdrawals from it. OSV FINDINGS still come only from enabled
+// OSV cells. Everything below is about the cache's second consumer.
+
+function enableGemnasium(ecosystem: string, on = true): void {
+    setConfigValue(handle.db, sourceEnabledKey('gemnasium' as never, ecosystem as never), on)
+}
+
+function markUsable(db: OsvDrizzleDb, ecosystem: string, normalizerVersion: number = OSV_NORMALIZER_VERSION): void {
+    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, ecosystem), true)
+    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, ecosystem), normalizerVersion)
+}
+
+// A promise the test resolves by hand, to hold a sync in flight while a second caller arrives.
+function deferred<T>() {
+    let resolve!: (value: T) => void
+    let reject!: (err: unknown) => void
+    const promise = new Promise<T>(function executor(res, rej) {
+        resolve = res
+        reject = rej
+    })
+    return { promise, resolve, reject }
+}
+
+async function settle(): Promise<void> {
+    await Promise.allSettled(Array.from(runtime.inFlight))
+}
+
+describe('the OSV cache follows the gemnasium cells too', function () {
+    it('syncs the union of the OSV and gemnasium cells, each ecosystem once', function () {
+        enableGemnasium('npm')
+        expect(syncedOsvEcosystems(handle.db)).toEqual(['npm'])
+        enable('npm')
+        expect(syncedOsvEcosystems(handle.db)).toEqual(['npm'])
+        enableGemnasium('npm', false)
+        expect(syncedOsvEcosystems(handle.db)).toEqual(['npm'])
+        enable('npm', false)
+        expect(syncedOsvEcosystems(handle.db)).toEqual([])
+    })
+
+    it('is needed for a gemnasium cell alone, and not with every cell off', function () {
+        expect(osvCacheNeeded(handle.db)).toBe(false)
+        enableGemnasium('npm')
+        expect(osvCacheNeeded(handle.db)).toBe(true)
+        expect(osvSourceEnabled(handle.db)).toBe(false)
+    })
+
+    it('starts the runtime for a gemnasium cell but keeps the OSV scanner out of the batch', function () {
+        enableGemnasium('npm')
+        const controller = createOsvController(handle.db, runtime)
+        expect(existsSync(osvPath)).toBe(true)
+        expect(controller.getScanner()).not.toBeNull()
+        const npmAudit = fakeScanner('npm-audit')
+        expect(selectScanners(handle.db, npmAudit, extraSourceCells({ osvController: controller })).map(function n(s) { return s.name })).toEqual(['npm-audit'])
+    })
+
+    it('stops the runtime once the last gemnasium cell is turned off', function () {
+        enableGemnasium('npm')
+        const controller = createOsvController(handle.db, runtime)
+        enableGemnasium('npm', false)
+        controller.reload()
+        expect(controller.getScanner()).toBeNull()
+    })
+
+    it('seeds and mirrors the status of an ecosystem only gemnasium needs', async function () {
+        enableGemnasium('npm')
+        startOsvRuntime(handle.db, runtime)
+        await settle()
+        expect(sync.seedOsv).toHaveBeenCalledWith(expect.anything(), 'npm', expect.anything(), expect.any(Function))
+        expect(getConfigValue(handle.db, sourceStatusKey('osv', 'npm'))).toMatchObject({ seedComplete: false, syncStartedAt: null })
+    })
+
+    // gemnasium recorded osv_db_not_seeded while its evidence was missing; only this cache landing clears it.
+    it('re-scans at boot when gemnasium still holds a verdict the usable cache has cleared', function () {
+        enableGemnasium('npm')
+        const cache = openCache()
+        markUsable(cache.db, 'npm')
+        cache.sqlite.close()
+        upsertRoot(handle.db, { id: 'root-x', path: '/repo', label: null, createdAt: 1 })
+        upsertProject(handle.db, {
+            id: 'proj-x', rootId: 'root-x', relPath: 'app', name: 'app', alias: null,
+            packageManager: 'npm', nvmrcVersion: null, gitBranch: null, ecosystems: ['npm'],
+            muted: false, tags: [], createdAt: 1, updatedAt: 1
+        })
+        insertScan(handle.db, {
+            id: 'scan-x', projectId: 'proj-x', startedAt: 1, finishedAt: 2, scanner: 'gemnasium',
+            source: 'gemnasium', ecosystem: 'npm', status: 'unauditable',
+            reasonCode: 'osv_db_not_seeded', durationMs: 1, errorText: null, rawJson: ''
+        })
+        sync.feedDisabled = true
+        startOsvRuntime(handle.db, runtime)
+        expect(listRecentScanRequests(handle.db)).toHaveLength(1)
+    })
+})
+
+describe('the withdrawal evidence the controller exposes', function () {
+    it('is not ready, and has nothing to stamp from, while no runtime runs', function () {
+        const controller = createOsvController(handle.db, runtime)
+        expect(controller.evidence.ready('npm')).toBe(false)
+        expect(controller.evidence.links('npm', ['braces'])).toBeNull()
+    })
+
+    // The air-gapped opt-out: with the feed off nothing new is learnt, and gemnasium is not held hostage.
+    it('is ready with the feed switched off, stamping nothing without a snapshot', function () {
+        sync.feedDisabled = true
+        const controller = createOsvController(handle.db, runtime)
+        expect(controller.evidence.ready('npm')).toBe(true)
+        expect(controller.evidence.links('npm', ['braces'])).toBeNull()
+    })
+
+    it('reads every row, withdrawn or not, from a complete snapshot', function () {
+        enableGemnasium('npm')
+        const cache = openCache()
+        markUsable(cache.db, 'npm')
+        upsertOsvAdvisories(cache.db, [
+            { advisoryId: 'GHSA-a', ecosystem: 'npm', packageName: 'braces', aliases: ['CVE-1'], ranges: [], versions: [], severity: null, summary: null, url: null, malicious: false, withdrawn: 5 },
+            { advisoryId: 'GHSA-b', ecosystem: 'npm', packageName: 'braces', aliases: ['CVE-1'], ranges: [], versions: ['1.0.0'], severity: null, summary: null, url: null, malicious: false, withdrawn: null }
+        ])
+        cache.sqlite.close()
+        const controller = createOsvController(handle.db, runtime)
+        expect(controller.evidence.ready('npm')).toBe(true)
+        expect(controller.evidence.links('npm', ['braces'])?.get('braces')?.map(function id(l) { return l.advisoryId + ':' + l.withdrawn }).sort()).toEqual(['GHSA-a:5', 'GHSA-b:null'])
+    })
+
+    it.each([
+        ['mid-rebuild', function midRebuild(db: OsvDrizzleDb) { markUsable(db, 'npm'); setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, 'npm'), false) }],
+        ['stamped by an older normalizer', function old(db: OsvDrizzleDb) { markUsable(db, 'npm', OSV_NORMALIZER_VERSION - 1) }]
+    ])('is neither ready nor read when the snapshot is %s', function (_label, state) {
+        enableGemnasium('npm')
+        const cache = openCache()
+        state(cache.db)
+        cache.sqlite.close()
+        const controller = createOsvController(handle.db, runtime)
+        expect(controller.evidence.ready('npm')).toBe(false)
+        expect(controller.evidence.links('npm', ['braces'])).toBeNull()
+    })
+
+    it('is read through the scratch tools from any cache handle', function () {
+        const cache = openCache()
+        markUsable(cache.db, 'npm')
+        const evidence = withdrawalEvidenceFrom(function scratch() { return cache.db })
+        expect(evidence.ready('npm')).toBe(true)
+        expect(evidence.links('npm', ['braces'])?.size).toBe(0)
+        cache.sqlite.close()
+    })
+})
+
+// The per-batch refresh (D9): awaited before every batch with no age gate, single-flight with every other
+// sync of the ecosystem, never waiting on a seed.
+describe('refreshEvidence', function () {
+    function usableCache(): void {
+        const cache = openCache()
+        markUsable(cache.db, 'npm')
+        cache.sqlite.close()
+    }
+
+    it('does nothing while no runtime runs', async function () {
+        const controller = createOsvController(handle.db, runtime)
+        await controller.refreshEvidence()
+        expect(sync.incrementalSyncOsv).not.toHaveBeenCalled()
+        expect(sync.seedOsv).not.toHaveBeenCalled()
+    })
+
+    it('does nothing with the feed switched off', async function () {
+        enableGemnasium('npm')
+        usableCache()
+        sync.feedDisabled = true
+        const controller = createOsvController(handle.db, runtime)
+        await controller.refreshEvidence()
+        expect(sync.incrementalSyncOsv).not.toHaveBeenCalled()
+    })
+
+    // OSV findings keep their daily sync; only gemnasium's evidence is re-checked per batch.
+    it('refreshes nothing for an ecosystem only the OSV source uses', async function () {
+        enable('npm')
+        usableCache()
+        const controller = createOsvController(handle.db, runtime)
+        await settle()
+        sync.incrementalSyncOsv.mockClear()
+        await controller.refreshEvidence()
+        expect(sync.incrementalSyncOsv).not.toHaveBeenCalled()
+    })
+
+    it('refreshes a usable gemnasium ecosystem incrementally and waits for it', async function () {
+        enableGemnasium('npm')
+        usableCache()
+        const controller = createOsvController(handle.db, runtime)
+        await settle()
+        sync.incrementalSyncOsv.mockClear()
+        sync.seedOsv.mockClear()
+        await controller.refreshEvidence()
+        expect(sync.incrementalSyncOsv.mock.calls.map(function eco(c) { return c[1] })).toEqual(['npm'])
+        expect(sync.seedOsv).not.toHaveBeenCalled()
+    })
+
+    // No age gate: a refresh that just completed never exempts the next batch.
+    it('refreshes again for every batch, however recent the last refresh', async function () {
+        enableGemnasium('npm')
+        usableCache()
+        const controller = createOsvController(handle.db, runtime)
+        await settle()
+        sync.incrementalSyncOsv.mockClear()
+        await controller.refreshEvidence()
+        await controller.refreshEvidence()
+        expect(sync.incrementalSyncOsv).toHaveBeenCalledTimes(2)
+    })
+
+    it('shares one in-flight refresh between two batches, and both wait for it', async function () {
+        enableGemnasium('npm')
+        usableCache()
+        const controller = createOsvController(handle.db, runtime)
+        await settle()
+        sync.incrementalSyncOsv.mockClear()
+        const gate = deferred<void>()
+        sync.incrementalSyncOsv.mockImplementation(async function held() {
+            await gate.promise
+            return { status: 'ok', upserted: 0, recordCount: 0, message: null }
+        })
+        const done: string[] = []
+        const first = controller.refreshEvidence().then(function a() { done.push('first') })
+        const second = controller.refreshEvidence().then(function b() { done.push('second') })
+        await new Promise(function tick(r) { setImmediate(r) })
+        expect(done).toEqual([])
+        gate.resolve()
+        await Promise.all([first, second])
+        expect(sync.incrementalSyncOsv).toHaveBeenCalledTimes(1)
+        expect(done.sort()).toEqual(['first', 'second'])
+    })
+
+    it('joins the sync "Refresh now" already has in flight', async function () {
+        enableGemnasium('npm')
+        usableCache()
+        const controller = createOsvController(handle.db, runtime)
+        await settle()
+        sync.incrementalSyncOsv.mockClear()
+        const gate = deferred<void>()
+        sync.incrementalSyncOsv.mockImplementation(async function held() {
+            await gate.promise
+            return { status: 'ok', upserted: 0, recordCount: 0, message: null }
+        })
+        const manual = controller.refresh()
+        const batch = controller.refreshEvidence()
+        gate.resolve()
+        await Promise.all([manual, batch])
+        expect(sync.incrementalSyncOsv).toHaveBeenCalledTimes(1)
+    })
+
+    it('starts a background seed for an unusable cache without waiting for it', async function () {
+        enableGemnasium('npm')
+        const controller = createOsvController(handle.db, runtime)
+        await settle()
+        sync.seedOsv.mockClear()
+        const gate = deferred<void>()
+        sync.seedOsv.mockImplementation(async function held(db: unknown, ecosystem: string) {
+            await gate.promise
+            markUsable(db as OsvDrizzleDb, ecosystem)
+            return { status: 'ok', upserted: 0, recordCount: 0, message: null }
+        })
+        await controller.refreshEvidence()
+        expect(sync.seedOsv).toHaveBeenCalledTimes(1)
+        expect(listRecentScanRequests(handle.db)).toHaveLength(0)
+        // A second batch while the seed is still running neither waits nor starts another.
+        await controller.refreshEvidence()
+        expect(sync.seedOsv).toHaveBeenCalledTimes(1)
+        gate.resolve()
+        await settle()
+        // The seed landed: every verdict recorded meanwhile is stale, so the estate is re-scanned once.
+        expect(listRecentScanRequests(handle.db)).toHaveLength(1)
+        expect(controller.evidence.ready('npm')).toBe(true)
+    })
+
+    it('does not re-scan when the background seed left the cache unusable', async function () {
+        enableGemnasium('npm')
+        const controller = createOsvController(handle.db, runtime)
+        await settle()
+        await controller.refreshEvidence()
+        await settle()
+        expect(listRecentScanRequests(handle.db)).toHaveLength(0)
+    })
+
+    it('logs a background seed that throws', async function () {
+        enableGemnasium('npm')
+        const controller = createOsvController(handle.db, runtime)
+        await settle()
+        sync.seedOsv.mockRejectedValue(new Error('disk full'))
+        await controller.refreshEvidence()
+        await settle()
+        expect(errorLines()).toContain('[osv] background seed failed for npm: disk full')
+    })
+
+    // The batch scans against the last complete snapshot rather than failing.
+    it('logs a refresh that throws and lets the batch go on', async function () {
+        enableGemnasium('npm')
+        usableCache()
+        const controller = createOsvController(handle.db, runtime)
+        await settle()
+        sync.incrementalSyncOsv.mockRejectedValue(new Error('database is locked'))
+        await expect(controller.refreshEvidence()).resolves.toBeUndefined()
+        expect(errorLines()).toContain('[osv] withdrawal evidence refresh failed for npm; scanning against the last complete snapshot: database is locked')
+    })
+
+    // A change set past OSV_INCREMENTAL_MAX_IDS re-seeds from inside the refresh: the cache was unusable
+    // for that window, so the estate is re-scanned once it is back.
+    it('re-scans when the refresh rebuilt the cache', async function () {
+        enableGemnasium('npm')
+        usableCache()
+        const controller = createOsvController(handle.db, runtime)
+        await settle()
+        sync.incrementalSyncOsv.mockImplementation(async function rebuild(_db, _eco, _signal, onCacheDiscarded) {
+            if (onCacheDiscarded) onCacheDiscarded()
+            return { status: 'ok', upserted: 0, recordCount: 0, message: null }
+        })
+        await controller.refreshEvidence()
+        expect(listRecentScanRequests(handle.db)).toHaveLength(1)
+    })
+
+    it('does nothing once the worker is shutting down', async function () {
+        enableGemnasium('npm')
+        usableCache()
+        const controller = createOsvController(handle.db, runtime)
+        await settle()
+        sync.incrementalSyncOsv.mockClear()
+        runtime.abortController.abort()
+        await controller.refreshEvidence()
+        expect(sync.incrementalSyncOsv).not.toHaveBeenCalled()
+    })
+
+    // runSync joining a sync a batch started reports nothing for it: the batch that started it re-scans.
+    it('enqueues one re-scan when runSync joins a rebuild a batch started', async function () {
+        enableGemnasium('npm')
+        usableCache()
+        const controller = createOsvController(handle.db, runtime)
+        await settle()
+        sync.incrementalSyncOsv.mockClear()
+        const gate = deferred<void>()
+        sync.incrementalSyncOsv.mockImplementation(async function rebuild(_db, _eco, _signal, onCacheDiscarded) {
+            await gate.promise
+            if (onCacheDiscarded) onCacheDiscarded()
+            return { status: 'ok', upserted: 0, recordCount: 0, message: null }
+        })
+        const batch = controller.refreshEvidence()
+        const manual = controller.refresh()
+        gate.resolve()
+        await Promise.all([batch, manual])
+        expect(sync.incrementalSyncOsv).toHaveBeenCalledTimes(1)
+        expect(listRecentScanRequests(handle.db)).toHaveLength(1)
+    })
+})
+
+// End to end, through the real batch: the scheduler's sweep (the same scannersForBatch the poller's three
+// entry points use), the real runBatch and finding merge, the real gemnasium runtime over a temp
+// gemnasium.db, and the real seed and incremental sync over a temp osv.db. Only the OSV feed is faked, the
+// way osv-sync.test.ts fakes it. "Resolved", "dashboard count" and "export" are read back from the main DB
+// the batch wrote: the advisory export and the project view both read listCurrentFindingsForProject.
+//
+// The fixture is the shape of the live case: gemnasium's CVE-2026-93687 for braces <= 3.0.3, aliasing
+// GHSA-vfj7-8cjw-p6xm, which GitHub withdrew on 2026-10-23.
+describe('every batch re-checks withdrawals — end to end', function () {
+    const GHSA = 'GHSA-vfj7-8cjw-p6xm'
+    const DUPLICATE = 'GHSA-2222-3333-4444'
+    const CVE = 'CVE-2026-93687'
+    const WITHDRAWN_AT = '2026-10-23T12:53:02Z'
+
+    let gemnasium: { db: GemnasiumDrizzleDb; sqlite: SqliteDb }
+    let osv: { db: OsvDrizzleDb; sqlite: SqliteDb }
+
+    function osvRows(id: string, withdrawn: string | null) {
+        return normalizeOsvRecord({
+            id,
+            aliases: [CVE],
+            ...(withdrawn ? { withdrawn } : {}),
+            database_specific: { severity: 'HIGH' },
+            affected: [{
+                package: { name: 'braces', ecosystem: 'npm' },
+                ranges: [{ type: 'SEMVER', events: [{ introduced: '0' }, { last_affected: '3.0.3' }] }]
+            }]
+        }, 'npm')
+    }
+
+    // A complete npm snapshot at the current normalizer, with the ETag of the modified_id.csv it consumed.
+    function completeSnapshot(rows: ReturnType<typeof osvRows>): void {
+        upsertOsvAdvisories(osv.db, rows)
+        markUsable(osv.db, 'npm')
+        setOsvMeta(osv.db, osvMetaKeyFor(OSV_META_KEYS.lastModified, 'npm'), '2026-10-22T00:00:00Z')
+        setOsvMeta(osv.db, osvMetaKeyFor(OSV_META_KEYS.modifiedIdsEtag, 'npm'), 'etag-1')
+    }
+
+    function republish(id: string, withdrawn: string | null): void {
+        feed.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: [id], newestIso: WITHDRAWN_AT, etag: 'etag-2' })
+        feed.fetchOsvAdvisoryRows.mockResolvedValue(osvRows(id, withdrawn))
+    }
+
+    beforeEach(async function estate() {
+        // Cast: the double is typed by its stub, which takes any handle and ecosystem.
+        sync.seedOsv.mockImplementation(sync.real!.seedOsv as never)
+        sync.incrementalSyncOsv.mockImplementation(sync.real!.incrementalSyncOsv as never)
+        feed.fetchOsvChangedIds.mockResolvedValue({ status: 'unchanged' })
+        vi.stubEnv('SENTINELLO_GEMNASIUM_DB_PATH', join(handle.dir, 'gemnasium.db'))
+        vi.stubEnv('SENTINELLO_GEMNASIUM_FEED_URL', 'off')
+        // gemnasium npm only: every OSV cell stays off unless a test turns one on, and npm-audit, which
+        // shells out, is off.
+        setConfigValue(handle.db, sourceEnabledKey('npm-audit' as never, 'npm' as never), false)
+        enableGemnasium('npm')
+        const rootPath = await makeTree(handle.dir, 'code', {
+            'app/package.json': JSON.stringify({ name: 'app', version: '1.0.0', dependencies: { braces: '^3.0.0' } }),
+            'app/package-lock.json': JSON.stringify({
+                name: 'app',
+                lockfileVersion: 3,
+                packages: {
+                    '': { name: 'app', version: '1.0.0', dependencies: { braces: '^3.0.0' } },
+                    'node_modules/braces': { version: '3.0.3' }
+                }
+            })
+        })
+        upsertRoot(handle.db, { id: 'root-1', path: rootPath, label: null, createdAt: 1 })
+        const opened = openGemnasiumDb(join(handle.dir, 'gemnasium.db'))
+        runGemnasiumMigrations(opened.db)
+        upsertGemnasiumAdvisories(opened.db, [{
+            advisoryId: CVE,
+            ecosystem: 'npm',
+            packageName: 'braces',
+            aliases: [GHSA],
+            ranges: [{ introduced: '0', fixed: null, lastAffected: '3.0.3' }],
+            versions: [],
+            severity: 'high',
+            summary: 'Uncontrolled resource consumption in braces',
+            url: 'https://example.test/' + CVE,
+            malicious: false,
+            withdrawn: null
+        }])
+        setGemnasiumMeta(opened.db, GEMNASIUM_META_KEYS.seedComplete, true)
+        setGemnasiumMeta(opened.db, GEMNASIUM_META_KEYS.normalizerVersion, GEMNASIUM_NORMALIZER_VERSION)
+        gemnasium = { db: opened.db, sqlite: opened.sqlite }
+        osv = openCache()
+    })
+
+    afterEach(function closeCaches() {
+        gemnasium.sqlite.close()
+        osv.sqlite.close()
+        vi.unstubAllEnvs()
+    })
+
+    // The controllers as worker.ts wires them, settled past their initial sync so a test counts only the
+    // feed calls its own batches make.
+    async function controllers() {
+        const osvController = createOsvController(handle.db, runtime)
+        const gemnasiumController = createGemnasiumController(handle.db, runtime, osvController.evidence)
+        await settle()
+        feed.fetchOsvChangedIds.mockClear()
+        feed.fetchOsvAdvisoryRows.mockClear()
+        return { osvController, gemnasiumController }
+    }
+
+    function batch(c: Awaited<ReturnType<typeof controllers>>): Promise<void> {
+        return sweepActiveProjects({ db: handle.db, sqlite: handle.sqlite, runtime, ...c })
+    }
+
+    function projectId(): string {
+        return listProjects(handle.db)[0]!.id
+    }
+
+    function openFindings(): string[] {
+        return listCurrentFindingsForProject(handle.db, projectId(), Date.now()).map(function id(f) { return f.advisoryId })
+    }
+
+    function highCount(): number {
+        return getDashboardSummary(handle.db, Date.now()).severityCounts.high
+    }
+
+    function latestScan(scanner: string) {
+        return listScansForProject(handle.db, projectId()).find(function by(s) { return s.scanner === scanner })
+    }
+
+    it('resolves the finding in the very next batch, minutes after the withdrawal', async function () {
+        completeSnapshot(osvRows(GHSA, null))
+        const c = await controllers()
+        const startedAt = Date.now()
+        await batch(c)
+        expect(openFindings()).toEqual([CVE])
+        expect(highCount()).toBe(1)
+
+        republish(GHSA, WITHDRAWN_AT)
+        await batch(c)
+
+        expect(Date.now() - startedAt).toBeLessThan(10 * 60_000)
+        // Each batch made its own conditional request, the first one answered 304.
+        expect(feed.fetchOsvChangedIds).toHaveBeenCalledTimes(2)
+        expect(openFindings()).toEqual([])
+        expect(highCount()).toBe(0)
+        const episode = listFindingsForProject(handle.db, projectId()).find(function by(f) { return f.advisoryId === CVE })
+        expect(episode?.resolvedAt).not.toBeNull()
+        expect(latestScan('gemnasium')).toMatchObject({ status: 'ok' })
+        // OSV findings stayed off throughout: the cache was only evidence.
+        expect(latestScan('osv')).toBeUndefined()
+    })
+
+    it('costs one body-less conditional request per batch while the feed is unchanged', async function () {
+        completeSnapshot(osvRows(GHSA, null))
+        const c = await controllers()
+        await batch(c)
+        await batch(c)
+        expect(feed.fetchOsvChangedIds).toHaveBeenCalledTimes(2)
+        for (const call of feed.fetchOsvChangedIds.mock.calls) {
+            expect(call.slice(0, 3)).toEqual(['npm', Date.parse('2026-10-22T00:00:00Z'), 'etag-1'])
+        }
+        expect(feed.fetchOsvAdvisoryRows).not.toHaveBeenCalled()
+        expect(countOsvAdvisories(osv.db, 'npm')).toBe(1)
+        expect(getOsvMeta<string>(osv.db, osvMetaKeyFor(OSV_META_KEYS.modifiedIdsEtag, 'npm'))).toBe('etag-1')
+        expect(openFindings()).toEqual([CVE])
+    })
+
+    it('shares one in-flight refresh between two batches, and both wait for it', async function () {
+        completeSnapshot(osvRows(GHSA, null))
+        const c = await controllers()
+        const manifest = deferred<unknown>()
+        feed.fetchOsvChangedIds.mockReturnValue(manifest.promise)
+        feed.fetchOsvAdvisoryRows.mockResolvedValue(osvRows(GHSA, WITHDRAWN_AT))
+        const first = batch(c)
+        const second = batch(c)
+        await new Promise(function tick(r) { setImmediate(r) })
+        // Neither batch has scanned: both are waiting on the one refresh.
+        expect(listScansForProject(handle.db, projectId())).toEqual([])
+        expect(feed.fetchOsvChangedIds).toHaveBeenCalledTimes(1)
+        manifest.resolve({ status: 'ok', ids: [GHSA], newestIso: WITHDRAWN_AT, etag: 'etag-2' })
+        await Promise.all([first, second])
+        expect(feed.fetchOsvChangedIds).toHaveBeenCalledTimes(1)
+        // Both scanned against what that refresh fetched.
+        expect(listScansForProject(handle.db, projectId()).filter(function g(s) { return s.scanner === 'gemnasium' })).toHaveLength(2)
+        expect(openFindings()).toEqual([])
+    })
+
+    it('scans against the last complete snapshot when the refresh fails', async function () {
+        completeSnapshot(osvRows(GHSA, null))
+        const c = await controllers()
+        await batch(c)
+        feed.fetchOsvChangedIds.mockRejectedValue(new Error('ECONNRESET'))
+        await batch(c)
+        expect(latestScan('gemnasium')).toMatchObject({ status: 'ok' })
+        expect(openFindings()).toEqual([CVE])
+        expect(getOsvMeta<string>(osv.db, osvMetaKeyFor(OSV_META_KEYS.lastError, 'npm'))).toContain('ECONNRESET')
+    })
+
+    // SENTINEL-48: GitHub withdraws GHSA-A as a duplicate of a newly published GHSA-B, both aliasing CVE-X,
+    // and B's fetch fails. Publishing A's withdrawal alone made every linked record look withdrawn, so the
+    // batch resolved a live CVE-X. The batch must scan the last complete snapshot, and the retry that
+    // lands B must keep CVE-X open.
+    it('keeps a live duplicate open when its replacement failed to fetch, and after the retry lands it', async function () {
+        completeSnapshot(osvRows(GHSA, null))
+        const c = await controllers()
+        await batch(c)
+        expect(openFindings()).toEqual([CVE])
+
+        feed.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: [GHSA, DUPLICATE], newestIso: WITHDRAWN_AT, etag: 'etag-2' })
+        feed.fetchOsvAdvisoryRows.mockImplementation(async function partial(id: string) {
+            if (id === DUPLICATE) throw new Error('503 Service Unavailable')
+            return osvRows(GHSA, WITHDRAWN_AT)
+        })
+        await batch(c)
+
+        expect(getOsvMeta<string>(osv.db, osvMetaKeyFor(OSV_META_KEYS.lastError, 'npm'))).toContain(DUPLICATE + ' could not be re-read')
+        expect(c.osvController.evidence.ready('npm')).toBe(true)
+        expect(latestScan('gemnasium')).toMatchObject({ status: 'ok' })
+        expect(openFindings()).toEqual([CVE])
+        expect(highCount()).toBe(1)
+
+        // The retry: the cursor and ETag were held back, so the next batch re-reads the whole window.
+        feed.fetchOsvAdvisoryRows.mockImplementation(async function complete(id: string) {
+            return osvRows(id, id === GHSA ? WITHDRAWN_AT : null)
+        })
+        await batch(c)
+
+        expect(feed.fetchOsvChangedIds.mock.calls.at(-1)?.slice(0, 3)).toEqual(['npm', Date.parse('2026-10-22T00:00:00Z'), null])
+        expect(getOsvMeta<string>(osv.db, osvMetaKeyFor(OSV_META_KEYS.lastError, 'npm'))).toBeNull()
+        expect(openFindings()).toEqual([CVE])
+        expect(highCount()).toBe(1)
+    })
+
+    // A scan that reads the evidence while a multi-id pass is still fetching (a batch that started before
+    // the cron's sync, say) sees the previous snapshot, never A's withdrawal without B.
+    it('serves the previous snapshot as evidence while a multi-id refresh is in progress', async function () {
+        completeSnapshot(osvRows(GHSA, null))
+        const c = await controllers()
+        const replacement = deferred<ReturnType<typeof osvRows>>()
+        feed.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: [GHSA, DUPLICATE], newestIso: WITHDRAWN_AT, etag: 'etag-2' })
+        feed.fetchOsvAdvisoryRows.mockImplementation(async function held(id: string) {
+            if (id === DUPLICATE) return await replacement.promise
+            return osvRows(GHSA, WITHDRAWN_AT)
+        })
+        const refresh = c.osvController.refresh()
+        await vi.waitFor(function bothRequested() {
+            expect(feed.fetchOsvAdvisoryRows).toHaveBeenCalledTimes(2)
+        })
+
+        expect(c.osvController.evidence.links('npm', ['braces'])?.get('braces')).toEqual([
+            { advisoryId: GHSA, aliases: [CVE], withdrawn: null }
+        ])
+
+        replacement.resolve(osvRows(DUPLICATE, null))
+        await refresh
+        expect(c.osvController.evidence.links('npm', ['braces'])?.get('braces')).toHaveLength(2)
+        await batch(c)
+        expect(openFindings()).toEqual([CVE])
+    })
+
+    // SENTINEL-45: every OSV cell off. The cache is still opened, seeded and refreshed as evidence, and no
+    // OSV scanner ever joins the batch.
+    it('seeds and refreshes the evidence with OSV matching disabled', async function () {
+        feed.streamOsvSeed.mockImplementation(async function* seed() {
+            yield { rows: osvRows(GHSA, null), lastModified: '2026-10-22T00:00:00Z' }
+        })
+        const c = await controllers()
+        expect(sync.seedOsv).toHaveBeenCalledTimes(1)
+        expect(c.osvController.evidence.ready('npm')).toBe(true)
+        expect(getConfigValue(handle.db, sourceStatusKey('osv', 'npm'))).toMatchObject({ seedComplete: true, normalizerVersion: OSV_NORMALIZER_VERSION })
+        await batch(c)
+        expect(feed.fetchOsvChangedIds).toHaveBeenCalledTimes(1)
+        expect(openFindings()).toEqual([CVE])
+        expect(latestScan('osv')).toBeUndefined()
+
+        republish(GHSA, WITHDRAWN_AT)
+        await batch(c)
+        expect(openFindings()).toEqual([])
+    })
+
+    // SENTINEL-46: a snapshot mid-rebuild may hold the withdrawn duplicate GHSA-A and not yet the active
+    // GHSA-B, both aliasing CVE-X. Stamping from it would suppress a live advisory, and reporting unstamped
+    // would reopen every withdrawn finding; so gemnasium is unauditable until the snapshot completes.
+    it.each([
+        ['not complete', function incomplete() { setOsvMeta(osv.db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, 'npm'), false) }],
+        ['stamped by an older normalizer', function old() { setOsvMeta(osv.db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, 'npm'), OSV_NORMALIZER_VERSION - 1) }]
+    ])('waits out a snapshot that is %s, then stamps from the complete one', async function (_label, makeIncomplete) {
+        completeSnapshot(osvRows(GHSA, null))
+        const c = await controllers()
+        await batch(c)
+        expect(openFindings()).toEqual([CVE])
+
+        // Mid-rebuild: only the withdrawn GHSA-A has streamed in. The rebuild completes when the gate opens.
+        upsertOsvAdvisories(osv.db, osvRows(GHSA, WITHDRAWN_AT))
+        makeIncomplete()
+        const gate = deferred<void>()
+        feed.streamOsvSeed.mockImplementation(async function* rebuild() {
+            await gate.promise
+            yield { rows: [...osvRows(GHSA, WITHDRAWN_AT), ...osvRows(DUPLICATE, null)], lastModified: '2026-10-24T00:00:00Z' }
+        })
+        await batch(c)
+        expect(latestScan('gemnasium')).toMatchObject({ status: 'unauditable', reasonCode: 'osv_db_not_seeded' })
+        expect(openFindings()).toEqual([CVE])
+
+        gate.resolve()
+        await settle()
+        // The rebuild landed: every verdict recorded meanwhile is stale, so the estate is re-scanned.
+        expect(listRecentScanRequests(handle.db)).toHaveLength(1)
+        await batch(c)
+        // GHSA-B is still active, so CVE-X is still real.
+        expect(latestScan('gemnasium')).toMatchObject({ status: 'ok' })
+        expect(openFindings()).toEqual([CVE])
+
+        // Now GHSA-B is withdrawn too: the complete snapshot is all-withdrawn, and the finding resolves.
+        republish(DUPLICATE, WITHDRAWN_AT)
+        await batch(c)
+        expect(openFindings()).toEqual([])
     })
 })

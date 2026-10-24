@@ -17,12 +17,14 @@ import {
 import { errText } from '@sentinello/feeds'
 import {
     createGemnasiumScanner,
+    stampWithdrawnByPackage,
     type GemnasiumAdvisory,
     type ScannerPlugin
 } from '@sentinello/scanners'
 
 export type { ScannerPlugin }
 import { gemnasiumFeedDisabled, syncGemnasium } from './gemnasium-sync'
+import type { WithdrawalEvidence } from './osv-runtime'
 import type { WorkerRuntime } from './runtime'
 
 // Owns the gemnasium cache connection + the gemnasium scanner instance + the periodic sync job. Opened
@@ -50,13 +52,14 @@ export type GemnasiumController = {
     stop: () => void
 }
 
-export function createGemnasiumController(mainDb: DrizzleDb, runtime: WorkerRuntime): GemnasiumController {
+// `evidence` is the OSV controller's withdrawal evidence, so the OSV controller is created first.
+export function createGemnasiumController(mainDb: DrizzleDb, runtime: WorkerRuntime, evidence: WithdrawalEvidence): GemnasiumController {
     let current: GemnasiumRuntime | null = null
     function syncToConfig(): void {
         const enabled = gemnasiumSourceEnabled(mainDb)
         if (enabled && !current) {
             try {
-                current = startGemnasiumRuntime(mainDb, runtime)
+                current = startGemnasiumRuntime(mainDb, runtime, evidence)
             } catch (err) {
                 console.error('[gemnasium] runtime failed to start: ' + errText(err))
                 current = null
@@ -113,8 +116,9 @@ export function gemnasiumSourceEnabled(db: DrizzleDb): boolean {
 }
 
 // The gemnasium scanner bound to an opened cache, with no sync attached. The runtime below adds the sync;
-// the scratch tools use this alone, against a copy of gemnasium.db, so a verification run never touches the feed.
-export function createGemnasiumScannerFor(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb): ScannerPlugin {
+// the scratch tools use this alone, against a copy of gemnasium.db (and of osv.db for the evidence), so a
+// verification run never touches the feed.
+export function createGemnasiumScannerFor(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb, evidence: WithdrawalEvidence): ScannerPlugin {
     return createGemnasiumScanner({
         isEnabled: function isEnabled(ecosystem: string): boolean {
             // The operator's live (gemnasium, ecosystem) cell flag, read each scan. The single gemnasium
@@ -125,6 +129,9 @@ export function createGemnasiumScannerFor(mainDb: DrizzleDb, gemnasiumDb: Gemnas
         isSeeded: function isSeeded() {
             return gemnasiumCacheUsable(gemnasiumDb)
         },
+        withdrawalEvidenceReady: function withdrawalEvidenceReady(ecosystem: string): boolean {
+            return evidence.ready(ecosystem)
+        },
         lookup: function lookup(ecosystem: string, packageNames: string[]): Map<string, GemnasiumAdvisory[]> {
             // The gemnasium cache `ecosystem` column holds the registry EcosystemId (stamped by the
             // normalizer from the advisory's package-type directory), so the scanner's ecosystem id queries
@@ -134,7 +141,10 @@ export function createGemnasiumScannerFor(mainDb: DrizzleDb, gemnasiumDb: Gemnas
             for (const [name, list] of rows.entries()) {
                 out.set(name, list.map(toScannerAdvisory))
             }
-            return out
+            // Stamped on every scan, from the OSV snapshot the batch just refreshed, and only from a
+            // complete one; with none (the feed switched off and never seeded) nothing is stamped.
+            const links = evidence.links(ecosystem, packageNames)
+            return links === null ? out : stampWithdrawnByPackage(out, links)
         }
     })
 }
@@ -142,16 +152,16 @@ export function createGemnasiumScannerFor(mainDb: DrizzleDb, gemnasiumDb: Gemnas
 // Opens (and migrates) the gemnasium cache, builds the scanner bound to it, runs an initial sync if the
 // feed is enabled, and schedules the daily sync. Returns the scanner so the scheduler can include it in
 // the per-project run set.
-export function startGemnasiumRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime): GemnasiumRuntime {
+export function startGemnasiumRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime, evidence: WithdrawalEvidence): GemnasiumRuntime {
     const { db: gemnasiumDb } = openGemnasiumDb()
     runGemnasiumMigrations(gemnasiumDb)
 
-    const scanner = createGemnasiumScannerFor(mainDb, gemnasiumDb)
+    const scanner = createGemnasiumScannerFor(mainDb, gemnasiumDb, evidence)
 
     // Mirror an initial status snapshot immediately so the Settings panel shows "not seeded yet" rather
     // than nothing the moment the source is enabled.
     mirrorStatus(mainDb, gemnasiumDb)
-    reconcileStaleVerdicts(mainDb, gemnasiumDb)
+    reconcileStaleVerdicts(mainDb, gemnasiumDb, evidence)
 
     if (!gemnasiumFeedDisabled()) {
         const initial = runSync(mainDb, gemnasiumDb, runtime).catch(function onErr(err: unknown) {
@@ -182,9 +192,12 @@ export function startGemnasiumRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime)
 }
 
 // Boot-time counterpart to the transition check in runSync — see the OSV twin for why watching the
-// transition is not enough on its own.
-function reconcileStaleVerdicts(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb): void {
+// transition is not enough on its own. A re-scan is pointless while no enabled ecosystem has its
+// withdrawal evidence ready: it would record the same unauditable verdict, and the OSV runtime enqueues
+// the re-scan itself once that cache lands.
+function reconcileStaleVerdicts(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb, evidence: WithdrawalEvidence): void {
     if (!gemnasiumCacheUsable(gemnasiumDb)) return
+    if (!enabledGemnasiumEcosystems(mainDb).some(evidence.ready)) return
     if (!hasStaleSourceUnavailableScans(mainDb, GEMNASIUM_SCANNER_NAME)) return
     enqueueScanRequest(mainDb, {}, Date.now())
     console.log('[gemnasium] cache is matchable but projects still hold unauditable verdicts — enqueued a full re-scan')
@@ -258,7 +271,9 @@ function toScannerAdvisory(row: GemnasiumAdvisoryRow): GemnasiumAdvisory {
         versions: row.versions,
         severity: row.severity,
         summary: row.summary,
-        url: row.url
+        url: row.url,
+        // gemnasium-db records no withdrawal; the lookup stamps it from the OSV evidence.
+        withdrawn: null
     }
 }
 

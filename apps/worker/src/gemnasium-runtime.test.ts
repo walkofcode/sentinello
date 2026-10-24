@@ -17,7 +17,7 @@ import {
     upsertProject,
     upsertRoot
 } from '@sentinello/db'
-import { sourceEnabledKey, sourceStatusKey } from '@sentinello/core'
+import { sourceEnabledKey, sourceStatusKey, type OsvAdvisoryLink } from '@sentinello/core'
 import { closeWorkerTestDb, openWorkerTestDb, type WorkerTestDb } from './worker-test-db.fixture'
 import { createWorkerRuntime, type WorkerRuntime } from './runtime'
 
@@ -77,6 +77,19 @@ const {
     startGemnasiumRuntime
 } = await import('./gemnasium-runtime')
 
+// The OSV controller's withdrawal evidence, as the gemnasium runtime sees it. Ready with nothing to stamp
+// by default, so every test that is not about withdrawals sees gemnasium exactly as it was before.
+const evidence = {
+    isReady: true,
+    linkRows: null as Map<string, OsvAdvisoryLink[]> | null,
+    ready: function ready(_ecosystem: string): boolean {
+        return evidence.isReady
+    },
+    links: function links(_ecosystem: string, _packageNames: string[]): Map<string, OsvAdvisoryLink[]> | null {
+        return evidence.linkRows
+    }
+}
+
 let handle: WorkerTestDb
 let runtime: WorkerRuntime
 let cachePath: string
@@ -106,6 +119,8 @@ function openCache(): { db: GemnasiumDrizzleDb; sqlite: SqliteDb } {
 
 beforeEach(async function setup() {
     cron.reset()
+    evidence.isReady = true
+    evidence.linkRows = null
     sync.feedDisabled = false
     sync.syncGemnasium.mockClear()
     handle = await openWorkerTestDb('worker-gemnasium-runtime')
@@ -154,14 +169,14 @@ describe('reading the source matrix', function () {
 
 describe('createGemnasiumController — lazy lifecycle', function () {
     it('opens nothing while the source is off', function () {
-        const controller = createGemnasiumController(handle.db, runtime)
+        const controller = createGemnasiumController(handle.db, runtime, evidence)
         expect(controller.getScanner()).toBeNull()
         expect(existsSync(cachePath)).toBe(false)
     })
 
     it('starts the runtime when the source is already on', function () {
         enable('npm')
-        const controller = createGemnasiumController(handle.db, runtime)
+        const controller = createGemnasiumController(handle.db, runtime, evidence)
         expect(controller.getScanner()).not.toBeNull()
         expect(existsSync(cachePath)).toBe(true)
     })
@@ -171,12 +186,12 @@ describe('createGemnasiumController — lazy lifecycle', function () {
     // will ever be scanned against.
     it('does not start on a preview cell alone', function () {
         enable('PyPI')
-        const controller = createGemnasiumController(handle.db, runtime)
+        const controller = createGemnasiumController(handle.db, runtime, evidence)
         expect(controller.getScanner()).toBeNull()
     })
 
     it('starts on reload once the source is enabled', function () {
-        const controller = createGemnasiumController(handle.db, runtime)
+        const controller = createGemnasiumController(handle.db, runtime, evidence)
         enable('npm')
         controller.reload()
         expect(controller.getScanner()).not.toBeNull()
@@ -184,7 +199,7 @@ describe('createGemnasiumController — lazy lifecycle', function () {
 
     it('stops on reload once the source is disabled', function () {
         enable('npm')
-        const controller = createGemnasiumController(handle.db, runtime)
+        const controller = createGemnasiumController(handle.db, runtime, evidence)
         enable('npm', false)
         controller.reload()
         expect(controller.getScanner()).toBeNull()
@@ -193,7 +208,7 @@ describe('createGemnasiumController — lazy lifecycle', function () {
 
     it('leaves the same scanner in place when reloading with no change', function () {
         enable('npm')
-        const controller = createGemnasiumController(handle.db, runtime)
+        const controller = createGemnasiumController(handle.db, runtime, evidence)
         const first = controller.getScanner()
         controller.reload()
         expect(controller.getScanner()).toBe(first)
@@ -201,14 +216,14 @@ describe('createGemnasiumController — lazy lifecycle', function () {
 
     it('stops the cron task on stop()', function () {
         enable('npm')
-        const controller = createGemnasiumController(handle.db, runtime)
+        const controller = createGemnasiumController(handle.db, runtime, evidence)
         controller.stop()
         expect(controller.getScanner()).toBeNull()
         expect(cron.tasks[0]?.stopped).toBe(true)
     })
 
     it('tolerates stop() when nothing was ever started', function () {
-        const controller = createGemnasiumController(handle.db, runtime)
+        const controller = createGemnasiumController(handle.db, runtime, evidence)
         expect(function stopTwice() {
             controller.stop()
             controller.stop()
@@ -219,7 +234,7 @@ describe('createGemnasiumController — lazy lifecycle', function () {
         enable('npm')
         // A directory path: openGemnasiumDb creates a missing parent, so only an unopenable target fails.
         process.env.SENTINELLO_GEMNASIUM_DB_PATH = handle.dir
-        const controller = createGemnasiumController(handle.db, runtime)
+        const controller = createGemnasiumController(handle.db, runtime, evidence)
         expect(controller.getScanner()).toBeNull()
         expect(errorLines().some(function m(l) {
             return l.startsWith('[gemnasium] runtime failed to start: ')
@@ -230,7 +245,7 @@ describe('createGemnasiumController — lazy lifecycle', function () {
 describe('createGemnasiumController — refresh', function () {
     it('runs a sync when the runtime is up', async function () {
         enable('npm')
-        const controller = createGemnasiumController(handle.db, runtime)
+        const controller = createGemnasiumController(handle.db, runtime, evidence)
         await Promise.allSettled(Array.from(runtime.inFlight))
         sync.syncGemnasium.mockClear()
         await controller.refresh()
@@ -239,14 +254,14 @@ describe('createGemnasiumController — refresh', function () {
 
     it('reconciles to config instead of double-syncing when the runtime is down', async function () {
         enable('npm')
-        const controller = createGemnasiumController(handle.db, runtime)
+        const controller = createGemnasiumController(handle.db, runtime, evidence)
         controller.stop()
         await controller.refresh()
         expect(controller.getScanner()).not.toBeNull()
     })
 
     it('does nothing when the source is off', async function () {
-        const controller = createGemnasiumController(handle.db, runtime)
+        const controller = createGemnasiumController(handle.db, runtime, evidence)
         await controller.refresh()
         expect(sync.syncGemnasium).not.toHaveBeenCalled()
     })
@@ -260,13 +275,13 @@ describe('startGemnasiumRuntime', function () {
     // Deliberately offset from the OSV sync (03:17) and the on-the-hour scan schedule, so the three
     // never contend for disk and network at once.
     it('schedules its daily sync clear of the other jobs', function () {
-        startGemnasiumRuntime(handle.db, runtime)
+        startGemnasiumRuntime(handle.db, runtime, evidence)
         expect(cron.tasks[0]?.expr).toBe('42 3 * * *')
         expect(cron.tasks[0]?.options).toEqual({ name: 'sentinello-gemnasium-sync' })
     })
 
     it('runs an initial sync and tracks it for shutdown', async function () {
-        startGemnasiumRuntime(handle.db, runtime)
+        startGemnasiumRuntime(handle.db, runtime, evidence)
         expect(runtime.inFlight.size).toBe(1)
         await Promise.allSettled(Array.from(runtime.inFlight))
         expect(sync.syncGemnasium).toHaveBeenCalledTimes(1)
@@ -274,7 +289,7 @@ describe('startGemnasiumRuntime', function () {
 
     it('skips the initial sync when the feed is disabled', function () {
         sync.feedDisabled = true
-        const rt = startGemnasiumRuntime(handle.db, runtime)
+        const rt = startGemnasiumRuntime(handle.db, runtime, evidence)
         expect(sync.syncGemnasium).not.toHaveBeenCalled()
         expect(rt.scanner).not.toBeNull()
         expect(logLines().some(function m(l) { return l.includes('feed disabled') })).toBe(true)
@@ -301,14 +316,29 @@ describe('startGemnasiumRuntime', function () {
         setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.seedComplete, true)
         setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.normalizerVersion, GEMNASIUM_NORMALIZER_VERSION)
         cache.sqlite.close()
+        enable('npm')
         seedStaleProject()
-        startGemnasiumRuntime(handle.db, runtime)
+        startGemnasiumRuntime(handle.db, runtime, evidence)
         expect(listRecentScanRequests(handle.db)).toHaveLength(1)
+    })
+
+    // The re-scan would record the same unauditable verdict while no enabled ecosystem has its withdrawal
+    // evidence; the OSV runtime enqueues it itself once that cache lands.
+    it('does not re-scan at boot while the withdrawal evidence is incomplete', function () {
+        const cache = openCache()
+        setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.seedComplete, true)
+        setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.normalizerVersion, GEMNASIUM_NORMALIZER_VERSION)
+        cache.sqlite.close()
+        enable('npm')
+        seedStaleProject()
+        evidence.isReady = false
+        startGemnasiumRuntime(handle.db, runtime, evidence)
+        expect(listRecentScanRequests(handle.db)).toHaveLength(0)
     })
 
     it('does not re-scan at boot when the cache is still unusable', function () {
         seedStaleProject()
-        startGemnasiumRuntime(handle.db, runtime)
+        startGemnasiumRuntime(handle.db, runtime, evidence)
         expect(listRecentScanRequests(handle.db)).toHaveLength(0)
     })
 
@@ -317,12 +347,12 @@ describe('startGemnasiumRuntime', function () {
         setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.seedComplete, true)
         setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.normalizerVersion, GEMNASIUM_NORMALIZER_VERSION)
         cache.sqlite.close()
-        startGemnasiumRuntime(handle.db, runtime)
+        startGemnasiumRuntime(handle.db, runtime, evidence)
         expect(listRecentScanRequests(handle.db)).toHaveLength(0)
     })
 
     it('mirrors a not-seeded-yet snapshot before the first sync', function () {
-        startGemnasiumRuntime(handle.db, runtime)
+        startGemnasiumRuntime(handle.db, runtime, evidence)
         expect(status()).toMatchObject({
             seedComplete: false,
             normalizerVersion: null,
@@ -341,13 +371,13 @@ describe('startGemnasiumRuntime', function () {
     it('writes one status under the npm cell even when only a non-npm cell is enabled', function () {
         enable('npm', false)
         enable('PyPI')
-        startGemnasiumRuntime(handle.db, runtime)
+        startGemnasiumRuntime(handle.db, runtime, evidence)
         expect(status()).not.toBeNull()
         expect(getConfigValue(handle.db, sourceStatusKey('gemnasium' as never, 'PyPI' as never))).toBeNull()
     })
 
     it('runs a sync on the scheduled tick', async function () {
-        startGemnasiumRuntime(handle.db, runtime)
+        startGemnasiumRuntime(handle.db, runtime, evidence)
         await Promise.allSettled(Array.from(runtime.inFlight))
         sync.syncGemnasium.mockClear()
         await cron.tasks[0]?.fn()
@@ -355,7 +385,7 @@ describe('startGemnasiumRuntime', function () {
     })
 
     it('catches a failing scheduled sync', async function () {
-        startGemnasiumRuntime(handle.db, runtime)
+        startGemnasiumRuntime(handle.db, runtime, evidence)
         await Promise.allSettled(Array.from(runtime.inFlight))
         sync.syncGemnasium.mockRejectedValueOnce(new Error('archive down'))
         await cron.tasks[0]?.fn()
@@ -367,7 +397,7 @@ describe('startGemnasiumRuntime', function () {
 
     it('catches a failing initial sync', async function () {
         sync.syncGemnasium.mockRejectedValueOnce(new Error('no disk'))
-        startGemnasiumRuntime(handle.db, runtime)
+        startGemnasiumRuntime(handle.db, runtime, evidence)
         await Promise.allSettled(Array.from(runtime.inFlight))
         expect(errorLines().some(function m(l) { return l.includes('initial sync failed: no disk') })).toBe(true)
     })
@@ -375,7 +405,7 @@ describe('startGemnasiumRuntime', function () {
     // The archive sync reaches the network through unzipper and undici, neither of which promises to
     // reject with an Error. The log line has to name the cause rather than reading "undefined".
     it('reports a non-Error rejection from the scheduled sync', async function () {
-        startGemnasiumRuntime(handle.db, runtime)
+        startGemnasiumRuntime(handle.db, runtime, evidence)
         await Promise.allSettled(Array.from(runtime.inFlight))
         sync.syncGemnasium.mockRejectedValueOnce('socket hang up')
         await cron.tasks[0]?.fn()
@@ -385,13 +415,13 @@ describe('startGemnasiumRuntime', function () {
 
     it('reports a non-Error rejection from the initial sync', async function () {
         sync.syncGemnasium.mockRejectedValueOnce(null)
-        startGemnasiumRuntime(handle.db, runtime)
+        startGemnasiumRuntime(handle.db, runtime, evidence)
         await Promise.allSettled(Array.from(runtime.inFlight))
         expect(errorLines()).toContain('[gemnasium] initial sync failed: null')
     })
 
     it('exposes runSyncNow for the refresh path', async function () {
-        const rt = startGemnasiumRuntime(handle.db, runtime)
+        const rt = startGemnasiumRuntime(handle.db, runtime, evidence)
         await Promise.allSettled(Array.from(runtime.inFlight))
         sync.syncGemnasium.mockClear()
         await rt.runSyncNow()
@@ -520,14 +550,14 @@ describe('the scanner the runtime produces', function () {
     }
 
     it('reports the estate unauditable while the cache is unseeded', async function () {
-        const rt = startGemnasiumRuntime(handle.db, runtime)
+        const rt = startGemnasiumRuntime(handle.db, runtime, evidence)
         const result = await scanWith(rt.scanner as never, [{ ecosystem: 'npm', name: 'lodash', version: '4.17.11' }])
         expect(result.reasonCode).toBe('gemnasium_db_not_seeded')
     })
 
     it('scans once the cache is seeded at the current normalizer version', async function () {
         markSeeded()
-        const rt = startGemnasiumRuntime(handle.db, runtime)
+        const rt = startGemnasiumRuntime(handle.db, runtime, evidence)
         const result = await scanWith(rt.scanner as never, [{ ecosystem: 'npm', name: 'lodash', version: '4.17.11' }])
         expect(result.reasonCode).toBe('ok')
     })
@@ -536,14 +566,14 @@ describe('the scanner the runtime produces', function () {
     // "no findings" would be worse than reporting the source as not ready.
     it('treats a cache seeded under an older normalizer as not downloaded', async function () {
         markSeeded(GEMNASIUM_NORMALIZER_VERSION - 1)
-        const rt = startGemnasiumRuntime(handle.db, runtime)
+        const rt = startGemnasiumRuntime(handle.db, runtime, evidence)
         const result = await scanWith(rt.scanner as never, [{ ecosystem: 'npm', name: 'lodash', version: '4.17.11' }])
         expect(result.reasonCode).toBe('gemnasium_db_not_seeded')
     })
 
     it('fails open when the project has no resolvable lockfile', async function () {
         markSeeded()
-        const rt = startGemnasiumRuntime(handle.db, runtime)
+        const rt = startGemnasiumRuntime(handle.db, runtime, evidence)
         const result = await (rt.scanner as never as { scan: (p: string, c: never) => Promise<{ reasonCode: string }> })
             .scan('/tmp/project', { timeoutMs: 1000, resolvedGraph: null } as never)
         expect(result.reasonCode).toBe('no_lockfile')
@@ -563,7 +593,7 @@ describe('the scanner the runtime produces', function () {
             url: 'https://example.test/CVE-2024-1'
         } as never])
 
-        const rt = startGemnasiumRuntime(handle.db, runtime)
+        const rt = startGemnasiumRuntime(handle.db, runtime, evidence)
         const result = await scanWith(rt.scanner as never, [{ ecosystem: 'npm', name: 'lodash', version: '4.17.11' }])
 
         expect((result as unknown as { findings: { advisoryId: string }[] }).findings.map(function id(f) {
@@ -588,7 +618,7 @@ describe('the scanner the runtime produces', function () {
         } as never])
 
         // Started while npm was on, then the operator turned the cell off; isEnabled is read per scan.
-        const rt = startGemnasiumRuntime(handle.db, runtime)
+        const rt = startGemnasiumRuntime(handle.db, runtime, evidence)
         enable('npm', false)
         const result = await scanWith(rt.scanner as never, [{ ecosystem: 'npm', name: 'lodash', version: '4.17.11' }])
 
@@ -597,8 +627,58 @@ describe('the scanner the runtime produces', function () {
 
     it('reports no findings for a package the cache does not know', async function () {
         markSeeded()
-        const rt = startGemnasiumRuntime(handle.db, runtime)
+        const rt = startGemnasiumRuntime(handle.db, runtime, evidence)
         const result = await scanWith(rt.scanner as never, [{ ecosystem: 'npm', name: 'left-pad', version: '1.0.0' }])
         expect((result as unknown as { findings: unknown[] }).findings).toEqual([])
+    })
+
+    // gemnasium-db records no withdrawal, so the lookup stamps it from the OSV evidence; the matcher then
+    // drops the advisory like any withdrawn one.
+    function seedBraces(): void {
+        upsertGemnasiumAdvisories(cache.db, [{
+            advisoryId: 'CVE-2026-93687',
+            ecosystem: 'npm',
+            packageName: 'braces',
+            aliases: ['GHSA-vfj7-8cjw-p6xm'],
+            ranges: [{ introduced: '0', fixed: null, lastAffected: '3.0.3' }],
+            versions: [],
+            severity: 'high',
+            summary: 'Uncontrolled resource consumption',
+            url: 'https://example.test/CVE-2026-93687',
+            malicious: false,
+            withdrawn: null
+        }])
+    }
+
+    function findingIds(result: unknown): string[] {
+        return (result as { findings: { advisoryId: string }[] }).findings.map(function id(f) { return f.advisoryId })
+    }
+
+    it('drops an advisory the OSV evidence shows withdrawn', async function () {
+        markSeeded()
+        seedBraces()
+        evidence.linkRows = new Map([['braces', [{ advisoryId: 'GHSA-vfj7-8cjw-p6xm', aliases: ['CVE-2026-93687'], withdrawn: Date.UTC(2026, 9, 23) }]]])
+        const rt = startGemnasiumRuntime(handle.db, runtime, evidence)
+        const result = await scanWith(rt.scanner as never, [{ ecosystem: 'npm', name: 'braces', version: '3.0.3' }])
+        expect(result.reasonCode).toBe('ok')
+        expect(findingIds(result)).toEqual([])
+    })
+
+    it('still reports it when the evidence has nothing to stamp from', async function () {
+        markSeeded()
+        seedBraces()
+        const rt = startGemnasiumRuntime(handle.db, runtime, evidence)
+        const result = await scanWith(rt.scanner as never, [{ ecosystem: 'npm', name: 'braces', version: '3.0.3' }])
+        expect(findingIds(result)).toEqual(['CVE-2026-93687'])
+    })
+
+    it('reports the ecosystem unauditable while its withdrawal evidence is incomplete', async function () {
+        markSeeded()
+        seedBraces()
+        evidence.isReady = false
+        const rt = startGemnasiumRuntime(handle.db, runtime, evidence)
+        const result = await scanWith(rt.scanner as never, [{ ecosystem: 'npm', name: 'braces', version: '3.0.3' }])
+        expect(result.reasonCode).toBe('osv_db_not_seeded')
+        expect(findingIds(result)).toEqual([])
     })
 })

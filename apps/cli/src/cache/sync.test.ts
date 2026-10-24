@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GEMNASIUM_NORMALIZER_VERSION, GEMNASIUM_SEED_DOWNLOAD_BYTES, OSV_NORMALIZER_VERSION, type GemnasiumAdvisoryRow, type OsvAdvisoryRow } from '@sentinello/core'
 import { advisoryFilePath, ensureCacheDir, getSourceState, readCacheMeta, setSourceState, writeCacheMeta, type SourceId, type SourceState } from './meta'
-import { createRowWriter } from './store'
+import { createRowWriter, readRowsForPackages } from './store'
 
 // Turns the shared feed package into a refreshed on-disk cache. @sentinello/feeds is the only thing
 // stubbed, and only because it owns the network — every cache file below is real gzipped NDJSON written
@@ -215,6 +215,8 @@ describe('planSync', function () {
     // HEAD. Quoting the measured constant the portal already shows beats asking to approve an unknown
     // quantity; the estimated flag is what keeps it rendering as "~80 MB" rather than an exact figure.
     it('quotes the measured constant for a gemnasium seed and flags it as an estimate', async function () {
+        // OSV's feed is off so gemnasium is the only item: no withdrawal evidence can be planned.
+        feeds.osvFeedDisabled.mockReturnValue(true)
         const plan = await planSync(options({ sources: ['gemnasium'] }))
         expect(plan.items[0]).toMatchObject({
             downloadBytes: GEMNASIUM_SEED_DOWNLOAD_BYTES,
@@ -246,6 +248,65 @@ describe('planSync', function () {
         const plan = await planSync(options())
         expect(plan.items).toEqual([])
         expect(plan.needsConsent).toBe(false)
+    })
+
+    it('marks every selected source as planned for findings', async function () {
+        const plan = await planSync(options())
+        expect(plan.items.map(function p(i) { return i.source + ':' + i.purpose })).toEqual(['osv:findings', 'gemnasium:findings'])
+    })
+})
+
+// gemnasium-db records no withdrawal, so a gemnasium run needs OSV as its withdrawal evidence even when
+// OSV is not a selected source (SENTINEL-45). It rides the same plan: a first download goes through the
+// same consent prompt and --yes, and every later run refreshes it, so the evidence is as fresh as the run.
+describe('planSync — withdrawal evidence for gemnasium', function () {
+    it('adds an OSV evidence seed, listed for consent, when OSV is not seeded', async function () {
+        await seedState('gemnasium')
+        const plan = await planSync(options({ sources: ['gemnasium'] }))
+        expect(plan.items.map(function p(i) { return i.source + ':' + i.kind + ':' + i.purpose })).toEqual(['gemnasium:refresh:findings', 'osv:seed:withdrawal-evidence'])
+        expect(plan.items[1]).toMatchObject({ downloadBytes: 96 * 1024 * 1024 })
+        expect(plan.seedBytes).toBe(96 * 1024 * 1024)
+        expect(plan.needsConsent).toBe(true)
+    })
+
+    it('adds an OSV evidence refresh, needing no consent, once OSV is seeded', async function () {
+        await seedState('gemnasium')
+        await seedState('osv')
+        const plan = await planSync(options({ sources: ['gemnasium'] }))
+        expect(plan.items.map(function p(i) { return i.source + ':' + i.kind + ':' + i.purpose })).toEqual(['gemnasium:refresh:findings', 'osv:refresh:withdrawal-evidence'])
+        expect(plan.needsConsent).toBe(false)
+    })
+
+    it('re-seeds the evidence when it came from an older normalizer', async function () {
+        await seedState('gemnasium')
+        await seedState('osv', { normalizerVersion: OSV_NORMALIZER_VERSION - 1 })
+        const plan = await planSync(options({ sources: ['gemnasium'] }))
+        expect(plan.items[1]).toMatchObject({ source: 'osv', kind: 'seed', purpose: 'withdrawal-evidence' })
+    })
+
+    it('plans no evidence when the OSV feed is switched off', async function () {
+        feeds.osvFeedDisabled.mockReturnValue(true)
+        const plan = await planSync(options({ sources: ['gemnasium'] }))
+        expect(plan.items.map(function s(i) { return i.source })).toEqual(['gemnasium'])
+    })
+
+    it('plans no evidence when OSV is selected anyway, since it is already synced for findings', async function () {
+        const plan = await planSync(options())
+        expect(plan.items.filter(function e(i) { return i.purpose === 'withdrawal-evidence' })).toEqual([])
+    })
+
+    it('plans no evidence for a run without gemnasium', async function () {
+        const plan = await planSync(options({ sources: ['osv'] }))
+        expect(plan.items.map(function p(i) { return i.source + ':' + i.purpose })).toEqual(['osv:findings'])
+    })
+
+    it('syncs the evidence item through the OSV refresh like any other', async function () {
+        await seedState('gemnasium', { headSha: 'a'.repeat(40) })
+        await seedFile('osv', [osvRow()])
+        await seedState('osv')
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'unchanged' })
+        const outcomes = await runSync(options({ sources: ['gemnasium'] }), await planSync(options({ sources: ['gemnasium'] })))
+        expect(outcomes.map(function o(x) { return x.source + ':' + x.status })).toEqual(['gemnasium:unchanged', 'osv:unchanged'])
     })
 })
 
@@ -372,6 +433,22 @@ describe('runSync — OSV', function () {
         expect(await stateOf('osv')).toMatchObject({ cursorIso: '2026-07-02T00:00:00Z', etag: 'etag-2' })
     })
 
+    // A withdrawn advisory is not a deletion: its rows come back flagged and replace the active ones, so
+    // nothing matches on them while gemnasium can still see the withdrawal (SENTINEL-42). The old refresh
+    // dropped the advisory, which is how a withdrawal published after the seed vanished from the cache.
+    it('keeps the rows of an advisory that came back withdrawn, flagged', async function () {
+        const withdrawnAt = Date.UTC(2026, 9, 23)
+        await seedFile('osv', [osvRow({ advisoryId: 'GHSA-keep' }), osvRow({ advisoryId: 'GHSA-gone', packageName: 'braces' })])
+        await seedState('osv', { recordCount: 2 })
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-gone'], etag: 'etag-2', newestIso: '2026-10-23T12:53:02Z' })
+        // Range-less too (SENTINEL-47): the row is evidence only, so it needs no ranges or versions.
+        feeds.fetchOsvAdvisoryRows.mockResolvedValue([osvRow({ advisoryId: 'GHSA-gone', packageName: 'braces', withdrawn: withdrawnAt })])
+        const outcomes = await runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
+        expect(outcomes[0]).toMatchObject({ status: 'refreshed', rowCount: 2 })
+        const rows = await readRowsForPackages<OsvAdvisoryRow>(advisoryFilePath(dir, 'osv', 'npm'), new Set(['braces']))
+        expect(rows.get('braces')).toEqual([expect.objectContaining({ advisoryId: 'GHSA-gone', withdrawn: withdrawnAt, ranges: [], versions: [] })])
+    })
+
     // Past the threshold, one request per advisory costs more than re-downloading the whole export.
     it('escalates to a full re-seed when too many advisories changed', async function () {
         await seedFile('osv', [osvRow()])
@@ -400,24 +477,90 @@ describe('runSync — OSV', function () {
 
         const outcomes = await runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
 
-        expect(outcomes[0]?.rowCount).toBe(1)
+        expect(outcomes[0]).toMatchObject({ status: 'error', rowCount: 1 })
+        expect(outcomes[0]?.message).toContain('GHSA-bad could not be re-read (connection reset)')
+        expect(await cacheRowCount(dir, 'osv', 'npm')).toBe(1)
         // Cursor held so the id is retried, and the ETag cleared so the retry is not answered by a 304.
-        expect(await stateOf('osv')).toMatchObject({ cursorIso: '2026-06-01T00:00:00Z', etag: null })
+        expect(await stateOf('osv')).toMatchObject({ cursorIso: '2026-06-01T00:00:00Z', etag: null, refreshedAt: T0 })
     })
 
-    // One advisory failing must not abort the pass; the cursor only advances on a completed pass, so it
-    // is simply re-read next time.
-    it('drops an advisory that fails to fetch and keeps the rest of the pass', async function () {
+    // A pass is all or nothing: one advisory failing writes nothing of it, so fetching the rest would be
+    // wasted. The error outcome is what offers the run's retry.
+    it('writes nothing of a pass in which one advisory failed, and stops fetching', async function () {
         await seedFile('osv', [osvRow({ advisoryId: 'GHSA-keep' })])
         await seedState('osv')
-        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-bad', 'GHSA-good'], etag: null, newestIso: null })
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-good', 'GHSA-bad', 'GHSA-later'], etag: null, newestIso: null })
         feeds.fetchOsvAdvisoryRows.mockImplementation(async function fetchRows(id: string) {
-            if (id === 'GHSA-bad') throw new Error('404')
-            return [osvRow({ advisoryId: 'GHSA-good' })]
+            if (id === 'GHSA-bad') throw new Error('503')
+            return [osvRow({ advisoryId: id })]
         })
         const outcomes = await runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
-        expect(outcomes[0]?.status).toBe('refreshed')
-        expect(outcomes[0]?.rowCount).toBe(2)
+        expect(outcomes[0]?.status).toBe('error')
+        expect(feeds.fetchOsvAdvisoryRows).toHaveBeenCalledTimes(2)
+        expect(await cacheRowCount(dir, 'osv', 'npm')).toBe(1)
+    })
+
+    // SENTINEL-48. GitHub withdraws GHSA-A as a duplicate of a newly published GHSA-B, both aliasing CVE-X.
+    // Writing A's withdrawal while B's fetch failed left every record linked to CVE-X withdrawn, and the
+    // run stamped a live gemnasium advisory from it. The file keeps the last complete snapshot until a
+    // refresh that re-read both lands.
+    it('keeps a withdrawn duplicate out of the file until its replacement is re-read too', async function () {
+        const withdrawnAt = Date.UTC(2026, 9, 23)
+        await seedFile('osv', [osvRow({ advisoryId: 'GHSA-a', packageName: 'braces', aliases: ['CVE-X'] })])
+        await seedState('osv', { cursorIso: '2026-10-22T00:00:00Z', etag: 'etag-1' })
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-a', 'GHSA-b'], etag: 'etag-2', newestIso: '2026-10-23T12:53:02Z' })
+        feeds.fetchOsvAdvisoryRows.mockImplementation(async function partial(id: string) {
+            if (id === 'GHSA-b') throw new Error('503')
+            return [osvRow({ advisoryId: 'GHSA-a', packageName: 'braces', aliases: ['CVE-X'], withdrawn: withdrawnAt })]
+        })
+        const plan = await planSync(options({ sources: ['osv'] }))
+
+        const failed = await runSync(options({ sources: ['osv'] }), plan)
+
+        expect(failed[0]?.status).toBe('error')
+        const before = await readRowsForPackages<OsvAdvisoryRow>(advisoryFilePath(dir, 'osv', 'npm'), new Set(['braces']))
+        expect(before.get('braces')).toEqual([expect.objectContaining({ advisoryId: 'GHSA-a', withdrawn: null })])
+
+        // The retry the run offers: same plan item, now every advisory reads.
+        feeds.fetchOsvAdvisoryRows.mockImplementation(async function complete(id: string) {
+            return [osvRow({ advisoryId: id, packageName: 'braces', aliases: ['CVE-X'], withdrawn: id === 'GHSA-a' ? withdrawnAt : null })]
+        })
+        const retried = await runSync(options({ sources: ['osv'] }), plan)
+
+        expect(feeds.fetchOsvChangedIds.mock.calls.at(-1)?.slice(1, 3)).toEqual([Date.parse('2026-10-22T00:00:00Z'), null])
+        expect(retried[0]).toMatchObject({ status: 'refreshed', rowCount: 2 })
+        const after = await readRowsForPackages<OsvAdvisoryRow>(advisoryFilePath(dir, 'osv', 'npm'), new Set(['braces']))
+        expect(after.get('braces')).toEqual(expect.arrayContaining([
+            expect.objectContaining({ advisoryId: 'GHSA-a', withdrawn: withdrawnAt }),
+            expect.objectContaining({ advisoryId: 'GHSA-b', withdrawn: null })
+        ]))
+        expect(await stateOf('osv')).toMatchObject({ cursorIso: '2026-10-23T12:53:02Z', etag: 'etag-2' })
+    })
+
+    // A run reading the cache while another one refreshes it (the lock makes it read rather than wait)
+    // sees the previous file whole until the pass is complete.
+    it('leaves the previous file in place for a concurrent reader while the pass is fetching', async function () {
+        await seedFile('osv', [osvRow({ advisoryId: 'GHSA-a', packageName: 'braces', aliases: ['CVE-X'] })])
+        await seedState('osv')
+        let releaseB: (rows: OsvAdvisoryRow[]) => void = function unset() {}
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-a', 'GHSA-b'], etag: 'etag-2', newestIso: null })
+        feeds.fetchOsvAdvisoryRows
+            .mockResolvedValueOnce([osvRow({ advisoryId: 'GHSA-a', packageName: 'braces', aliases: ['CVE-X'], withdrawn: 1 })])
+            .mockReturnValueOnce(new Promise<OsvAdvisoryRow[]>(function hold(resolve) {
+                releaseB = resolve
+            }))
+
+        const pass = runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
+        await vi.waitFor(function bothRequested() {
+            expect(feeds.fetchOsvAdvisoryRows).toHaveBeenCalledTimes(2)
+        })
+
+        const during = await readRowsForPackages<OsvAdvisoryRow>(advisoryFilePath(dir, 'osv', 'npm'), new Set(['braces']))
+        expect(during.get('braces')).toEqual([expect.objectContaining({ advisoryId: 'GHSA-a', withdrawn: null })])
+
+        releaseB([osvRow({ advisoryId: 'GHSA-b', packageName: 'braces', aliases: ['CVE-X'] })])
+        expect((await pass)[0]?.status).toBe('refreshed')
+        expect(await cacheRowCount(dir, 'osv', 'npm')).toBe(2)
     })
 
     it('keeps the previous cursor when the refresh reports no newer one', async function () {
@@ -429,7 +572,7 @@ describe('runSync — OSV', function () {
         expect((await stateOf('osv'))?.cursorIso).toBe('2026-06-01T00:00:00Z')
     })
 
-    it('stops fetching advisories partway through once aborted', async function () {
+    it('stops fetching advisories partway through once aborted, writing nothing', async function () {
         await seedFile('osv', [osvRow()])
         await seedState('osv')
         const controller = new AbortController()
@@ -438,8 +581,12 @@ describe('runSync — OSV', function () {
             controller.abort()
             return [osvRow({ advisoryId: 'a' })]
         })
-        await runSync(options({ sources: ['osv'], abortSignal: controller.signal }), await planSync(options({ sources: ['osv'] })))
+        const plan = await planSync(options({ sources: ['osv'] }))
+        // The abort is raised mid-pass, so the item is reached; runSync's own between-items check is not.
+        const outcomes = await runSync(options({ sources: ['osv'], abortSignal: controller.signal }), plan)
         expect(feeds.fetchOsvAdvisoryRows).toHaveBeenCalledTimes(1)
+        expect(outcomes[0]).toMatchObject({ status: 'error', message: expect.stringContaining('cancelled') })
+        expect(await cacheRowCount(dir, 'osv', 'npm')).toBe(1)
     })
 })
 
@@ -615,13 +762,29 @@ describe('runSync — the cursor and record-count fallbacks', function () {
         feeds.fetchOsvChangedIds.mockResolvedValue(changed)
 
         const outcomes = await runSync(options({ sources: ['osv'] }), {
-            items: [{ source: 'osv', ecosystem: 'npm', kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false }],
+            items: [{ source: 'osv', ecosystem: 'npm', purpose: 'findings', kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false }],
             seedBytes: 0,
             needsConsent: false
         })
 
         expect(outcomes[0]).toMatchObject({ status: 'unchanged', rowCount: 0 })
         // touch() found nothing to touch, so no state row was invented for a cache that is not there.
+        expect(await stateOf('osv')).toBeNull()
+    })
+
+    // The same vanished state on a pass that fails: there is no ETag to clear and no count to report, and
+    // the failure must not invent a state row either.
+    it('reports zero rows and invents no state when a pass fails after the state disappeared', async function () {
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-bad'], etag: 'etag-9', newestIso: null })
+        feeds.fetchOsvAdvisoryRows.mockRejectedValue(new Error('connection reset'))
+
+        const outcomes = await runSync(options({ sources: ['osv'] }), {
+            items: [{ source: 'osv', ecosystem: 'npm', purpose: 'findings', kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false }],
+            seedBytes: 0,
+            needsConsent: false
+        })
+
+        expect(outcomes[0]).toMatchObject({ status: 'error', rowCount: 0 })
         expect(await stateOf('osv')).toBeNull()
     })
 })
@@ -678,7 +841,7 @@ describe('runSync — gemnasium paths that are not advisories', function () {
         ])
 
         const outcomes = await runSync(options({ sources: ['gemnasium'], ecosystem: 'PyPI' }), {
-            items: [{ source: 'gemnasium', ecosystem: 'PyPI', kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false }],
+            items: [{ source: 'gemnasium', ecosystem: 'PyPI', purpose: 'findings', kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false }],
             seedBytes: 0,
             needsConsent: false
         })

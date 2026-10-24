@@ -10,7 +10,7 @@ import { startStubRegistry, type StubRegistry } from '../../../tests/fixtures/re
 import { closeWorkerTestDb, openWorkerTestDb, seedProject, seedRoot, type WorkerTestDb } from '../../worker/src/worker-test-db.fixture'
 import { runProjectScanners } from '../../worker/src/runner'
 import { loadCacheForPackages } from './cache/lookup'
-import { advisoryFilePath, writeCacheMeta } from './cache/meta'
+import { advisoryFilePath, readCacheMeta, writeCacheMeta } from './cache/meta'
 import { loadRegistryStore } from './cache/registry'
 import { createRowWriter } from './cache/store'
 import { buildScanners, collectPackageNames, resolveProjects, scanProject, type ScanSetup } from './scan'
@@ -103,7 +103,7 @@ async function scanWithCli(): Promise<Map<string, Settled>> {
         settledAt: Date.now(),
         registry: createNpmRegistryClient(await loadRegistryStore(cacheDir))
     }
-    const scanners = buildScanners(setup, await loadCacheForPackages(cacheDir, 'npm', collectPackageNames(resolved), ['osv']))
+    const scanners = buildScanners(setup, await loadCacheForPackages(cacheDir, 'npm', collectPackageNames(resolved), ['osv'], await readCacheMeta(cacheDir)))
     const out = new Map<string, Settled>()
     for (const entry of resolved) {
         const result = await scanProject(setup, entry, scanners)

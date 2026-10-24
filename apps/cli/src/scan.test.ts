@@ -133,7 +133,7 @@ function ctxOf(scanner: { contexts: ScanContext[] }): ScanContext {
 }
 
 function emptyCache(): LoadedCache {
-    return { osv: new Map(), gemnasium: new Map() }
+    return { osv: new Map(), gemnasium: new Map(), withdrawalsChecked: false }
 }
 
 // Typed rather than cast: the range needs `lastAffected` and the severity is a plain string, both of
@@ -164,6 +164,7 @@ function gemnasiumAdvisory(overrides: Partial<GemnasiumAdvisory> = {}): Gemnasiu
         severity: 'high',
         summary: 'Prototype pollution',
         url: null,
+        withdrawn: null,
         ...overrides
     }
 }
@@ -315,7 +316,8 @@ describe('buildScanners', function () {
         await makeProject('web')
         const cache: LoadedCache = {
             osv: new Map([['lodash', [osvAdvisory()]]]),
-            gemnasium: new Map()
+            gemnasium: new Map(),
+            withdrawalsChecked: false
         }
         const scanners = buildScanners(setup({ includeNpmAudit: false, sources: ['osv'] }), cache)
         const graphs = await resolveProjects([project()])
@@ -344,7 +346,8 @@ describe('buildScanners', function () {
         await makeProject('web')
         const cache: LoadedCache = {
             osv: new Map(),
-            gemnasium: new Map([['lodash', [gemnasiumAdvisory()]]])
+            gemnasium: new Map([['lodash', [gemnasiumAdvisory()]]]),
+            withdrawalsChecked: false
         }
         const scanners = buildScanners(setup({ includeNpmAudit: false, sources: ['gemnasium'] }), cache)
         const graphs = await resolveProjects([project()])

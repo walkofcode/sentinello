@@ -15,8 +15,8 @@ export type GemnasiumRange = VersionRange
 
 // The advisory shape the gemnasium cache hands the scanner. Mirrors the db's GemnasiumAdvisoryRow but is
 // redeclared here so the scanners package stays free of a direct @sentinello/db dependency — the worker
-// adapts db rows into this shape when it builds the lookup. gemnasium carries no malware/withdrawn class,
-// so unlike OSV there is no `malicious` flag and `versions` is normally empty (gemnasium uses ranges).
+// adapts db rows into this shape when it builds the lookup. gemnasium carries no malware class, so unlike
+// OSV there is no `malicious` flag, and `versions` is normally empty (gemnasium uses ranges).
 export type GemnasiumAdvisory = {
     advisoryId: string
     aliases: string[]
@@ -25,6 +25,9 @@ export type GemnasiumAdvisory = {
     severity: string | null
     summary: string | null
     url: string | null
+    // Epoch ms of the withdrawal, or null. gemnasium-db itself records none: the lookup stamps it from the
+    // OSV records linked to the advisory (see ./withdrawn), and the matcher then drops it.
+    withdrawn: number | null
 }
 
 // Injected by the worker: given an ecosystem (the registry EcosystemId, e.g. 'npm' | 'PyPI' | 'Go' |
@@ -45,6 +48,12 @@ export type GemnasiumScannerDeps = {
     // unit is a (source, ecosystem) cell, so a disabled cell must never produce findings even though the
     // single gemnasium cache is seeded for all ecosystems. Checked before matching each ecosystem's packages.
     isEnabled: (ecosystem: string) => boolean
+    // Whether the withdrawal evidence the lookup stamps from (the OSV cache for the ecosystem) is complete
+    // enough to trust. When false for an ecosystem the graph holds and the operator enabled, the scan is
+    // unauditable rather than reported unstamped: in a persistent finding store an unstamped scan would
+    // reopen every withdrawn finding, notifications included, and resolve it again once the evidence lands.
+    // A one-shot report (the CLI) can answer true and report unstamped instead.
+    withdrawalEvidenceReady: (ecosystem: string) => boolean
 }
 
 // Factory-from-function (no classes): the worker binds `lookup`/`isSeeded` to the live gemnasium.db cache
@@ -67,6 +76,10 @@ export function createGemnasiumScanner(deps: GemnasiumScannerDeps): ScannerPlugi
                 errorText: 'no resolvable lockfile for gemnasium',
                 durationMs: Date.now() - startedAt
             }
+        }
+        const notReady = evidenceNotReady(graph.packages, deps)
+        if (notReady !== null) {
+            return unauditable('osv_db_not_seeded', 'OSV withdrawal data for ' + notReady + ' is not complete yet', startedAt)
         }
         // The injected lookup is backed by the gemnasium.db cache, so a corrupt/locked/removed cache throws
         // here. Catch it so the failure is recorded under gemnasium's own reason code rather than the
@@ -127,6 +140,17 @@ export function matchPackages(
     return findings
 }
 
+// The first ecosystem this scan would match whose withdrawal evidence is not ready, or null. Only the
+// ecosystems matchPackages would actually match count: a disabled cell or one with no comparator is never
+// matched, so its evidence cannot make the scan unauditable.
+function evidenceNotReady(packages: ResolvedPackage[], deps: GemnasiumScannerDeps): string | null {
+    for (const ecosystem of groupByEcosystem(packages).keys()) {
+        if (!deps.isEnabled(ecosystem) || !comparatorForEcosystem(ecosystem)) continue
+        if (!deps.withdrawalEvidenceReady(ecosystem)) return ecosystem
+    }
+    return null
+}
+
 function toCanonicalAdvisory(packageName: string, ecosystem: string, advisory: GemnasiumAdvisory): CanonicalAdvisory {
     return {
         id: advisory.advisoryId,
@@ -142,7 +166,7 @@ function toCanonicalAdvisory(packageName: string, ecosystem: string, advisory: G
         severity: advisory.severity,
         summary: advisory.summary,
         url: advisory.url,
-        withdrawn: null
+        withdrawn: advisory.withdrawn
     }
 }
 

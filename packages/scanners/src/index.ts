@@ -25,6 +25,7 @@ export { createOsvScanner, matchPackages, OSV_SCANNER_NAME } from './osv'
 export type { OsvAdvisory, OsvLookup, OsvRange, OsvScannerDeps } from './osv'
 export { createGemnasiumScanner, GEMNASIUM_SCANNER_NAME } from './gemnasium'
 export type { GemnasiumAdvisory, GemnasiumLookup, GemnasiumRange, GemnasiumScannerDeps } from './gemnasium'
+export { stampWithdrawn, stampWithdrawnByPackage } from './withdrawn'
 export { matchAdvisories } from './engine/matcher'
 export { normalizeOneVulnerability, type DepClassifier, type Vulnerability } from './npm-audit-parse'
 // Version semantics live in @sentinello/versions; re-exported here so existing consumers keep one import.

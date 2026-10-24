@@ -38,6 +38,11 @@ export type OsvAdvisoryRow = {
     withdrawn: number | null
 }
 
+// The identity half of an OSV row: the fields gemnasium's withdrawal stamping links on. gemnasium-db
+// records no withdrawal, so an advisory GitHub withdrew is recognised by finding the OSV records that
+// share its id or an alias, for the same package, and seeing that every one of them is withdrawn.
+export type OsvAdvisoryLink = Pick<OsvAdvisoryRow, 'advisoryId' | 'aliases' | 'withdrawn'>
+
 // Bump whenever normalizeOsvRecord's output shape changes in a way that requires rebuilding the cache.
 // v2: started capturing affected[].versions and real MAL- ranges (was: all-versions malware shortcut).
 // v3: per-ecosystem rows (dropped the npm/SEMVER-only filters) + richer range shape (range.type +
@@ -72,9 +77,15 @@ export type OsvAdvisoryRow = {
 //     the separate GitHub fallback bound is validated AFTER it is attached, so malformed or inverted
 //     fallback data cannot rebuild the impossible interval this version exists to remove. Still zero rows
 //     in the live export, by the same measurement.
+// v7: keep withdrawn advisories. The incremental sync used to delete an advisory that came back withdrawn
+//     while the seed kept it, so every withdrawal published after the last seed vanished from the cache;
+//     the cache is now the evidence gemnasium uses to drop advisories GitHub has withdrawn (gemnasium-db
+//     records no withdrawal), so those rows have to come back. The normalizer also keeps a withdrawn
+//     package row that carries no ranges or versions, which it used to skip as unmatchable. Nothing
+//     matches on a withdrawn row; it is evidence only. Forces a re-seed to recover the purged rows.
 // Lives beside the row type it describes so every store — the portal's SQLite cache and the CLI's ndjson
 // cache alike — invalidates on exactly the same signal.
-export const OSV_NORMALIZER_VERSION = 6
+export const OSV_NORMALIZER_VERSION = 7
 
 // gemnasium carries no range `type` discriminator, so its rows leave that field unset — but it very much
 // does state inclusive upper bounds (`<=X`, maven `[a,b]`) and exclusive lower ones (`>X`), so it uses the

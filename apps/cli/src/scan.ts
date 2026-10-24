@@ -139,6 +139,12 @@ export function buildScanners(setup: ScanSetup, cache: LoadedCache): ScannerPlug
             },
             isEnabled: function isEnabled(ecosystem: string): boolean {
                 return ecosystem === setup.ecosystem
+            },
+            // Always ready: the cache was stamped (or not) before the scan, and a one-shot report with no
+            // complete OSV evidence reports gemnasium unstamped under a warning instead of refusing it.
+            // Only the portal, whose findings persist across scans, has to wait for the evidence.
+            withdrawalEvidenceReady: function withdrawalEvidenceReady(): boolean {
+                return true
             }
         }))
     }

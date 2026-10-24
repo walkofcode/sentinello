@@ -6,7 +6,6 @@ import {
     type DrizzleDb,
     type SqliteDb
 } from '@sentinello/db'
-import { npmAuditPlugin } from '@sentinello/scanners'
 import {
     CONFIG_KEYS,
     DEFAULT_GLOBAL_IGNORE,
@@ -15,7 +14,7 @@ import {
     intervalHoursToCron,
     type Schedule
 } from './config-loader'
-import { selectScanners, extraSourceCells, type OsvController } from './osv-runtime'
+import { scannersForBatch, type OsvController } from './osv-runtime'
 import { type GemnasiumController } from './gemnasium-runtime'
 import { discoverProjects } from './discovery'
 import { runBatch } from './runner'
@@ -91,7 +90,7 @@ export async function sweepActiveProjects(input: StartSchedulerInput): Promise<v
     await runBatch({
         db: input.db,
         sqlite: input.sqlite,
-        scanners: selectScanners(input.db, npmAuditPlugin, extraSourceCells(input)),
+        scanners: await scannersForBatch(input),
         projects,
         parallelism,
         abortSignal: input.runtime.abortController.signal

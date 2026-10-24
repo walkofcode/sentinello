@@ -52,8 +52,10 @@ let scheduler: { reload: ReturnType<typeof vi.fn<() => void>>; stop: ReturnType<
 function controller() {
     return {
         getScanner: vi.fn(function getScanner() { return null }),
+        evidence: { ready: function ready() { return true }, links: function links() { return null } },
         reload: vi.fn(),
         refresh: vi.fn(async function refresh() {}),
+        refreshEvidence: vi.fn(async function refreshEvidence() {}),
         stop: vi.fn()
     }
 }
@@ -267,6 +269,48 @@ describe('pollOnce — root sweep', function () {
         expect(logLines().some(function m(l) {
             return l.includes('root sweep finished') && l.includes(expected as string)
         })).toBe(true)
+    })
+})
+
+// Every batch re-checks gemnasium's withdrawal evidence before it matches (SENTINEL-45). The poller has three
+// batch entry points, and each must await the refresh before handing runBatch its scanners: a withdrawal
+// published since the last sync would otherwise still be reported by the scan that follows it.
+describe('pollOnce — withdrawal evidence', function () {
+    function refreshedBeforeTheBatch(): boolean {
+        const refreshed = osvController.refreshEvidence.mock.invocationCallOrder[0]
+        const batched = runBatch.mock.invocationCallOrder[0]
+        return refreshed !== undefined && batched !== undefined && refreshed < batched
+    }
+
+    it('refreshes before a full sweep', async function () {
+        enqueueScanRequest(handle.db, {}, T0)
+        await pollOnce(input())
+        expect(osvController.refreshEvidence).toHaveBeenCalledTimes(1)
+        expect(refreshedBeforeTheBatch()).toBe(true)
+    })
+
+    it('refreshes before a single-project scan', async function () {
+        enqueueScanRequest(handle.db, {}, T0)
+        await pollOnce(input())
+        runBatch.mockClear()
+        osvController.refreshEvidence.mockClear()
+        enqueueScanRequest(handle.db, { projectId: makeProjectId('root-1', 'web') }, T0 + 1000)
+        await pollOnce(input())
+        expect(osvController.refreshEvidence).toHaveBeenCalledTimes(1)
+        expect(refreshedBeforeTheBatch()).toBe(true)
+    })
+
+    it('refreshes before a root sweep', async function () {
+        enqueueScanRequest(handle.db, { rootId: 'root-1' }, T0)
+        await pollOnce(input())
+        expect(osvController.refreshEvidence).toHaveBeenCalledTimes(1)
+        expect(refreshedBeforeTheBatch()).toBe(true)
+    })
+
+    it('still scans when no OSV controller was passed', async function () {
+        enqueueScanRequest(handle.db, {}, T0)
+        await pollOnce(input({ osvController: null }))
+        expect(runBatch).toHaveBeenCalledTimes(1)
     })
 })
 

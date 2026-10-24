@@ -188,6 +188,17 @@ describe('streamOsvSeed', function () {
         expect(batches[0]?.rows).toHaveLength(1)
     })
 
+    // The seed has always kept withdrawn rows; it now also keeps one with no ranges (SENTINEL-47), which
+    // the normalizer used to skip as unmatchable, and still skips an active record in the same shape.
+    it('keeps a range-less withdrawn record and skips a range-less active one', async function () {
+        await zipResponse({
+            'GHSA-1.json': JSON.stringify(osvRecord({ withdrawn: '2026-07-01T00:00:00Z', affected: [{ package: { name: 'braces', ecosystem: 'npm' } }] })),
+            'GHSA-2.json': JSON.stringify(osvRecord({ id: 'GHSA-2', affected: [{ package: { name: 'braces', ecosystem: 'npm' } }] }))
+        })
+        const batches = await collect(streamOsvSeed('npm'))
+        expect(batches[0]?.rows.map(function id(r) { return r.advisoryId + ':' + (r.withdrawn !== null) })).toEqual(['GHSA-1:true'])
+    })
+
     // A single corrupt entry in a 220k-file export must not abandon the whole seed.
     it('drops an entry whose JSON does not parse and keeps going', async function () {
         await zipResponse({
@@ -341,9 +352,21 @@ describe('fetchOsvAdvisoryRows', function () {
         expect(await fetchOsvAdvisoryRows('GHSA-gone', 'npm')).toEqual([])
     })
 
-    it('filters out rows that came back withdrawn', async function () {
+    // A withdrawn advisory keeps its rows, flagged, exactly as the seed stores them: they are the evidence
+    // gemnasium drops withdrawn advisories by. Returning [] here is what made the incremental sync delete
+    // every advisory withdrawn after the last seed.
+    it('keeps the rows of an advisory that came back withdrawn, flagged', async function () {
         fetchMock.mockResolvedValue(respond(JSON.stringify(osvRecord({ withdrawn: '2026-07-01T00:00:00Z' })), { status: 200 }))
-        expect(await fetchOsvAdvisoryRows('GHSA-1', 'npm')).toEqual([])
+        const rows = await fetchOsvAdvisoryRows('GHSA-1', 'npm')
+        expect(rows.map(function w(r) { return [r.packageName, r.withdrawn] })).toEqual([['lodash', Date.parse('2026-07-01T00:00:00Z')]])
+    })
+
+    // SENTINEL-47: a withdrawal that also strips the affected ranges still names the package.
+    it('keeps a range-less withdrawn record as an evidence row', async function () {
+        const record = osvRecord({ withdrawn: '2026-07-01T00:00:00Z', affected: [{ package: { name: 'braces', ecosystem: 'npm' } }] })
+        fetchMock.mockResolvedValue(respond(JSON.stringify(record), { status: 200 }))
+        const rows = await fetchOsvAdvisoryRows('GHSA-1', 'npm')
+        expect(rows).toEqual([expect.objectContaining({ packageName: 'braces', ranges: [], versions: [], withdrawn: Date.parse('2026-07-01T00:00:00Z') })])
     })
 })
 

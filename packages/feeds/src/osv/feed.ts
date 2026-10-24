@@ -132,8 +132,10 @@ export async function fetchOsvChangedIds(
     return { status: 'ok', ids: changed.ids, newestIso: changed.newestIso, etag: result.etag }
 }
 
-// Current rows for one advisory. Returns [] when the advisory 404s (removed upstream) or comes back
-// withdrawn — both mean "this advisory should no longer match", which the caller applies as a deletion.
+// Current rows for one advisory. Returns [] only when the advisory 404s (removed upstream), which the
+// caller applies as a deletion. A withdrawn advisory keeps its rows with `withdrawn` set, exactly as the
+// seed stores them: nothing matches on them (the matcher and lookupOsvByPackages both skip withdrawn rows),
+// but they are the evidence that lets gemnasium drop an advisory GitHub has withdrawn.
 export async function fetchOsvAdvisoryRows(
     id: string,
     ecosystem: EcosystemId,
@@ -141,10 +143,7 @@ export async function fetchOsvAdvisoryRows(
 ): Promise<OsvAdvisoryRow[]> {
     const record = await getJsonOrNull<unknown>(osvAdvisoryUrl(id, ecosystem), options)
     if (record === null) return []
-    const rows = normalizeOsvRecord(record, ecosystem)
-    return rows.filter(function notWithdrawn(row): boolean {
-        return row.withdrawn === null
-    })
+    return normalizeOsvRecord(record, ecosystem)
 }
 
 export type ChangedIdSelection = {

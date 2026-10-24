@@ -10,8 +10,8 @@ import { makeGraph } from './resolver/graph'
 import type { ResolvedPackage } from './resolver/types'
 import type { ScanContext } from './types'
 
-// The gemnasium scanner is already dependency-injected — lookup, isSeeded and isEnabled are plain
-// functions — so nothing here needs a database.
+// The gemnasium scanner is already dependency-injected — lookup, isSeeded, isEnabled and
+// withdrawalEvidenceReady are plain functions — so nothing here needs a database.
 //
 // What matters is the gating, and the two places gemnasium deliberately differs from its OSV twin.
 // First, the seed gate is GLOBAL rather than per-ecosystem, because the gemnasium cache is a single
@@ -40,6 +40,7 @@ function advisory(overrides: Partial<GemnasiumAdvisory> = {}): GemnasiumAdvisory
         severity: 'high',
         summary: 'Prototype pollution',
         url: 'https://example.test/advisory/1',
+        withdrawn: null,
         ...overrides
     }
 }
@@ -74,14 +75,14 @@ function contextFor(packages: ResolvedPackage[]): ScanContext {
 describe('createGemnasiumScanner — gating', function () {
     it('registers under the gemnasium name', function () {
         const { lookup } = recordingLookup({})
-        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true) })
+        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true), withdrawalEvidenceReady: always(true) })
         expect(scanner.name).toBe(GEMNASIUM_SCANNER_NAME)
     })
 
     // The distinction that matters most: an unseeded cache must never be reported as zero findings.
     it('reports gemnasium_db_not_seeded rather than zero findings', async function () {
         const { lookup, calls } = recordingLookup({})
-        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(false), isEnabled: always(true) })
+        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(false), isEnabled: always(true), withdrawalEvidenceReady: always(true) })
         const result = await scanner.scan('/p', contextFor([pkg('lodash', '4.17.20')]))
         expect(result.status).toBe('unauditable')
         expect(result.reasonCode).toBe('gemnasium_db_not_seeded')
@@ -93,7 +94,7 @@ describe('createGemnasiumScanner — gating', function () {
     // single cache means "not seeded" outranks everything — including a missing lockfile.
     it('reports the seed gate ahead of a missing lockfile', async function () {
         const { lookup } = recordingLookup({})
-        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(false), isEnabled: always(true) })
+        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(false), isEnabled: always(true), withdrawalEvidenceReady: always(true) })
         const result = await scanner.scan('/p', { timeoutMs: 1000, resolvedGraph: null })
         expect(result.reasonCode).toBe('gemnasium_db_not_seeded')
     })
@@ -102,7 +103,7 @@ describe('createGemnasiumScanner — gating', function () {
     // reporting a clean bill of health.
     it('reports no_lockfile when there is no resolved graph', async function () {
         const { lookup, calls } = recordingLookup({})
-        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true) })
+        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true), withdrawalEvidenceReady: always(true) })
         const result = await scanner.scan('/p', { timeoutMs: 1000, resolvedGraph: null })
         expect(result.status).toBe('unauditable')
         expect(result.reasonCode).toBe('no_lockfile')
@@ -111,14 +112,14 @@ describe('createGemnasiumScanner — gating', function () {
 
     it('reports no_lockfile for an undefined graph too', async function () {
         const { lookup } = recordingLookup({})
-        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true) })
+        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true), withdrawalEvidenceReady: always(true) })
         const result = await scanner.scan('/p', { timeoutMs: 1000 })
         expect(result.reasonCode).toBe('no_lockfile')
     })
 
     it('takes its reason and coverage from the resolver when there is no graph', async function () {
         const { lookup } = recordingLookup({})
-        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true) })
+        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true), withdrawalEvidenceReady: always(true) })
         const coverage = [{ ecosystem: 'npm', status: 'unauditable' as const, reasonCode: 'no_lockfile' as const }]
         const result = await scanner.scan('/p', { timeoutMs: 1000, resolvedGraph: null, coverage })
         expect(result.reasonCode).toBe('no_lockfile')
@@ -128,7 +129,7 @@ describe('createGemnasiumScanner — gating', function () {
     // A disabled cell must produce nothing even though the shared cache is seeded for every ecosystem.
     it('never consults the lookup for a disabled ecosystem', async function () {
         const { lookup, calls } = recordingLookup({ npm: { lodash: [advisory()] } })
-        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(false) })
+        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(false), withdrawalEvidenceReady: always(true) })
         const result = await scanner.scan('/p', contextFor([pkg('lodash', '4.17.20')]))
         expect(result.status).toBe('ok')
         expect(result.findings).toEqual([])
@@ -136,10 +137,66 @@ describe('createGemnasiumScanner — gating', function () {
     })
 })
 
+// gemnasium-db records no withdrawal, so the lookup stamps it from the OSV snapshot, and only from a
+// complete one. While that snapshot is incomplete the portal must not report gemnasium unstamped: a
+// persistent finding store would reopen every withdrawn finding and resolve it again once the snapshot
+// lands. So the scan is unauditable for that ecosystem, under the existing osv_db_not_seeded reason.
+describe('createGemnasiumScanner — withdrawal evidence gate', function () {
+    it('reports osv_db_not_seeded and never matches while the evidence is incomplete', async function () {
+        const { lookup, calls } = recordingLookup({ npm: { lodash: [advisory()] } })
+        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true), withdrawalEvidenceReady: always(false) })
+        const result = await scanner.scan('/p', contextFor([pkg('lodash', '4.17.20')]))
+        expect(result.status).toBe('unauditable')
+        expect(result.reasonCode).toBe('osv_db_not_seeded')
+        expect(result.errorText).toBe('OSV withdrawal data for npm is not complete yet')
+        expect(result.findings).toEqual([])
+        expect(calls).toEqual([])
+    })
+
+    it('asks only about the ecosystems it would match', async function () {
+        const { lookup } = recordingLookup({ npm: { lodash: [advisory()] } })
+        const asked: string[] = []
+        const scanner = createGemnasiumScanner({
+            lookup,
+            isSeeded: always(true),
+            isEnabled: function isEnabled(ecosystem) { return ecosystem !== 'PyPI' },
+            withdrawalEvidenceReady: function ready(ecosystem) {
+                asked.push(ecosystem)
+                return true
+            }
+        })
+        // PyPI's cell is off and 'nuget' has no comparator: neither is matched, so neither is asked about.
+        const result = await scanner.scan('/p', contextFor([pkg('lodash', '4.17.20'), pkg('requests', '2.0.0', 'PyPI'), pkg('x', '1.0.0', 'nuget')]))
+        expect(asked).toEqual(['npm'])
+        expect(result.status).toBe('ok')
+        expect(result.findings).toHaveLength(1)
+    })
+
+    it('ignores incomplete evidence for an ecosystem it does not match', async function () {
+        const { lookup } = recordingLookup({ npm: { lodash: [advisory()] } })
+        const scanner = createGemnasiumScanner({
+            lookup,
+            isSeeded: always(true),
+            isEnabled: function isEnabled(ecosystem) { return ecosystem === 'npm' },
+            withdrawalEvidenceReady: function ready(ecosystem) { return ecosystem === 'npm' }
+        })
+        const result = await scanner.scan('/p', contextFor([pkg('lodash', '4.17.20'), pkg('requests', '2.0.0', 'PyPI')]))
+        expect(result.status).toBe('ok')
+    })
+
+    it('drops an advisory the lookup stamped withdrawn', async function () {
+        const { lookup } = recordingLookup({ npm: { lodash: [advisory({ withdrawn: Date.UTC(2026, 9, 23) })] } })
+        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true), withdrawalEvidenceReady: always(true) })
+        const result = await scanner.scan('/p', contextFor([pkg('lodash', '4.17.20')]))
+        expect(result.status).toBe('ok')
+        expect(result.findings).toEqual([])
+    })
+})
+
 describe('createGemnasiumScanner — results', function () {
     it('returns a finding for a seeded, enabled, vulnerable package', async function () {
         const { lookup } = recordingLookup({ npm: { lodash: [advisory()] } })
-        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true) })
+        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true), withdrawalEvidenceReady: always(true) })
         const result = await scanner.scan('/p', contextFor([pkg('lodash', '4.17.20')]))
         expect(result.status).toBe('ok')
         expect(result.reasonCode).toBe('ok')
@@ -149,7 +206,7 @@ describe('createGemnasiumScanner — results', function () {
 
     it('reports ok with no findings when the package is already patched', async function () {
         const { lookup } = recordingLookup({ npm: { lodash: [advisory()] } })
-        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true) })
+        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true), withdrawalEvidenceReady: always(true) })
         const result = await scanner.scan('/p', contextFor([pkg('lodash', '4.17.21')]))
         expect(result.status).toBe('ok')
         expect(result.findings).toEqual([])
@@ -157,7 +214,7 @@ describe('createGemnasiumScanner — results', function () {
 
     it('summarises the run in rawJson', async function () {
         const { lookup } = recordingLookup({ npm: { lodash: [advisory()] } })
-        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true) })
+        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true), withdrawalEvidenceReady: always(true) })
         const result = await scanner.scan('/p', contextFor([pkg('lodash', '4.17.20'), pkg('express', '4.0.0')]))
         expect(JSON.parse(result.rawJson)).toMatchObject({
             source: 'gemnasium',
@@ -168,7 +225,7 @@ describe('createGemnasiumScanner — results', function () {
 
     it('carries the resolver coverage through into rawJson', async function () {
         const { lookup } = recordingLookup({})
-        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true) })
+        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true), withdrawalEvidenceReady: always(true) })
         const ctx: ScanContext = {
             ...contextFor([pkg('lodash', '4.17.20')]),
             coverage: [{ ecosystem: 'npm', status: 'ok' }]
@@ -179,7 +236,7 @@ describe('createGemnasiumScanner — results', function () {
 
     it('defaults coverage to an empty list when the runner supplied none', async function () {
         const { lookup } = recordingLookup({})
-        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true) })
+        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true), withdrawalEvidenceReady: always(true) })
         const result = await scanner.scan('/p', contextFor([pkg('lodash', '4.17.20')]))
         expect(JSON.parse(result.rawJson).coverage).toEqual([])
     })
@@ -191,7 +248,7 @@ describe('createGemnasiumScanner — results', function () {
         const lookup: GemnasiumLookup = function throwing() {
             throw new Error('database disk image is malformed')
         }
-        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true) })
+        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true), withdrawalEvidenceReady: always(true) })
         const result = await scanner.scan('/p', contextFor([pkg('lodash', '4.17.20')]))
         expect(result.status).toBe('error')
         expect(result.reasonCode).toBe('gemnasium_db_unavailable')
@@ -203,7 +260,7 @@ describe('createGemnasiumScanner — results', function () {
         const lookup: GemnasiumLookup = function throwing() {
             throw 'not an Error instance'
         }
-        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true) })
+        const scanner = createGemnasiumScanner({ lookup, isSeeded: always(true), isEnabled: always(true), withdrawalEvidenceReady: always(true) })
         const result = await scanner.scan('/p', contextFor([pkg('lodash', '4.17.20')]))
         expect(result.status).toBe('error')
         expect(result.errorText).toContain('not an Error instance')

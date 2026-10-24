@@ -382,9 +382,14 @@ export async function liveScanners(env: ScratchEnv): Promise<ScannerPlugin[]> {
     const { npmAuditPlugin } = await import('@sentinello/scanners')
     const osv = await import('../src/osv-runtime')
     const gemnasium = await import('../src/gemnasium-runtime')
+    // One osv.db handle for both: the OSV scanner matches it and gemnasium stamps withdrawals from it.
+    const osvDb = db.openOsvDb().db
+    const evidence = osv.withdrawalEvidenceFrom(function scratchOsvDb() {
+        return osvDb
+    })
     return osv.selectScanners(env.db, npmAuditPlugin, [
-        { scanner: osv.createOsvScannerFor(env.db, db.openOsvDb().db), isEnabled: osv.osvSourceEnabled },
-        { scanner: gemnasium.createGemnasiumScannerFor(env.db, db.openGemnasiumDb().db), isEnabled: gemnasium.gemnasiumSourceEnabled }
+        { scanner: osv.createOsvScannerFor(env.db, osvDb), isEnabled: osv.osvSourceEnabled },
+        { scanner: gemnasium.createGemnasiumScannerFor(env.db, db.openGemnasiumDb().db, evidence), isEnabled: gemnasium.gemnasiumSourceEnabled }
     ])
 }
 
