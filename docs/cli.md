@@ -77,7 +77,9 @@ command:
 | gemnasium | the gemnasium-db HEAD commit sha | about a kilobyte |
 
 A typical repeat scan completes in around a second. When something has changed, only the changed
-advisories are fetched — not the whole corpus.
+advisories are fetched — not the whole corpus. The cache is rewritten only when every changed advisory
+could be re-read; if one keeps failing, the previous OSV data is kept and the error names the advisory, and
+once refreshes have failed for 48 hours the next run re-downloads the full OSV export without asking again.
 
 The cache lives in `$SENTINELLO_CACHE_DIR`, else `$XDG_CACHE_HOME/sentinello`, else
 `~/.cache/sentinello`. Deleting it costs nothing but a re-download.

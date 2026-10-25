@@ -39,6 +39,10 @@ import type { OsvAdvisoryRow } from '@sentinello/core'
 // @sentinello/feeds is stubbed — the real thing downloads ~100 MB per ecosystem — but the cache is a real
 // migrated osv.db, so every meta write, upsert, delete and count below is the production query.
 
+// The production value is pinned by packages/feeds/src/osv/feed.test.ts; these tests place the run of
+// failures either side of it.
+const STUCK_MS = vi.hoisted(function stuckMs() { return 48 * 60 * 60 * 1000 })
+
 const feeds = vi.hoisted(function makeFeedsDouble() {
     return {
         feedDisabled: false,
@@ -62,6 +66,7 @@ vi.mock('@sentinello/feeds', function mockFeeds() {
         // A getter, not a value: the factory runs once, so a literal here would freeze the threshold before
         // any test could change it.
         get OSV_INCREMENTAL_MAX_IDS() { return feeds.incrementalMaxIds },
+        OSV_INCREMENTAL_STUCK_MS: STUCK_MS,
         errText: function errText(err: unknown) {
             return err instanceof Error && err.message || String(err)
         },
@@ -706,5 +711,137 @@ describe('incrementalSyncOsv', function () {
         feeds.fetchOsvAdvisoryRows.mockResolvedValue([row()])
         await incrementalSyncOsv(db, ECO)
         expect(meta<string>(OSV_META_KEYS.lastError)).toBeNull()
+    })
+
+    // SENTINEL-50. A pass publishes only when every changed advisory was re-read, so one advisory that keeps
+    // failing froze the ecosystem until the change window crossed OSV_INCREMENTAL_MAX_IDS — days, for npm.
+    // A run of failures that has lasted OSV_INCREMENTAL_STUCK_MS re-seeds instead.
+    describe('an advisory that keeps failing to re-read (SENTINEL-50)', function () {
+        function failingPass() {
+            feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-good', 'GHSA-stuck'], newestIso: '2026-10-24T00:00:00Z', etag: 'etag-new' })
+            feeds.fetchOsvAdvisoryRows.mockImplementation(async function failStuck(id: string) {
+                if (id === 'GHSA-stuck') throw new Error('HTTP 503')
+                return [row({ advisoryId: id })]
+            })
+        }
+
+        beforeEach(function usableCache() {
+            upsertOsvAdvisories(db, [row({ advisoryId: 'GHSA-old' })])
+            setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, ECO), true)
+            setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastModified, ECO), '2026-10-20T00:00:00Z')
+            vi.spyOn(console, 'warn').mockImplementation(function silence() {})
+        })
+
+        it('starts the clock on the first failure and names the advisory and the fallback', async function () {
+            failingPass()
+            const before = Date.now()
+
+            const result = await incrementalSyncOsv(db, ECO)
+
+            const since = meta<number>(OSV_META_KEYS.incrementalFailingSince) as number
+            expect(since).toBeGreaterThanOrEqual(before)
+            expect(result.status).toBe('error')
+            expect(result.message).toContain('GHSA-stuck could not be re-read (HTTP 503)')
+            expect(result.message).toContain('failed since ' + new Date(since).toISOString())
+            expect(result.message).toContain('if GHSA-stuck still cannot be re-read at ' + new Date(since + STUCK_MS).toISOString() + ', the npm cache is re-seeded')
+            expect(meta<string>(OSV_META_KEYS.lastError)).toBe(result.message)
+            expect(feeds.streamOsvSeed).not.toHaveBeenCalled()
+        })
+
+        it('keeps the clock of the first failure across later ones', async function () {
+            const since = Date.now() - STUCK_MS + 60_000
+            setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.incrementalFailingSince, ECO), since)
+            failingPass()
+
+            const result = await incrementalSyncOsv(db, ECO)
+
+            expect(result.status).toBe('error')
+            expect(meta<number>(OSV_META_KEYS.incrementalFailingSince)).toBe(since)
+            expect(feeds.streamOsvSeed).not.toHaveBeenCalled()
+            expect(countOsvAdvisories(db, ECO)).toBe(1)
+        })
+
+        it('re-seeds once the failures have lasted the stuck threshold', async function () {
+            setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.incrementalFailingSince, ECO), Date.now() - STUCK_MS)
+            failingPass()
+            feeds.streamOsvSeed.mockImplementation(stream([{ rows: [row({ advisoryId: 'GHSA-stuck' }), row({ advisoryId: 'GHSA-good' })], lastModified: '2026-10-24T01:00:00Z' }]))
+            const onDiscard = vi.fn()
+
+            const result = await incrementalSyncOsv(db, ECO, undefined, onDiscard)
+
+            expect(result).toMatchObject({ status: 'ok', recordCount: 2 })
+            expect(feeds.streamOsvSeed).toHaveBeenCalledTimes(1)
+            // Same reason as the threshold re-seed: the rebuild starts from a cache scans were matching.
+            expect(onDiscard).toHaveBeenCalledTimes(1)
+            expect(meta<number>(OSV_META_KEYS.incrementalFailingSince)).toBeNull()
+            expect(meta<string>(OSV_META_KEYS.lastError)).toBeNull()
+            expect(meta<string>(OSV_META_KEYS.lastModified)).toBe('2026-10-24T01:00:00Z')
+        })
+
+        it('ends the run of failures on a pass that publishes', async function () {
+            setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.incrementalFailingSince, ECO), Date.now() - 1000)
+            feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-stuck'], newestIso: null, etag: null })
+            feeds.fetchOsvAdvisoryRows.mockResolvedValue([row({ advisoryId: 'GHSA-stuck' })])
+
+            await incrementalSyncOsv(db, ECO)
+
+            expect(meta<number>(OSV_META_KEYS.incrementalFailingSince)).toBeNull()
+        })
+
+        it('ends the run of failures on a feed that has not been republished', async function () {
+            setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.incrementalFailingSince, ECO), Date.now() - 1000)
+            feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'unchanged' })
+
+            await incrementalSyncOsv(db, ECO)
+
+            expect(meta<number>(OSV_META_KEYS.incrementalFailingSince)).toBeNull()
+        })
+
+        it('ends the run of failures on an empty change set', async function () {
+            setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.incrementalFailingSince, ECO), Date.now() - 1000)
+            feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: [], newestIso: null, etag: null })
+
+            await incrementalSyncOsv(db, ECO)
+
+            expect(meta<number>(OSV_META_KEYS.incrementalFailingSince)).toBeNull()
+        })
+
+        // Shutdown tears down the in-flight fetch, which rejects like a failed advisory would. That says
+        // nothing about the feed: it must neither start the clock nor, past it, trigger a re-seed.
+        it('does not count a fetch torn down by an abort', async function () {
+            const controller = new AbortController()
+            setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.incrementalFailingSince, ECO), Date.now() - STUCK_MS)
+            feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-stuck'], newestIso: null, etag: null })
+            feeds.fetchOsvAdvisoryRows.mockImplementation(async function abortMidFetch() {
+                controller.abort()
+                throw new Error('aborted')
+            })
+
+            const result = await incrementalSyncOsv(db, ECO, controller.signal)
+
+            expect(result.status).toBe('error')
+            expect(result.message).not.toContain('re-seeded')
+            expect(feeds.streamOsvSeed).not.toHaveBeenCalled()
+        })
+
+        it('does not start the clock for a pass aborted between fetches', async function () {
+            const controller = new AbortController()
+            feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-good', 'GHSA-stuck'], newestIso: null, etag: null })
+            feeds.fetchOsvAdvisoryRows.mockImplementation(async function abortAfterFirst() {
+                controller.abort()
+                return []
+            })
+
+            await incrementalSyncOsv(db, ECO, controller.signal)
+
+            expect(meta<number>(OSV_META_KEYS.incrementalFailingSince)).toBeNull()
+        })
+    })
+
+    it('a full seed ends any run of incremental failures', async function () {
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.incrementalFailingSince, ECO), 1)
+        feeds.streamOsvSeed.mockImplementation(stream([{ rows: [row()], lastModified: null }]))
+        await seedOsv(db, ECO)
+        expect(meta<number>(OSV_META_KEYS.incrementalFailingSince)).toBeNull()
     })
 })

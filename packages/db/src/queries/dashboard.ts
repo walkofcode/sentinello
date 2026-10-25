@@ -337,6 +337,26 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
     })
 }
 
+// Distinct open vulnerabilities per project across EVERY dependency type, counted on the same grain as
+// listProjectCatalog's severityCounts (one per project, ecosystem, package and advisory identity, muted
+// findings excluded). The dashboard reads it beside a prod- or dev-filtered catalog to tell a clean estate
+// from one whose remaining findings are merely on the other side of the filter. A project with nothing open
+// is absent from the map.
+export function countOpenFindingsByProject(db: DrizzleDb, at: number): Map<string, number> {
+    const rows = db.all<{ project_id: string; n: number }>(sql`
+        WITH deduped AS (
+            SELECT f.project_id AS project_id
+            FROM findings f
+            WHERE f.resolved_at IS NULL
+              ${activeSourceCellClause(db)}
+              ${findingMuteExclusionSql(at, 'f')}
+            GROUP BY f.project_id, f.ecosystem, f.package_name, ${advisoryIdentitySql('f')}
+        )
+        SELECT project_id, COUNT(*) AS n FROM deduped GROUP BY project_id
+    `)
+    return new Map(rows.map(function entry(row): [string, number] { return [row.project_id, row.n] }))
+}
+
 export type CurrentFindingRow = {
     id: string
     scanId: string

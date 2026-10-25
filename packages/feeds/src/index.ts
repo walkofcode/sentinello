@@ -8,6 +8,7 @@
 
 export {
     OSV_INCREMENTAL_MAX_IDS,
+    OSV_INCREMENTAL_STUCK_MS,
     fetchOsvAdvisoryRows,
     fetchOsvChangedIds,
     headOsvSeed,

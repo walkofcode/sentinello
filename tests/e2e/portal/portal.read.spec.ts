@@ -9,6 +9,7 @@ import type { Page } from '@playwright/test'
 const FIXTURE = readFixtureManifest()
 const PROJECT_ID = FIXTURE.projects[SEEDED.projectName]
 const CLEAN_PROJECT_ID = FIXTURE.projects[SEEDED.cleanProjectName]
+const BULK_PROJECT_ID = FIXTURE.projects[SEEDED.bulkProjectName]
 
 function visible(page: Page, text: string | RegExp) {
     return page.getByText(text).filter({ visible: true }).first()
@@ -98,6 +99,37 @@ test.describe('project detail', function () {
         await page.goto('/projects/' + CLEAN_PROJECT_ID)
         await expect(visible(page, SEEDED.cleanProjectName)).toBeVisible()
         expect(errors).toEqual([])
+    })
+
+    // SENTINEL-52. The filter bar used to render only beside a findings table, so a project that was
+    // clean under the default production view offered no way to widen it.
+    test('keeps the filter bar on a project with nothing to show', async function ({ page }) {
+        await page.goto('/projects/' + CLEAN_PROJECT_ID)
+        await expect(page.getByRole('button', { name: 'Filter by dependency type' })).toBeVisible()
+        await expect(page.getByRole('button', { name: 'Filter by severity' })).toBeVisible()
+        await expect(page.getByRole('button', { name: 'Sort by' })).toBeVisible()
+    })
+
+    // SENTINEL-53. Clean on one side of the dep filter is not clean: bulk-deps has no dev findings and
+    // thirty production ones, so a dev view says what production still holds instead of "All clear".
+    test('names what the other dependency type still holds instead of declaring all clear', async function ({ page }) {
+        await page.goto('/projects/' + BULK_PROJECT_ID + '?dep=dev')
+
+        await expect(visible(page, 'No vulnerabilities in development dependencies')).toBeVisible()
+        await expect(visible(page, /remain in production dependencies/)).toBeVisible()
+        await expect(visible(page, 'All clear — great job!')).toHaveCount(0)
+
+        await page.getByRole('link', { name: 'Show all dependencies' }).click()
+        await expect(page).toHaveURL(/dep=all/)
+        await expect(page.getByRole('button', { name: 'Next page' }).first()).toBeVisible()
+    })
+
+    // ?sev= is the dashboard's severity floor carried in: checkout-service's lodash is high and its
+    // minimist low, so a high floor over every dep type keeps lodash and drops minimist.
+    test('applies a severity floor carried in the URL', async function ({ page }) {
+        await page.goto('/projects/' + PROJECT_ID + '?dep=all&sev=high')
+        await expect(visible(page, 'lodash')).toBeVisible()
+        await expect(visible(page, 'minimist')).toHaveCount(0)
     })
 })
 

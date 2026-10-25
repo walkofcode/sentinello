@@ -12,6 +12,7 @@ import { LibrariesTable } from './libraries-table'
 import { groupByLibrary } from './group-by-library'
 import { parseEcosystemParam, parseSourceParam } from './source-order'
 import { mergeFindings } from '@/lib/merge-findings'
+import { MIN_SEVERITY_PARAM, SORT_PARAM, atOrAboveSeverity, parseMinSeverityParam, parseSortParam, sortForView } from '@/lib/finding-view'
 
 type View = 'advisory' | 'library'
 
@@ -50,28 +51,33 @@ export function FindingsSection({ findings, projectId, mutes, now, sources, ecos
         return parseEcosystemParam(searchParams.get('eco'), ecosystems ?? [])
     }, [searchParams, ecosystems])
 
+    // The ?sev= floor and ?sort= order, the dashboard's psev / psort carried into the page (finding-view.ts).
+    const minSeverity = parseMinSeverityParam(searchParams.get(MIN_SEVERITY_PARAM))
+    const sort = parseSortParam(searchParams.get(SORT_PARAM))
+
     // Collapse duplicate rows (same package@version reported via many dep-paths and by both sources)
     // into one row per vulnerability, carrying every source as a tag. The "by advisory" tab and its
     // count run off the merged list; "by library" keeps grouping the raw rows.
     const merged = useMemo(function build() {
-        const all = mergeFindings(findings)
-        return all.filter(function keep(m) {
+        // The floor reads the merged row's severity, which is the worst any source assigned it.
+        const all = atOrAboveSeverity(mergeFindings(findings), minSeverity)
+        return sortForView(all.filter(function keep(m) {
             // A merged vuln stays whole (every tag, best fix) as long as a selected source reports it.
             if (selected.length > 0 && !m.scanners.some(function sel(s) { return selected.includes(s) })) return false
             // A merged row is ecosystem-pure (issue-019), so filter on its single ecosystem.
             if (selectedEcosystems.length > 0 && !selectedEcosystems.includes(m.ecosystem)) return false
             return true
-        })
-    }, [findings, selected, selectedEcosystems])
+        }), sort)
+    }, [findings, selected, selectedEcosystems, minSeverity, sort])
     const groups = useMemo(function build() {
         // The by-library tab groups raw rows, so filter rows to the selected source(s)/ecosystem(s) first.
-        const rows = findings.filter(function keep(f) {
+        const rows = atOrAboveSeverity(findings, minSeverity).filter(function keep(f) {
             if (selected.length > 0 && !selected.includes(f.scanner)) return false
             if (selectedEcosystems.length > 0 && !selectedEcosystems.includes(f.ecosystem)) return false
             return true
         })
-        return groupByLibrary(rows)
-    }, [findings, selected, selectedEcosystems])
+        return sortForView(groupByLibrary(rows), sort)
+    }, [findings, selected, selectedEcosystems, minSeverity, sort])
 
     const advisoryTotalPages = Math.max(1, Math.ceil(merged.length / PAGE_SIZE))
     const libraryTotalPages = Math.max(1, Math.ceil(groups.length / PAGE_SIZE))

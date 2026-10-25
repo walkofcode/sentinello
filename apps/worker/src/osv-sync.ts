@@ -8,6 +8,7 @@ import {
 } from '@sentinello/core'
 import {
     OSV_INCREMENTAL_MAX_IDS,
+    OSV_INCREMENTAL_STUCK_MS,
     errText,
     fetchOsvAdvisoryRows,
     fetchOsvChangedIds,
@@ -129,6 +130,7 @@ export async function seedOsv(
     // A fresh seed supersedes whatever incremental cursor was stored, so drop the etag: the next
     // incremental sync must re-read modified_id.csv rather than trust a 304 against a pre-seed copy.
     setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.modifiedIdsEtag, ecosystem), null)
+    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.incrementalFailingSince, ecosystem), null)
     if (lastModified) setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastModified, ecosystem), lastModified)
     console.log('[osv-sync] seed complete (' + ecosystem + '): ' + recordCount + ' advisory rows')
     return { status: 'ok', upserted, recordCount, message: null }
@@ -140,7 +142,8 @@ export async function seedOsv(
 // with `withdrawn` set, as the seed does, because gemnasium reads them as withdrawal evidence. The whole
 // pass is published atomically, and only once every changed id was re-read, advancing the ecosystem's
 // cursor to the newest seen. When the feed has not been republished since the stored ETag, this costs a
-// single round trip and transfers nothing.
+// single round trip and transfers nothing. A pass that has kept failing on an advisory for
+// OSV_INCREMENTAL_STUCK_MS re-seeds the ecosystem instead.
 export async function incrementalSyncOsv(
     db: OsvDrizzleDb,
     ecosystem: EcosystemId,
@@ -164,8 +167,7 @@ export async function incrementalSyncOsv(
         return { status: 'error', upserted: 0, recordCount: ecoCount(), message }
     }
     if (changed.status === 'unchanged') {
-        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.refreshedAt, ecosystem), Date.now())
-        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), null)
+        markIncrementalSucceeded(db, ecosystem)
         return { status: 'ok', upserted: 0, recordCount: ecoCount(), message: 'not modified' }
     }
     // Past a certain volume, fetching advisories one at a time costs far more than re-downloading the
@@ -177,8 +179,7 @@ export async function incrementalSyncOsv(
         return await seedOsv(db, ecosystem, abortSignal, onCacheDiscarded)
     }
     if (changed.ids.length === 0) {
-        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.refreshedAt, ecosystem), Date.now())
-        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), null)
+        markIncrementalSucceeded(db, ecosystem)
         if (changed.etag) setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.modifiedIdsEtag, ecosystem), changed.etag)
         return { status: 'ok', upserted: 0, recordCount: ecoCount(), message: 'no changes' }
     }
@@ -202,6 +203,9 @@ export async function incrementalSyncOsv(
     // them any more while gemnasium can still see the withdrawal.
     const staged: OsvAdvisoryRow[] = []
     let failure: string | null = null
+    // The id that could not be re-read. Null with a failure set means the pass was aborted, which says
+    // nothing about the feed and so never counts towards the stuck-pass fallback below.
+    let failedId: string | null = null
     for (const id of changed.ids) {
         if (abortSignal && abortSignal.aborted) {
             failure = 'the sync was aborted before every changed advisory was re-read'
@@ -213,18 +217,34 @@ export async function incrementalSyncOsv(
         } catch (err) {
             // Nothing of this pass will be published, so the remaining fetches would be wasted.
             failure = id + ' could not be re-read (' + errText(err) + ')'
+            // A fetch torn down by shutdown rejects too; that is the abort, not the advisory.
+            if (!(abortSignal && abortSignal.aborted)) failedId = id
             break
         }
     }
     if (failure !== null) {
-        // The cursor is held, so the next sync repeats this window — idempotent, and self-limiting because a
-        // window that keeps growing eventually crosses OSV_INCREMENTAL_MAX_IDS and re-seeds outright. The
-        // stored ETag is cleared too, and both halves are needed: holding the cursor alone would not retry
-        // anything, because the next sync would send the old ETag, OSV would answer 304, and the pass would
-        // return "not modified" without ever revisiting the window. refreshedAt stays where it is: the
-        // cache is still the snapshot that sync produced.
+        // The cursor is held, so the next sync repeats this window — idempotent. The stored ETag is cleared
+        // too, and both halves are needed: holding the cursor alone would not retry anything, because the
+        // next sync would send the old ETag, OSV would answer 304, and the pass would return "not modified"
+        // without ever revisiting the window. refreshedAt stays where it is: the cache is still the snapshot
+        // that sync produced.
         setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.modifiedIdsEtag, ecosystem), null)
-        const message = failure + '; none of the ' + changed.ids.length + ' changed advisories were applied and the pass is retried from the previous cursor'
+        let message = failure + '; none of the ' + changed.ids.length + ' changed advisories were applied and the pass is retried from the previous cursor'
+        if (failedId !== null) {
+            // Retrying alone is not self-limiting: one advisory that keeps failing holds the whole ecosystem
+            // at its last snapshot until the window crosses OSV_INCREMENTAL_MAX_IDS, which for npm took days.
+            // So a run of failures that has lasted OSV_INCREMENTAL_STUCK_MS takes the re-seed path instead,
+            // and the export, which carries the same advisory, gets the ecosystem moving again.
+            const now = Date.now()
+            const failingSince = getOsvMeta<number>(db, osvMetaKeyFor(OSV_META_KEYS.incrementalFailingSince, ecosystem)) ?? now
+            if (now - failingSince >= OSV_INCREMENTAL_STUCK_MS) {
+                console.warn('[osv-sync] ' + ecosystem + ': ' + failure + ', and incremental passes have failed since ' + isoOf(failingSince) + '; re-seeding from the full export')
+                // Forwarded for the same reason as the threshold re-seed above: it starts from a usable cache.
+                return await seedOsv(db, ecosystem, abortSignal, onCacheDiscarded)
+            }
+            setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.incrementalFailingSince, ecosystem), failingSince)
+            message += '. Incremental passes have failed since ' + isoOf(failingSince) + '; if ' + failedId + ' still cannot be re-read at ' + isoOf(failingSince + OSV_INCREMENTAL_STUCK_MS) + ', the ' + ecosystem + ' cache is re-seeded from the full export'
+        }
         setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), message)
         console.warn('[osv-sync] ' + ecosystem + ': ' + message)
         return { status: 'error', upserted: 0, recordCount: ecoCount(), message }
@@ -236,14 +256,25 @@ export async function incrementalSyncOsv(
         upsertOsvAdvisories(db, staged)
         const count = ecoCount()
         setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.recordCount, ecosystem), count)
-        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.refreshedAt, ecosystem), Date.now())
-        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), null)
+        markIncrementalSucceeded(db, ecosystem)
         if (changed.newestIso) setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastModified, ecosystem), changed.newestIso)
         if (changed.etag) setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.modifiedIdsEtag, ecosystem), changed.etag)
         return count
     })
     console.log('[osv-sync] incremental sync (' + ecosystem + '): ' + changed.ids.length + ' changed advisor(ies), ' + staged.length + ' rows upserted')
     return { status: 'ok', upserted: staged.length, recordCount, message: null }
+}
+
+// Every pass that ends with a complete snapshot: the refresh is stamped, and both the error and the run of
+// failures it belonged to are over.
+function markIncrementalSucceeded(db: OsvDrizzleDb, ecosystem: EcosystemId): void {
+    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.refreshedAt, ecosystem), Date.now())
+    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), null)
+    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.incrementalFailingSince, ecosystem), null)
+}
+
+function isoOf(ms: number): string {
+    return new Date(ms).toISOString()
 }
 
 function getCursorMs(db: OsvDrizzleDb, ecosystem: EcosystemId): number {

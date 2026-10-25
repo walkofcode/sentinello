@@ -13,7 +13,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Dropdown } from '@/components/ui/dropdown'
 import { EcosystemBadge } from '@/components/findings/ecosystem-badge'
-import { libraryHref } from '@/lib/library-href'
+import { libraryDetailHref } from '@/lib/library-href'
 import { rememberLibrariesUrl } from '@/lib/home-url-memory'
 
 type SortKey = 'severity' | 'name' | 'projects' | 'advisories'
@@ -154,7 +154,7 @@ export function LibrariesFilterView({ libraries, depType, defaultDepType }: Prop
                     <div className="space-y-2 md:hidden">
                         {filtered.map(function card(lib) {
                             const maxSev = topSeverity(lib.severities)
-                            const href = libraryHref(lib.ecosystem, lib.packageName)
+                            const href = libraryDetailHref(lib.ecosystem, lib.packageName, depType, defaultDepType)
                             function onCardClick(e: MouseEvent<HTMLDivElement>) {
                                 const target = e.target as HTMLElement
                                 if (target.closest('a, button, input, select, textarea, label')) return
@@ -194,7 +194,7 @@ export function LibrariesFilterView({ libraries, depType, defaultDepType }: Prop
                             <TableBody>
                                 {filtered.map(function row(lib) {
                                     const maxSev = topSeverity(lib.severities)
-                                    const href = libraryHref(lib.ecosystem, lib.packageName)
+                                    const href = libraryDetailHref(lib.ecosystem, lib.packageName, depType, defaultDepType)
                                     function onRowClick(e: MouseEvent<HTMLTableRowElement>) {
                                         const target = e.target as HTMLElement
                                         if (target.closest('a, button, input, select, textarea, label')) return

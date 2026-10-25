@@ -20,6 +20,7 @@ function stripVPrefix(value: string): string {
 // needs no empty-array fallback — and an accidental truncation to [] becomes a type error rather than a
 // silently null "latest release".
 export const RELEASES: [ReleaseEntry, ...ReleaseEntry[]] = [
+    { version: '3.7.6', date: '2026-10-24' },
     { version: '3.7.4', date: '2026-10-24' },
     { version: '3.7.2', date: '2026-10-08' },
     { version: '3.7.1', date: '2026-10-07' },
@@ -61,6 +62,15 @@ export const RELEASES: [ReleaseEntry, ...ReleaseEntry[]] = [
 // this is plain TS data, not a next-intl message key (next-intl forbids '.' in keys).
 export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     en: {
+        '3.7.6': {
+            title: 'Clean on one side is no longer called all clear, and filters follow you into a project',
+            items: [
+                'With the dependency filter on “Production only”, a project whose only vulnerabilities are in development dependencies used to read “All clear — great job!”. The project page and the dashboard now say “No vulnerabilities in production dependencies, good job!” and how many vulnerabilities remain in development dependencies (and the other way round under “Dev only”), with a link to show all dependencies. The green all-clear appears only when nothing is open in either.',
+                'The project page always shows its filters, including on a project with nothing to list, and gains the dashboard’s severity floor and sort. Opening a project from the dashboard keeps the dependency type, severity floor and sort the dashboard was set to, so a project found under “All deps” no longer opens on a production-only page; a library opened from the libraries list keeps its dependency type the same way.',
+                'One OSV advisory that kept failing to download (a server error or a body that does not parse) held back every OSV update for its ecosystem, sometimes for days, because an update applies only when every changed advisory was read. Once updates have failed for 48 hours, the portal and <code>npx sentinello</code> now download the full OSV export instead. Settings → Sources and the CLI name the advisory that fails and say when that happens.',
+                'Sentinello’s own dependencies are clear of known advisories again: vitest 4.1.12 and vite 8.1.6 (test tooling), undici 7.30.1 (test tooling), and hono 4.13.13, ip-address 10.7.4 and fast-uri 3.1.9, which the portal’s MCP server pulls in.'
+            ]
+        },
         '3.7.4': {
             title: 'Advisories GitHub has withdrawn stop counting as findings',
             items: [
@@ -347,6 +357,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Initial open-source release', items: ['The first public release of Sentinello'] }
     },
     es: {
+        '3.7.6': {
+            title: 'Limpio en un solo lado ya no se llama «todo en orden», y los filtros te siguen al abrir un proyecto',
+            items: [
+                'Con el filtro de dependencias en «Solo producción», un proyecto cuyas únicas vulnerabilidades están en dependencias de desarrollo mostraba «Todo en orden». La página del proyecto y el panel ahora dicen «Sin vulnerabilidades en las dependencias de producción, ¡buen trabajo!» y cuántas quedan en las dependencias de desarrollo (y al revés con «Solo dev»), con un enlace para ver todas las dependencias. El estado verde solo aparece cuando no queda nada abierto en ninguna de las dos.',
+                'La página del proyecto muestra siempre sus filtros, también en un proyecto sin nada que listar, y suma el umbral de severidad y el orden del panel. Al abrir un proyecto desde el panel se conservan el tipo de dependencia, el umbral de severidad y el orden elegidos, así que un proyecto encontrado con «Todas» ya no se abre en una página solo de producción; una biblioteca abierta desde la lista de bibliotecas conserva su tipo de dependencia del mismo modo.',
+                'Un aviso de OSV que fallaba una y otra vez al descargarse (un error del servidor o un contenido ilegible) frenaba todas las actualizaciones de OSV de su ecosistema, a veces durante días, porque una actualización solo se aplica cuando se leyeron todos los avisos que cambiaron. Tras 48 horas de actualizaciones fallidas, el portal y <code>npx sentinello</code> descargan ahora la exportación completa de OSV. Ajustes → Fuentes y la CLI nombran el aviso que falla y cuándo ocurrirá.',
+                'Las dependencias propias de Sentinello vuelven a estar libres de avisos conocidos: vitest 4.1.12 y vite 8.1.6 (herramientas de pruebas), undici 7.30.1 (herramientas de pruebas), y hono 4.13.13, ip-address 10.7.4 y fast-uri 3.1.9, que trae el servidor MCP del portal.'
+            ]
+        },
         '3.7.4': {
             title: 'Los avisos que GitHub ha retirado dejan de contar como hallazgos',
             items: [
@@ -636,6 +655,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primera versión de código abierto', items: ['El primer lanzamiento público de Sentinello'] }
     },
     fr: {
+        '3.7.6': {
+            title: 'Propre d’un seul côté ne s’appelle plus « tout est en ordre », et les filtres vous suivent dans un projet',
+            items: [
+                'Avec le filtre de dépendances sur « Production uniquement », un projet dont les seules vulnérabilités sont dans les dépendances de développement affichait « Tout est en ordre ». La page du projet et le tableau de bord indiquent désormais « Aucune vulnérabilité dans les dépendances de production, bravo ! » et combien il en reste dans les dépendances de développement (et l’inverse avec « Dev uniquement »), avec un lien pour afficher toutes les dépendances. L’état vert n’apparaît que lorsque rien n’est ouvert d’aucun côté.',
+                'La page du projet affiche toujours ses filtres, y compris pour un projet sans rien à lister, et reprend le seuil de sévérité et le tri du tableau de bord. Ouvrir un projet depuis le tableau de bord conserve le type de dépendance, le seuil et le tri choisis : un projet trouvé sous « Toutes » ne s’ouvre plus sur une page limitée à la production. Une bibliothèque ouverte depuis la liste des bibliothèques conserve de même son type de dépendance.',
+                'Un avis OSV qui échouait sans cesse au téléchargement (erreur serveur ou contenu illisible) bloquait toutes les mises à jour OSV de son écosystème, parfois pendant des jours, car une mise à jour ne s’applique que si tous les avis modifiés ont été lus. Après 48 heures d’échecs, le portail et <code>npx sentinello</code> téléchargent désormais l’export OSV complet. Paramètres → Sources et la CLI nomment l’avis en échec et indiquent quand cela se produira.',
+                'Les dépendances propres de Sentinello sont de nouveau exemptes d’avis connus : vitest 4.1.12 et vite 8.1.6 (outils de test), undici 7.30.1 (outils de test), ainsi que hono 4.13.13, ip-address 10.7.4 et fast-uri 3.1.9, qu’apporte le serveur MCP du portail.'
+            ]
+        },
         '3.7.4': {
             title: 'Les avis retirés par GitHub ne comptent plus comme des résultats',
             items: [
@@ -927,6 +955,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Première version open source', items: ['La première version publique de Sentinello'] }
     },
     de: {
+        '3.7.6': {
+            title: 'Sauber auf nur einer Seite heißt nicht mehr „alles in Ordnung“, und Filter begleiten dich ins Projekt',
+            items: [
+                'Mit dem Abhängigkeitsfilter auf „Nur Produktion“ zeigte ein Projekt, dessen einzige Schwachstellen in Entwicklungsabhängigkeiten liegen, „Alles in Ordnung“. Projektseite und Dashboard zeigen jetzt „Keine Schwachstellen in Produktionsabhängigkeiten, gute Arbeit!“ und wie viele Schwachstellen in den Entwicklungsabhängigkeiten bleiben (unter „Nur Dev“ umgekehrt), mit einem Link zu allen Abhängigkeiten. Der grüne Zustand erscheint nur, wenn auf keiner Seite etwas offen ist.',
+                'Die Projektseite zeigt ihre Filter jetzt immer, auch bei einem Projekt ohne Einträge, und übernimmt die Schweregrad-Untergrenze und Sortierung des Dashboards. Ein Projekt, das vom Dashboard aus geöffnet wird, behält Abhängigkeitstyp, Untergrenze und Sortierung, sodass ein unter „Alle“ gefundenes Projekt nicht mehr auf einer reinen Produktionsansicht öffnet; eine Bibliothek aus der Bibliotheksliste behält ihren Abhängigkeitstyp ebenso.',
+                'Ein OSV-Advisory, das sich immer wieder nicht laden ließ (Serverfehler oder unlesbarer Inhalt), hielt alle OSV-Updates seines Ökosystems auf, teils tagelang, weil ein Update nur greift, wenn jedes geänderte Advisory gelesen wurde. Nach 48 Stunden fehlgeschlagener Updates laden Portal und <code>npx sentinello</code> jetzt stattdessen den vollständigen OSV-Export. Einstellungen → Quellen und die CLI nennen das fehlschlagende Advisory und den Zeitpunkt.',
+                'Sentinellos eigene Abhängigkeiten sind wieder frei von bekannten Advisories: vitest 4.1.12 und vite 8.1.6 (Test-Tooling), undici 7.30.1 (Test-Tooling) sowie hono 4.13.13, ip-address 10.7.4 und fast-uri 3.1.9, die der MCP-Server des Portals mitbringt.'
+            ]
+        },
         '3.7.4': {
             title: 'Von GitHub zurückgezogene Hinweise zählen nicht mehr als Befunde',
             items: [
@@ -1219,6 +1256,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         }
     },
     'pt-BR': {
+        '3.7.6': {
+            title: 'Limpo de um lado só não é mais chamado de “tudo certo”, e os filtros acompanham você até o projeto',
+            items: [
+                'Com o filtro de dependências em “Somente produção”, um projeto cujas únicas vulnerabilidades estão em dependências de desenvolvimento mostrava “Tudo certo”. A página do projeto e o painel agora dizem “Nenhuma vulnerabilidade nas dependências de produção, bom trabalho!” e quantas restam nas dependências de desenvolvimento (e o contrário em “Somente dev”), com um link para mostrar todas as dependências. O estado verde só aparece quando não há nada aberto em nenhum dos lados.',
+                'A página do projeto sempre mostra seus filtros, inclusive em um projeto sem nada a listar, e ganha o piso de severidade e a ordenação do painel. Abrir um projeto pelo painel mantém o tipo de dependência, o piso e a ordenação escolhidos, então um projeto encontrado em “Todas” não abre mais numa página só de produção; uma biblioteca aberta pela lista de bibliotecas mantém o tipo de dependência da mesma forma.',
+                'Um aviso do OSV que falhava repetidamente ao baixar (erro do servidor ou conteúdo ilegível) travava todas as atualizações do OSV do seu ecossistema, às vezes por dias, porque uma atualização só é aplicada quando todos os avisos alterados foram lidos. Depois de 48 horas de atualizações com falha, o portal e o <code>npx sentinello</code> agora baixam a exportação completa do OSV. Configurações → Fontes e a CLI informam o aviso que falha e quando isso vai acontecer.',
+                'As dependências do próprio Sentinello voltam a estar livres de avisos conhecidos: vitest 4.1.12 e vite 8.1.6 (ferramentas de teste), undici 7.30.1 (ferramentas de teste), e hono 4.13.13, ip-address 10.7.4 e fast-uri 3.1.9, trazidos pelo servidor MCP do portal.'
+            ]
+        },
         '3.7.4': {
             title: 'Avisos que o GitHub retirou deixam de contar como achados',
             items: [
@@ -1508,6 +1554,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primeira versão de código aberto', items: ['O primeiro lançamento público do Sentinello'] }
     },
     it: {
+        '3.7.6': {
+            title: 'Pulito su un solo lato non si chiama più «tutto a posto», e i filtri ti seguono nel progetto',
+            items: [
+                'Con il filtro delle dipendenze su «Solo produzione», un progetto le cui uniche vulnerabilità sono nelle dipendenze di sviluppo mostrava «Tutto a posto». La pagina del progetto e la dashboard ora dicono «Nessuna vulnerabilità nelle dipendenze di produzione, ottimo lavoro!» e quante ne restano nelle dipendenze di sviluppo (e viceversa con «Solo dev»), con un link per mostrare tutte le dipendenze. Lo stato verde compare solo quando non resta nulla di aperto su nessuno dei due lati.',
+                'La pagina del progetto mostra sempre i suoi filtri, anche per un progetto senza nulla da elencare, e acquisisce la soglia di gravità e l’ordinamento della dashboard. Aprire un progetto dalla dashboard mantiene tipo di dipendenza, soglia e ordinamento scelti, quindi un progetto trovato con «Tutte» non si apre più su una pagina di sola produzione; una libreria aperta dall’elenco delle librerie mantiene allo stesso modo il tipo di dipendenza.',
+                'Un avviso OSV che continuava a non scaricarsi (errore del server o contenuto illeggibile) bloccava tutti gli aggiornamenti OSV del suo ecosistema, a volte per giorni, perché un aggiornamento si applica solo quando ogni avviso modificato è stato letto. Dopo 48 ore di aggiornamenti falliti, il portale e <code>npx sentinello</code> scaricano ora l’esportazione OSV completa. Impostazioni → Fonti e la CLI indicano l’avviso che fallisce e quando succederà.',
+                'Le dipendenze di Sentinello sono di nuovo libere da avvisi noti: vitest 4.1.12 e vite 8.1.6 (strumenti di test), undici 7.30.1 (strumenti di test), e hono 4.13.13, ip-address 10.7.4 e fast-uri 3.1.9, portati dal server MCP del portale.'
+            ]
+        },
         '3.7.4': {
             title: 'Gli avvisi ritirati da GitHub non contano più come rilevamenti',
             items: [
@@ -1797,6 +1852,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Prima versione open source', items: ['La prima versione pubblica di Sentinello'] }
     },
     ja: {
+        '3.7.6': {
+            title: '片側だけ問題なしを「問題なし」と呼ばなくなり、フィルターがプロジェクトにも引き継がれます',
+            items: [
+                '依存関係フィルターが「本番のみ」のとき、脆弱性が開発依存関係にしかないプロジェクトは「問題なし」と表示されていました。プロジェクトページとダッシュボードは「本番依存関係に脆弱性はありません。素晴らしい！」と表示し、開発依存関係に残る脆弱性の件数（「開発のみ」ではその逆）と、すべての依存関係を表示するリンクを示すようになりました。緑の「問題なし」は、どちらにも未解決のものがないときだけ表示されます。',
+                'プロジェクトページは、表示するものがないプロジェクトでも常にフィルターを表示し、ダッシュボードの重大度の下限と並び順も使えるようになりました。ダッシュボードからプロジェクトを開くと、依存関係の種類・重大度の下限・並び順がそのまま引き継がれるため、「すべて」で見つけたプロジェクトが本番のみのページで開くことはなくなりました。ライブラリ一覧から開いたライブラリも同様に依存関係の種類を引き継ぎます。',
+                'ダウンロードに失敗し続ける OSV アドバイザリが 1 件あると（サーバーエラーや解析できない内容）、更新は変更されたすべてのアドバイザリを読めたときにだけ適用されるため、そのエコシステムの OSV 更新が数日止まることがありました。更新の失敗が 48 時間続くと、ポータルと <code>npx sentinello</code> は代わりに OSV の完全なエクスポートをダウンロードします。設定 → ソースと CLI は、失敗しているアドバイザリとその時刻を表示します。',
+                'Sentinello 自身の依存関係から既知のアドバイザリが再びなくなりました：vitest 4.1.12 と vite 8.1.6（テストツール）、undici 7.30.1（テストツール）、そしてポータルの MCP サーバーが取り込む hono 4.13.13、ip-address 10.7.4、fast-uri 3.1.9 です。'
+            ]
+        },
         '3.7.4': {
             title: 'GitHub が取り下げたアドバイザリは検出結果として数えなくなりました',
             items: [
@@ -2082,6 +2146,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '初のオープンソースリリース', items: ['Sentinello の最初の一般公開リリース'] }
     },
     'zh-CN': {
+        '3.7.6': {
+            title: '只有一侧干净不再显示“一切正常”，筛选条件也会带入项目页面',
+            items: [
+                '当依赖筛选为“仅生产”时，漏洞只存在于开发依赖中的项目以前会显示“一切正常”。现在项目页面和仪表盘会显示“生产依赖中没有漏洞，干得好！”以及开发依赖中仍有多少漏洞（“仅开发”时反之），并提供显示所有依赖的链接。只有两侧都没有未解决的漏洞时，才会显示绿色的“一切正常”。',
+                '项目页面现在始终显示筛选条件，即使项目没有可列出的内容，并新增了仪表盘的最低严重性和排序。从仪表盘打开项目时会保留所选的依赖类型、最低严重性和排序，因此在“全部”下找到的项目不会再打开到仅生产的页面；从库列表打开的库也会同样保留依赖类型。',
+                '某个 OSV 公告持续下载失败（服务器错误或无法解析的内容）时，由于更新只有在读取所有变更公告后才会生效，该生态系统的所有 OSV 更新都会被阻塞，有时长达数天。现在更新连续失败 48 小时后，门户和 <code>npx sentinello</code> 会改为下载完整的 OSV 导出。设置 → 数据源和 CLI 会指出失败的公告以及何时执行。',
+                'Sentinello 自身的依赖再次没有已知公告：vitest 4.1.12 和 vite 8.1.6（测试工具）、undici 7.30.1（测试工具），以及门户的 MCP 服务器引入的 hono 4.13.13、ip-address 10.7.4 和 fast-uri 3.1.9。'
+            ]
+        },
         '3.7.4': {
             title: 'GitHub 已撤回的公告不再计为发现',
             items: [
@@ -2347,6 +2420,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '首个开源版本', items: ['Sentinello 的首个公开发布版本'] }
     },
     ko: {
+        '3.7.6': {
+            title: '한쪽만 깨끗한 상태를 더 이상 “모두 정상”이라 부르지 않고, 필터가 프로젝트까지 이어집니다',
+            items: [
+                '의존성 필터가 “프로덕션만”일 때, 취약점이 개발 의존성에만 있는 프로젝트는 “모두 정상”으로 표시되었습니다. 이제 프로젝트 페이지와 대시보드는 “프로덕션 의존성에 취약점이 없습니다. 잘하셨어요!”와 함께 개발 의존성에 남은 취약점 수(“개발만”에서는 반대)를 보여 주고, 모든 의존성을 보는 링크를 제공합니다. 초록색 “모두 정상”은 양쪽 모두 열린 항목이 없을 때만 나타납니다.',
+                '프로젝트 페이지는 표시할 항목이 없는 프로젝트에서도 항상 필터를 보여 주며, 대시보드의 최소 심각도와 정렬을 사용할 수 있습니다. 대시보드에서 프로젝트를 열면 선택한 의존성 유형, 최소 심각도, 정렬이 유지되므로 “전체”에서 찾은 프로젝트가 더 이상 프로덕션 전용 페이지로 열리지 않습니다. 라이브러리 목록에서 연 라이브러리도 같은 방식으로 의존성 유형을 유지합니다.',
+                '다운로드가 계속 실패하는 OSV 권고 하나(서버 오류 또는 해석할 수 없는 내용)가 있으면, 업데이트는 변경된 모든 권고를 읽었을 때만 적용되기 때문에 해당 생태계의 OSV 업데이트가 며칠씩 멈추기도 했습니다. 이제 업데이트 실패가 48시간 이어지면 포털과 <code>npx sentinello</code>가 대신 OSV 전체 내보내기를 다운로드합니다. 설정 → 소스와 CLI는 실패하는 권고와 그 시점을 알려 줍니다.',
+                'Sentinello 자체 의존성에서 알려진 권고가 다시 모두 사라졌습니다: vitest 4.1.12와 vite 8.1.6(테스트 도구), undici 7.30.1(테스트 도구), 그리고 포털의 MCP 서버가 가져오는 hono 4.13.13, ip-address 10.7.4, fast-uri 3.1.9입니다.'
+            ]
+        },
         '3.7.4': {
             title: 'GitHub가 철회한 권고는 더 이상 발견 항목으로 집계되지 않습니다',
             items: [
@@ -2626,6 +2708,15 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '첫 오픈 소스 릴리스', items: ['Sentinello의 첫 공개 릴리스'] }
     },
     ru: {
+        '3.7.6': {
+            title: 'Чистота только с одной стороны больше не называется «всё чисто», а фильтры переходят вместе с вами в проект',
+            items: [
+                'При фильтре зависимостей «Только продакшен» проект, все уязвимости которого находятся в зависимостях для разработки, показывал «Всё чисто». Теперь страница проекта и панель пишут «Нет уязвимостей в продакшен-зависимостях, отличная работа!» и сколько уязвимостей осталось в зависимостях для разработки (при «Только dev» наоборот), со ссылкой на все зависимости. Зелёное «всё чисто» появляется, только когда открытых уязвимостей нет ни с одной стороны.',
+                'Страница проекта всегда показывает фильтры, даже если в проекте нечего выводить, и получила нижнюю границу серьёзности и сортировку с панели. При открытии проекта с панели сохраняются выбранные тип зависимостей, граница серьёзности и сортировка, поэтому проект, найденный при «Все», больше не открывается на странице только с продакшеном; библиотека, открытая из списка библиотек, так же сохраняет тип зависимостей.',
+                'Одна рекомендация OSV, которая раз за разом не загружалась (ошибка сервера или нечитаемое содержимое), останавливала все обновления OSV своей экосистемы, порой на несколько дней, потому что обновление применяется только после чтения всех изменённых рекомендаций. Если обновления не удаются 48 часов, портал и <code>npx sentinello</code> теперь загружают полный экспорт OSV. Настройки → Источники и CLI называют рекомендацию, которая не загружается, и время, когда это произойдёт.',
+                'Собственные зависимости Sentinello снова свободны от известных рекомендаций: vitest 4.1.12 и vite 8.1.6 (инструменты тестирования), undici 7.30.1 (инструменты тестирования), а также hono 4.13.13, ip-address 10.7.4 и fast-uri 3.1.9, которые подтягивает MCP-сервер портала.'
+            ]
+        },
         '3.7.4': {
             title: 'Уведомления, отозванные GitHub, больше не считаются находками',
             items: [

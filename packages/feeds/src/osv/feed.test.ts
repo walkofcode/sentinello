@@ -3,6 +3,7 @@ import { makeZip } from '../zip.fixture'
 import { startDownloadServer, type DownloadServer } from '../download-server.fixture'
 import {
     OSV_INCREMENTAL_MAX_IDS,
+    OSV_INCREMENTAL_STUCK_MS,
     fetchOsvAdvisoryRows,
     fetchOsvChangedIds,
     headOsvSeed,
@@ -375,5 +376,13 @@ describe('OSV_INCREMENTAL_MAX_IDS', function () {
     // case that would otherwise turn an incremental sync into an overnight job.
     it('is a five-figure threshold', function () {
         expect(OSV_INCREMENTAL_MAX_IDS).toBe(20_000)
+    })
+})
+
+describe('OSV_INCREMENTAL_STUCK_MS', function () {
+    // Long enough to ride out an OSV outage of a day, short enough that a single bad advisory no longer
+    // freezes an ecosystem for the days it takes the change window to cross OSV_INCREMENTAL_MAX_IDS.
+    it('is 48 hours', function () {
+        expect(OSV_INCREMENTAL_STUCK_MS).toBe(48 * 60 * 60 * 1000)
     })
 })
