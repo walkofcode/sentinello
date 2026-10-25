@@ -28,6 +28,15 @@ const BATCH_SIZE = 2000
 // exactly the case that would otherwise turn an incremental sync into an overnight job.
 export const OSV_INCREMENTAL_MAX_IDS = 20_000
 
+// How long an ecosystem's incremental pass may keep failing before the caller gives up on it and re-seeds
+// from the full export. A pass publishes only when every changed advisory was re-read (SENTINEL-48), so one
+// advisory that keeps answering 5xx or an unparseable body holds the whole ecosystem at its last snapshot.
+// Waiting for the window to grow past OSV_INCREMENTAL_MAX_IDS took days for npm; the export does not have
+// the problem, because the seed skips an entry it cannot parse instead of failing on it. Counted from the
+// first failed pass, not from the last successful refresh, so a worker that was simply switched off for a
+// weekend does not re-seed on its first transient error.
+export const OSV_INCREMENTAL_STUCK_MS = 48 * 60 * 60 * 1000
+
 function feedBase(): string {
     const fromEnv = process.env.SENTINELLO_OSV_FEED_URL
     if (fromEnv && fromEnv.trim().length > 0) return fromEnv.trim()

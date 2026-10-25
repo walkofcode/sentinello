@@ -138,7 +138,10 @@ manifest pins nothing auditable), `unsupported_lockfile` (a format not yet parse
 couldn't be opened — mirroring the OSV pair).
 
 **Provisioning.** Enabling **OSV** downloads the npm advisory export into the data volume (~204 MB,
-pre-flighting for ~600 MB free), then ~daily incremental updates around 03:17.
+pre-flighting for ~600 MB free), then ~daily incremental updates around 03:17. An update applies only
+when every changed advisory could be re-read; while one keeps failing the last complete snapshot stays in
+use and the Settings row names the advisory, and after 48 hours of failed updates the export is
+re-downloaded in full.
 Enabling **GitLab gemnasium** downloads its archive from `gitlab.com` (~52 MB, ~300 MB free) on first
 sync around 03:42, then
 updates from the repository's commit history — only the advisory files that changed since the last sync,

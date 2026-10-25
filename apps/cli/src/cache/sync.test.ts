@@ -789,6 +789,104 @@ describe('runSync — the cursor and record-count fallbacks', function () {
     })
 })
 
+// SENTINEL-50. A refresh writes only when every changed advisory was re-read, so one advisory that keeps
+// failing held the cache at its last snapshot until the window crossed OSV_INCREMENTAL_MAX_IDS — days, for
+// npm. Refreshes that have failed for OSV_INCREMENTAL_STUCK_MS re-seed instead.
+describe('runSync — an OSV advisory that keeps failing to re-read (SENTINEL-50)', function () {
+    const STUCK_MS = 48 * 60 * 60 * 1000
+
+    function failing() {
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-stuck'], etag: 'etag-2', newestIso: '2026-10-24T00:00:00Z' })
+        feeds.fetchOsvAdvisoryRows.mockRejectedValue(new Error('HTTP 503'))
+    }
+
+    async function run() {
+        return await runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
+    }
+
+    beforeEach(async function seeded() {
+        await seedFile('osv', [osvRow({ advisoryId: 'GHSA-keep' })])
+    })
+
+    it('starts the clock on the first failure and names the advisory and the fallback', async function () {
+        await seedState('osv', { cursorIso: '2026-10-20T00:00:00Z' })
+        failing()
+        const before = Date.now()
+
+        const outcomes = await run()
+
+        const since = (await stateOf('osv'))?.incrementalFailingSince as number
+        expect(since).toBeGreaterThanOrEqual(before)
+        expect(outcomes[0]?.status).toBe('error')
+        expect(outcomes[0]?.message).toContain('GHSA-stuck could not be re-read (HTTP 503)')
+        expect(outcomes[0]?.message).toContain('failed since ' + new Date(since).toISOString())
+        expect(outcomes[0]?.message).toContain('if GHSA-stuck still cannot be re-read at ' + new Date(since + STUCK_MS).toISOString())
+        expect(feeds.streamOsvSeed).not.toHaveBeenCalled()
+    })
+
+    it('keeps the clock of the first failure across later ones', async function () {
+        const since = Date.now() - STUCK_MS + 60_000
+        await seedState('osv', { incrementalFailingSince: since })
+        failing()
+
+        await run()
+
+        expect((await stateOf('osv'))?.incrementalFailingSince).toBe(since)
+        expect(feeds.streamOsvSeed).not.toHaveBeenCalled()
+    })
+
+    it('re-seeds once the failures have lasted the stuck threshold', async function () {
+        await seedState('osv', { incrementalFailingSince: Date.now() - STUCK_MS, etag: 'etag-1' })
+        failing()
+
+        const outcomes = await run()
+
+        expect(outcomes[0]).toMatchObject({ status: 'seeded', rowCount: 1 })
+        expect(feeds.streamOsvSeed).toHaveBeenCalledTimes(1)
+        const state = await stateOf('osv')
+        expect(state?.incrementalFailingSince).toBeUndefined()
+        expect(state?.cursorIso).toBe('2026-07-01T00:00:00Z')
+    })
+
+    it('ends the run of failures on a refresh that writes', async function () {
+        await seedState('osv', { incrementalFailingSince: Date.now() - 1000 })
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-stuck'], etag: 'etag-2', newestIso: null })
+        feeds.fetchOsvAdvisoryRows.mockResolvedValue([osvRow({ advisoryId: 'GHSA-stuck' })])
+
+        await run()
+
+        expect((await stateOf('osv'))?.incrementalFailingSince).toBeUndefined()
+    })
+
+    it('ends the run of failures on a feed that has not been republished', async function () {
+        await seedState('osv', { incrementalFailingSince: Date.now() - 1000 })
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'unchanged' })
+
+        await run()
+
+        expect((await stateOf('osv'))?.incrementalFailingSince).toBeUndefined()
+    })
+
+    // Ctrl-C tears down the in-flight fetch, which rejects like a failed advisory would. That says nothing
+    // about the feed: it neither starts the clock nor, past it, triggers a re-seed.
+    it('does not count a fetch torn down by a cancellation', async function () {
+        await seedState('osv', { incrementalFailingSince: Date.now() - STUCK_MS })
+        const controller = new AbortController()
+        feeds.fetchOsvChangedIds.mockResolvedValue({ status: 'ok', ids: ['GHSA-stuck'], etag: null, newestIso: null })
+        feeds.fetchOsvAdvisoryRows.mockImplementation(async function cancelMidFetch() {
+            controller.abort()
+            throw new Error('aborted')
+        })
+        const plan = await planSync(options({ sources: ['osv'] }))
+
+        const outcomes = await runSync(options({ sources: ['osv'], abortSignal: controller.signal }), plan)
+
+        expect(outcomes[0]?.status).toBe('error')
+        expect(outcomes[0]?.message).not.toContain('re-downloads')
+        expect(feeds.streamOsvSeed).not.toHaveBeenCalled()
+    })
+})
+
 describe('runSync — gemnasium paths that are not advisories', function () {
     // advisoryIdFromPath returns null only when the last path segment is empty — a directory entry,
     // which is how a rename or a subtree delete appears in a git compare. The loop building the drop

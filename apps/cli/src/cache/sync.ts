@@ -8,6 +8,7 @@ import {
 } from '@sentinello/core'
 import {
     OSV_INCREMENTAL_MAX_IDS,
+    OSV_INCREMENTAL_STUCK_MS,
     advisoryIdFromPath,
     errText,
     fetchGemnasiumChangedPaths,
@@ -299,6 +300,9 @@ async function refreshOsv(options: SyncOptions, meta: CacheMeta, item: SyncPlanI
     // temp file renamed into place, so a concurrent run reading the cache sees either snapshot whole.
     const append: OsvAdvisoryRow[] = []
     let failure: string | null = null
+    // The id that could not be re-read; null with a failure set means the refresh was cancelled, which says
+    // nothing about the feed and never counts towards the stuck-refresh fallback.
+    let failedId: string | null = null
     for (const id of changed.ids) {
         if (options.abortSignal && options.abortSignal.aborted) {
             failure = 'the refresh was cancelled before every changed advisory was re-read'
@@ -310,20 +314,37 @@ async function refreshOsv(options: SyncOptions, meta: CacheMeta, item: SyncPlanI
         } catch (err) {
             // Nothing of this pass will be written, so the remaining fetches would be wasted.
             failure = id + ' could not be re-read (' + errText(err) + ')'
+            // A fetch torn down by Ctrl-C rejects too; that is the cancellation, not the advisory.
+            if (!(options.abortSignal && options.abortSignal.aborted)) failedId = id
             break
         }
     }
     if (failure !== null) {
+        let message = failure + '; the previous OSV data is kept until a refresh re-reads all ' + changed.ids.length + ' changed advisories'
         // The cursor is held so the next refresh repeats this window, and the ETag is cleared — holding
         // the cursor alone would let the next refresh answer "unchanged" from the ETag and never retry.
         // The failure is an error outcome, so the run offers its usual retry.
-        if (state) state.etag = null
+        if (state) {
+            state.etag = null
+            if (failedId !== null) {
+                // One advisory that keeps failing would otherwise hold the cache at its last snapshot until the
+                // window crossed OSV_INCREMENTAL_MAX_IDS. Past OSV_INCREMENTAL_STUCK_MS of failures, re-seed,
+                // without asking, exactly as the threshold path above does: the user consented to this cache.
+                const now = Date.now()
+                const failingSince = state.incrementalFailingSince ?? now
+                if (now - failingSince >= OSV_INCREMENTAL_STUCK_MS) {
+                    return await seedOsv(options, meta, { ...item, kind: 'seed' })
+                }
+                state.incrementalFailingSince = failingSince
+                message += '. Refreshes have failed since ' + new Date(failingSince).toISOString() + '; if ' + failedId + ' still cannot be re-read at ' + new Date(failingSince + OSV_INCREMENTAL_STUCK_MS).toISOString() + ', the next run re-downloads the full OSV export'
+            }
+        }
         return {
             source: 'osv',
             ecosystem: item.ecosystem,
             status: 'error',
             rowCount: state?.recordCount ?? 0,
-            message: failure + '; the previous OSV data is kept until a refresh re-reads all ' + changed.ids.length + ' changed advisories'
+            message
         }
     }
     const path = advisoryFilePath(options.cacheDir, 'osv', item.ecosystem)
@@ -454,6 +475,8 @@ function touch(meta: CacheMeta, source: SourceId, ecosystem: string, etag?: stri
     if (!state) return
     state.refreshedAt = Date.now()
     if (etag !== undefined) state.etag = etag
+    // A refresh that found nothing to re-read ends any run of failed ones.
+    delete state.incrementalFailingSince
 }
 
 // Takes the state its one caller has already narrowed, rather than re-looking it up and re-guarding.

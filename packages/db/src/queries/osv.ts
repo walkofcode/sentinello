@@ -228,7 +228,11 @@ export const OSV_META_KEYS = {
     // ETag of the last modified_id.csv we consumed, replayed as If-None-Match on the next incremental sync.
     // An unchanged feed then answers 304 with no body at all, turning the routine "is there anything new?"
     // check into a single round trip instead of an 8.4 MB download. Per-ecosystem.
-    modifiedIdsEtag: 'modifiedIdsEtag'
+    modifiedIdsEtag: 'modifiedIdsEtag',
+    // Epoch ms of the first failed incremental pass in the current unbroken run of failures, or null when the
+    // last pass succeeded. Past OSV_INCREMENTAL_STUCK_MS the worker re-seeds instead of retrying the same
+    // window again. Per-ecosystem.
+    incrementalFailingSince: 'incrementalFailingSince'
 } as const
 
 // Build a per-ecosystem osv_meta key, e.g. osvMetaKeyFor('seedComplete', 'PyPI') === 'seedComplete.PyPI'.

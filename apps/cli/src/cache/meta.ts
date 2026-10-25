@@ -25,6 +25,9 @@ export type SourceState = {
     // OSV: the newest modified_id.csv timestamp consumed, and the ETag to replay as If-None-Match.
     cursorIso?: string | null
     etag?: string | null
+    // OSV: epoch ms of the first failed refresh in the current unbroken run of failures. Past
+    // OSV_INCREMENTAL_STUCK_MS the refresh re-seeds instead of retrying the same window (sync.ts).
+    incrementalFailingSince?: number | null
     // gemnasium: the gemnasium-db commit the cache was built from.
     headSha?: string | null
 }

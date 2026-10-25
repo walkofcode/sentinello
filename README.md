@@ -326,7 +326,10 @@ lockfile (last scanned successfully …)**, after their historical fix if one wa
 "rescan pending". The annotation goes away on the first successful rescan.
 
 **Provisioning.** Enabling **OSV** downloads the npm advisory export (**~204 MB**, needing ~600 MB
-free) into the data volume on first sync, then pulls ~daily incremental updates around 03:17. Enabling **GitLab gemnasium** downloads its advisory archive from
+free) into the data volume on first sync, then pulls ~daily incremental updates around 03:17. An
+incremental update applies only when every changed advisory could be re-read; if one keeps failing, the
+last complete snapshot stays in use, Settings → Sources names the advisory, and after 48 hours of failed
+updates the export is re-downloaded in full. Enabling **GitLab gemnasium** downloads its advisory archive from
 `gitlab.com` (**~52 MB**, needing ~300 MB free) on first sync around 03:42, then keeps it fresh from
 the repository's own commit history:
 each sync reads the upstream HEAD commit, and fetches only the advisory files that changed since the
