@@ -52,7 +52,7 @@
         "@types/node": "25.6.0",
         "@typescript-eslint/eslint-plugin": "8.65.0",
         "@typescript-eslint/parser": "8.65.0",
-        "@vitest/coverage-v8": "4.1.11",
+        "@vitest/coverage-v8": "4.1.12",
         "eslint": "10.8.0",
         "eslint-config-prettier": "10.1.8",
         "eslint-plugin-react-hooks": "7.1.1",
@@ -62,16 +62,18 @@
         "turbo": "2.9.14",
         "typescript": "6.0.3",
         "typescript-eslint": "8.65.0",
-        "vitest": "4.1.11"
+        "vitest": "4.1.12"
     },
     "pnpm": {
         "overrides": {
             "@esbuild-kit/core-utils>esbuild": "0.25.12",
-            "esbuild@>=0.27.0 <0.28.1": "0.28.1"
+            "esbuild@>=0.27.0 <0.28.1": "0.28.1",
+            "vite@>=8.0.0 <8.1.6": "8.1.6"
         },
         "overridesNotes": {
             "@esbuild-kit/core-utils>esbuild": "SECURITY: GHSA-67mh-4wv8-2f99 — the esbuild dev server lets any website send requests to it and read the responses (vulnerable <=0.24.2, fixed in 0.25.0). Sole path is packages/db (devDependency) -> drizzle-kit@0.31.10 -> @esbuild-kit/esm-loader@2.6.5 -> @esbuild-kit/core-utils@3.3.2 -> esbuild, and core-utils declares ~0.18.20, so 0.25.12 is OUTSIDE the parent's declared range — a forced upgrade, not a resolution pin. No parent upgrade clears it: @esbuild-kit/* is deprecated (merged into tsx) and will not release again, and drizzle-kit 0.31.11, the latest stable, still depends on @esbuild-kit/esm-loader ^2.5.5. Safe because @esbuild-kit/core-utils only calls esbuild.transform()/transformSync()/version — never serve()/build()/context() — so the dev-server code the advisory is about is never reached, and the TS-config-loading path drizzle-kit uses works on 0.25.12. 0.25.12 is the version drizzle-kit's own ^0.25.4 already resolves, so this dedupes onto an existing copy. Dev-only. Reviewed 2026-10-01 for 3.6.0 and kept: it is one of only two overrides still load-bearing. Remove when the drizzle-kit version this repo uses no longer depends on @esbuild-kit/* (the 1.0 line drops it).",
-            "esbuild@>=0.27.0 <0.28.1": "SECURITY: GHSA-g7r4-m6w7-qqqr — the esbuild dev server allows arbitrary file read when run on Windows (vulnerable >=0.27.3 <0.28.1, fixed in 0.28.1). Three consumers: vitest -> vite@8.1.5, which peers ^0.27.0 || ^0.28.0; tsup@8.5.1 -> bundle-require@5.1.0, which peers >=0.18; and tsup@8.5.1 itself, which DEPENDS on esbuild ^0.27.0. 0.28.1 is inside vite's and bundle-require's ranges but OUTSIDE tsup's, so for tsup this is a forced upgrade, not a resolution pin. No parent upgrade clears it: tsup 8.5.1 is the latest release and no patched 0.27.x exists — 0.27.7 is the last of that line and is vulnerable. Safe because apps/cli is the only tsup user, and `pnpm test:e2e:cli` bundles the CLI with tsup on 0.28.1 and runs the built artifact end to end. Keyed on the range rather than a bare esbuild ON PURPOSE: a flat key would also rewrite the 0.25.12 copy that drizzle-kit resolves and the @esbuild-kit/core-utils entry deliberately pins, undoing that note. Dev-only, and Windows-only while every runtime here is Linux or macOS, so this is hygiene rather than live exposure. 0.28.1 published 2026-06-11. Reviewed 2026-10-01 for 3.6.0 and kept: it is one of only two overrides still load-bearing. Remove when tsup declares a range that admits >=0.28.1 (or apps/cli moves off tsup) and vite's own peer range resolves >=0.28.1 with no override."
+            "esbuild@>=0.27.0 <0.28.1": "SECURITY: GHSA-g7r4-m6w7-qqqr — the esbuild dev server allows arbitrary file read when run on Windows (vulnerable >=0.27.3 <0.28.1, fixed in 0.28.1). Three consumers: vitest -> vite@8.1.6, which peers ^0.27.0 || ^0.28.0; tsup@8.5.1 -> bundle-require@5.1.0, which peers >=0.18; and tsup@8.5.1 itself, which DEPENDS on esbuild ^0.27.0. 0.28.1 is inside vite's and bundle-require's ranges but OUTSIDE tsup's, so for tsup this is a forced upgrade, not a resolution pin. No parent upgrade clears it: tsup 8.5.1 is the latest release and no patched 0.27.x exists — 0.27.7 is the last of that line and is vulnerable. Safe because apps/cli is the only tsup user, and `pnpm test:e2e:cli` bundles the CLI with tsup on 0.28.1 and runs the built artifact end to end. Keyed on the range rather than a bare esbuild ON PURPOSE: a flat key would also rewrite the 0.25.12 copy that drizzle-kit resolves and the @esbuild-kit/core-utils entry deliberately pins, undoing that note. Dev-only, and Windows-only while every runtime here is Linux or macOS, so this is hygiene rather than live exposure. 0.28.1 published 2026-06-11. Reviewed 2026-10-01 for 3.6.0 and kept: it is one of only two overrides still load-bearing. Remove when tsup declares a range that admits >=0.28.1 (or apps/cli moves off tsup) and vite's own peer range resolves >=0.28.1 with no override.",
+            "vite@>=8.0.0 <8.1.6": "SECURITY: GHSA-9jrq-w75r-8gcw and four sibling advisories against the Vite dev server (vulnerable >=8.0.0 <=8.1.5, fixed in 8.1.6; the worst is high). Sole path is the root devDependency vitest@4.1.12 -> vite, which vitest declares ^6.0.0 || ^7.0.0 || ^8.0.0, so 8.1.6 is inside the parent's range: a resolution pin, not a forced upgrade. It exists because `pnpm update -r --depth Infinity vite` leaves the peer-resolved copy at 8.1.5. 8.1.6 is the patch on the line already resolved (same rolldown ~1.1 and postcss ranges), published 2026-10-06. Dev-only: vitest runs vite's module graph, never its dev server. Added 2026-10-24 for 3.7.6 (SENTINEL-54). Remove when a plain update resolves vite >=8.1.6 for vitest."
         }
     }
 }
