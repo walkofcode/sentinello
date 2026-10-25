@@ -99,3 +99,20 @@ export function buildProjectFiltersUrl(
     const search = params.toString()
     return location.pathname + (search && '?' + search) + location.hash
 }
+
+// The project detail link for a dashboard row, carrying the dashboard's dep type, severity floor and sort
+// so the detail page opens on the same slice the row was counted on. Opening a project with "All deps"
+// selected used to land on the default "Production only" detail, which read "All clear" for a project
+// whose only findings were in dev dependencies. Defaults are omitted, as in the dashboard's own URL.
+export function projectDetailHref(
+    projectId: string,
+    state: Pick<ProjectFiltersState, 'minSeverity' | 'sort' | 'depType'>,
+    defaultDepType: DepTypeFilter
+): string {
+    const params = new URLSearchParams()
+    upsertParam(params, 'dep', state.depType !== defaultDepType && state.depType)
+    upsertParam(params, 'sev', state.minSeverity)
+    upsertParam(params, 'sort', state.sort !== 'severity' && state.sort)
+    const search = params.toString()
+    return '/projects/' + projectId + (search && '?' + search)
+}

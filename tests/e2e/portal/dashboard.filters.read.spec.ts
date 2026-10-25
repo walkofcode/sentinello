@@ -119,6 +119,43 @@ test.describe('the severity floor', function () {
     })
 })
 
+// SENTINEL-52. A project opened from the dashboard opens on the slice its row was counted on: the dep
+// type, the severity floor and the sort travel with the link, so "All deps" no longer lands on a
+// production-only detail page that reads "All clear".
+test.describe('the link into a project', function () {
+    test('carries the dep type, severity floor and sort', async function ({ page }) {
+        await page.goto('/?pdep=all&psev=high&psort=name')
+        const link = page.getByRole('link', { name: SEEDED.projectName }).filter({ visible: true }).first()
+        // The client filters hydrate from the URL after mount; wait for the link to carry them.
+        await expect(link).toHaveAttribute('href', /\?dep=all&sev=high&sort=name$/)
+
+        await link.click()
+
+        await expect(page).toHaveURL(/\/projects\/[^?]+\?dep=all&sev=high&sort=name$/)
+    })
+
+    test('is the bare project path on the defaults', async function ({ page }) {
+        await page.goto('/')
+        const link = page.getByRole('link', { name: SEEDED.projectName }).filter({ visible: true }).first()
+        await expect(link).toHaveAttribute('href', /^\/projects\/[^?]+$/)
+    })
+})
+
+// SENTINEL-53. With every listed project clean on the chosen side, the all-clear state must not hide
+// what the other side holds: bulk-deps has no dev findings and thirty production ones.
+test.describe('the all-clear state', function () {
+    test('names the findings on the other side of the dep filter', async function ({ page }) {
+        await page.goto('/?pdep=dev&pq=' + SEEDED.bulkProjectName)
+
+        await expect(visible(page, 'No vulnerabilities in development dependencies')).toBeVisible()
+        await expect(visible(page, /remain in production dependencies across 1 project/)).toBeVisible()
+
+        await page.getByRole('button', { name: 'Show all dependencies' }).click()
+        await expect(page).toHaveURL(/pdep=all/)
+        await expect(row(page, SEEDED.bulkProjectName)).toBeVisible()
+    })
+})
+
 test.describe('the dependency-type filter', function () {
     // The one filter that is NOT client-side: it changes which findings the server counts, so it has
     // to re-query rather than hide rows.

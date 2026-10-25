@@ -4,6 +4,7 @@ import {
     mergeProjectFiltersIntoParams,
     parseCsvParam,
     parseProjectFiltersFromSearch,
+    projectDetailHref,
     upsertParam,
     type ProjectFiltersState
 } from './project-filters'
@@ -157,5 +158,19 @@ describe('buildProjectFiltersUrl', function suite() {
             'prod'
         )
         expect(url).toBe('/?ldep=dev&pq=checkout#projects')
+    })
+})
+
+describe('projectDetailHref', function suite() {
+    test('is the bare detail path on the defaults', function defaults() {
+        expect(projectDetailHref('p1', EMPTY, 'prod')).toBe('/projects/p1')
+    })
+
+    test('carries a non-default dep type, a severity floor and a name sort', function carried() {
+        expect(projectDetailHref('p1', { depType: 'all', minSeverity: 'high', sort: 'name' }, 'prod')).toBe('/projects/p1?dep=all&sev=high&sort=name')
+    })
+
+    test('omits the dep type the instance already defaults to', function sameAsDefault() {
+        expect(projectDetailHref('p1', { ...EMPTY, depType: 'all' }, 'all')).toBe('/projects/p1')
     })
 })

@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { ShieldCheck } from 'lucide-react'
+import { ShieldAlert, ShieldCheck } from 'lucide-react'
 import { severityWeight, type DepTypeFilter, type Locale } from '@sentinello/core'
 import type { ProjectCatalogRow } from '@sentinello/db'
 import { Badge } from '@/components/ui/badge'
@@ -24,6 +24,7 @@ import { isProjectHealthy, scanStateBadge, scanStateReasonsText } from '@/lib/pr
 import {
     buildProjectFiltersUrl,
     parseProjectFiltersFromSearch,
+    projectDetailHref,
     type MinSeverity,
     type ProjectFiltersState,
     type SortKey
@@ -57,9 +58,13 @@ type Props = {
     lastScanFinishedAt: number | null
     now: number
     anyInFlight: boolean
+    // Open findings per project across every dep type, on the catalog's grain; null when the dep filter
+    // is already "All deps". Lets the all-clear state tell a clean estate from one whose findings are
+    // only on the other side of the filter.
+    allDepsCounts: Record<string, number> | null
 }
 
-export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultDepType, librariesCount, lastScanFinishedAt, now, anyInFlight }: Props) {
+export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultDepType, librariesCount, lastScanFinishedAt, now, anyInFlight, allDepsCounts }: Props) {
     const t = useTranslations('Home')
     const router = useRouter()
     const [query, setQuery] = useState<string>('')
@@ -154,6 +159,26 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
         return sortRows(matched, sort)
     }, [rows, query, roots, tags, minSeverity, showHealthy, showMuted, sort])
 
+    // What the dep filter is hiding, over the projects the scope filters (root, tag, search, muted) keep:
+    // findings on the other side of a prod or dev filter. Only read when the list is otherwise all clear.
+    const otherSide = useMemo(function countOtherSide() {
+        const out = { findings: 0, projects: 0 }
+        if (allDepsCounts === null) return out
+        const q = query.trim().toLowerCase()
+        for (const row of rows) {
+            if (roots.length > 0 && !roots.includes(row.rootId)) continue
+            if (tags.length > 0 && !parseJsonArray(row.tagsJson).some(function anyMatch(rt) { return tags.includes(rt) })) continue
+            if (row.muted && !showMuted) continue
+            if (q && !(row.name + ' ' + (row.alias || '')).toLowerCase().includes(q)) continue
+            const hidden = (allDepsCounts[row.id] ?? 0) - totalNonMutedFindings(row)
+            if (hidden > 0) {
+                out.findings += hidden
+                out.projects++
+            }
+        }
+        return out
+    }, [rows, allDepsCounts, query, roots, tags, showMuted])
+
     // Overview cards summarize exactly the rows shown below, so the counts track every filter.
     const overviewCounts = useMemo(function buildOverview() {
         const severityCounts = { critical: 0, high: 0, moderate: 0, low: 0, info: 0 }
@@ -213,6 +238,25 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                         title={t('projectsNoneConfiguredTitle')}
                         description={t('projectsNoneConfiguredDescription')}
                     />
+                ) : otherSide.findings > 0 ? (
+                    <div data-testid="projects-clear-other-side" className="flex flex-col items-center justify-center rounded-(--radius-card) border border-dashed border-amber-500/40 bg-amber-500/5 px-6 py-16 text-center">
+                        <ShieldAlert className="h-10 w-10 text-amber-500" aria-hidden="true" />
+                        <p className="mt-3 text-base font-medium">
+                            {depType === 'prod' ? t('projectsProdClearTitle') : t('projectsDevClearTitle')}
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            {depType === 'prod'
+                                ? t('projectsProdClearDescription', { count: otherSide.findings, projects: otherSide.projects })
+                                : t('projectsDevClearDescription', { count: otherSide.findings, projects: otherSide.projects })}
+                        </p>
+                        <button
+                            type="button"
+                            onClick={function showAll() { onDepTypeChange('all') }}
+                            className="mt-4 text-sm font-medium underline underline-offset-4 hover:opacity-80"
+                        >
+                            {t('showAllDeps')}
+                        </button>
+                    </div>
                 ) : (
                     <div className="flex flex-col items-center justify-center rounded-(--radius-card) border border-dashed border-emerald-500/30 bg-emerald-500/5 px-6 py-16 text-center">
                         <ShieldCheck className="h-10 w-10 text-emerald-500" aria-hidden="true" />
@@ -226,7 +270,7 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                 <>
                     <div className="space-y-2 md:hidden">
                         {filtered.map(function card(project) {
-                            const href = '/projects/' + project.id
+                            const href = projectDetailHref(project.id, filterState, defaultDepType)
                             const tags = parseJsonArray(project.tagsJson)
                             function onCardClick(e: MouseEvent<HTMLDivElement>) {
                                 const target = e.target as HTMLElement
@@ -284,7 +328,7 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                             </TableHeader>
                             <TableBody>
                                 {filtered.map(function row(project) {
-                                    const href = '/projects/' + project.id
+                                    const href = projectDetailHref(project.id, filterState, defaultDepType)
                                     function onRowClick(e: MouseEvent<HTMLTableRowElement>) {
                                         const target = e.target as HTMLElement
                                         if (target.closest('a, button, input, select, textarea, label')) return

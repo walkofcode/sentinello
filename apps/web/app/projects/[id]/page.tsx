@@ -1,7 +1,8 @@
 import type { Metadata } from 'next'
 import { getLocale, getTranslations } from 'next-intl/server'
 import { notFound } from 'next/navigation'
-import { ShieldCheck } from 'lucide-react'
+import Link from 'next/link'
+import { ShieldAlert, ShieldCheck } from 'lucide-react'
 import {
     countResolvedFindingsForProject,
     countScansForProject,
@@ -37,6 +38,7 @@ import { ResolvedFindingsTable } from '@/components/findings/resolved-findings-t
 import { ScanHistory, type ScanFindingVM, type ScanHistoryRowVM } from '@/components/findings/scan-history'
 import { DepTypeFilter } from '@/components/findings/dep-type-filter'
 import { MutedFilter } from '@/components/findings/muted-filter'
+import { FindingSortFilter, SeverityFloorFilter } from '@/components/findings/finding-view-filters'
 import { UrlPagination } from '@/components/ui/url-pagination'
 import { getDb } from '@/lib/db'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
@@ -45,7 +47,7 @@ import { mergeFindings } from '@/lib/merge-findings'
 
 type PageProps = {
     params: Promise<{ id: string }>
-    searchParams: Promise<{ dep?: string; src?: string; muted?: string; scanPage?: string; resolvedPage?: string }>
+    searchParams: Promise<{ dep?: string; src?: string; eco?: string; sev?: string; sort?: string; muted?: string; scanPage?: string; resolvedPage?: string }>
 }
 
 const RESOLVED_PAGE_SIZE = 25
@@ -108,6 +110,14 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     // The header count matches the "by advisory" tab: distinct vulnerabilities after merging the
     // per-dep-path and per-source duplicates, not raw finding rows.
     const mergedFindingCount = mergeFindings(findings).length
+    // "All clear" under a prod or dev filter is only a fact about that side. When it is clean, count what
+    // the other side still holds, on the same grain and the same muted rule, so the page can say so
+    // instead of congratulating a project whose dev dependencies are full of advisories.
+    let otherSideCount = 0
+    if (findings.length === 0 && depType !== 'all' && scanState.state === 'scanned') {
+        const everyDep = listCurrentFindingsForProject(db, project.id, now, 'all')
+        otherSideCount = mergeFindings(showMuted ? everyDep : everyDep.filter(function notMuted(f) { return !f.isMuted })).length
+    }
 
     const resolvedTotal = countResolvedFindingsForProject(db, project.id)
     const resolvedTotalPages = Math.max(1, Math.ceil(resolvedTotal / RESOLVED_PAGE_SIZE))
@@ -155,6 +165,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     })
 
     const displayName = project.alias || project.name
+    const showAllDepsHref = depParamHref(project.id, resolvedSearchParams, 'all', defaults.depType)
     const rootLabel = root?.label || root?.path || t('project.unknownRoot')
     const fullPath = project.relPath === '.' ? rootLabel : rootLabel + '/' + project.relPath
     const latestScan = getLatestScanForProject(db, project.id)
@@ -221,6 +232,20 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             <ScanStateBanner scanState={scanState} locale={locale} />
 
             <section className="space-y-3">
+                {/* The filter bar renders in every state. It used to appear only beside a findings table,
+                    so a project that was clean under the default "Production only" offered no way to look
+                    at its dev dependencies at all. */}
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h2 className="text-lg font-semibold">{t('project.currentFindings', { count: mergedFindingCount })}</h2>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <MutedFilter value={showMuted} mutedCount={mutedCount} />
+                        <EcosystemFilter ecosystems={findingEcosystems} />
+                        <SourceFilter sources={enabledSources} />
+                        <SeverityFloorFilter />
+                        <FindingSortFilter />
+                        <DepTypeFilter value={depType} defaultValue={defaults.depType} />
+                    </div>
+                </div>
                 {/* "All clear" is a fact only about a project that was fully scanned. With nothing found
                     in a project that could not be (fully) scanned, or was never scanned, nothing looked —
                     which is unknown, not safe. */}
@@ -230,9 +255,19 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                         <p className="mt-1 text-sm text-muted-foreground">
                             {scanState.state === 'not_scanned_yet' ? t('project.noFindingsNotScannedBody') : t('project.noFindingsUnknownBody')}
                         </p>
-                        <div className="mt-4">
-                            <MutedFilter value={showMuted} mutedCount={mutedCount} />
-                        </div>
+                    </div>
+                ) : findings.length === 0 && otherSideCount > 0 ? (
+                    <div data-testid="no-findings-other-side" className="flex flex-col items-center justify-center rounded-(--radius-card) border border-dashed border-amber-500/40 bg-amber-500/5 px-6 py-16 text-center">
+                        <ShieldAlert className="h-10 w-10 text-amber-500" aria-hidden="true" />
+                        <p className="mt-3 text-base font-medium">
+                            {depType === 'prod' ? t('project.prodClearTitle') : t('project.devClearTitle')}
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            {depType === 'prod' ? t('project.prodClearBody', { count: otherSideCount }) : t('project.devClearBody', { count: otherSideCount })}
+                        </p>
+                        <Link href={showAllDepsHref} scroll={false} className="mt-4 text-sm font-medium underline underline-offset-4 hover:opacity-80">
+                            {t('project.showAllDeps')}
+                        </Link>
                     </div>
                 ) : findings.length === 0 ? (
                     <div className="flex flex-col items-center justify-center rounded-(--radius-card) border border-dashed border-emerald-500/30 bg-emerald-500/5 px-6 py-16 text-center">
@@ -241,26 +276,9 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                         <p className="mt-1 text-sm text-muted-foreground">
                             {t('project.allClearBody')}
                         </p>
-                        {/* A project whose findings are ALL muted is all-clear by choice, not by fact.
-                            The toggle has to live here too, or the only route back to them would be
-                            editing the URL by hand. */}
-                        <div className="mt-4">
-                            <MutedFilter value={showMuted} mutedCount={mutedCount} />
-                        </div>
                     </div>
                 ) : (
-                    <>
-                        <div className="flex flex-wrap items-baseline justify-between gap-2">
-                            <h2 className="text-lg font-semibold">{t('project.currentFindings', { count: mergedFindingCount })}</h2>
-                            <div className="flex items-center gap-2">
-                                <MutedFilter value={showMuted} mutedCount={mutedCount} />
-                                <EcosystemFilter ecosystems={findingEcosystems} />
-                                <SourceFilter sources={enabledSources} />
-                                <DepTypeFilter value={depType} defaultValue={defaults.depType} />
-                            </div>
-                        </div>
-                        <FindingsSection findings={findings} projectId={project.id} mutes={activeMutes} now={now} sources={enabledSources} ecosystems={findingEcosystems} />
-                    </>
+                    <FindingsSection findings={findings} projectId={project.id} mutes={activeMutes} now={now} sources={enabledSources} ecosystems={findingEcosystems} />
                 )}
             </section>
 
@@ -309,3 +327,14 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     )
 }
 
+// This page's URL with the dep-type param switched, every other param kept. The default is spelled by
+// omission, as DepTypeFilter writes it.
+function depParamHref(projectId: string, current: Record<string, string | undefined>, depType: string, defaultDepType: string): string {
+    const params = new URLSearchParams()
+    for (const [key, value] of Object.entries(current)) {
+        if (value !== undefined && key !== 'dep') params.set(key, value)
+    }
+    if (depType !== defaultDepType) params.set('dep', depType)
+    const search = params.toString()
+    return '/projects/' + projectId + (search && '?' + search)
+}

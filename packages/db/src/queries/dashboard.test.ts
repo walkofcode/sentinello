@@ -19,6 +19,7 @@ import {
     getDashboardSummary,
     listCurrentFindingsForProject,
     listProjectCatalog,
+    countOpenFindingsByProject,
     listVulnTrendForProject
 } from './dashboard'
 
@@ -436,6 +437,21 @@ describe('listProjectCatalog', function () {
         const all = listProjectCatalog(db, T0 + DAY, 'all').find(function p(r) { return r.id === 'project-1' })
         expect(prod?.severityCounts.high).toBe(0)
         expect(all?.severityCounts.high).toBe(1)
+    })
+})
+
+describe('countOpenFindingsByProject', function () {
+    it('counts every dependency type, on the catalog grain', function () {
+        scanProject('project-1', [finding({ isProd: false, isDev: true })])
+        const counts = countOpenFindingsByProject(db, T0 + DAY)
+        const all = listProjectCatalog(db, T0 + DAY, 'all').find(function p(r) { return r.id === 'project-1' })
+        const total = Object.values(all?.severityCounts ?? {}).reduce(function sum(a, b) { return a + b }, 0)
+        expect(counts.get('project-1')).toBe(1)
+        expect(counts.get('project-1')).toBe(total)
+    })
+
+    it('leaves out a project with nothing open', function () {
+        expect(countOpenFindingsByProject(db, T0 + DAY).has('project-2')).toBe(false)
     })
 })
 

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { getTranslations } from 'next-intl/server'
 import {
+    countOpenFindingsByProject,
     getDashboardSummary,
     isAnyScanInFlight,
     listInFlightScanProjectIds,
@@ -29,6 +30,8 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Sea
     const projects = listProjectCatalog(db, now, projDep)
     // The catalog already read every project's scan state; the summary counts from it rather than again.
     const summary = getDashboardSummary(db, now, projDep, new Map(projects.map(function stateOf(p) { return [p.id, p.scanState] })))
+    // Only worth reading when the dep filter hides something: under "All deps" the catalog already is it.
+    const allDepsCounts = projDep === 'all' ? null : Object.fromEntries(countOpenFindingsByProject(db, now))
     const libraries = listLibraries(db, now, libDep)
     const anyInFlight = isAnyScanInFlight(db, now)
     // One query for every project's scan state, so each row's "Scan now" button reflects an
@@ -45,6 +48,7 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Sea
                 lastScanFinishedAt={summary.lastScanFinishedAt}
                 now={now}
                 anyInFlight={anyInFlight}
+                allDepsCounts={allDepsCounts}
             />
         </div>
     )
