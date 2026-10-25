@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.7.6](https://github.com/walkofcode/sentinello/compare/v3.7.5...v3.7.6) (2026-10-25)
+
+
+### Bug Fixes
+
+* **deps:** clear every open advisory in Sentinello's own dependencies (SENTINEL-54) ([23591d7](https://github.com/walkofcode/sentinello/commit/23591d73b3f9995a7c2de6514d2e24461eda3438))
+* **osv:** re-seed an ecosystem whose incremental pass has kept failing for 48 hours (SENTINEL-50) ([7ea365f](https://github.com/walkofcode/sentinello/commit/7ea365fd9e9fb27c451fa98bfe8ba5268167c6bd))
+* **web:** carry dashboard filters into project detail and stop declaring all clear over the other dep type (SENTINEL-52, SENTINEL-53) ([eb90386](https://github.com/walkofcode/sentinello/commit/eb9038676dd2e74177f37e98fcf72800eb672a62))
+
+
+### Documentation
+
+* **releases:** add the 3.7.6 what's-new entry ([2e0927e](https://github.com/walkofcode/sentinello/commit/2e0927eec9578c9a473d2c96d8efa25f35dc9cf4))
+* **releases:** date the 3.7.6 entry for its release day ([53e975e](https://github.com/walkofcode/sentinello/commit/53e975ef513ada408a49e9f0bd1d8871a1582d01))
+
 ## [3.7.5](https://github.com/walkofcode/sentinello/compare/v3.7.4...v3.7.5) (2026-10-24)
 
 
