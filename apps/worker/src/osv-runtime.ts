@@ -13,7 +13,7 @@ import {
 } from '@sentinello/core'
 import {
     OSV_META_KEYS,
-    OSV_NORMALIZER_VERSION,
+    osvNormalizerVersion,
     getOsvMeta,
     getSourceEnabled,
     lookupOsvByPackages,
@@ -331,7 +331,7 @@ export function startOsvRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime): OsvR
 // because a sibling finished first.
 export function osvCacheUsable(osvDb: OsvDrizzleDb, ecosystem: string): boolean {
     return getOsvMeta<boolean>(osvDb, osvMetaKeyFor(OSV_META_KEYS.seedComplete, ecosystem)) === true
-        && getOsvMeta<number>(osvDb, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, ecosystem)) === OSV_NORMALIZER_VERSION
+        && getOsvMeta<number>(osvDb, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, ecosystem)) === osvNormalizerVersion(ecosystem)
 }
 
 // Boot-time counterpart to the transition check in runSync. runSync enqueues a sweep when it WATCHES a

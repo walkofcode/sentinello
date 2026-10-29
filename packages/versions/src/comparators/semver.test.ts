@@ -75,3 +75,16 @@ describe('semverComparator ordering', function () {
         expect(semverComparator.lte('1.2.4', '1.2.3')).toBe(false)
     })
 })
+
+describe('semverComparator.compare and releaseKind', function () {
+    it('orders by semver precedence', function () {
+        expect(semverComparator.compare('1.0.0-rc.1', '1.0.0')).toBeLessThan(0)
+        expect(semverComparator.compare('1.10.0', '1.9.0')).toBeGreaterThan(0)
+        expect(semverComparator.lte('1.0.0', '1.0.0')).toBe(true)
+    })
+
+    it('reads a tagged prerelease as one', function () {
+        expect(semverComparator.releaseKind('1.0.0')).toBe('release')
+        expect(semverComparator.releaseKind('1.0.0-rc.1')).toBe('prerelease')
+    })
+})

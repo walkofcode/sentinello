@@ -34,23 +34,23 @@ async function writeManifest(manifest: unknown): Promise<void> {
 describe('parseNpmLock failure handling', function () {
     // Returning null makes the caller fail open rather than treat an unreadable lockfile as "no deps".
     it('returns null when the lockfile does not exist', async function () {
-        expect(await parseNpmLock(dir, join(dir, 'nope.json'))).toBeNull()
+        expect(await parseNpmLock(dir, join(dir, 'nope.json'), 'package-lock.json')).toBeNull()
     })
 
     it('returns null on malformed JSON', async function () {
         const path = join(dir, 'package-lock.json')
         await writeFile(path, '{ not json', 'utf8')
-        expect(await parseNpmLock(dir, path)).toBeNull()
+        expect(await parseNpmLock(dir, path, 'package-lock.json')).toBeNull()
     })
 
     it.each(['null', '"a string"', '42'])('returns null for the non-object document %s', async function (raw) {
         const path = join(dir, 'package-lock.json')
         await writeFile(path, raw, 'utf8')
-        expect(await parseNpmLock(dir, path)).toBeNull()
+        expect(await parseNpmLock(dir, path, 'package-lock.json')).toBeNull()
     })
 
     it('returns an empty graph when there are no packages', async function () {
-        const graph = await parseNpmLock(dir, await writeLock({ lockfileVersion: 3 }))
+        const graph = await parseNpmLock(dir, await writeLock({ lockfileVersion: 3 }), 'package-lock.json')
         expect(graph?.packages).toEqual([])
     })
 })
@@ -66,7 +66,7 @@ describe('parseNpmLock package extraction', function () {
                     'node_modules/express': { version: '4.18.0' }
                 }
             })
-        )
+        , 'package-lock.json')
         expect(graph?.packages.map(function name(p) { return p.name }).sort()).toEqual(['express', 'lodash'])
     })
 
@@ -75,7 +75,7 @@ describe('parseNpmLock package extraction', function () {
         const graph = await parseNpmLock(
             dir,
             await writeLock({ packages: { '': { name: 'root', version: '1.0.0' } } })
-        )
+        , 'package-lock.json')
         expect(graph?.packages).toEqual([])
     })
 
@@ -83,7 +83,7 @@ describe('parseNpmLock package extraction', function () {
         const graph = await parseNpmLock(
             dir,
             await writeLock({ packages: { 'node_modules/ghost': { name: 'ghost' } } })
-        )
+        , 'package-lock.json')
         expect(graph?.packages).toEqual([])
     })
 
@@ -91,7 +91,7 @@ describe('parseNpmLock package extraction', function () {
         const graph = await parseNpmLock(
             dir,
             await writeLock({ packages: { 'node_modules/aliased': { name: 'real-name', version: '1.0.0' } } })
-        )
+        , 'package-lock.json')
         expect(graph?.packages[0]?.name).toBe('real-name')
     })
 
@@ -110,19 +110,19 @@ describe('parseNpmLock package extraction', function () {
         ['node_modules/@scope/pkg/lib/index.js', '@scope/pkg'],
         ['node_modules/pkg/lib/index.js', 'pkg']
     ] as Array<[string, string]>)('derives %s as %s', async function (nodePath, expected) {
-        const graph = await parseNpmLock(dir, await writeLock({ packages: { [nodePath]: { version: '1.0.0' } } }))
+        const graph = await parseNpmLock(dir, await writeLock({ packages: { [nodePath]: { version: '1.0.0' } } }), 'package-lock.json')
         expect(graph?.packages[0]?.name).toBe(expected)
     })
 
     it('skips a node path with no node_modules segment', async function () {
-        const graph = await parseNpmLock(dir, await writeLock({ packages: { 'packages/app': { version: '1.0.0' } } }))
+        const graph = await parseNpmLock(dir, await writeLock({ packages: { 'packages/app': { version: '1.0.0' } } }), 'package-lock.json')
         expect(graph?.packages).toEqual([])
     })
 
     // A trailing marker names no package at all. Skipping beats deriving the empty string, which
     // would key a phantom package that matches every advisory lookup for "".
     it('skips a node path that ends at the node_modules marker', async function () {
-        const graph = await parseNpmLock(dir, await writeLock({ packages: { 'node_modules/': { version: '1.0.0' } } }))
+        const graph = await parseNpmLock(dir, await writeLock({ packages: { 'node_modules/': { version: '1.0.0' } } }), 'package-lock.json')
         expect(graph?.packages).toEqual([])
     })
 
@@ -130,14 +130,14 @@ describe('parseNpmLock package extraction', function () {
         const graph = await parseNpmLock(
             dir,
             await writeLock({ packages: { 'node_modules/a/node_modules/b': { version: '1.0.0' } } })
-        )
+        , 'package-lock.json')
         expect(graph?.packages[0]?.depPaths).toEqual(['node_modules/a/node_modules/b'])
     })
 })
 
 describe('parseNpmLock scope classification', function () {
     it('treats an unflagged package as prod', async function () {
-        const graph = await parseNpmLock(dir, await writeLock({ packages: { 'node_modules/a': { version: '1.0.0' } } }))
+        const graph = await parseNpmLock(dir, await writeLock({ packages: { 'node_modules/a': { version: '1.0.0' } } }), 'package-lock.json')
         expect(graph?.packages[0]?.scope).toEqual({ isProd: true, isDev: false, isOptional: false })
     })
 
@@ -145,7 +145,7 @@ describe('parseNpmLock scope classification', function () {
         const graph = await parseNpmLock(
             dir,
             await writeLock({ packages: { 'node_modules/a': { version: '1.0.0', [flag]: true } } })
-        )
+        , 'package-lock.json')
         expect(graph?.packages[0]?.scope.isDev).toBe(true)
         expect(graph?.packages[0]?.scope.isProd).toBe(false)
     })
@@ -154,7 +154,7 @@ describe('parseNpmLock scope classification', function () {
         const graph = await parseNpmLock(
             dir,
             await writeLock({ packages: { 'node_modules/a': { version: '1.0.0', [flag]: true } } })
-        )
+        , 'package-lock.json')
         expect(graph?.packages[0]?.scope.isOptional).toBe(true)
     })
 
@@ -164,7 +164,7 @@ describe('parseNpmLock scope classification', function () {
         const graph = await parseNpmLock(
             dir,
             await writeLock({ packages: { 'node_modules/a': { version: '1.0.0', dev: true } } })
-        )
+        , 'package-lock.json')
         expect(graph?.packages[0]?.scope.isProd).toBe(true)
     })
 
@@ -175,14 +175,14 @@ describe('parseNpmLock scope classification', function () {
             const graph = await parseNpmLock(
                 dir,
                 await writeLock({ packages: { 'node_modules/a': { version: '1.0.0', dev: true } } })
-            )
+            , 'package-lock.json')
             expect(graph?.packages[0]?.scope.isProd).toBe(true)
         }
     )
 
     it('marks a direct dev dependency dev', async function () {
         await writeManifest({ devDependencies: { a: '^1.0.0' } })
-        const graph = await parseNpmLock(dir, await writeLock({ packages: { 'node_modules/a': { version: '1.0.0', dev: true } } }))
+        const graph = await parseNpmLock(dir, await writeLock({ packages: { 'node_modules/a': { version: '1.0.0', dev: true } } }), 'package-lock.json')
         expect(graph?.packages[0]?.scope).toMatchObject({ isProd: false, isDev: true })
     })
 
@@ -191,7 +191,7 @@ describe('parseNpmLock scope classification', function () {
     // overrule the lockfile into hiding it from the prod view.
     it('keeps prod when the lockfile says the node is prod-reachable', async function () {
         await writeManifest({ devDependencies: { a: '^1.0.0' } })
-        const graph = await parseNpmLock(dir, await writeLock({ packages: { 'node_modules/a': { version: '1.0.0' } } }))
+        const graph = await parseNpmLock(dir, await writeLock({ packages: { 'node_modules/a': { version: '1.0.0' } } }), 'package-lock.json')
         expect(graph?.packages[0]?.scope).toMatchObject({ isProd: true, isDev: true })
     })
 
@@ -201,7 +201,7 @@ describe('parseNpmLock scope classification', function () {
         const graph = await parseNpmLock(
             dir,
             await writeLock({ packages: { 'node_modules/a': { version: '1.0.0', dev: true } } })
-        )
+        , 'package-lock.json')
         expect(graph?.packages[0]?.scope.isProd).toBe(true)
     })
 
@@ -209,7 +209,7 @@ describe('parseNpmLock scope classification', function () {
         const graph = await parseNpmLock(
             dir,
             await writeLock({ packages: { 'node_modules/a': { version: '1.0.0', dev: true } } })
-        )
+        , 'package-lock.json')
         expect(graph?.packages[0]?.scope.isDev).toBe(true)
     })
 
@@ -218,7 +218,7 @@ describe('parseNpmLock scope classification', function () {
         const graph = await parseNpmLock(
             dir,
             await writeLock({ packages: { 'node_modules/a': { version: '1.0.0', dev: true } } })
-        )
+        , 'package-lock.json')
         expect(graph?.packages[0]?.scope.isDev).toBe(true)
     })
 })
@@ -233,7 +233,7 @@ describe('parseNpmLock graph wiring', function () {
                     'node_modules/b': { version: '2.0.0' }
                 }
             })
-        )
+        , 'package-lock.json')
         expect(graph?.classify('a', '1.0.0')).toMatchObject({ isDev: true, isProd: false })
         expect(graph?.classify('b', '2.0.0')).toMatchObject({ isProd: true })
     })
@@ -247,7 +247,7 @@ describe('parseNpmLock graph wiring', function () {
                     'node_modules/b/node_modules/a': { version: '2.0.0' }
                 }
             })
-        )
+        , 'package-lock.json')
         expect(graph?.byName('a').map(function v(p) { return p.version }).sort()).toEqual(['1.0.0', '2.0.0'])
     })
 })
@@ -269,7 +269,7 @@ describe('parseNpmLock node graph', function () {
                 'node_modules/p': { version: '1.0.0' },
                 'node_modules/@s/x': { version: '3.0.0' }
             }
-        }))
+        }), 'package-lock.json')
         const nodeGraph = graph?.nodeGraph
         expect(nodeGraph?.nodes.map(function id(n) { return n.id + '=' + n.name + '@' + n.version })).toEqual([
             'node_modules/a=a@1.0.0', 'node_modules/a/node_modules/b=b@1.0.0', 'node_modules/b=b@2.0.0', 'node_modules/c=c@1.0.0',
@@ -290,12 +290,12 @@ describe('parseNpmLock node graph', function () {
     })
 
     it('skips a null entry', async function () {
-        const graph = await parseNpmLock(dir, await writeLock({ lockfileVersion: 3, packages: { '': { dependencies: { a: '1' } }, 'node_modules/a': null, 'node_modules/b': { version: '1.0.0' } } }))
+        const graph = await parseNpmLock(dir, await writeLock({ lockfileVersion: 3, packages: { '': { dependencies: { a: '1' } }, 'node_modules/a': null, 'node_modules/b': { version: '1.0.0' } } }), 'package-lock.json')
         expect(graph?.nodeGraph).toEqual({ nodes: [{ id: 'node_modules/b', name: 'b', version: '1.0.0' }], edges: [], roots: [] })
     })
 
     it('has no node graph for a lockfile without a packages map', async function () {
-        const graph = await parseNpmLock(dir, await writeLock({ lockfileVersion: 1, dependencies: {} }))
+        const graph = await parseNpmLock(dir, await writeLock({ lockfileVersion: 1, dependencies: {} }), 'package-lock.json')
         expect(graph?.nodeGraph).toBeNull()
     })
 })

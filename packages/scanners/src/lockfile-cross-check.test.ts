@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { filterFindingsByLockfileResolution } from './lockfile-cross-check'
 import type { RawFinding } from './types'
+import { versionSetFromSemverRange } from './version-fix'
 
 function finding(installedVersion: string, vulnerableRange: string, advisoryId = 'GHSA-1'): RawFinding {
     return {
@@ -13,7 +14,7 @@ function finding(installedVersion: string, vulnerableRange: string, advisoryId =
         severity: 'high',
         fixAvailable: false,
         fixVersion: null,
-        fixInputs: { source: 'osv', installed: [installedVersion], affected: { ranges: vulnerableRange, exact: [], complete: true }, patched: null, statedFix: null, fixViaParent: false },
+        fixInputs: { source: 'osv', installed: [installedVersion], affected: versionSetFromSemverRange(vulnerableRange), patched: null, patchedSet: null, statedFix: null, fixViaParent: false },
         depPath: [],
         isProd: true,
         isDev: false

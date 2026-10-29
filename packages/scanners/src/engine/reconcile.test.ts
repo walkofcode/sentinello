@@ -6,6 +6,7 @@ import {
     type ReportedAdvisory
 } from './reconcile'
 import type { RawFinding } from '../types'
+import { versionSetFromSemverRange } from '../version-fix'
 
 // Reconciliation decides what ONE vulnerability looks like when three databases know about it. Getting
 // it wrong is visible in both directions: too eager and a real advisory disappears behind an unrelated
@@ -27,7 +28,7 @@ function finding(overrides: Partial<RawFinding> = {}): RawFinding {
         severity: 'high',
         fixAvailable: false,
         fixVersion: null,
-        fixInputs: { source: 'osv', installed: ['1.0.0'], affected: { ranges: '>=1.0.0 <2.0.0', exact: [], complete: true }, patched: null, statedFix: null, fixViaParent: false },
+        fixInputs: { source: 'osv', installed: ['1.0.0'], affected: versionSetFromSemverRange('>=1.0.0 <2.0.0'), patched: null, patchedSet: null, statedFix: null, fixViaParent: false },
         depPath: [],
         isProd: true,
         isDev: false,
@@ -268,7 +269,7 @@ describe('reconcileAgainstReported — fix evidence', function () {
         const seen = reported()
         const own = finding({ advisoryId: '1234', aliases: ['CVE-2024-1'] })
         reconcileAgainstReported([own], seen, 'npm-audit')
-        const osv = finding({ advisoryId: 'GHSA-x', aliases: ['CVE-2024-1'], fixInputs: { ...own.fixInputs, source: 'osv', affected: { ranges: '<1.2.0', exact: [], complete: true } } })
+        const osv = finding({ advisoryId: 'GHSA-x', aliases: ['CVE-2024-1'], fixInputs: { ...own.fixInputs, source: 'osv', affected: versionSetFromSemverRange('<1.2.0') } })
         const copy = finding({ advisoryId: 'GHSA-x', aliases: ['CVE-2024-1'], installedVersion: '1.1.5', fixInputs: { ...own.fixInputs, source: 'osv', installed: ['1.1.5'] } })
         reconcileAgainstReported([osv, copy], seen, 'osv')
         const survivor = seen.get('npm|lodash')?.get('1234')

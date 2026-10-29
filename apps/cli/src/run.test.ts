@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GEMNASIUM_NORMALIZER_VERSION, OSV_NORMALIZER_VERSION } from '@sentinello/core'
+import { GEMNASIUM_NORMALIZER_VERSION, osvNormalizerVersion } from '@sentinello/core'
 import { normalizeOsvRecord, type NpmDownloadsResult, type NpmPackageResult } from '@sentinello/feeds'
 import { registryFilePath } from './cache/registry'
 import { tryAcquireLock, type CacheLock, type CacheMeta } from './cache/meta'
@@ -846,7 +846,7 @@ describe('enabledSources', function () {
         return {
             schemaVersion: 1,
             sources: {
-                osv: cell(seeded.osv, OSV_NORMALIZER_VERSION),
+                osv: cell(seeded.osv, osvNormalizerVersion('npm')),
                 gemnasium: cell(seeded.gemnasium, GEMNASIUM_NORMALIZER_VERSION)
             }
         } as unknown as CacheMeta

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+    canonicalPackageName,
+    comparatorForEcosystem,
     DEFAULT_ECOSYSTEM,
     ECOSYSTEMS,
+    requireComparator,
+    STABLE_ECOSYSTEMS,
     ecosystemForOsvId,
     getEcosystem,
     getSource,
@@ -146,5 +150,59 @@ describe('sourcesForEcosystem', function () {
         for (const eco of ECOSYSTEMS) {
             expect(sourcesForEcosystem(eco.id).length).toBeGreaterThan(0)
         }
+    })
+})
+
+describe('comparator lookups', function () {
+    it('resolves every registered ecosystem to the comparator it names', function () {
+        for (const eco of ECOSYSTEMS) {
+            expect(comparatorForEcosystem(eco.id)?.id).toBe(eco.comparator)
+            expect(requireComparator(eco.id).id).toBe(eco.comparator)
+        }
+    })
+
+    // Null from the lookup, a loud failure from the reader that holds a persisted id: never semver.
+    it('answers an unknown ecosystem with null, or an error where one is a defect', function () {
+        expect(comparatorForEcosystem('maven')).toBeNull()
+        expect(function unknown() { return requireComparator('maven') }).toThrow('unknown ecosystem "maven"')
+    })
+
+    it('orders Go by its own comparator and Ruby by Gem::Version', function () {
+        expect(getEcosystem('Go')?.comparator).toBe('go')
+        expect(getEcosystem('RubyGems')).toMatchObject({ language: 'ruby', osvEcosystem: 'RubyGems', gemnasiumPackageType: 'gem', resolverKinds: ['Gemfile.lock'], comparator: 'rubygems', status: 'preview' })
+    })
+})
+
+describe('canonicalPackageName', function () {
+    // PEP 503 for PyPI, so `Django` from OSV meets `django` from a lockfile; every other registry's names
+    // are exact.
+    it.each([
+        ['PyPI', 'Django', 'django'],
+        ['PyPI', 'zope.interface', 'zope-interface'],
+        ['PyPI', 'ruamel_yaml', 'ruamel-yaml'],
+        ['PyPI', 'Flask--SQLAlchemy', 'flask-sqlalchemy'],
+        ['PyPI', '  Requests  ', 'requests'],
+        ['npm', 'JSONStream', 'JSONStream'],
+        ['RubyGems', 'Ruby_Gem', 'Ruby_Gem'],
+        ['crates.io', 'serde_json', 'serde_json']
+    ])('keys %s %j as %j', function (ecosystem, name, expected) {
+        expect(canonicalPackageName(ecosystem, name)).toBe(expected)
+    })
+})
+
+// Promoting an ecosystem is the status field and nothing else; milestone 1 proves matching without one.
+describe('3.8 milestone 1', function () {
+    it('keeps every non-npm ecosystem in preview', function () {
+        expect(STABLE_ECOSYSTEMS.map(function id(e) { return e.id })).toEqual(['npm'])
+    })
+
+    it('names the lockless manifests of each ecosystem', function () {
+        expect(Object.fromEntries(ECOSYSTEMS.map(function kinds(e) { return [e.id, e.manifestKinds] }))).toEqual({
+            npm: ['package.json'],
+            PyPI: ['pyproject.toml', 'Pipfile'],
+            Go: [],
+            'crates.io': ['Cargo.toml'],
+            RubyGems: ['Gemfile']
+        })
     })
 })

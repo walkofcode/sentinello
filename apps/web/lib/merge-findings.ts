@@ -1,5 +1,5 @@
 import type { CurrentFindingRow } from '@sentinello/db'
-import { compareSeverity, severityWeight, type FixCheck, type FixStatus, type NotRecheckedBecause, type Remediation, type Severity } from '@sentinello/core'
+import { compareSeverity, requireComparator, severityWeight, type FixCheck, type FixStatus, type NotRecheckedBecause, type Remediation, type Severity } from '@sentinello/core'
 import { compareVersions } from '@sentinello/versions'
 import { parseJsonArray } from '@/lib/format'
 
@@ -72,7 +72,8 @@ function advisoryKey(row: CurrentFindingRow): string {
 // npm audit joins multiple hoisted copies into one comma-separated installedVersion ("4.17.21, 4.17.11")
 // while OSV emits one concrete version per row; union them across the bucket so the merged row shows every
 // affected version once, sorted, regardless of which source contributed it.
-function unionInstalledVersions(bucket: CurrentFindingRow[]): string {
+function unionInstalledVersions(bucket: [CurrentFindingRow, ...CurrentFindingRow[]]): string {
+    const comparator = requireComparator(bucket[0].ecosystem)
     const seen = new Set<string>()
     for (const r of bucket) {
         for (const part of r.installedVersion.split(',')) {
@@ -80,7 +81,7 @@ function unionInstalledVersions(bucket: CurrentFindingRow[]): string {
             if (v.length > 0) seen.add(v)
         }
     }
-    return [...seen].sort(compareVersions).join(', ')
+    return [...seen].sort(function byVersion(a, b) { return compareVersions(a, b, comparator) }).join(', ')
 }
 
 // The advisory text/link shown for a merged row: prefer a row that actually has a URL, and among those
@@ -113,7 +114,7 @@ function betterFix(candidate: CurrentFindingRow, current: CurrentFindingRow): bo
     const byVersion = Number(candidate.fixVersion !== null) - Number(current.fixVersion !== null)
     if (byVersion !== 0) return byVersion > 0
     // Equal on the line above, so both carry a version or neither does.
-    if (candidate.fixVersion !== null) return compareVersions(candidate.fixVersion, current.fixVersion as string) > 0
+    if (candidate.fixVersion !== null) return compareVersions(candidate.fixVersion, current.fixVersion as string, requireComparator(candidate.ecosystem)) > 0
     return candidate.fixAvailable && !current.fixAvailable
 }
 

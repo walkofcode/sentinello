@@ -1,16 +1,13 @@
-import { gt, gte, lt, prerelease, satisfies, valid, type Range } from 'semver'
 import type { FixCheck, FixCheckSource, FixStatus, FixUnevaluableReason } from '@sentinello/core'
 import {
     evaluableAffected,
     evaluableContains,
-    isNoPatchedSentinel,
     NO_PATCHED_VERSION_SENTINEL,
-    parseRangeSafely,
     type AffectedSet,
-    type EvaluableAffected,
+    type EvaluableSet,
     type FixEvidence
 } from '@sentinello/scanners'
-import { highestVersion, normalizeSemver } from '@sentinello/versions'
+import { comparatorById, formatRanges, highestVersion, type VersionComparator } from '@sentinello/versions'
 
 // What the registry had for the package, as the settlement needs it. `dataAsOf` is when that data was
 // fetched — recorded on the finding so its "checked" date never moves when the cache is refreshed later.
@@ -44,7 +41,9 @@ export type SettleFixArgs = {
 //   unverified    — anything else. The version shown is only what a source stated, labelled as such.
 export function settleFix(args: SettleFixArgs): FixSettlement {
     const sources = sourcesOf(args.evidence)
-    const stated = highestVersion(args.evidence.flatMap(function statedOf(e) { return e.statedFix === null ? [] : [e.statedFix] }))
+    const comparator = evidenceComparator(args.evidence)
+    const statedFixes = args.evidence.flatMap(function statedOf(e) { return e.statedFix === null ? [] : [e.statedFix] })
+    const stated = comparator === null ? null : highestVersion(statedFixes, comparator)
     const viaParent = args.evidence.some(function parent(e) { return e.fixViaParent })
     const registry = args.registry
 
@@ -76,11 +75,26 @@ export function settleFix(args: SettleFixArgs): FixSettlement {
     return unverified({ registry: registry.status, packageDataAsOf: registry.dataAsOf, unevaluable: result.reason })
 }
 
-// The affected set as one line of text: enumerated versions as `=X`, then the ranges.
+// The affected set as one line of text: enumerated versions as `=X`, then the ranges through the one range
+// formatter, so the operators shown are the operators the set holds.
 export function affectedSetText(affected: AffectedSet): string {
     const parts = affected.exact.map(function eq(v) { return '=' + v })
-    if (affected.ranges !== null) parts.push(affected.ranges)
+    if (affected.ranges.length > 0) parts.push(formatRanges(affected.ranges, { zero: '0' }))
     return parts.join(' || ')
+}
+
+// The one comparator every piece of a finding's evidence speaks. A finding's identity includes its
+// ecosystem, so evidence in two comparators means the caller grouped two findings into one — a defect to
+// surface, not a disagreement to settle. Null only for no evidence at all.
+function evidenceComparator(evidence: readonly FixEvidence[]): VersionComparator | null {
+    const first = evidence[0]
+    if (first === undefined) return null
+    for (const e of evidence) {
+        if (e.affected.comparator !== first.affected.comparator) {
+            throw new Error('fix evidence mixes comparators: ' + first.affected.comparator + ' and ' + e.affected.comparator)
+        }
+    }
+    return comparatorById(first.affected.comparator)
 }
 
 // One entry per distinct statement. A second installed copy from the same source is its own entry, because
@@ -121,7 +135,9 @@ export type ReleasedFixResult =
     | { kind: 'unknown'; reason: UnknownFixReason }
 
 export type PickReleasedFixArgs = {
-    // The registry's published versions. Prereleases and unparseable strings are ignored.
+    // The registry's published versions. Prereleases and unparseable strings are ignored — except a Go
+    // pseudo-version the advisory itself states, which the registry client only lists once it has
+    // confirmed that exact version exists.
     published: readonly PublishedVersion[]
     evidence: readonly FixEvidence[]
     // Every installed copy's version, across all evidence.
@@ -129,46 +145,74 @@ export type PickReleasedFixArgs = {
 }
 
 // The lowest version that is published, not a prerelease, not below the highest installed copy, outside
-// EVERY evidence's affected set and inside every stated patched range — a non-deprecated one when any
+// EVERY evidence's affected set and inside every stated patched set — a non-deprecated one when any
 // qualifies, else a deprecated one. `none` only when every input could be evaluated; anything that cannot
 // be evaluated is `unknown`, which the caller must never turn into "released" or "no fix released".
+//
+// Every comparison is the finding's own comparator's (FixEvidence.affected.comparator), so a PyPI fix is
+// ordered by PEP 440 and a Go fix by Go's rules — never coerced into semver first.
+//
+// Which kinds of version may be a fix is the comparator's call too (releaseKind). A tagged prerelease never
+// is, in any ecosystem. A Go pseudo-version is when an advisory states it as the fix: some Go modules are
+// only ever fixed in a commit, never in a tag, and `/@v/list` omits pseudo-versions by protocol, so one in
+// `published` is there because the registry confirmed it (SENTINEL-126). One the advisory did not state is
+// still skipped — it is a commit nobody named, not a release.
 export function pickReleasedFix(args: PickReleasedFixArgs): ReleasedFixResult {
-    if (args.evidence.length === 0) return { kind: 'unknown', reason: 'no_evidence' }
+    const comparator = evidenceComparator(args.evidence)
+    if (comparator === null) return { kind: 'unknown', reason: 'no_evidence' }
     if (args.installed.length === 0) return { kind: 'unknown', reason: 'installed_unknown' }
-    let floor = '0.0.0'
+    let floor: string | null = null
     for (const raw of args.installed) {
-        const v = normalizeSemver(raw)
+        const v = comparator.normalize(raw)
         if (v === null) return { kind: 'unknown', reason: 'installed_unknown' }
-        if (gt(v, floor)) floor = v
+        if (floor === null || comparator.gt(v, floor)) floor = v
     }
 
-    const affected: EvaluableAffected[] = []
-    const patched: Range[] = []
+    const affected: EvaluableSet[] = []
+    const patched: EvaluableSet[] = []
     for (const e of args.evidence) {
         const ev = evaluableAffected(e.affected)
         if (ev === null) return { kind: 'unknown', reason: 'affected_incomplete' }
         affected.push(ev)
-        if (e.patched === null || e.patched.trim() === '' || isNoPatchedSentinel(e.patched)) continue
-        const range = parseRangeSafely(e.patched)
+        if (e.patchedSet === null) continue
+        const range = evaluableAffected(e.patchedSet)
         if (range === null) return { kind: 'unknown', reason: 'patched_unparseable' }
         patched.push(range)
     }
+    const stated = statedFixVersions(args.evidence, comparator)
 
     // Compared in normalized form, so an alternate spelling of an affected version is still affected;
     // returned in the registry's own spelling, which is what an install names.
     let lowest: { version: string; spelled: string } | null = null
     let lowestCurrent: { version: string; spelled: string } | null = null
     for (const p of args.published) {
-        const v = valid(p.version)
-        if (v === null || prerelease(v) !== null) continue
-        if (!gte(v, floor)) continue
+        const v = comparator.normalize(p.version)
+        if (v === null) continue
+        const kind = comparator.releaseKind(v)
+        if (kind === 'prerelease' || (kind === 'pseudo' && !stated.has(v))) continue
+        if (comparator.lt(v, floor as string)) continue
         if (affected.some(function hits(ev) { return evaluableContains(ev, v) })) continue
-        if (!patched.every(function inside(range) { return satisfies(v, range) })) continue
+        if (!patched.every(function inside(ev) { return evaluableContains(ev, v) })) continue
         const candidate = { version: v, spelled: p.version }
-        if (lowest === null || lt(v, lowest.version)) lowest = candidate
-        if (!p.deprecated && (lowestCurrent === null || lt(v, lowestCurrent.version))) lowestCurrent = candidate
+        if (lowest === null || comparator.lt(v, lowest.version)) lowest = candidate
+        if (!p.deprecated && (lowestCurrent === null || comparator.lt(v, lowestCurrent.version))) lowestCurrent = candidate
     }
     const chosen = lowestCurrent ?? lowest
     if (chosen === null) return { kind: 'none' }
     return { kind: 'released', version: chosen.spelled }
+}
+
+// Every fix version the evidence states, normalized: each source's stated fix and every `fixed` bound of
+// its affected set.
+function statedFixVersions(evidence: readonly FixEvidence[], comparator: VersionComparator): Set<string> {
+    const out = new Set<string>()
+    for (const e of evidence) {
+        const candidates = e.affected.ranges.flatMap(function fixed(r) { return r.fixed ? [r.fixed] : [] })
+        if (e.statedFix !== null) candidates.push(e.statedFix)
+        for (const raw of candidates) {
+            const v = comparator.normalize(raw)
+            if (v !== null) out.add(v)
+        }
+    }
+    return out
 }

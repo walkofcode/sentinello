@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GEMNASIUM_NORMALIZER_VERSION, GEMNASIUM_SEED_DOWNLOAD_BYTES, OSV_NORMALIZER_VERSION, type GemnasiumAdvisoryRow, type OsvAdvisoryRow } from '@sentinello/core'
+import { GEMNASIUM_NORMALIZER_VERSION, GEMNASIUM_SEED_DOWNLOAD_BYTES, osvNormalizerVersion, type GemnasiumAdvisoryRow, type OsvAdvisoryRow } from '@sentinello/core'
 import { advisoryFilePath, ensureCacheDir, getSourceState, readCacheMeta, setSourceState, writeCacheMeta, type SourceId, type SourceState } from './meta'
 import { createRowWriter, readRowsForPackages } from './store'
 
@@ -100,7 +100,7 @@ async function seedFile(source: SourceId, rows: readonly object[]): Promise<void
 async function seedState(source: SourceId, overrides: Partial<SourceState> = {}): Promise<void> {
     const meta = await readCacheMeta(dir)
     setSourceState(meta, source, 'npm', {
-        normalizerVersion: source === 'osv' ? OSV_NORMALIZER_VERSION : GEMNASIUM_NORMALIZER_VERSION,
+        normalizerVersion: source === 'osv' ? osvNormalizerVersion('npm') : GEMNASIUM_NORMALIZER_VERSION,
         recordCount: 1,
         refreshedAt: T0,
         ...overrides
@@ -195,7 +195,7 @@ describe('planSync', function () {
 
     // A cache written by an older normalizer is treated as absent rather than matched with wrong semantics.
     it('plans a re-seed when the cached rows came from an older normalizer', async function () {
-        await seedState('osv', { normalizerVersion: OSV_NORMALIZER_VERSION - 1 })
+        await seedState('osv', { normalizerVersion: osvNormalizerVersion('npm') - 1 })
         const plan = await planSync(options({ sources: ['osv'] }))
         expect(plan.items[0]?.kind).toBe('seed')
     })
@@ -279,7 +279,7 @@ describe('planSync — withdrawal evidence for gemnasium', function () {
 
     it('re-seeds the evidence when it came from an older normalizer', async function () {
         await seedState('gemnasium')
-        await seedState('osv', { normalizerVersion: OSV_NORMALIZER_VERSION - 1 })
+        await seedState('osv', { normalizerVersion: osvNormalizerVersion('npm') - 1 })
         const plan = await planSync(options({ sources: ['gemnasium'] }))
         expect(plan.items[1]).toMatchObject({ source: 'osv', kind: 'seed', purpose: 'withdrawal-evidence' })
     })
@@ -397,7 +397,7 @@ describe('runSync — OSV', function () {
     // A fresh seed supersedes any prior cursor, so the next refresh must re-read modified_id.csv rather
     // than trust a 304 against a copy from before the seed.
     it('clears the etag on a seed', async function () {
-        await seedState('osv', { etag: 'stale-etag', normalizerVersion: OSV_NORMALIZER_VERSION - 1 })
+        await seedState('osv', { etag: 'stale-etag', normalizerVersion: osvNormalizerVersion('npm') - 1 })
         await runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
         expect((await stateOf('osv'))?.etag).toBeNull()
     })

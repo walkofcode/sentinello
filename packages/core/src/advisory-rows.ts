@@ -17,6 +17,7 @@
 export type { VersionRange } from '@sentinello/versions'
 
 import type { VersionRange } from '@sentinello/versions'
+import { getEcosystem, type EcosystemId } from './ecosystems'
 
 export type OsvRange = VersionRange
 
@@ -83,9 +84,34 @@ export type OsvAdvisoryLink = Pick<OsvAdvisoryRow, 'advisoryId' | 'aliases' | 'w
 //     records no withdrawal), so those rows have to come back. The normalizer also keeps a withdrawn
 //     package row that carries no ranges or versions, which it used to skip as unmatchable. Nothing
 //     matches on a withdrawn row; it is evidence only. Forces a re-seed to recover the purged rows.
+// v8 (every ecosystem but npm): bounds are read and intervals ordered by the ecosystem's own comparator
+//     (PEP 440, Go, Gem::Version) instead of semver or not at all, so an unreadable bound no longer silences
+//     a valid interval and an inverted PyPI or Go interval is dropped as surely as an npm one; an inclusive
+//     zero lower bound is the bottom of the version space, so a Go interval ending at a pseudo-version
+//     (`[0, 0.0.0-20210101000000-abcdef123456)`) is no longer read as inverted and deleted; and PyPI package
+//     names are PEP 503-canonical, so they meet the resolver's. npm reads exactly as it did at v7.
+//
+// PER ECOSYSTEM, because each ecosystem's cache is its own download: a change that only re-derives PyPI
+// rows must re-seed PyPI and nothing else, and npm's export alone is over 200 MB. Every store keys the
+// recorded version by ecosystem already (osvMetaKeyFor on the worker, the CLI's per-ecosystem state).
+//
 // Lives beside the row type it describes so every store — the portal's SQLite cache and the CLI's ndjson
 // cache alike — invalidates on exactly the same signal.
-export const OSV_NORMALIZER_VERSION = 7
+export const OSV_NORMALIZER_VERSIONS: Record<EcosystemId, number> = {
+    npm: 7,
+    PyPI: 8,
+    Go: 8,
+    'crates.io': 8,
+    RubyGems: 8
+}
+
+// The OSV normalizer version an ecosystem's cached rows must carry to be read. An id the registry does not
+// know has no cache to compare and is a caller's defect, so it fails loudly.
+export function osvNormalizerVersion(ecosystem: string): number {
+    const def = getEcosystem(ecosystem)
+    if (def === null) throw new Error('no OSV normalizer version for unknown ecosystem ' + JSON.stringify(ecosystem))
+    return OSV_NORMALIZER_VERSIONS[def.id]
+}
 
 // gemnasium carries no range `type` discriminator, so its rows leave that field unset — but it very much
 // does state inclusive upper bounds (`<=X`, maven `[a,b]`) and exclusive lower ones (`>X`), so it uses the
@@ -185,4 +211,10 @@ export type GemnasiumAdvisoryRow = {
 //         wildcard, so npm's rule applied there would invent findings. A real prerelease-zero upper bound
 //         (`<1.2.3-0`) is preserved; only the `-0` marker npm synthesizes for a partial upper bound is
 //         removed from the cached remediation target.
-export const GEMNASIUM_NORMALIZER_VERSION = 7
+// v8: every range is read in its own ecosystem's dialect and ordered by its own comparator. PyPI's `==X`
+//     pins (192 ranges) were cached as the unmatchable "version" `=X` and now pin X; a conjunction's bounds
+//     intersect instead of the last one winning; the single-fix override and the highest-fix bound are
+//     ordered by PEP 440, Go or Gem rules rather than semver; Go's `v` and RubyGems' `~>`/`!=` are read;
+//     and the gemnasium `gem` package type is cached, for Ruby. One archive carries every ecosystem, so
+//     this is one version for all of them; npm rows re-derive identically.
+export const GEMNASIUM_NORMALIZER_VERSION = 8

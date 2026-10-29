@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { NpmPackageSummary } from '@sentinello/feeds'
-import type { FixEvidence } from '@sentinello/scanners'
+import { versionSetFromSemverRange, type FixEvidence } from '@sentinello/scanners'
 import { fixEvidenceKey, publishedVersions, registryView, settleProject, type FixIdentity } from './project'
 import { fakeRegistry, type FakePackage } from './registry-fake.fixture'
 import type { ReplacementDataset } from './replacements'
@@ -18,7 +18,7 @@ function identity(overrides: Partial<FixIdentity> = {}): FixIdentity {
 }
 
 function evidence(ranges: string, installed: string): FixEvidence {
-    return { source: 'osv', installed: [installed], affected: { ranges, exact: [], complete: true }, patched: null, statedFix: null, fixViaParent: false }
+    return { source: 'osv', installed: [installed], affected: versionSetFromSemverRange(ranges), patched: null, patchedSet: null, statedFix: null, fixViaParent: false }
 }
 
 function evidenceFor(entries: [FixIdentity, FixEvidence][]): Map<string, FixEvidence[]> {

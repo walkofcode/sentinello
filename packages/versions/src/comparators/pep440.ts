@@ -213,10 +213,24 @@ function cmp(a: string, b: string): number | null {
 // VersionComparator over PEP 440. `normalize` returns a canonical key when the input parses (and null when
 // it can't, so the matcher skips it — never a false positive); the orderings re-parse and compare with the
 // full PEP 440 ordering.
+//
+// The four orderings stay explicit rather than derived from `compare`, because each one answers `false`
+// when a side does not parse — a bad bound can never read as "matches". `compare` has no such answer to
+// give, so it is only for values that already passed `normalize`, and ranks an unparseable side as equal.
 export const pep440Comparator: VersionComparator = {
+    id: 'pep440',
     normalize(raw: string): string | null {
         const parsed = parsePep440(raw)
         return parsed === null ? null : canonicalPep440(parsed)
+    },
+    compare(a: string, b: string): number {
+        return cmp(a, b) ?? 0
+    },
+    // PEP 440 counts a developmental release as a pre-release too: pip skips `1.0.dev1` exactly as it
+    // skips `1.0rc1` unless asked for one.
+    releaseKind(version: string) {
+        const parsed = parsePep440(version)
+        return parsed !== null && (parsed.pre !== null || parsed.dev !== null) ? 'prerelease' : 'release'
     },
     gt(a: string, b: string): boolean {
         const r = cmp(a, b)

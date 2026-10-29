@@ -9,7 +9,7 @@ const NPM_ECOSYSTEM = 'npm'
 // now only derivable from `importers` (the roots) + `snapshots` (the graph) by reachability, which is
 // what parsePnpmV9 does. v6 and earlier still carry `dev:` on each `packages` entry, handled by the
 // legacy path. Returns null on read/parse failure so the caller fails open.
-export async function parsePnpmLock(absolutePath: string): Promise<ResolvedGraph | null> {
+export async function parsePnpmLock(absolutePath: string, manifestPath: string): Promise<ResolvedGraph | null> {
     let text: string
     try {
         text = await readFile(absolutePath, 'utf8')
@@ -27,9 +27,9 @@ export async function parsePnpmLock(absolutePath: string): Promise<ResolvedGraph
     // v9 is identified by the presence of `importers`/`snapshots`; older locks carry neither and put the
     // dev flag on `packages` entries instead.
     if (root.importers || root.snapshots) {
-        return parsePnpmV9(root)
+        return parsePnpmV9(root, manifestPath)
     }
-    return parsePnpmLegacy(root)
+    return parsePnpmLegacy(root, manifestPath)
 }
 
 type PnpmImporterDep = { version?: string }
@@ -54,7 +54,7 @@ type PnpmLockDoc = {
     packages?: Record<string, PnpmLegacyPackage>
 }
 
-function parsePnpmV9(root: PnpmLockDoc): ResolvedGraph {
+function parsePnpmV9(root: PnpmLockDoc, manifestPath: string): ResolvedGraph {
     const importers = root.importers || {}
     const snapshots = root.snapshots || {}
     const packagesMap = root.packages || {}
@@ -121,7 +121,8 @@ function parsePnpmV9(root: PnpmLockDoc): ResolvedGraph {
                 name: parsed.name,
                 version: parsed.version,
                 scope: { isProd, isDev, isOptional },
-                depPaths: [key]
+                depPaths: [key],
+                manifestPath
             })
         }
     }
@@ -141,7 +142,7 @@ function snapshotKey(name: string, value: string, snapshots: Record<string, Pnpm
 }
 
 // pnpm v6/earlier: the `packages` map keys are `/name@version` and each entry carries `dev`/`optional`.
-function parsePnpmLegacy(root: PnpmLockDoc): ResolvedGraph {
+function parsePnpmLegacy(root: PnpmLockDoc, manifestPath: string): ResolvedGraph {
     const packages = root.packages || {}
     const out: ResolvedPackage[] = []
     for (const key of Object.keys(packages)) {
@@ -158,7 +159,8 @@ function parsePnpmLegacy(root: PnpmLockDoc): ResolvedGraph {
             name: parsed.name,
             version,
             scope: { isProd: !isDev, isDev, isOptional: entry.optional === true },
-            depPaths: [key]
+            depPaths: [key],
+            manifestPath
         })
     }
     return makeGraph(out)

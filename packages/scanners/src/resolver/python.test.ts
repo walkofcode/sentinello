@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { normalizePyName, parsePythonLock } from './python'
+import { parsePythonLock } from './python'
 import type { ResolverResult } from './types'
 
 // Python is the ecosystem where "how much did we actually audit" is hardest to state honestly:
@@ -34,27 +34,12 @@ function names(result: ResolverResult): string[] {
 }
 
 async function parse(kind: string, text: string): Promise<ResolverResult> {
-    return await parsePythonLock(kind, await write(kind, text))
+    return await parsePythonLock(dir, kind, await write(kind, text), kind)
 }
-
-describe('normalizePyName', function () {
-    // PEP 503 canonical form — lower case with runs of -_. collapsed to a single dash. OSV keys PyPI
-    // advisories this way, so a normalization miss means the advisory never matches.
-    it.each([
-        ['Django', 'django'],
-        ['zope.interface', 'zope-interface'],
-        ['ruamel_yaml', 'ruamel-yaml'],
-        ['Flask--SQLAlchemy', 'flask-sqlalchemy'],
-        ['a._-.b', 'a-b'],
-        ['  Requests  ', 'requests']
-    ] as Array<[string, string]>)('normalizes %j to %j', function (raw, expected) {
-        expect(normalizePyName(raw)).toBe(expected)
-    })
-})
 
 describe('parsePythonLock dispatch', function () {
     it('is unauditable when the file cannot be read', async function () {
-        const result = await parsePythonLock('poetry.lock', join(dir, 'nope.lock'))
+        const result = await parsePythonLock(dir, 'poetry.lock', join(dir, 'nope.lock'), 'nope.lock')
         expect(result.status).toBe('unauditable')
         expect(result.status === 'unauditable' && result.reasonCode).toBe('unsupported_lockfile')
     })
@@ -118,15 +103,202 @@ category = "dev"
 })
 
 describe('parsePythonLock uv.lock', function () {
-    // uv.lock carries no dependency-group information, so everything is prod rather than guessed.
-    it('treats every package as prod because uv records no scope', async function () {
-        const text = '[[package]]\nname = "a"\nversion = "1.0"\ncategory = "dev"\n'
-        const result = await parse('uv.lock', text)
+    // A uv workspace member is the project itself (`editable`/`virtual`), never a dependency to audit; its
+    // dependencies are the prod roots, its optional dependencies optional, its dev groups dev.
+    const UV = `version = 1
+requires-python = ">=3.12"
+
+[[package]]
+name = "my-app"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "Requests" },
+]
+
+[package.optional-dependencies]
+socks = [
+    { name = "pysocks" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[[package]]
+name = "requests"
+version = "2.32.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+]
+
+[[package]]
+name = "certifi"
+version = "2024.8.30"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "pysocks"
+version = "1.7.1"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "pytest"
+version = "8.3.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "iniconfig" },
+]
+
+[[package]]
+name = "iniconfig"
+version = "2.0.0"
+source = { registry = "https://pypi.org/simple" }
+`
+
+    it('does not audit the workspace member itself', async function () {
+        const result = await parse('uv.lock', UV)
         expect(result.status).toBe('ok')
-        expect(result.status !== 'unauditable' && result.graph.classify('a', '1.0')).toMatchObject({
-            isProd: true,
-            isDev: false
-        })
+        expect(names(result).sort()).toEqual(['certifi', 'iniconfig', 'pysocks', 'pytest', 'requests'])
+    })
+
+    it('scopes by reachability from the member', async function () {
+        const result = await parse('uv.lock', UV)
+        if (result.status === 'unauditable') throw new Error('expected a graph')
+        expect(result.graph.classify('certifi', '2024.8.30')).toMatchObject({ isProd: true, isDev: false })
+        expect(result.graph.classify('iniconfig', '2.0.0')).toMatchObject({ isProd: false, isDev: true })
+        expect(result.graph.classify('pysocks', '1.7.1')).toMatchObject({ isProd: true, isOptional: true })
+    })
+
+    it('gives each package its chain from the project', async function () {
+        const result = await parse('uv.lock', UV)
+        if (result.status === 'unauditable') throw new Error('expected a graph')
+        expect(result.graph.byName('certifi')[0]?.depPaths).toEqual(['requests@2.32.3', 'certifi@2024.8.30'])
+        expect(result.graph.byName('certifi')[0]?.manifestPath).toBe('uv.lock')
+    })
+
+    // A git or URL source is not the index release of that name.
+    it('counts a git, URL or outside-path package as cannot be audited', async function () {
+        const text = UV + '\n[[package]]\nname = "forked"\nversion = "1.0"\nsource = { git = "https://example.test/forked.git?rev=abc#abc" }\n'
+            + '\n[[package]]\nname = "wheel-url"\nversion = "1.0"\nsource = { url = "https://example.test/x.whl" }\n'
+            + '\n[[package]]\nname = "sibling"\nversion = "1.0"\nsource = { directory = "../sibling" }\n'
+        const result = await parse('uv.lock', text)
+        expect(result.status).toBe('partial')
+        expect(result.status === 'partial' && result.details.join(' ')).toContain('forked (git), sibling (path), wheel-url (url)')
+        expect(names(result)).not.toContain('forked')
+    })
+
+    // A lock with no member to start from still has a graph: whatever nothing depends on is a root.
+    it('treats every package nothing depends on as a prod root without a member', async function () {
+        const text = '[[package]]\nname = "a"\nversion = "1.0"\nsource = { registry = "https://pypi.org/simple" }\ndependencies = [\n    { name = "b", version = "2.0" },\n]\n\n[[package]]\nname = "b"\nversion = "2.0"\n'
+        const result = await parse('uv.lock', text)
+        if (result.status === 'unauditable') throw new Error('expected a graph')
+        expect(result.graph.byName('b')[0]?.depPaths).toEqual(['a@1.0', 'b@2.0'])
+        expect(result.graph.classify('b', '2.0')).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    it('is unauditable when only the member is locked', async function () {
+        const result = await parse('uv.lock', '[[package]]\nname = "my-app"\nsource = { virtual = "." }\n')
+        expect(result.status).toBe('unauditable')
+    })
+})
+
+describe('parsePythonLock poetry.lock graph', function () {
+    const LOCK = `[[package]]
+name = "Django"
+version = "4.2.11"
+optional = false
+
+[package.dependencies]
+asgiref = ">=3.6.0,<4"
+
+[[package]]
+name = "asgiref"
+version = "3.8.1"
+
+[[package]]
+name = "pytest"
+version = "8.3.3"
+
+[package.dependencies]
+pluggy = ">=1.5,<2"
+
+[[package]]
+name = "pluggy"
+version = "1.5.0"
+
+[[package]]
+name = "redis"
+version = "5.0.0"
+
+[[package]]
+name = "my-lib"
+version = "0.2.0"
+
+[package.source]
+type = "directory"
+url = "libs/my-lib"
+
+[[package]]
+name = "forked"
+version = "1.0.0"
+
+[package.source]
+type = "git"
+url = "https://example.test/forked.git"
+`
+
+    // The project is not in poetry.lock; pyproject.toml names its direct dependencies and their groups.
+    it('takes its roots and their groups from pyproject.toml', async function () {
+        await write('pyproject.toml', '[tool.poetry.dependencies]\npython = "^3.11"\ndjango = "^4.2"\nredis = { version = "^5", optional = true }\nmy-lib = { path = "libs/my-lib" }\n\n[tool.poetry.group.test.dependencies]\npytest = "^8"\n')
+        const result = await parse('poetry.lock', LOCK)
+        if (result.status === 'unauditable') throw new Error('expected a graph')
+        expect(result.graph.classify('asgiref', '3.8.1')).toMatchObject({ isProd: true, isDev: false })
+        expect(result.graph.classify('pluggy', '1.5.0')).toMatchObject({ isProd: false, isDev: true })
+        expect(result.graph.classify('redis', '5.0.0')).toMatchObject({ isProd: true, isOptional: true })
+        expect(result.graph.byName('asgiref')[0]?.depPaths).toEqual(['django@4.2.11', 'asgiref@3.8.1'])
+    })
+
+    it('reads PEP 621 and PEP 735 declarations', async function () {
+        await write('pyproject.toml', '[project]\nname = "app"\ndependencies = [\n  "Django>=4.2",\n  "redis[hiredis] ; python_version > \'3\'",\n]\n\n[project.optional-dependencies]\ncache = ["redis"]\n\n[dependency-groups]\ntest = ["pytest>=8", { include-group = "lint" }]\n')
+        const result = await parse('poetry.lock', LOCK)
+        if (result.status === 'unauditable') throw new Error('expected a graph')
+        expect(result.graph.classify('redis', '5.0.0')).toMatchObject({ isProd: true, isOptional: false })
+        expect(result.graph.classify('pluggy', '1.5.0')).toMatchObject({ isProd: false, isDev: true })
+    })
+
+    it('reads the legacy dev-dependencies table as dev', async function () {
+        await write('pyproject.toml', '[tool.poetry.dev-dependencies]\npytest = "^8"\n')
+        const result = await parse('poetry.lock', LOCK)
+        expect(result.status !== 'unauditable' && result.graph.classify('pluggy', '1.5.0')).toMatchObject({ isProd: false, isDev: true })
+    })
+
+    // A path dependency inside the project is its own code; a git one is counted, never matched.
+    it('separates own code from what cannot be audited', async function () {
+        const result = await parse('poetry.lock', LOCK)
+        expect(result.status).toBe('partial')
+        expect(names(result)).not.toContain('my-lib')
+        expect(names(result)).not.toContain('forked')
+        expect(result.status === 'partial' && result.details).toEqual(['1 packages from git, URL or local sources cannot be audited: forked (git)'])
+    })
+
+    it('falls back to the packages nothing depends on when pyproject.toml declares nothing', async function () {
+        await write('pyproject.toml', '[build-system]\nrequires = ["poetry-core"]\n')
+        const result = await parse('poetry.lock', LOCK)
+        expect(result.status !== 'unauditable' && result.graph.byName('pluggy')[0]?.depPaths).toEqual(['pytest@8.3.3', 'pluggy@1.5.0'])
+    })
+
+    it.each([['url', 'https://example.test/x.whl', 'x (url)'], ['file', '../x.tar.gz', 'x (path)']])('counts a %s source', async function (type, url, expected) {
+        const result = await parse('poetry.lock', '[[package]]\nname = "x"\nversion = "1.0"\n\n[package.source]\ntype = "' + type + '"\nurl = "' + url + '"\n\n[[package]]\nname = "a"\nversion = "1.0"\n')
+        expect(result.status === 'partial' && result.details.join(' ')).toContain(expected)
+    })
+
+    // A private index is still an index of PyPI packages.
+    it('audits a package from a legacy (private index) source', async function () {
+        const result = await parse('poetry.lock', '[[package]]\nname = "a"\nversion = "1.0"\n\n[package.source]\ntype = "legacy"\nurl = "https://pypi.example.test/simple"\n')
+        expect(result.status).toBe('ok')
     })
 })
 
@@ -281,5 +453,46 @@ describe('parsePythonLock requirements.txt', function () {
         const result = await parse('requirements.txt', 'django>=4.0\nrequests\n')
         expect(result.status).toBe('unauditable')
         expect(result.status === 'unauditable' && result.details.join(' ')).toContain('no exact (==) version pins')
+    })
+})
+
+describe('parsePythonLock — entries it does not model', function () {
+    // A directory source with no path cannot be placed inside the project, so it is not own code.
+    it('counts a poetry directory source with no url as a local path', async function () {
+        const result = await parse('poetry.lock', '[[package]]\nname = "x"\nversion = "1.0"\n\n[package.source]\ntype = "directory"\n\n[[package]]\nname = "a"\nversion = "1.0"\n')
+        expect(result.status === 'partial' && result.details.join(' ')).toContain('x (path)')
+    })
+
+    // A source table with no type names no other origin, so the package came from the index.
+    it('audits a poetry package whose source table has no type', async function () {
+        expect((await parse('poetry.lock', '[[package]]\nname = "a"\nversion = "1.0"\n\n[package.source]\nreference = "main"\n')).status).toBe('ok')
+    })
+
+    it('skips what a uv.lock lists in shapes it does not lock', async function () {
+        const text = '[[package]]\nversion = "1.0"\n\n'
+            + '[[package]]\nname = "app"\nsource = { virtual = "." }\ndependencies = [\n    { name = "missing" },\n    "not-a-table",\n    { version = "1.0" },\n    { name = "a", version = "1.0" },\n]\n\n'
+            + '[[package]]\nname = "a"\nversion = "1.0"\nsource = { registry = "https://pypi.org/simple" }\ndependencies = [{ name = "gone" }]\n\n'
+            + '[[package]]\nname = "local-wheel"\nversion = "1.0"\nsource = { path = "../dist/local.whl" }\n\n'
+            + '[[package]]\nname = "unknown-source"\nversion = "1.0"\nsource = { }\n'
+        const result = await parse('uv.lock', text)
+        expect(names(result)).toEqual(['a'])
+        expect(result.status === 'partial' && result.details.join(' ')).toContain('local-wheel (path), unknown-source (path)')
+        // Only the edge to a locked package survives; `missing` and `gone` lead nowhere.
+        expect(result.status !== 'unauditable' && result.graph.nodeGraph?.edges).toEqual([{ from: 'app@', to: 'a@1.0', kind: 'prod' }])
+    })
+
+    it('is unauditable, naming them, when everything comes from git', async function () {
+        const result = await parse('uv.lock', '[[package]]\nname = "x"\nversion = "1.0"\nsource = { git = "https://example.test/x.git" }\n')
+        expect(result).toMatchObject({ status: 'unauditable', details: ['1 packages from git, URL or local sources cannot be audited: x (git)'] })
+    })
+
+    // A name declared more than one way keeps the widest scope: prod over optional over dev.
+    it('keeps the widest scope for a name pyproject.toml declares twice', async function () {
+        await write('pyproject.toml', '[project]\ndependencies = ["django", "./local-path"]\n\n[project.optional-dependencies]\nx = ["redis", "django"]\n\n[dependency-groups]\ndev = ["redis", "django"]\n')
+        const lock = '[[package]]\nname = "django"\nversion = "4.2"\n\n[[package]]\nname = "redis"\nversion = "5.0"\n'
+        const result = await parse('poetry.lock', lock)
+        if (result.status === 'unauditable') throw new Error('expected a graph')
+        expect(result.graph.classify('django', '4.2')).toMatchObject({ isProd: true, isDev: false, isOptional: false })
+        expect(result.graph.classify('redis', '5.0')).toMatchObject({ isProd: true, isDev: false, isOptional: true })
     })
 })

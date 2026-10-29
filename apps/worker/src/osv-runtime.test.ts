@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-    OSV_NORMALIZER_VERSION,
+    osvNormalizerVersion,
     getConfigValue,
     openOsvDb,
     osvMetaKeyFor,
@@ -473,7 +473,7 @@ describe('startOsvRuntime', function () {
     it('re-scans at boot when the cache is matchable but projects still say it was not', function () {
         const cache = openCache()
         setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, 'npm'), true)
-        setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, 'npm'), OSV_NORMALIZER_VERSION)
+        setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, 'npm'), osvNormalizerVersion('npm'))
         cache.sqlite.close()
         seedStaleProject()
         startOsvRuntime(handle.db, runtime)
@@ -493,7 +493,7 @@ describe('startOsvRuntime', function () {
     it('does not re-scan at boot when no project is holding a stale verdict', function () {
         const cache = openCache()
         setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, 'npm'), true)
-        setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, 'npm'), OSV_NORMALIZER_VERSION)
+        setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, 'npm'), osvNormalizerVersion('npm'))
         cache.sqlite.close()
         startOsvRuntime(handle.db, runtime)
         expect(listRecentScanRequests(handle.db)).toHaveLength(0)
@@ -572,7 +572,7 @@ describe('runSync — seed or catch up', function () {
         cache.sqlite.close()
     })
 
-    function markSeeded(ecosystem: string, normalizerVersion: number = OSV_NORMALIZER_VERSION): void {
+    function markSeeded(ecosystem: string, normalizerVersion: number = osvNormalizerVersion(ecosystem)): void {
         setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, ecosystem), true)
         setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, ecosystem), normalizerVersion)
     }
@@ -602,7 +602,7 @@ describe('runSync — seed or catch up', function () {
     // safe response — an incremental pass would leave old-shape rows in place indefinitely.
     it('forces a full re-seed when the normalizer version moved', async function () {
         enable('npm')
-        markSeeded('npm', OSV_NORMALIZER_VERSION - 1)
+        markSeeded('npm', osvNormalizerVersion('npm') - 1)
         await runSync(handle.db, cache.db, runtime)
         expect(sync.seedOsv).toHaveBeenCalledTimes(1)
         expect(logLines().some(function m(l) { return l.includes('normalizer changed — rebuilding cache') })).toBe(true)
@@ -656,7 +656,7 @@ describe('runSync — seed or catch up', function () {
         await runSync(handle.db, cache.db, runtime)
         expect(getConfigValue(handle.db, sourceStatusKey('osv' as never, 'npm' as never))).toMatchObject({
             seedComplete: true,
-            normalizerVersion: OSV_NORMALIZER_VERSION,
+            normalizerVersion: osvNormalizerVersion('npm'),
             recordCount: 1234,
             syncStartedAt: null
         })
@@ -685,7 +685,7 @@ describe('runSync — seed or catch up', function () {
     it('re-mirrors the moment a seed discards the cache, keeping the prior count visible', async function () {
         enable('npm')
         setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.recordCount, 'npm'), 220)
-        markSeeded('npm', OSV_NORMALIZER_VERSION - 1)
+        markSeeded('npm', osvNormalizerVersion('npm') - 1)
         let midRebuild: unknown = null
         sync.seedOsv.mockImplementationOnce(async function discardThenSeed(_db: unknown, eco: string, _signal?: AbortSignal, onCacheDiscarded?: () => void) {
             setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, eco), false)
@@ -787,7 +787,7 @@ describe('the scanner the runtime produces', function () {
         cache.sqlite.close()
     })
 
-    function markSeeded(ecosystem: string, normalizerVersion: number = OSV_NORMALIZER_VERSION): void {
+    function markSeeded(ecosystem: string, normalizerVersion: number = osvNormalizerVersion(ecosystem)): void {
         setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, ecosystem), true)
         setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, ecosystem), normalizerVersion)
     }
@@ -808,7 +808,7 @@ describe('the scanner the runtime produces', function () {
     // The rule the whole isSeeded closure exists for: a seeded cache whose rows predate a normalizer bump
     // lacks fields the matcher now reads, so it must read as "not downloaded" rather than "no findings".
     it('treats a cache seeded under an older normalizer as not downloaded', async function () {
-        markSeeded('npm', OSV_NORMALIZER_VERSION - 1)
+        markSeeded('npm', osvNormalizerVersion('npm') - 1)
         const rt = startOsvRuntime(handle.db, runtime)
         const result = await scanWith(rt.scanner as never, [{ ecosystem: 'npm', name: 'lodash', version: '4.17.11' }])
         expect(result.reasonCode).toBe('osv_db_not_seeded')
@@ -878,7 +878,7 @@ function enableGemnasium(ecosystem: string, on = true): void {
     setConfigValue(handle.db, sourceEnabledKey('gemnasium' as never, ecosystem as never), on)
 }
 
-function markUsable(db: OsvDrizzleDb, ecosystem: string, normalizerVersion: number = OSV_NORMALIZER_VERSION): void {
+function markUsable(db: OsvDrizzleDb, ecosystem: string, normalizerVersion: number = osvNormalizerVersion('npm')): void {
     setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, ecosystem), true)
     setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, ecosystem), normalizerVersion)
 }
@@ -996,7 +996,7 @@ describe('the withdrawal evidence the controller exposes', function () {
 
     it.each([
         ['mid-rebuild', function midRebuild(db: OsvDrizzleDb) { markUsable(db, 'npm'); setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, 'npm'), false) }],
-        ['stamped by an older normalizer', function old(db: OsvDrizzleDb) { markUsable(db, 'npm', OSV_NORMALIZER_VERSION - 1) }]
+        ['stamped by an older normalizer', function old(db: OsvDrizzleDb) { markUsable(db, 'npm', osvNormalizerVersion('npm') - 1) }]
     ])('is neither ready nor read when the snapshot is %s', function (_label, state) {
         enableGemnasium('npm')
         const cache = openCache()
@@ -1483,7 +1483,7 @@ describe('every batch re-checks withdrawals — end to end', function () {
         const c = await controllers()
         expect(sync.seedOsv).toHaveBeenCalledTimes(1)
         expect(c.osvController.evidence.ready('npm')).toBe(true)
-        expect(getConfigValue(handle.db, sourceStatusKey('osv', 'npm'))).toMatchObject({ seedComplete: true, normalizerVersion: OSV_NORMALIZER_VERSION })
+        expect(getConfigValue(handle.db, sourceStatusKey('osv', 'npm'))).toMatchObject({ seedComplete: true, normalizerVersion: osvNormalizerVersion('npm') })
         await batch(c)
         expect(feed.fetchOsvChangedIds).toHaveBeenCalledTimes(1)
         expect(openFindings()).toEqual([CVE])
@@ -1499,7 +1499,7 @@ describe('every batch re-checks withdrawals — end to end', function () {
     // would reopen every withdrawn finding; so gemnasium is unauditable until the snapshot completes.
     it.each([
         ['not complete', function incomplete() { setOsvMeta(osv.db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, 'npm'), false) }],
-        ['stamped by an older normalizer', function old() { setOsvMeta(osv.db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, 'npm'), OSV_NORMALIZER_VERSION - 1) }]
+        ['stamped by an older normalizer', function old() { setOsvMeta(osv.db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, 'npm'), osvNormalizerVersion('npm') - 1) }]
     ])('waits out a snapshot that is %s, then stamps from the complete one', async function (_label, makeIncomplete) {
         completeSnapshot(osvRows(GHSA, null))
         const c = await controllers()

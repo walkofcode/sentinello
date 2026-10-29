@@ -19,7 +19,7 @@ import {
 } from '@sentinello/db'
 import { buildAdvisoryMarkdown, type Finding, type Project } from '@sentinello/core'
 import type { NpmPackageSummary } from '@sentinello/feeds'
-import type { FixEvidence, RawFinding, ScannerPlugin, ScanResult } from '@sentinello/scanners'
+import { versionSetFromSemverRange, type FixEvidence, type RawFinding, type ScannerPlugin, type ScanResult } from '@sentinello/scanners'
 import { toWebhookVulnerability } from '@sentinello/notifications'
 import { toExportFinding } from './notifier'
 import { runProjectScanners, type ProjectScanOutcome } from './runner'
@@ -83,7 +83,7 @@ function fakeRegistry(entries: Record<string, RegistryEntry>): RegistryClient & 
 }
 
 function evidence(source: string, ranges: string, installed = '1.0.0', statedFix: string | null = null): FixEvidence {
-    return { source, installed: [installed], affected: { ranges, exact: [], complete: true }, patched: null, statedFix, fixViaParent: false }
+    return { source, installed: [installed], affected: versionSetFromSemverRange(ranges), patched: null, patchedSet: null, statedFix, fixViaParent: false }
 }
 
 function raw(source: string, advisoryId: string, ranges: string, overrides: Partial<RawFinding> = {}): RawFinding {
@@ -158,8 +158,8 @@ describe('settlement over every source', function () {
         expect(rows[0]).toMatchObject({ source: 'npm-audit', fixStatus: 'released', fixVersion: '1.2.0', fixAvailable: true })
         const check = JSON.parse(rows[0]?.fixCheckJson as string)
         expect(check.sources).toEqual([
-            { source: 'npm-audit', installed: ['1.0.0'], affected: '<1.1.0', patched: null, statedFix: '1.1.0', noPatchedSentinel: false },
-            { source: 'osv', installed: ['1.0.0'], affected: '<1.2.0', patched: null, statedFix: '1.2.0', noPatchedSentinel: false }
+            { source: 'npm-audit', installed: ['1.0.0'], affected: '>=0 <1.1.0', patched: null, statedFix: '1.1.0', noPatchedSentinel: false },
+            { source: 'osv', installed: ['1.0.0'], affected: '>=0 <1.2.0', patched: null, statedFix: '1.2.0', noPatchedSentinel: false }
         ])
         expect(check).toMatchObject({ registry: 'ok', packageDataAsOf: T0 - 1000, unevaluable: null })
     })

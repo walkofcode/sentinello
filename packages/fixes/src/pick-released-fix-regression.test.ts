@@ -81,7 +81,7 @@ function viaOsv(t: Tuple): RawFinding {
         url: null,
         withdrawn: null
     }
-    const pkg = { ecosystem: 'npm', name: t.package, version: t.installed, scope: { isProd: true, isDev: false, isOptional: false }, depPaths: [] }
+    const pkg = { ecosystem: 'npm', name: t.package, version: t.installed, scope: { isProd: true, isDev: false, isOptional: false }, depPaths: [], manifestPath: 'package-lock.json' }
     const [finding] = matchAdvisories([pkg], new Map([[t.package, [advisory]]]), semverComparator, ['SEMVER'])
     if (!finding) throw new Error('osv produced no finding for ' + t.package)
     return finding

@@ -1,5 +1,5 @@
-import { coerce, gt as semverGt, gte as semverGte, lt as semverLt, lte as semverLte, valid } from 'semver'
-import type { VersionComparator } from '../comparator'
+import { coerce, compare as semverCompare, prerelease, valid } from 'semver'
+import { orderingsFrom, type VersionComparator } from '../comparator'
 
 // Range syntax whose coerced value would NOT mean what the string means. Checked BEFORE coerce(), because
 // coerce is happy to read an operator off the front and return the number behind it — '<4.17.21' becomes
@@ -23,21 +23,15 @@ export function normalizeSemver(raw: string): string | null {
     return coerced === null ? null : coerced.version
 }
 
-// The npm/Go/crates.io version comparator. The ordering functions assume already-normalized inputs.
+// The npm and crates.io version comparator. The ordering functions assume already-normalized inputs.
 export const semverComparator: VersionComparator = {
+    id: 'semver',
     normalize(raw: string): string | null {
         return normalizeSemver(raw)
     },
-    gt(a: string, b: string): boolean {
-        return semverGt(a, b)
-    },
-    gte(a: string, b: string): boolean {
-        return semverGte(a, b)
-    },
-    lt(a: string, b: string): boolean {
-        return semverLt(a, b)
-    },
-    lte(a: string, b: string): boolean {
-        return semverLte(a, b)
+    compare: semverCompare,
+    ...orderingsFrom(semverCompare),
+    releaseKind(version: string) {
+        return prerelease(version) === null ? 'release' : 'prerelease'
     }
 }

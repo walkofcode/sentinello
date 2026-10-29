@@ -34,7 +34,7 @@ function link(overrides: Partial<OsvAdvisoryLink> = {}): OsvAdvisoryLink {
 }
 
 function pkg(name: string, version: string): ResolvedPackage {
-    return { ecosystem: 'npm', name, version, scope: { isProd: true, isDev: false, isOptional: false }, depPaths: [] }
+    return { ecosystem: 'npm', name, version, scope: { isProd: true, isDev: false, isOptional: false }, depPaths: [], manifestPath: 'package-lock.json' }
 }
 
 describe('stampWithdrawn', function () {

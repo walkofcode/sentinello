@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { satisfies, validRange } from 'semver'
 import { canMatchSomething, canonicaliseRange } from './dialect'
+import type { VersionComparator } from './comparator'
+import { goComparator } from './comparators/go'
+import { pep440Comparator } from './comparators/pep440'
+import { rubygemsComparator } from './comparators/rubygems'
+import { semverComparator } from './comparators/semver'
 
 // canonicaliseRange is the single place a range STRING is interpreted, so its two failure directions are
 // the ones the whole advisory pipeline inherits: read a range too narrowly and a real vulnerability never
@@ -53,8 +58,13 @@ describe('canonicaliseRange — npm', function () {
     // CVE-2017-16127 states `>0` with `affected_versions: "All Versions"` and `solution: "Omit this
     // package."` — a credential stealer, unpublished from the registry. A zero exclusive lower bound is
     // gemnasium's idiom for "everything", and following npm here reports known malware as clean.
-    it.each(['>0', '> 0', '>0.0', '>v0', '>0.0.0'])('leaves the zero lower bound %j alone', function (raw) {
+    it.each(['>0', '> 0', '>0.0', '>0.0.0'])('leaves the zero lower bound %j alone', function (raw) {
         expect(canonicaliseRange(raw, 'npm')).toBe(raw)
+    })
+
+    // The one change it does make is the `v`, which no reader downstream has to know about.
+    it('keeps the zero lower bound without its v', function () {
+        expect(canonicaliseRange('>v0', 'npm')).toBe('>0')
     })
 
     // Narrow on purpose: only a bound that is the WHOLE range is exempt. An intersection keeps npm's
@@ -77,15 +87,169 @@ describe('canonicaliseRange — npm', function () {
     })
 })
 
-describe('canonicaliseRange — every other dialect is left alone', function () {
-    // PEP 440 spells an exact pin `==1.0` and its wildcard `==1.0.*`, so npm's X-range reading applied here
-    // would invent an interval the record never claimed. Go and crates.io share the semver COMPARATOR but
-    // are not node-semver range DIALECTS, which is why this is keyed on the ecosystem and not on that.
-    it.each(['PyPI', 'Go', 'crates.io', 'unknown'])('leaves a %s range untouched', function (dialect) {
+describe('canonicaliseRange — an unknown dialect is left alone', function () {
+    it('returns the range untouched', function () {
         for (const raw of ['<=3.3', '=103', '^1.0.0', '>=5.0,<5.8', '< 0.5.2']) {
-            expect(canonicaliseRange(raw, dialect)).toBe(raw)
+            expect(canonicaliseRange(raw, 'unknown')).toBe(raw)
         }
     })
+})
+
+// The operator dialects. None is node-semver: PEP 440's `==1.0` is an exact pin and its wildcard is
+// `==1.0.*`, so npm's X-range reading applied here would invent an interval the record never claimed. Go and
+// crates.io advisories use plain comparators, and Gem requirements add `~>`.
+describe('canonicaliseRange — operator dialects', function () {
+    it('reads a PEP 440 pin, in both spellings, as an exact version', function () {
+        expect(canonicaliseRange('==1.0', 'PyPI')).toBe('=1.0')
+        expect(canonicaliseRange('===1.0', 'PyPI')).toBe('=1.0')
+        expect(canonicaliseRange('== 2.0.0rc1', 'PyPI')).toBe('=2.0.0rc1')
+    })
+
+    it('turns a PEP 440 comma intersection, spaced or not, into one conjunction', function () {
+        expect(canonicaliseRange('>=5.0,<5.8', 'PyPI')).toBe('>=5.0 <5.8')
+        expect(canonicaliseRange('>= 5.0 , < 5.8', 'PyPI')).toBe('>=5.0 <5.8')
+    })
+
+    // Neither occurs in any corpus; reading them would be a guess, and the refusal ratchet names the
+    // record the day one does.
+    it('refuses a PEP 440 prefix match and the compatible-release operator', function () {
+        expect(canonicaliseRange('==1.2.*', 'PyPI')).toBeNull()
+        expect(canonicaliseRange('~=1.4.2', 'PyPI')).toBeNull()
+        expect(canonicaliseRange('!=1.2.*', 'PyPI')).toBeNull()
+    })
+
+    it('strips the v from a Go version and binds a spaced operator', function () {
+        expect(canonicaliseRange('< v0.0.0-20180523222229-09b5706aa936', 'Go')).toBe('<0.0.0-20180523222229-09b5706aa936')
+        expect(canonicaliseRange('>=v2.0.0+incompatible <v2.3.0+incompatible', 'Go')).toBe('>=2.0.0+incompatible <2.3.0+incompatible')
+    })
+
+    it('reads a bare version as a pin', function () {
+        expect(canonicaliseRange('1.2.3', 'crates.io')).toBe('=1.2.3')
+    })
+
+    it('refuses an operator its dialect does not define', function () {
+        expect(canonicaliseRange('==1.0.0', 'Go')).toBeNull()
+        expect(canonicaliseRange('~>1.0', 'crates.io')).toBeNull()
+        expect(canonicaliseRange('^1.0', 'PyPI')).toBeNull()
+    })
+
+    it.each([
+        ['~> 2.2', '>=2.2 <3'],
+        ['~> 2.2.0', '>=2.2.0 <2.3'],
+        ['~> 1', '>=1 <2'],
+        ['~> 2.2.0.pre1', '>=2.2.0.pre1 <2.3'],
+        ['~> 4.0, >= 4.0.2', '>=4.0 <5 >=4.0.2']
+    ])('expands the Gem pessimistic operator %j to %j', function (raw, expected) {
+        expect(canonicaliseRange(raw, 'RubyGems')).toBe(expected)
+    })
+
+    it('refuses a pessimistic operator on something Gem would not read as a version', function () {
+        expect(canonicaliseRange('~> 1.0-beta', 'RubyGems')).toBeNull()
+    })
+
+    // An exclusion is the two intervals either side of it; two exclusions are four conjunctions, two of
+    // which the parser drops as empty once it orders the bounds.
+    it('splits a conjunction around each exclusion', function () {
+        expect(canonicaliseRange('>= 1.0, != 1.5', 'RubyGems')).toBe('>=1.0 <1.5 || >=1.0 >1.5')
+        expect(canonicaliseRange('!=1.0,!=2.0', 'PyPI')).toBe('<1.0 <2.0 || <1.0 >2.0 || >1.0 <2.0 || >1.0 >2.0')
+    })
+
+    it.each(['PyPI', 'Go', 'crates.io', 'RubyGems'])('refuses a %s range that names no version', function (dialect) {
+        for (const raw of ['', '  ', '*', '>=', '< ']) {
+            expect(canonicaliseRange(raw, dialect)).toBeNull()
+        }
+    })
+})
+
+// The property that matters for an operator dialect: canonicalising never changes which versions a range
+// selects. Checked over a generated cross-product of every operator, spacing and the version shapes each
+// dialect exists to express, against a reading of the RAW string that evaluates each operator directly with
+// the dialect's comparator — written from the specification, not from canonicaliseRange.
+describe('canonicaliseRange — operator dialects keep their meaning across the generated grammar', function () {
+    type Dialect = { id: string; comparator: VersionComparator; operators: string[]; versions: string[]; probes: string[] }
+    // Gem::Version#bump for the versions below, worked out by hand from rubygems' version.rb.
+    const GEM_BUMPS: Record<string, string> = { '1': '2', '1.2': '2', '1.2.3': '1.3', '2.0.0.pre1': '2.1', '0.9': '1' }
+    const DIALECTS: Dialect[] = [
+        {
+            id: 'PyPI',
+            comparator: pep440Comparator,
+            operators: ['==', '===', '>=', '>', '<=', '<', '!='],
+            versions: ['1.0', '1.0.0', '1!2.0', '2.0rc1', '2.0.post1', '2.0.dev3', '1.0+local.7'],
+            probes: ['0.9', '1.0', '1.0.1', '1!1.0', '1!2.0', '1!2.1', '2.0a1', '2.0rc1', '2.0', '2.0.post1', '2.0.dev3', '2.0.dev4', '1.0+local.7', '3.0']
+        },
+        {
+            id: 'Go',
+            comparator: goComparator,
+            operators: ['=', '>=', '>', '<=', '<', '!='],
+            versions: ['v1.2.3', '1.2.3', 'v0.0.0-20180523222229-09b5706aa936', 'v1.2.4-0.20190101000000-abcdefabcdef', 'v2.1.0+incompatible'],
+            probes: ['v0.0.0-20170101000000-aaaaaaaaaaaa', 'v0.0.0-20180523222229-09b5706aa936', 'v0.1.0', 'v1.2.3', 'v1.2.4-0.20190101000000-abcdefabcdef', 'v1.2.4', 'v2.1.0', 'v2.1.0+incompatible', 'v3.0.0']
+        },
+        {
+            id: 'crates.io',
+            comparator: semverComparator,
+            operators: ['=', '>=', '>', '<=', '<', '!='],
+            versions: ['1.2.3', '0.8.5', '1.0.0-alpha.2'],
+            probes: ['0.8.4', '0.8.5', '0.9.0', '1.0.0-alpha.1', '1.0.0-alpha.2', '1.0.0', '1.2.3', '1.2.4']
+        },
+        {
+            id: 'RubyGems',
+            comparator: rubygemsComparator,
+            operators: ['=', '>=', '>', '<=', '<', '!=', '~>'],
+            versions: ['1', '1.2', '1.2.3', '2.0.0.pre1', '0.9'],
+            probes: ['0.8', '0.9', '0.9.9', '1', '1.0.0', '1.1', '1.2', '1.2.2', '1.2.3', '1.2.9', '1.3', '1.3.a', '2', '2.0.0.pre1', '2.0.0', '2.0.9', '2.1', '3']
+        }
+    ]
+
+    function holds(operator: string, version: string, probe: string, dialect: Dialect): boolean {
+        const c = dialect.comparator
+        const v = c.normalize(probe) as string
+        const bound = c.normalize(version.replace(/^v/, '')) as string
+        if (operator === '==' || operator === '===' || operator === '=') return c.compare(v, bound) === 0
+        if (operator === '!=') return c.compare(v, bound) !== 0
+        if (operator === '>=') return c.gte(v, bound)
+        if (operator === '>') return c.gt(v, bound)
+        if (operator === '<=') return c.lte(v, bound)
+        if (operator === '<') return c.lt(v, bound)
+        // `~>`: at least the version, below its bump. The bump's own prereleases are below the bump, and
+        // canonicaliseRange documents including them, so the reference reads it the same way.
+        const bump = c.normalize(GEM_BUMPS[version] as string) as string
+        return c.gte(v, bound) && c.lt(v, bump)
+    }
+
+    // A canonical disjunction of comparator conjunctions, evaluated token by token.
+    function selects(canonical: string, probe: string, dialect: Dialect): boolean {
+        return canonical.split('||').some(function conjunction(part) {
+            return part.trim().split(/\s+/).every(function token(t) {
+                const match = /^(>=|<=|>|<|=)(.+)$/.exec(t) as RegExpExecArray
+                return holds(match[1] as string, match[2] as string, probe, dialect)
+            })
+        })
+    }
+
+    for (const dialect of DIALECTS) {
+        const cases: Array<{ raw: string; parts: Array<[string, string]> }> = []
+        for (const operator of dialect.operators) {
+            for (const version of dialect.versions) {
+                if (operator === '~>' && GEM_BUMPS[version] === undefined) continue
+                for (const gap of ['', ' ']) cases.push({ raw: operator + gap + version, parts: [[operator, version]] })
+            }
+        }
+        // Two-sided intersections, both separators.
+        const [low, high] = [dialect.versions[0] as string, dialect.versions[dialect.versions.length - 1] as string]
+        for (const separator of [',', ' ', ', ']) {
+            cases.push({ raw: '>=' + low + separator + '<' + high, parts: [['>=', low], ['<', high]] })
+            cases.push({ raw: '>' + low + separator + '<=' + high + separator + '!=' + high, parts: [['>', low], ['<=', high], ['!=', high]] })
+        }
+
+        it.each(cases)(dialect.id + ' %j', function ({ raw, parts }) {
+            const canonical = canonicaliseRange(raw, dialect.id)
+            expect(canonical, raw).not.toBeNull()
+            for (const probe of dialect.probes) {
+                const expected = parts.every(function each([operator, version]) { return holds(operator, version, probe, dialect) })
+                expect(selects(canonical as string, probe, dialect), raw + ' -> ' + canonical + ' @ ' + probe).toBe(expected)
+            }
+        })
+    }
 })
 
 describe('canonicaliseRange — agrees with npm across the generated grammar', function () {
@@ -121,20 +285,20 @@ describe('canMatchSomething', function () {
     // An unbounded interval matches everything, which is a real statement ("no fix is known") rather than a
     // degenerate one.
     it('keeps an interval with no upper bound', function () {
-        expect(canMatchSomething({ introduced: '1.0.0', fixed: null })).toBe(true)
-        expect(canMatchSomething({ introduced: '0', fixed: null, lastAffected: null })).toBe(true)
+        expect(canMatchSomething({ introduced: '1.0.0', fixed: null }, semverComparator)).toBe(true)
+        expect(canMatchSomething({ introduced: '0', fixed: null, lastAffected: null }, semverComparator)).toBe(true)
     })
 
     // `fixed` is EXCLUSIVE, so an upper bound equal to the lower one admits nothing.
     it('drops [X, X)', function () {
-        expect(canMatchSomething({ introduced: '1.0.0', fixed: '1.0.0' })).toBe(false)
+        expect(canMatchSomething({ introduced: '1.0.0', fixed: '1.0.0' }, semverComparator)).toBe(false)
     })
 
     // …but an INCLUSIVE upper bound equal to the lower one is "exactly this version", which is a real
     // advisory. This distinction is why inclusivity became load-bearing once `<=` stopped collapsing.
     it('keeps [X, X] and drops (X, X]', function () {
-        expect(canMatchSomething({ introduced: '1.0.0', fixed: null, lastAffected: '1.0.0' })).toBe(true)
-        expect(canMatchSomething({ introduced: '1.0.0', introducedExclusive: true, fixed: null, lastAffected: '1.0.0' })).toBe(false)
+        expect(canMatchSomething({ introduced: '1.0.0', fixed: null, lastAffected: '1.0.0' }, semverComparator)).toBe(true)
+        expect(canMatchSomething({ introduced: '1.0.0', introducedExclusive: true, fixed: null, lastAffected: '1.0.0' }, semverComparator)).toBe(false)
     })
 
     // gemnasium's empty-set sentinel in both spellings.
@@ -143,40 +307,60 @@ describe('canMatchSomething', function () {
         ['0', '0.0.0'],
         ['0.0', '0']
     ])('drops the zero sentinel [%s, %s)', function (introduced, fixed) {
-        expect(canMatchSomething({ introduced, fixed })).toBe(false)
+        expect(canMatchSomething({ introduced, fixed }, semverComparator)).toBe(false)
     })
 
-    // ORDERING IS SEMVER-ONLY. compareVersions is semver, and running it over a PEP 440 range would
-    // mis-order the spellings PEP 440 exists to express and delete live advisories. An unset or ECOSYSTEM
-    // type keeps the range: caching a dead one is a bug, deleting a live one is a worse bug.
-    it('drops an inverted SEMVER interval', function () {
-        expect(canMatchSomething({ type: 'SEMVER', introduced: '2.0.0', fixed: '1.0.0' })).toBe(false)
-        expect(canMatchSomething({ type: 'SEMVER', introduced: '1.0.0', fixed: '2.0.0' })).toBe(true)
+    // Ordered by the ecosystem's comparator, whatever the range's type: an inverted interval is dead in
+    // every ecosystem, and only its own comparator can tell.
+    it.each([
+        ['semver', semverComparator, '2.0.0', '1.0.0'],
+        ['PEP 440', pep440Comparator, '2.0', '1.0.post1'],
+        ['PEP 440 epochs', pep440Comparator, '1!1.0', '9.0'],
+        ['Go', goComparator, 'v1.2.3', 'v1.2.3-0.20190101000000-abcdefabcdef'],
+        ['RubyGems', rubygemsComparator, '1.0', '1.0.rc1']
+    ] as Array<[string, VersionComparator, string, string]>)('drops an inverted %s interval', function (_label, comparator, introduced, fixed) {
+        expect(canMatchSomething({ introduced, fixed }, comparator)).toBe(false)
+        expect(canMatchSomething({ introduced: fixed, fixed: introduced }, comparator)).toBe(true)
     })
 
-    it('keeps an inverted interval whose ordering it cannot judge', function () {
-        expect(canMatchSomething({ type: 'ECOSYSTEM', introduced: '2.0.0', fixed: '1.0.0' })).toBe(true)
-        expect(canMatchSomething({ introduced: '2.0.0', fixed: '1.0.0' })).toBe(true)
+    // What semver would have got wrong: PEP 440 orders 1.0.post1 ABOVE 1.0, so this interval is live.
+    it('keeps a PEP 440 interval semver would mis-order', function () {
+        expect(canMatchSomething({ introduced: '1.0', fixed: '1.0.post1' }, pep440Comparator)).toBe(true)
     })
 
-    it('keeps a SEMVER interval when either bound is unreadable', function () {
-        expect(canMatchSomething({ type: 'SEMVER', introduced: '1.0.0', fixed: 'not-a-version' })).toBe(true)
-        expect(canMatchSomething({ type: 'SEMVER', introduced: 'not-a-version', fixed: '2.0.0' })).toBe(true)
+    // The bottom of the version space has nothing below it. A Go advisory for every pseudo-version before a
+    // commit is `[0, 0.0.0-<time>-<rev>)`; ordering "0" as the release 0.0.0 would call it inverted.
+    it('keeps an interval from the bottom to a pseudo-version', function () {
+        expect(canMatchSomething({ introduced: '0', fixed: '0.0.0-20180523222229-09b5706aa936' }, goComparator)).toBe(true)
+        expect(canMatchSomething({ introduced: '0', introducedExclusive: true, fixed: '0.0.0-20180523222229-09b5706aa936' }, semverComparator)).toBe(false)
     })
 
-    // Two spellings of one version under semver ordering: `1.0` and `1.0.0` are the same point, so the
-    // interval between them is empty even though the strings differ.
-    it('drops a SEMVER interval whose bounds differ only in spelling', function () {
-        expect(canMatchSomething({ type: 'SEMVER', introduced: '1.0', fixed: '1.0.0' })).toBe(false)
-        expect(canMatchSomething({ type: 'SEMVER', introduced: '1.0', fixed: '1.0.0', lastAffected: null })).toBe(false)
+    it('keeps an interval when either bound is unreadable', function () {
+        expect(canMatchSomething({ introduced: '1.0.0', fixed: 'not-a-version' }, semverComparator)).toBe(true)
+        expect(canMatchSomething({ introduced: 'not-a-version', fixed: '2.0.0' }, semverComparator)).toBe(true)
+        expect(canMatchSomething({ introduced: '1.2', fixed: '1.0.0' }, goComparator)).toBe(true)
     })
 
-    it('keeps a SEMVER interval whose inclusive bound equals its lower bound by spelling', function () {
-        expect(canMatchSomething({ type: 'SEMVER', introduced: '1.0', fixed: null, lastAffected: '1.0.0' })).toBe(true)
-        expect(canMatchSomething({ type: 'SEMVER', introduced: '1.0', introducedExclusive: true, fixed: null, lastAffected: '1.0.0' })).toBe(false)
+    // Two spellings of one version: `1.0` and `1.0.0` are the same point, so the interval between them is
+    // empty even though the strings differ.
+    it('drops an interval whose bounds differ only in spelling', function () {
+        expect(canMatchSomething({ introduced: '1.0', fixed: '1.0.0' }, semverComparator)).toBe(false)
+        expect(canMatchSomething({ introduced: '1.0', fixed: '1.0.0', lastAffected: null }, pep440Comparator)).toBe(false)
+        expect(canMatchSomething({ introduced: '1.0', fixed: '1.0.0' }, rubygemsComparator)).toBe(false)
     })
 
-    it('drops a SEMVER interval whose inclusive upper bound sits below its lower bound', function () {
-        expect(canMatchSomething({ type: 'SEMVER', introduced: '2.0.0', fixed: null, lastAffected: '1.0.0' })).toBe(false)
+    it('keeps an interval whose inclusive bound equals its lower bound by spelling', function () {
+        expect(canMatchSomething({ introduced: '1.0', fixed: null, lastAffected: '1.0.0' }, semverComparator)).toBe(true)
+        expect(canMatchSomething({ introduced: '1.0', introducedExclusive: true, fixed: null, lastAffected: '1.0.0' }, semverComparator)).toBe(false)
+    })
+
+    it('drops an interval whose inclusive upper bound sits below its lower bound', function () {
+        expect(canMatchSomething({ introduced: '2.0.0', fixed: null, lastAffected: '1.0.0' }, semverComparator)).toBe(false)
+    })
+})
+
+describe('canonicaliseRange — separators with nothing between them', function () {
+    it('skips an empty token', function () {
+        expect(canonicaliseRange(',<1.0,', 'PyPI')).toBe('<1.0')
     })
 })

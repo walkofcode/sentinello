@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { getRegistryPackages, openDb, runMigrations, schema, upsertProject, upsertRegistryPackage, upsertRoot, type DrizzleDb, type SqliteDb } from '@sentinello/db'
 import { buildAdvisoryMarkdown, parseFixCheck, type FixCheck, type Project } from '@sentinello/core'
 import type { NpmPackageSummary } from '@sentinello/feeds'
-import type { RawFinding, ScannerPlugin, ScanResult } from '@sentinello/scanners'
+import { versionSetFromSemverRange, type RawFinding, type ScannerPlugin, type ScanResult } from '@sentinello/scanners'
 import { toExportFinding } from './notifier'
 import { REGISTRY_FRESH_MS } from '@sentinello/fixes'
 import { runProjectScanners, type ProjectScanOutcome } from './runner'
@@ -38,7 +38,7 @@ const project: Project = {
 const BRACES: RawFinding = {
     advisoryId: 'GHSA-vfj7-8cjw-p6xm', aliases: [], advisoryTitle: 'stack exhaustion', advisoryUrl: null, packageName: 'braces', ecosystem: 'npm',
     installedVersion: '3.0.3', vulnerableRange: '<=3.0.3', severity: 'high', fixAvailable: false, fixVersion: null,
-    fixInputs: { source: 'osv', installed: ['3.0.3'], affected: { ranges: '<=3.0.3', exact: [], complete: true }, patched: null, statedFix: null, fixViaParent: false },
+    fixInputs: { source: 'osv', installed: ['3.0.3'], affected: versionSetFromSemverRange('<=3.0.3'), patched: null, patchedSet: null, statedFix: null, fixViaParent: false },
     depPath: ['braces'], isProd: true, isDev: false
 }
 

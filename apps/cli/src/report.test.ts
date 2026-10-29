@@ -6,7 +6,7 @@ import type { CliOptions } from './options'
 import type { ProjectScanResult, ScannerOutcome } from './scan'
 import { settleFix } from '@sentinello/fixes'
 import type { Remediation, ScanState } from '@sentinello/core'
-import type { RawFinding } from '@sentinello/scanners'
+import { versionSetFromSemverRange, type RawFinding } from '@sentinello/scanners'
 import type { DiscoveredProject } from '@sentinello/scanners'
 
 // A fixed instant so every rendered document is byte-stable: 2026-03-04T05:06:07.000Z.
@@ -44,8 +44,9 @@ function finding(overrides: Partial<RawFinding> = {}): RawFinding {
         fixInputs: {
             source: 'osv',
             installed: ['4.17.11'],
-            affected: { ranges: '>=4.0.0 <4.17.21', exact: [], complete: true },
+            affected: versionSetFromSemverRange('>=4.0.0 <4.17.21'),
             patched: null,
+            patchedSet: null,
             statedFix: '4.17.21',
             fixViaParent: false
         },
@@ -210,7 +211,7 @@ describe('summarize — fix status', function () {
     it('carries a none_released finding\'s way out into the JSON and the markdown', function () {
         const braces = finding({ packageName: 'braces', advisoryId: 'GHSA-vfj7-8cjw-p6xm', fixAvailable: false, fixVersion: null })
         const scanned = result(project('a', 'a'), [braces])
-        scanned.fixes.set(braces, settleFix({ evidence: [{ ...braces.fixInputs, statedFix: null, affected: { ranges: '<=3.0.3', exact: [], complete: true } }], registry: { status: 'ok', published: [{ version: '3.0.3', deprecated: false }], dataAsOf: 0 }, checkedAt: 0 }))
+        scanned.fixes.set(braces, settleFix({ evidence: [{ ...braces.fixInputs, statedFix: null, affected: versionSetFromSemverRange('<=3.0.3') }], registry: { status: 'ok', published: [{ version: '3.0.3', deprecated: false }], dataAsOf: 0 }, checkedAt: 0 }))
         const wayOut: Remediation = {
             v: 1, package: 'braces', checkedAt: 0,
             health: { name: 'braces', latest: '3.0.3', lastPublishAt: null, maintainers: 1, weeklyDownloads: null, deprecated: null, daysSinceLastPublish: null, unmaintained: false },

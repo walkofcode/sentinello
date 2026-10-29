@@ -1,6 +1,15 @@
 import type { VersionComparator } from './comparator'
 import { isZeroVersion, type VersionRange } from './range'
 
+// A bound as the comparator reads it. Zero, however upstream spelled it, is the release 0.0.0 in every
+// comparator — including Go's, which reads no partial version and so would refuse a bare "0", turning
+// gemnasium's `>0` ("every version") into a bound that matches nothing.
+export function normalizeBound(bound: string, comparator: VersionComparator): string | null {
+    const normalized = comparator.normalize(bound)
+    if (normalized !== null || !isZeroVersion(bound)) return normalized
+    return comparator.normalize('0.0.0')
+}
+
 // Does this version fall inside this range? The one place bound inclusivity is evaluated.
 //
 // It lives here, beside the type that declares the bounds, rather than inside the matcher — because a
@@ -42,7 +51,7 @@ export function versionInRange(version: string, range: VersionRange, comparator:
 // An EXCLUSIVE `>0` is left to the comparator: it names a real boundary the advisory chose to exclude.
 function aboveLowerBound(installed: string, range: VersionRange, comparator: VersionComparator): boolean {
     if (range.introducedExclusive !== true && isZeroVersion(range.introduced)) return true
-    const introduced = comparator.normalize(range.introduced)
+    const introduced = normalizeBound(range.introduced, comparator)
     if (introduced === null) return false
     return range.introducedExclusive === true
         ? comparator.gt(installed, introduced)

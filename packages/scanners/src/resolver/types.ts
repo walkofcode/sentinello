@@ -13,13 +13,22 @@ export type DepScope = {
 }
 
 // One concrete installed package: registry name, exact resolved version (peer suffixes stripped), its
-// scope, and the raw lockfile node keys it was resolved from (kept for display/debugging only).
+// scope, where it was resolved from, and the lockfile node keys that locate it.
+//
+// `depPaths` is shown as the dependency chain beside a finding. For package-lock.json and pnpm-lock.yaml it
+// is the package's node ids (an npm lock path already spells its chain). For the other lockfiles that carry
+// a graph (Cargo.lock, poetry.lock, uv.lock, Gemfile.lock) it is the shortest chain of `name@version` node
+// ids from a root to the package. Where the lockfile has no graph it is the package alone.
 export type ResolvedPackage = {
     ecosystem: string
     name: string
     version: string
     scope: DepScope
     depPaths: string[]
+    // The lockfile or manifest this copy was read from, relative to the project directory, with `/`
+    // separators: `package-lock.json`, `ios/Gemfile.lock`. One project can hold several manifests of one
+    // ecosystem, and a finding names each one it was installed through.
+    manifestPath: string
 }
 
 // The lockfile as a graph of installed nodes, for the questions the collapsed package list cannot answer:
@@ -51,6 +60,8 @@ export type ResolvedGraph = {
 
 // A manifest/lockfile discovery hit: the file we found, the ecosystem (registry EcosystemId) it belongs
 // to, and its absolute path. The resolver dispatches on `kind`; the runner stamps `ecosystem` onto scans.
+// `kind` is a resolver kind (a lockfile) or, for a manifest found without one, a manifest kind — which
+// resolves to `no_lockfile` rather than being silently omitted.
 export type DetectedManifest = {
     kind: string
     ecosystem: string

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { FixEvidence } from '@sentinello/scanners'
+import { versionSetFromSemverRange, type FixEvidence } from '@sentinello/scanners'
 import { affectedSetText, settleFix, type RegistryView } from './settle'
 
 // settleFix maps pickReleasedFix's tri-state onto the persisted status and writes the snapshot that
@@ -13,8 +13,9 @@ function evidence(overrides: Partial<FixEvidence> = {}): FixEvidence {
     return {
         source: 'osv',
         installed: ['1.0.0'],
-        affected: { ranges: '<1.1.0', exact: [], complete: true },
+        affected: versionSetFromSemverRange('<1.1.0'),
         patched: null,
+        patchedSet: null,
         statedFix: '1.1.0',
         fixViaParent: false,
         ...overrides
@@ -37,7 +38,7 @@ describe('settleFix', function () {
                 registry: 'ok',
                 packageDataAsOf: AT - 5,
                 unevaluable: null,
-                sources: [{ source: 'osv', installed: ['1.0.0'], affected: '<1.1.0', patched: null, statedFix: '1.1.0', noPatchedSentinel: false }]
+                sources: [{ source: 'osv', installed: ['1.0.0'], affected: '>=0 <1.1.0', patched: null, statedFix: '1.1.0', noPatchedSentinel: false }]
             }
         })
     })
@@ -45,7 +46,7 @@ describe('settleFix', function () {
     // braces: `<=3.0.3`, nothing published above it. npm said a parent upgrade "fixes" it; that claim does
     // not survive a registry that proves no version of braces itself is safe.
     it('is none_released when nothing published qualifies, whatever npm said about a parent', function () {
-        const braces = evidence({ installed: ['3.0.3'], affected: { ranges: '<=3.0.3', exact: [], complete: true }, statedFix: null, patched: '<0.0.0', fixViaParent: true })
+        const braces = evidence({ installed: ['3.0.3'], affected: versionSetFromSemverRange('<=3.0.3'), statedFix: null, patched: '<0.0.0', fixViaParent: true })
         const settled = settleFix({ evidence: [braces], registry: ok('3.0.2', '3.0.3'), checkedAt: AT })
         expect(settled).toMatchObject({ fixStatus: 'none_released', fixVersion: null, fixAvailable: false })
         expect(settled.fixCheck.sources[0]).toMatchObject({ noPatchedSentinel: true, patched: null })
@@ -59,7 +60,7 @@ describe('settleFix', function () {
     })
 
     it('is unverified with the reason when the evidence cannot be evaluated', function () {
-        const incomplete = evidence({ affected: { ranges: '*', exact: [], complete: false } })
+        const incomplete = evidence({ affected: { ...versionSetFromSemverRange('*'), complete: false } })
         expect(settleFix({ evidence: [incomplete], registry: ok('2.0.0'), checkedAt: AT })).toMatchObject({
             fixStatus: 'unverified',
             fixVersion: '1.1.0',
@@ -93,12 +94,12 @@ describe('settleFix', function () {
 
     it('lists each distinct statement once, a second installed copy included', function () {
         const settled = settleFix({
-            evidence: [evidence(), evidence(), evidence({ installed: ['1.0.5'] }), evidence({ source: 'npm-audit', installed: ['1.0.0'], affected: { ranges: '<1.2.0', exact: [], complete: true }, statedFix: null })],
+            evidence: [evidence(), evidence(), evidence({ installed: ['1.0.5'] }), evidence({ source: 'npm-audit', installed: ['1.0.0'], affected: versionSetFromSemverRange('<1.2.0'), statedFix: null })],
             registry: ok('1.2.0'),
             checkedAt: AT
         })
         expect(settled.fixCheck.sources.map(function s(e) { return e.source + ' ' + e.installed.join(',') + ' ' + e.affected }))
-            .toEqual(['osv 1.0.0 <1.1.0', 'osv 1.0.5 <1.1.0', 'npm-audit 1.0.0 <1.2.0'])
+            .toEqual(['osv 1.0.0 >=0 <1.1.0', 'osv 1.0.5 >=0 <1.1.0', 'npm-audit 1.0.0 >=0 <1.2.0'])
         expect(settled.fixVersion).toBe('1.2.0')
     })
 
@@ -110,8 +111,14 @@ describe('settleFix', function () {
 
 describe('affectedSetText', function () {
     it('writes exact versions before the ranges', function () {
-        expect(affectedSetText({ ranges: '<1.1.0', exact: ['1.1.0'], complete: true })).toBe('=1.1.0 || <1.1.0')
-        expect(affectedSetText({ ranges: null, exact: ['1.0.0', '1.0.1'], complete: true })).toBe('=1.0.0 || =1.0.1')
-        expect(affectedSetText({ ranges: '*', exact: [], complete: true })).toBe('*')
+        expect(affectedSetText({ ...versionSetFromSemverRange('<1.1.0'), exact: ['1.1.0'] })).toBe('=1.1.0 || >=0 <1.1.0')
+        expect(affectedSetText({ comparator: 'semver', ranges: [], exact: ['1.0.0', '1.0.1'], complete: true })).toBe('=1.0.0 || =1.0.1')
+        expect(affectedSetText(versionSetFromSemverRange('*'))).toBe('>=0')
+    })
+
+    // The text is rendered from the set, whatever comparator it is in, through the one range formatter.
+    it('renders a non-npm set with the operators it holds', function () {
+        const pypi = { comparator: 'pep440' as const, ranges: [{ introduced: '4.2', fixed: '4.2.11', lastAffected: null }, { introduced: '5.0a1', introducedExclusive: true, fixed: null, lastAffected: '5.0.2' }], exact: [], complete: true }
+        expect(affectedSetText(pypi)).toBe('>=4.2 <4.2.11 || >5.0a1 <=5.0.2')
     })
 })

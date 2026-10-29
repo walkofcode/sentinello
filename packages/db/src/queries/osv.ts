@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
-import { OSV_NORMALIZER_VERSION, type OsvAdvisoryLink, type OsvAdvisoryRow, type OsvRange } from '@sentinello/core'
+import { OSV_NORMALIZER_VERSIONS, osvNormalizerVersion, type OsvAdvisoryLink, type OsvAdvisoryRow, type OsvRange } from '@sentinello/core'
 import { parseVersionRanges } from '@sentinello/versions'
 import type { OsvDrizzleDb } from '../osv-client'
 import { osvAdvisories, osvMeta } from '../osv-schema'
@@ -243,7 +243,7 @@ export function osvMetaKeyFor(base: string, ecosystem: string): string {
 
 // Defined in @sentinello/core beside the row shape it describes, so the portal's SQLite cache and the
 // CLI's ndjson cache invalidate on the same signal. Re-exported here for the existing import sites.
-export { OSV_NORMALIZER_VERSION }
+export { OSV_NORMALIZER_VERSIONS, osvNormalizerVersion }
 
 function parseStringArray(json: string): string[] {
     const parsed = JSON.parse(json) as unknown

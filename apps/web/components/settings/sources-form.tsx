@@ -152,7 +152,7 @@ function SourceCell({ cell, label }: SourceCellProps) {
     // running" — `undefined !== null` is true and would pin the row to "Rebuilding…" forever.
     const usable = status !== null
         && status.seedComplete
-        && (status.normalizerVersion ?? null) === sourceNormalizerVersion(cell.source)
+        && (status.normalizerVersion ?? null) === sourceNormalizerVersion(cell.source, cell.ecosystem)
     // Non-zero only once a sync has actually landed rows, so a first-ever download shows no count rather
     // than "0 advisories cached". recordCount is NOT recomputed during a rebuild, so this is the
     // pre-rebuild figure — which is the one worth showing.

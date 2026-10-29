@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { DiscoveredProject, GemnasiumAdvisory, OsvAdvisory, RawFinding, ScanContext, ScanResult, ScannerPlugin } from '@sentinello/scanners'
+import { versionSetFromSemverRange, type DiscoveredProject, type GemnasiumAdvisory, type OsvAdvisory, type RawFinding, type ScanContext, type ScanResult, type ScannerPlugin } from '@sentinello/scanners'
 import type { NpmPackageResult } from '@sentinello/feeds'
 import { createMemoryRegistryStore, createNpmRegistryClient } from '@sentinello/fixes'
 import type { LoadedCache } from './cache/lookup'
@@ -71,8 +71,9 @@ function finding(overrides: Partial<RawFinding> = {}): RawFinding {
         fixInputs: {
             source: 'osv',
             installed: ['4.17.11'],
-            affected: { ranges: '<4.17.21', exact: [], complete: true },
+            affected: versionSetFromSemverRange('<4.17.21'),
             patched: null,
+            patchedSet: null,
             statedFix: '4.17.21',
             fixViaParent: false
         },
@@ -454,7 +455,7 @@ describe('scanProject', function () {
             vulnerableRange: '<=3.0.3',
             fixAvailable: false,
             fixVersion: null,
-            fixInputs: { source: 'osv', installed: ['3.0.3'], affected: { ranges: '<=3.0.3', exact: [], complete: true }, patched: null, statedFix: null, fixViaParent: false }
+            fixInputs: { source: 'osv', installed: ['3.0.3'], affected: versionSetFromSemverRange('<=3.0.3'), patched: null, patchedSet: null, statedFix: null, fixViaParent: false }
         })
 
         function registry(fail = false) {

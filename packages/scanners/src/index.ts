@@ -29,7 +29,7 @@ export { stampWithdrawn, stampWithdrawnByPackage } from './withdrawn'
 export { matchAdvisories } from './engine/matcher'
 export { normalizeOneVulnerability, type DepClassifier, type Vulnerability } from './npm-audit-parse'
 // Version semantics live in @sentinello/versions; re-exported here so existing consumers keep one import.
-export { semverComparator, pep440Comparator } from '@sentinello/versions'
+export { semverComparator, pep440Comparator, goComparator, rubygemsComparator } from '@sentinello/versions'
 export { reconcileAgainstReported, findingIdentityKeys, escalatedSeverity } from './engine/reconcile'
 export {
     pickStatedFix,
@@ -37,11 +37,14 @@ export {
     evaluableAffected,
     evaluableContains,
     isNoPatchedSentinel,
-    parseRangeSafely,
+    versionSetFromSemverRange,
+    patchedVersionSet,
     NO_PATCHED_VERSION_SENTINEL,
     type AffectedSet,
     type EvaluableAffected,
-    type FixEvidence
+    type EvaluableSet,
+    type FixEvidence,
+    type VersionSet
 } from './version-fix'
 export type { CorroborationEvent, ReconcileResult, ReportedAdvisory } from './engine/reconcile'
 export type { CanonicalAdvisory, VersionRange, VersionComparator } from './engine/types'

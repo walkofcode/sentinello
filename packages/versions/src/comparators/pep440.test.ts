@@ -359,3 +359,26 @@ describe('pep440Comparator — the arms the canonical table does not reach', fun
         expect(pep440Comparator.lt('  v1.0  ', '1.1')).toBe(true)
     })
 })
+
+describe('pep440Comparator.compare and releaseKind', function () {
+    it('orders normalized values like the strict orderings', function () {
+        expect(pep440Comparator.compare('1.0', '1.0.post1')).toBeLessThan(0)
+        expect(pep440Comparator.compare('1!1.0', '2.0')).toBeGreaterThan(0)
+        expect(pep440Comparator.compare('1.0', '1.0.0')).toBe(0)
+        // Only for values that passed normalize: an unparseable side ranks as equal.
+        expect(pep440Comparator.compare('nope', '1.0')).toBe(0)
+    })
+
+    // pip skips a developmental release exactly as it skips a pre-release.
+    it.each([
+        ['1.0', 'release'],
+        ['1.0.post1', 'release'],
+        ['1.0rc1', 'prerelease'],
+        ['1.0a1', 'prerelease'],
+        ['1.0.dev3', 'prerelease'],
+        ['1.0.post1.dev2', 'prerelease'],
+        ['not a version', 'release']
+    ])('reads %s as a %s', function (version, kind) {
+        expect(pep440Comparator.releaseKind(version)).toBe(kind)
+    })
+})

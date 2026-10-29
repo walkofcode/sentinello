@@ -1,0 +1,18 @@
+import { isAbsolute, relative, resolve, sep } from 'node:path'
+
+// Where a resolved package came from, relative to the project and with `/` separators whatever the host,
+// so the same tree reads the same everywhere it is recorded.
+export function manifestPathOf(projectPath: string, absolutePath: string): string {
+    return relative(projectPath, absolutePath).split(sep).join('/')
+}
+
+// Whether a local dependency path (`path = "../x"` in Cargo.toml, a Gemfile.lock PATH remote, a uv/poetry
+// directory source), read relative to `fromDir`, stays inside the project. Inside, it is the project's own
+// code — a workspace member, an engine, the gem being developed — and is not a dependency to audit at all.
+// Outside, it is someone's local checkout that no advisory database covers, and the scan says it could not
+// audit it.
+export function isInsideProject(projectPath: string, fromDir: string, localPath: string): boolean {
+    const target = resolve(fromDir, localPath)
+    const rel = relative(resolve(projectPath), target)
+    return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+}

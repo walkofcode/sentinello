@@ -27,7 +27,8 @@ function pkg(name: string, version: string, ecosystem = 'npm'): ResolvedPackage 
         name,
         version,
         scope: { isProd: true, isDev: false, isOptional: false },
-        depPaths: []
+        depPaths: [],
+        manifestPath: 'lockfile'
     }
 }
 

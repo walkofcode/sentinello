@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { OSV_NORMALIZER_VERSION, type Remediation } from '@sentinello/core'
+import { osvNormalizerVersion, type Remediation } from '@sentinello/core'
 import { createOsvScanner, discoverProjectsInTree, type OsvAdvisory } from '@sentinello/scanners'
 import { createNpmRegistryClient } from '@sentinello/fixes'
 import { startStubRegistry, type StubRegistry } from '../../../tests/fixtures/registry-stub'
@@ -91,7 +91,7 @@ async function scanWithCli(): Promise<Map<string, Settled>> {
     const writer = createRowWriter(advisoryFilePath(cacheDir, 'osv', 'npm'))
     await writer.write(await advisoryRows() as never)
     const count = await writer.commit()
-    await writeCacheMeta(cacheDir, { schemaVersion: 1, sources: { osv: { npm: { normalizerVersion: OSV_NORMALIZER_VERSION, recordCount: count, refreshedAt: Date.now() } }, gemnasium: {} } })
+    await writeCacheMeta(cacheDir, { schemaVersion: 1, sources: { osv: { npm: { normalizerVersion: osvNormalizerVersion('npm'), recordCount: count, refreshedAt: Date.now() } }, gemnasium: {} } })
     const discovered = discoverProjectsInTree({ rootPath: join(PROJECTS, PROJECT), maxDepth: 0, excludes: [] })
     const resolved = await resolveProjects(discovered)
     const setup: ScanSetup = {

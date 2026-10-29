@@ -3,7 +3,7 @@ import { gzipSync } from 'node:zlib'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GEMNASIUM_NORMALIZER_VERSION, OSV_NORMALIZER_VERSION } from '@sentinello/core'
+import { GEMNASIUM_NORMALIZER_VERSION, osvNormalizerVersion } from '@sentinello/core'
 import { advisoryFilePath, ensureCacheDir, readCacheMeta, setSourceState, writeCacheMeta, type SourceId, type SourceState } from './cache/meta'
 import { registryFilePath } from './cache/registry'
 import { createRowWriter } from './cache/store'
@@ -67,7 +67,7 @@ async function seedRows(source: SourceId, count: number): Promise<void> {
 async function seedState(source: SourceId, overrides: Partial<SourceState> = {}): Promise<void> {
     const meta = await readCacheMeta(cacheDir)
     setSourceState(meta, source, 'npm', {
-        normalizerVersion: source === 'osv' ? OSV_NORMALIZER_VERSION : GEMNASIUM_NORMALIZER_VERSION,
+        normalizerVersion: source === 'osv' ? osvNormalizerVersion('npm') : GEMNASIUM_NORMALIZER_VERSION,
         recordCount: 2,
         refreshedAt: T0,
         ...overrides
@@ -216,9 +216,9 @@ describe('runDoctor — advisory cache', function () {
     it('warns that a normalizer bump will force a re-download', async function () {
         await makeProject('.')
         await seedRows('osv', 5)
-        await seedState('osv', { normalizerVersion: OSV_NORMALIZER_VERSION - 1 })
+        await seedState('osv', { normalizerVersion: osvNormalizerVersion('npm') - 1 })
         await runDoctor(options(), cacheDir)
-        expect(report()).toContain('normalizer v' + (OSV_NORMALIZER_VERSION - 1) + ' -> v' + OSV_NORMALIZER_VERSION + ', will re-download')
+        expect(report()).toContain('normalizer v' + (osvNormalizerVersion('npm') - 1) + ' -> v' + osvNormalizerVersion('npm') + ', will re-download')
     })
 
     it('says nothing about the normalizer when the cache is current', async function () {

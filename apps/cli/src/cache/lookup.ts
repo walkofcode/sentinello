@@ -1,4 +1,4 @@
-import { OSV_NORMALIZER_VERSION, type GemnasiumAdvisoryRow, type OsvAdvisoryRow } from '@sentinello/core'
+import { osvNormalizerVersion, type GemnasiumAdvisoryRow, type OsvAdvisoryRow } from '@sentinello/core'
 import { stampWithdrawnByPackage, type GemnasiumAdvisory, type OsvAdvisory } from '@sentinello/scanners'
 import { advisoryFilePath, isSeeded, type CacheMeta, type SourceId } from './meta'
 import { readRowsForPackages } from './store'
@@ -43,7 +43,7 @@ export async function loadCacheForPackages(
     const osv = new Map<string, OsvAdvisory[]>()
     const gemnasium = new Map<string, GemnasiumAdvisory[]>()
     const withGemnasium = sources.includes('gemnasium')
-    const evidenceComplete = withGemnasium && isSeeded(meta, 'osv', ecosystem, OSV_NORMALIZER_VERSION)
+    const evidenceComplete = withGemnasium && isSeeded(meta, 'osv', ecosystem, osvNormalizerVersion(ecosystem))
     let osvRows = new Map<string, OsvAdvisoryRow[]>()
     if (sources.includes('osv') || evidenceComplete) {
         osvRows = await readRowsForPackages<OsvAdvisoryRow>(advisoryFilePath(cacheDir, 'osv', ecosystem), wanted)

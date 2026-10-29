@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { coerce, inc, parse, satisfies, validRange } from 'semver'
-import { semverComparator, versionInRange } from '@sentinello/versions'
+import { goComparator, pep440Comparator, rubygemsComparator, semverComparator, versionInRange, type VersionComparator } from '@sentinello/versions'
 import { normalizeGemnasiumRecord, parseAffectedRange } from './normalize'
 
 // A DIFFERENTIAL test, not an example-based one.
@@ -172,9 +172,8 @@ describe('npm/rc GMS-2021-3 — the hijack advisory end to end', function () {
 // failure into "did upstream change or did we break it?". Regenerate by re-running the extraction over a
 // fresh archive and committing the new sha in the same change as whatever made it necessary.
 //
-// npm only. node-semver is the specification for npm ranges and nothing else, and gemnasium's PyPI records
-// are PEP 440, which would need its own oracle to sweep the same way. That is worth doing and is not done
-// here.
+// npm here, because node-semver is the specification for npm ranges and nothing else. The other four
+// dialects are swept the same way at the bottom of this file, against a direct reading of their operators.
 type RangeCorpus = { sha: string; counts: Record<string, number>; ranges: Record<string, string[]> }
 
 const FIXTURE = JSON.parse(
@@ -272,8 +271,67 @@ describe('every npm range gemnasium states agrees with node-semver', function ()
 // they are the ones most likely to meet a shape nobody has taught it.
 const ECOSYSTEM_SENTINEL = /^<\s*v?0(\.0){0,2}$/
 
+// What each ecosystem's corpus holds that its dialect does not define, pinned. These are refused — the
+// record yields no row — and each is a spelling upstream wrote that no version grammar of that ecosystem
+// reads: a distro release suffix (`4.2-20.el8_6`), an Ubuntu revision (`1.9.3ubuntu2`), a Ruby
+// patchlevel in a PyPI record. Before 3.8 they were cached as live rows with a bound no comparator could
+// read, which matched nothing either, silently; now the count is visible and the ratchet holds it. Go's
+// are spellings no Go module version can have — dates, four-segment and leading-zero versions from repos
+// tagged outside Go's rules (`17.06.0-ce`, `v2019.02.25.00`). If a
+// list changes, read the records before changing it: shorter is upstream fixing them, longer is a new
+// spelling to teach a comparator or to refuse knowingly.
+const KNOWN_REFUSALS: Record<string, string[]> = {
+    npm: [],
+    PyPI: [
+        '<0.0.0-20260628153353-2d5d72223df4',
+        '<0.9-stable',
+        '<2023-01-05',
+        '<2023-01-12',
+        '<2023-01-24',
+        '<2023-01-25',
+        '<4.2-20.el8_6',
+        '<=1.9.3ubuntu2',
+        '>=0.7.6,<0.7.11p3'
+    ],
+    Go: [
+        '<17.06.0-ce',
+        '<19.03.9',
+        '<2020-04-23',
+        '<=5.01',
+        '<=v2.1-beta.5',
+        '<=v2018-05-19',
+        '<=v2019.02.25.00',
+        '<v1.0.25.1',
+        '<v1.2.3019.52',
+        '<v18.09.8',
+        '<v19.03.11',
+        '<v2018.05.16',
+        '<v2019.03.04.00',
+        '<v2020.03.16.00',
+        '<v2021-03-04t00-53-13z',
+        '<v2021-08-11',
+        '<v2021.02.22.00',
+        '<v2022-07-29t19-40-48z',
+        '<v2023-03-20t20-16-18z',
+        '<v2023-04-30',
+        '=v1.2.2550.20',
+        '=v2021-10-10t16-53-30z',
+        '>=0.4.4.3 <0.4.7',
+        '>=0.9.1.3 <1.0.0-rc.7',
+        '>=19.03.0 <19.03.1',
+        '>=19.03.0 <29.2.0',
+        '>=4.0 <4.072',
+        '>=v1.0.1116.6 <=v1.2.2550.20',
+        '>=v2019-12-17t23-16-33z <v2023-03-20t20-16-18z',
+        '>=v2020-04-10t03-34-42z <v2023-02-17t17-52-43z',
+        '>=v2021-12-09t06-19-41z <v2022-04-12t06-55-35z'
+    ],
+    'crates.io': [],
+    RubyGems: []
+}
+
 describe('every range gemnasium publishes can be read', function () {
-    it.each(['npm', 'PyPI', 'Go', 'crates.io'])('refuses nothing in the %s corpus', function (ecosystem) {
+    it.each(Object.entries(KNOWN_REFUSALS).map(function count([ecosystem, refused]) { return [ecosystem, refused.length] as const }))('refuses only the pinned spellings in the %s corpus: %i', function (ecosystem) {
         const ranges = FIXTURE.ranges[ecosystem] ?? []
         // A corpus that failed to load would make the assertion below pass while checking nothing.
         expect(ranges.length).toBeGreaterThan(900)
@@ -286,6 +344,125 @@ describe('every range gemnasium publishes can be read', function () {
             if (ECOSYSTEM_SENTINEL.test(range)) continue
             refused.push(range)
         }
-        expect(refused).toEqual([])
+        console.log('[range-fidelity] ' + ecosystem + ' refused ' + refused.length + ' of ' + ranges.length)
+        expect(refused).toEqual(KNOWN_REFUSALS[ecosystem])
+    })
+})
+
+// THE SAME DIFFERENTIAL for every other dialect. node-semver is no oracle for PEP 440, Go or Gem ranges,
+// so the oracle here is a direct reading of the RAW string: split on `||`, bind each operator to its
+// version, and evaluate every operator with the ecosystem's own comparator — the operator's definition,
+// written without canonicaliseRange or the parser. Anywhere Sentinello's reading disagrees with it on a
+// probe generated in the ecosystem's grammar, one of them is wrong.
+type Dialect = { ecosystem: string; comparator: VersionComparator }
+const DIALECTS: Dialect[] = [
+    { ecosystem: 'PyPI', comparator: pep440Comparator },
+    { ecosystem: 'Go', comparator: goComparator },
+    { ecosystem: 'crates.io', comparator: semverComparator },
+    { ecosystem: 'RubyGems', comparator: rubygemsComparator }
+]
+
+function oracleSays(range: string, version: string, comparator: VersionComparator): boolean | null {
+    const v = comparator.normalize(version)
+    if (v === null) return null
+    let unreadable = false
+    const verdict = range.split('||').some(function disjunct(raw) {
+        const text = raw.trim()
+        if (text.length === 0) return false
+        const interval = /^([[(])\s*([^,]*?)\s*,\s*([^\])]*?)\s*([\])])$/.exec(text)
+        if (interval) {
+            const [, open, lo, hi, close] = interval as unknown as [string, string, string, string, string]
+            const lower = lo.length === 0 || (open === '[' ? isZero(lo) || cmp(v, lo) >= 0 : cmp(v, lo) > 0)
+            const upper = hi.length === 0 || (close === ']' ? cmp(v, hi) <= 0 : cmp(v, hi) < 0)
+            return lower && upper
+        }
+        const tokens = text.replace(/(===|==|!=|~>|>=|<=|>|<|=)\s+/g, '$1').split(/[\s,]+/).filter(Boolean)
+        return tokens.every(function holds(token) {
+            const match = /^(===|==|!=|~>|>=|<=|>|<|=)?v?(.+)$/.exec(token) as RegExpExecArray
+            const op = match[1] ?? '='
+            const order = cmp(v, match[2] as string)
+            if (op === '=' || op === '==' || op === '===') return order === 0
+            if (op === '!=') return order !== 0
+            // `>=0` is the bottom of the version space: gemnasium's way of saying every version, which
+            // versionInRange reads the same way (a prerelease of 0 included).
+            if (op === '>=') return isZero(match[2] as string) || order >= 0
+            if (op === '>') return order > 0
+            if (op === '<=') return order <= 0
+            if (op === '<') return order < 0
+            // `~>` does not occur in the frozen corpus; dialect.test.ts covers it.
+            unreadable = true
+            return false
+        })
+    })
+    return unreadable ? null : verdict
+
+    function isZero(raw: string): boolean {
+        return /^0(\.0)*$/.test(raw)
+    }
+
+    function cmp(a: string, raw: string): number {
+        const b = comparator.normalize(raw) ?? (isZero(raw) ? comparator.normalize('0.0.0') : null)
+        if (b === null) {
+            unreadable = true
+            return 0
+        }
+        return comparator.compare(a, b)
+    }
+}
+
+function sentinelloReads(range: string, version: string, ecosystem: string, comparator: VersionComparator): boolean {
+    const parsed = parseAffectedRange(range, [], ecosystem)
+    const normalized = comparator.normalize(version)
+    for (const pinned of parsed.versions) {
+        if (comparator.normalize(pinned) === normalized) return true
+    }
+    return parsed.ranges.some(function inAny(r) {
+        return versionInRange(version, r, comparator)
+    })
+}
+
+// Probes in the comparator's own grammar: every version the range names, stepped either side, a
+// pre-release and a post-release of it where the grammar has one, and two far outside.
+function dialectProbes(range: string, comparator: VersionComparator): string[] {
+    const out = new Set<string>(comparator.id === 'go' ? ['v0.0.1', 'v9999.0.0'] : ['0.0.1', '9999.0.0'])
+    for (const raw of range.match(/[0-9][0-9A-Za-z.+_-]*/g) ?? []) {
+        const v = comparator.normalize(raw)
+        if (v === null) continue
+        out.add(raw)
+        const release = raw.match(/^[0-9]+(\.[0-9]+)*/)?.[0] as string
+        const parts = release.split('.').map(Number)
+        const last = parts.length - 1
+        const up = parts.map(function bump(p, i) { return i === last ? p + 1 : p }).join('.')
+        const down = parts[last] as number > 0 ? parts.map(function lower(p, i) { return i === last ? p - 1 : p }).join('.') : null
+        const prefix = comparator.id === 'go' ? 'v' : ''
+        for (const candidate of [up, down]) if (candidate !== null) out.add(prefix + candidate)
+        if (comparator.id === 'pep440') for (const s of ['rc1', '.post1', '.dev0']) out.add(release + s)
+        if (comparator.id === 'rubygems') out.add(release + '.pre1')
+        if (comparator.id === 'go' || comparator.id === 'semver') out.add(prefix + release + '-rc.1')
+    }
+    return [...out].filter(function readable(p) { return comparator.normalize(p) !== null })
+}
+
+describe.each(DIALECTS)('every $ecosystem range gemnasium states agrees with its operators', function ({ ecosystem, comparator }) {
+    const ranges = FIXTURE.ranges[ecosystem] ?? []
+    const diverging = new Map<string, string>()
+    let compared = 0
+    for (const range of ranges) {
+        if (KNOWN_REFUSALS[ecosystem]?.includes(range) || ECOSYSTEM_SENTINEL.test(range)) continue
+        for (const version of dialectProbes(range, comparator)) {
+            const expected = oracleSays(range, version, comparator)
+            if (expected === null) continue
+            compared++
+            if (sentinelloReads(range, version, ecosystem, comparator) === expected) continue
+            if (!diverging.has(range)) diverging.set(range, version)
+        }
+    }
+
+    it('sweeps the whole frozen corpus', function () {
+        expect(compared).toBeGreaterThan(ranges.length)
+    })
+
+    it('agrees on every probe', function () {
+        expect([...diverging.entries()].map(function describe([range, version]) { return range + ' @ ' + version })).toEqual([])
     })
 })

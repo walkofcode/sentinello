@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { OSV_NORMALIZER_VERSION, type GemnasiumAdvisoryRow, type OsvAdvisoryRow } from '@sentinello/core'
+import { osvNormalizerVersion, type GemnasiumAdvisoryRow, type OsvAdvisoryRow } from '@sentinello/core'
 import { advisoryFilePath, ensureCacheDir, type CacheMeta, type SourceId } from './meta'
 import { createRowWriter } from './store'
 import { cacheEcosystemKey, loadCacheForPackages } from './lookup'
@@ -185,7 +185,7 @@ describe('loadCacheForPackages — gemnasium withdrawal stamping', function () {
     it('stamps from a complete OSV file even when OSV is not a selected source', async function () {
         await seed('gemnasium', [gem])
         await seed('osv', [withdrawnOsv])
-        const cache = await loadCacheForPackages(dir, 'npm', ['braces'], ['gemnasium'], osvSeededAt(OSV_NORMALIZER_VERSION))
+        const cache = await loadCacheForPackages(dir, 'npm', ['braces'], ['gemnasium'], osvSeededAt(osvNormalizerVersion('npm')))
         expect(cache.withdrawalsChecked).toBe(true)
         expect(cache.gemnasium.get('braces')?.[0]?.withdrawn).toBe(WITHDRAWN_AT)
         // Read as evidence only: OSV findings stay off.
@@ -195,7 +195,7 @@ describe('loadCacheForPackages — gemnasium withdrawal stamping', function () {
     it('stamps when OSV is selected too, from the same file', async function () {
         await seed('gemnasium', [gem])
         await seed('osv', [withdrawnOsv])
-        const cache = await loadCacheForPackages(dir, 'npm', ['braces'], ['osv', 'gemnasium'], osvSeededAt(OSV_NORMALIZER_VERSION))
+        const cache = await loadCacheForPackages(dir, 'npm', ['braces'], ['osv', 'gemnasium'], osvSeededAt(osvNormalizerVersion('npm')))
         expect(cache.gemnasium.get('braces')?.[0]?.withdrawn).toBe(WITHDRAWN_AT)
         expect(cache.osv.get('braces')?.[0]?.withdrawn).toBe(WITHDRAWN_AT)
     })
@@ -203,7 +203,7 @@ describe('loadCacheForPackages — gemnasium withdrawal stamping', function () {
     it('leaves the advisory live while a linked OSV record is still active', async function () {
         await seed('gemnasium', [gem])
         await seed('osv', [withdrawnOsv, osvRow({ advisoryId: 'GHSA-2222-3333-4444', packageName: 'braces', aliases: ['CVE-2026-93687'] })])
-        const cache = await loadCacheForPackages(dir, 'npm', ['braces'], ['gemnasium'], osvSeededAt(OSV_NORMALIZER_VERSION))
+        const cache = await loadCacheForPackages(dir, 'npm', ['braces'], ['gemnasium'], osvSeededAt(osvNormalizerVersion('npm')))
         expect(cache.gemnasium.get('braces')?.[0]?.withdrawn).toBeNull()
     })
 
@@ -218,14 +218,14 @@ describe('loadCacheForPackages — gemnasium withdrawal stamping', function () {
     it('never stamps from an OSV file written by an older normalizer', async function () {
         await seed('gemnasium', [gem])
         await seed('osv', [withdrawnOsv])
-        const cache = await loadCacheForPackages(dir, 'npm', ['braces'], ['gemnasium'], osvSeededAt(OSV_NORMALIZER_VERSION - 1))
+        const cache = await loadCacheForPackages(dir, 'npm', ['braces'], ['gemnasium'], osvSeededAt(osvNormalizerVersion('npm') - 1))
         expect(cache.withdrawalsChecked).toBe(false)
         expect(cache.gemnasium.get('braces')?.[0]?.withdrawn).toBeNull()
     })
 
     it('does not check withdrawals for a run without gemnasium', async function () {
         await seed('osv', [withdrawnOsv])
-        const cache = await loadCacheForPackages(dir, 'npm', ['braces'], ['osv'], osvSeededAt(OSV_NORMALIZER_VERSION))
+        const cache = await loadCacheForPackages(dir, 'npm', ['braces'], ['osv'], osvSeededAt(osvNormalizerVersion('npm')))
         expect(cache.withdrawalsChecked).toBe(false)
     })
 })

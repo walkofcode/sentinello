@@ -873,13 +873,21 @@ describe('parseAffectedRange — the dialects npm does not canonicalise', functi
 
     // The npm rules must NOT leak. `==1.0` is an exact pin in PEP 440 and `==1.0.*` is its wildcard, so
     // reading `=1.0` as the whole 1.0 line here would report versions the record never claimed. Likewise a
-    // partial upper bound stays literal rather than being widened to the end of the line.
-    it.each(OTHERS)('leaves a partial %s version literal instead of expanding it', function (ecosystem) {
+    // partial upper bound is never widened to the end of the line.
+    it.each(['PyPI', 'crates.io'] as const)('leaves a partial %s version literal instead of expanding it', function (ecosystem) {
         expect(parseAffectedRange('=1.0', [], ecosystem)).toEqual({ ranges: [], versions: ['1.0'] })
         expect(parseAffectedRange('<=3.3', [], ecosystem)).toEqual({
             ranges: [{ introduced: '0', fixed: null, lastAffected: '3.3' }],
             versions: []
         })
+    })
+
+    // Go has no partial versions at all — a module version is always vX.Y.Z — so a partial one in an
+    // advisory can only name the release it pads to. That is a point, never the whole line.
+    it('reads a partial Go version as the full version it can only mean', function () {
+        expect(parseAffectedRange('=1.0', [], 'Go')).toEqual({ ranges: [], versions: ['1.0.0'] })
+        expect(parseAffectedRange('<=3', [], 'Go')).toEqual({ ranges: [{ introduced: '0', fixed: null, lastAffected: '3.0.0' }], versions: [] })
+        expect(parseAffectedRange('>=0 <1.1', [], 'Go')).toEqual({ ranges: [{ introduced: '0', fixed: '1.1.0', lastAffected: null }], versions: [] })
     })
 
     // Spacing has to be tolerated identically in every dialect — the fresh defect was a space, and only the
@@ -936,5 +944,104 @@ describe('parseAffectedRange — PEP 440 comma intersections', function () {
             ranges: [{ introduced: '1.0.0', fixed: '2.0.0', lastAffected: null }],
             versions: []
         })
+    })
+})
+
+// Every range is read in its own ecosystem's dialect and ordered by its own comparator (GEMNASIUM v8).
+describe('parseAffectedRange — each ecosystem in its own dialect', function () {
+    // 192 PyPI ranges pin a version with `==X`. Read as `=` followed by the "version" `=X`, every one of
+    // them was cached as a pin nothing could ever equal.
+    it('reads a PyPI == pin as an exact version', function () {
+        expect(parseAffectedRange('<0.33.1||==0.34.0', [], 'PyPI')).toEqual({ ranges: [{ introduced: '0', fixed: '0.33.1', lastAffected: null }], versions: ['0.34.0'] })
+        expect(parseAffectedRange('===1.0', [], 'PyPI').versions).toEqual(['1.0'])
+    })
+
+    // A `==` no dialect defines is refused, never cached as the version `=X`.
+    it('refuses a == the dialect does not define', function () {
+        expect(parseAffectedRange('==1.2.3', [], 'Go')).toEqual({ ranges: [], versions: [] })
+    })
+
+    // A conjunction is an intersection: a second bound of the same side narrows, never replaces.
+    it('intersects the bounds of a conjunction through the comparator', function () {
+        expect(parseAffectedRange('>=1.0 <2.0 <1.5', [], 'PyPI').ranges).toEqual([{ introduced: '1.0', fixed: '1.5', lastAffected: null }])
+        expect(parseAffectedRange('<1.5 <=1.5', [], 'PyPI').ranges).toEqual([{ introduced: '0', fixed: '1.5', lastAffected: null }])
+        expect(parseAffectedRange('>=1.0 >1.0 <2', [], 'RubyGems').ranges).toEqual([{ introduced: '1.0', introducedExclusive: true, fixed: '2', lastAffected: null }])
+        expect(parseAffectedRange('>=2.0 >=1.0 <3.0', [], 'crates.io').ranges).toEqual([{ introduced: '2.0', fixed: '3.0', lastAffected: null }])
+    })
+
+    // Which bound is narrower is the comparator's answer; when it cannot read one, the parser refuses the
+    // conjunction rather than picking.
+    it('refuses a conjunction whose competing bounds it cannot order', function () {
+        expect(parseAffectedRange('<1.0.x <2.0', [], 'PyPI')).toEqual({ ranges: [], versions: [] })
+    })
+
+    // An exclusion splits the conjunction; the half that selects nothing is dropped.
+    it('reads a Gem exclusion as the two intervals either side of it', function () {
+        expect(parseAffectedRange('>= 1.0, != 1.5, < 2.0', [], 'RubyGems').ranges).toEqual([
+            { introduced: '1.0', fixed: '1.5', lastAffected: null },
+            { introduced: '1.5', introducedExclusive: true, fixed: '2.0', lastAffected: null }
+        ])
+    })
+
+    it('reads the Gem pessimistic operator', function () {
+        expect(parseAffectedRange('~> 2.2', [], 'RubyGems').ranges).toEqual([{ introduced: '2.2', fixed: '3', lastAffected: null }])
+    })
+
+    it('reads a Go range with or without its v, pseudo-versions included', function () {
+        expect(parseAffectedRange('<v0.0.0-20180523222229-09b5706aa936', [], 'Go').ranges).toEqual([{ introduced: '0', fixed: '0.0.0-20180523222229-09b5706aa936', lastAffected: null }])
+        expect(parseAffectedRange('>=v1.2.0 <v1.2.4', [], 'Go').ranges).toEqual([{ introduced: '1.2.0', fixed: '1.2.4', lastAffected: null }])
+    })
+
+    // PEP 440 versions the plain numeric shape does not cover are read by the comparator.
+    it('reads a PEP 440 bound in any spelling the comparator reads, and refuses one it cannot', function () {
+        expect(parseAffectedRange('>5.0a,<5.0rc2', [], 'PyPI').ranges).toEqual([{ introduced: '5.0a', introducedExclusive: true, fixed: '5.0rc2', lastAffected: null }])
+        expect(parseAffectedRange('<4.2-20.el8_6', [], 'PyPI')).toEqual({ ranges: [], versions: [] })
+    })
+
+    // The single-fix override and the highest-fix bound are ordered by the ecosystem's comparator. Under
+    // semver `4.2` and `10` would have been coerced; under PEP 440 they order as written.
+    it('orders the authoritative fix by the ecosystem comparator', function () {
+        expect(parseAffectedRange('>=4.2', ['4.2.11'], 'PyPI').ranges).toEqual([{ introduced: '4.2', fixed: '4.2.11', lastAffected: null }])
+        expect(parseAffectedRange('>=1.0.post1', ['1.0'], 'PyPI').ranges).toEqual([{ introduced: '1.0.post1', fixed: null, lastAffected: null }])
+        expect(parseAffectedRange('>=1.0 <1.2||>=2.0', ['1.2', '2.0.post2'], 'PyPI').ranges[1]).toEqual({ introduced: '2.0', fixed: '2.0.post2', lastAffected: null })
+        // A Go fix that is a pseudo-version above the bottom of the version space bounds an open range.
+        expect(parseAffectedRange('>=0', ['v0.0.0-20210101000000-abcdefabcdef'], 'Go').ranges).toEqual([{ introduced: '0', fixed: 'v0.0.0-20210101000000-abcdefabcdef', lastAffected: null }])
+        // An unreadable fix is never substituted.
+        expect(parseAffectedRange('>=1.0', ['1.0.x'], 'PyPI').ranges).toEqual([{ introduced: '1.0', fixed: null, lastAffected: null }])
+    })
+
+    it('leaves maven interval notation to its own parser in every dialect', function () {
+        expect(parseAffectedRange('[1.0,2.0)', [], 'RubyGems').ranges).toEqual([{ introduced: '1.0', fixed: '2.0', lastAffected: null }])
+    })
+
+    it('reads nothing for an ecosystem the registry does not know', function () {
+        expect(parseAffectedRange('<1.0', [], 'maven')).toEqual({ ranges: [], versions: [] })
+        expect(normalizeGemnasiumRecord(record({ package_slug: 'maven/x' }), 'maven', 'maven/')).toEqual([])
+    })
+})
+
+describe('normalizeGemnasiumRecord — RubyGems', function () {
+    it('keys a gem advisory by the gem name as written', function () {
+        const rows = normalizeGemnasiumRecord(record({ package_slug: 'gem/Ruby_Gem', affected_range: '<7.0.8.1||>=7.1.0-beta.1 <7.1.3.1', fixed_versions: ['7.0.8.1', '7.1.3.1'] }), 'RubyGems', 'gem/')
+        expect(rows).toHaveLength(1)
+        expect(rows[0]).toMatchObject({ ecosystem: 'RubyGems', packageName: 'Ruby_Gem' })
+        expect(rows[0]?.ranges).toEqual([
+            { introduced: '0', fixed: '7.0.8.1', lastAffected: null },
+            { introduced: '7.1.0-beta.1', fixed: '7.1.3.1', lastAffected: null }
+        ])
+    })
+})
+
+describe('parseAffectedRange — what the parser refuses rather than guesses', function () {
+    // npm's numeric spellings pass the shape test unread, so two competing bounds can still meet one the
+    // comparator cannot order: refusing the conjunction is the only answer that is not a guess.
+    it('refuses competing bounds it cannot order, on either side', function () {
+        expect(parseAffectedRange('>=1.0.0 <2025.08.14 <3.0.0', [], 'npm')).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('>=2025.08.14 >=1.0.0 <3.0.0', [], 'npm')).toEqual({ ranges: [], versions: [] })
+    })
+
+    // A `==` that reaches the parser belongs to no dialect that defines it (npm's does not).
+    it('refuses a == that no dialect rewrote', function () {
+        expect(parseAffectedRange('==1.0.0', [], 'npm')).toEqual({ ranges: [], versions: [] })
     })
 })

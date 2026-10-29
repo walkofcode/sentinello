@@ -156,11 +156,13 @@ describe('fetchGemnasiumChangedPaths', function () {
     it('ignores paths under a package type with no resolver', async function () {
         fetchMock.mockResolvedValue(compare([
             { new_path: 'maven/org.example/CVE-2024-3.yml' },
-            { new_path: 'gem/rails/CVE-2024-4.yml' },
+            { new_path: 'packagist/laravel/framework/CVE-2024-4.yml' },
+            { new_path: 'gem/rails/CVE-2024-5.yml' },
             { new_path: 'npm/lodash/CVE-2024-1.yml' }
         ]))
         const result = await fetchGemnasiumChangedPaths('a', 'b')
-        expect(result.status === 'ok' && result.changed).toEqual(['npm/lodash/CVE-2024-1.yml'])
+        // `gem` is RubyGems now, so it is read; maven and packagist have no ecosystem here.
+        expect(result.status === 'ok' && result.changed).toEqual(['gem/rails/CVE-2024-5.yml', 'npm/lodash/CVE-2024-1.yml'])
     })
 
     it('ignores non-advisory paths and diffs with no new_path', async function () {

@@ -16,7 +16,7 @@ import {
     upsertProject,
     upsertRoot
 } from '@sentinello/db'
-import type { RawFinding, ScannerPlugin } from '@sentinello/scanners'
+import { versionSetFromSemverRange, patchedVersionSet, type RawFinding, type ScannerPlugin } from '@sentinello/scanners'
 import { assertScratchPath, liveDataDir, openScratchEnv } from '../scripts/scratch-env'
 import { CONFIG_KEYS } from './config-loader'
 import { runProjectScanners } from './runner'
@@ -51,7 +51,7 @@ const scanner: ScannerPlugin = {
         const finding: RawFinding = {
             advisoryId: '1001', aliases: [], advisoryTitle: 'A flaw', advisoryUrl: null, packageName: 'braces', ecosystem: 'npm',
             installedVersion: '3.0.3', vulnerableRange: '<=3.0.3', severity: 'high', fixAvailable: false, fixVersion: null,
-            fixInputs: { source: 'npm-audit', installed: ['3.0.3'], affected: { ranges: '<=3.0.3', exact: [], complete: true }, patched: '<0.0.0', statedFix: null, fixViaParent: false },
+            fixInputs: { source: 'npm-audit', installed: ['3.0.3'], affected: versionSetFromSemverRange('<=3.0.3'), patched: '<0.0.0', patchedSet: patchedVersionSet('<0.0.0'), statedFix: null, fixViaParent: false },
             depPath: ['braces'], isProd: true, isDev: false
         }
         return { status: 'ok', reasonCode: 'ok', findings: [finding], rawJson: '{}', errorText: null, durationMs: 1 }

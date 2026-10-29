@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { matchAdvisories } from './matcher'
 import { affectedSetContains } from '../version-fix'
-import { semverComparator } from '@sentinello/versions'
+import { goComparator, pep440Comparator, rubygemsComparator, semverComparator, type VersionComparator } from '@sentinello/versions'
 import type { CanonicalAdvisory, VersionRange } from './types'
 import type { ResolvedPackage } from '../resolver/types'
 
@@ -13,7 +13,8 @@ function pkg(name: string, version: string): ResolvedPackage {
         name,
         version,
         scope: { isProd: true, isDev: false, isOptional: false },
-        depPaths: [name]
+        depPaths: [name],
+        manifestPath: 'package-lock.json'
     }
 }
 
@@ -368,16 +369,18 @@ describe('matchAdvisories — fix evidence keeps comparator semantics', function
         return matchAdvisories([pkg('lodash', version)], byPackage, semverComparator, SEMVER_TYPES)[0]?.fixInputs
     }
 
-    it('writes a partial exclusive lower bound as the full version the matcher compared', function () {
+    // The set carries the ranges the matcher read, in the matcher's comparator — so settlement reads a
+    // partial bound exactly as the matcher did, with no node-semver rewriting in between.
+    it('carries a partial exclusive lower bound in the comparator that read it', function () {
         const inputs = evidenceFor('1.2.1', [{ type: 'SEMVER', introduced: '1.2', introducedExclusive: true, fixed: '2.0.0' }])
-        expect(inputs?.affected).toEqual({ ranges: '>1.2.0 <2.0.0', exact: [], complete: true })
+        expect(inputs?.affected).toEqual({ comparator: 'semver', ranges: [{ type: 'SEMVER', introduced: '1.2', introducedExclusive: true, fixed: '2.0.0' }], exact: [], complete: true })
         expect(affectedSetContains(inputs!.affected, '1.2.1')).toBe(true)
         expect(affectedSetContains(inputs!.affected, '2.0.0')).toBe(false)
     })
 
-    it('writes a partial inclusive upper bound as the full version the matcher compared', function () {
+    it('carries a partial inclusive upper bound in the comparator that read it', function () {
         const inputs = evidenceFor('1.2.0', [{ type: 'SEMVER', introduced: '0', lastAffected: '1.2', fixed: null }])
-        expect(inputs?.affected).toEqual({ ranges: '>=0.0.0 <=1.2.0', exact: [], complete: true })
+        expect(inputs?.affected).toEqual({ comparator: 'semver', ranges: [{ type: 'SEMVER', introduced: '0', lastAffected: '1.2', fixed: null }], exact: [], complete: true })
         // node-semver alone reads `<=1.2` as <1.3.0-0 and would call 1.2.5 affected; the matcher does not.
         expect(affectedSetContains(inputs!.affected, '1.2.5')).toBe(false)
         expect(affectedSetContains(inputs!.affected, '1.2.0')).toBe(true)
@@ -395,11 +398,46 @@ describe('matchAdvisories — fix evidence keeps comparator semantics', function
     // were dropped stated versions we could not read, which is unknown — never "no fix".
     it('keeps malware with no version data complete, and malware with only dropped ranges incomplete', function () {
         const none = evidenceFor('1.2.1', [], 'malware')
-        expect(none?.affected).toEqual({ ranges: '*', exact: [], complete: true })
+        expect(none?.affected).toEqual({ comparator: 'semver', ranges: [{ introduced: '0', fixed: null, lastAffected: null }], exact: [], complete: true })
         expect(affectedSetContains(none!.affected, '2.0.0')).toBe(true)
 
         const dropped = evidenceFor('1.2.1', [{ type: 'GIT', introduced: 'abc', fixed: 'def' }], 'malware')
-        expect(dropped?.affected).toEqual({ ranges: '*', exact: [], complete: false })
+        expect(dropped?.affected).toEqual({ comparator: 'semver', ranges: [{ introduced: '0', fixed: null, lastAffected: null }], exact: [], complete: false })
         expect(affectedSetContains(dropped!.affected, '2.0.0')).toBeNull()
     })
 })
+
+describe('matchAdvisories — fixes in the ecosystem\'s own grammar', function () {
+    function findingFor(version: string, ranges: VersionRange[], comparator: VersionComparator, exactVersions: string[] = []) {
+        const byPackage = new Map([['django', [advisory('A', { affected: { ranges, exactVersions } })]]])
+        return matchAdvisories([pkg('django', version)], byPackage, comparator)[0]
+    }
+
+    // Ordered by PEP 440, spelled as the advisory spells it: the normalized key for 4.2.0 is `4.2`, which is
+    // not a version anyone installs.
+    it('states the fix in the advisory\'s own spelling', function () {
+        const finding = findingFor('4.2.0', [{ introduced: '4.2.0', fixed: '4.2.10' }, { introduced: '3.2.0', fixed: '3.2.24' }], pep440Comparator)
+        expect(finding?.fixVersion).toBe('4.2.10')
+        expect(finding?.fixInputs.affected.comparator).toBe('pep440')
+    })
+
+    // An exact version matched only once its comparator reads it: a `1.0` install against `1.0.0`.
+    it('matches an exact version under any spelling the comparator equates', function () {
+        expect(findingFor('1.0', [], pep440Comparator, ['1.0.0'])).toBeDefined()
+        expect(findingFor('1.0', [], rubygemsComparator, ['1.0.0'])).toBeDefined()
+        expect(findingFor('1.0.1', [], pep440Comparator, ['1.0.0'])).toBeUndefined()
+    })
+
+    // An install the comparator cannot read still matches an exact entry written the same way, and then
+    // states no fix: with no floor to compare against, none is a guess.
+    it('matches an unreadable install only by its exact spelling, with no fix', function () {
+        const finding = findingFor('main', [{ introduced: '0', fixed: '2.0' }], pep440Comparator, ['main'])
+        expect(finding?.fixVersion).toBeNull()
+        expect(findingFor('develop', [{ introduced: '0', fixed: '2.0' }], pep440Comparator, ['main'])).toBeUndefined()
+    })
+
+    it('marks the set incomplete when a bound is one its comparator cannot read', function () {
+        expect(findingFor('v1.0.0', [{ introduced: '0', fixed: '1.2' }, { introduced: '0', fixed: 'v1.5.0' }], goComparator)?.fixInputs.affected.complete).toBe(false)
+    })
+})
+

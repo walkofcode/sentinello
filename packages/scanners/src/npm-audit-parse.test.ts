@@ -371,8 +371,9 @@ describe('normalizeAuditOutput — the npm 7+ shape', function () {
         expect(result.findings[0]?.fixInputs).toEqual({
             source: 'npm-audit',
             installed: ['<=5.2.1'],
-            affected: { ranges: '<=5.2.1', exact: [], complete: true },
+            affected: { comparator: 'semver', ranges: [{ introduced: '0', fixed: null, lastAffected: '5.2.1' }], exact: [], complete: true },
             patched: null,
+            patchedSet: null,
             statedFix: null,
             fixViaParent: false
         })
@@ -806,8 +807,9 @@ describe('normalizePnpmAuditOutput — the remaining arms', function () {
         expect(finding?.fixInputs).toEqual({
             source: 'npm-audit',
             installed: ['3.0.3'],
-            affected: { ranges: '<=3.0.3', exact: [], complete: true },
+            affected: { comparator: 'semver', ranges: [{ introduced: '0', fixed: null, lastAffected: '3.0.3' }], exact: [], complete: true },
             patched: '<0.0.0',
+            patchedSet: null,
             statedFix: null,
             fixViaParent: false
         })

@@ -4,7 +4,7 @@ import {
     DEFAULT_ECOSYSTEM,
     DEFAULT_EXPORT_PROMPT,
     GEMNASIUM_NORMALIZER_VERSION,
-    OSV_NORMALIZER_VERSION,
+    osvNormalizerVersion,
     errText
 } from '@sentinello/core'
 import { discoverProjectsInTree, type DiscoverySkip } from '@sentinello/scanners'
@@ -180,7 +180,7 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
         settledAt: generatedAt,
         registry: registryStore === null ? null : createNpmRegistryClient(registryStore),
         seeded: {
-            osv: isSeeded(meta, 'osv', DEFAULT_ECOSYSTEM, OSV_NORMALIZER_VERSION),
+            osv: isSeeded(meta, 'osv', DEFAULT_ECOSYSTEM, osvNormalizerVersion(DEFAULT_ECOSYSTEM)),
             gemnasium: isSeeded(meta, 'gemnasium', DEFAULT_ECOSYSTEM, GEMNASIUM_NORMALIZER_VERSION)
         }
     }
@@ -242,7 +242,7 @@ function feedSwitchedOff(source: SourceId): boolean {
 }
 
 function normalizerVersionFor(source: SourceId): number {
-    if (source === 'osv') return OSV_NORMALIZER_VERSION
+    if (source === 'osv') return osvNormalizerVersion(DEFAULT_ECOSYSTEM)
     return GEMNASIUM_NORMALIZER_VERSION
 }
 

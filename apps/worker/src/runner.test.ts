@@ -20,7 +20,7 @@ import {
     type SqliteDb
 } from '@sentinello/db'
 import { describeFix, PLAIN_FIX_STYLE, type Project } from '@sentinello/core'
-import type { RawFinding, ScanContext, ScannerPlugin, ScanResult } from '@sentinello/scanners'
+import { versionSetFromSemverRange, type RawFinding, type ScanContext, type ScannerPlugin, type ScanResult } from '@sentinello/scanners'
 import type { RegistryClient, RegistryEntry } from '@sentinello/fixes'
 
 // Partial: notifyForCompletedScan runs for real in every test below (it writes the discovery ledger
@@ -102,8 +102,9 @@ function rawFinding(overrides: Partial<RawFinding> = {}): RawFinding {
         fixInputs: {
             source: 'npm-audit',
             installed: ['4.17.11'],
-            affected: { ranges: '<4.17.21', exact: [], complete: true },
+            affected: versionSetFromSemverRange('<4.17.21'),
             patched: null,
+            patchedSet: null,
             statedFix: '4.17.21',
             fixViaParent: false
         },
@@ -731,7 +732,7 @@ describe('runBatch — coverage on every scan row', function () {
         return JSON.parse(listScansForProject(db, PROJECT_ID)[0]?.rawJson ?? '')
     }
 
-    const NO_LOCKFILE = [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile', details: ['package.json has no lockfile beside it (package-lock.json, pnpm-lock.yaml or yarn.lock)'] }]
+    const NO_LOCKFILE = [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile', details: ['package.json has no lockfile covering it (package-lock.json, pnpm-lock.yaml, yarn.lock)'] }]
 
     it('records it on an npm-audit scan, which is handed none', async function () {
         await writeBarePackageJson()
@@ -815,7 +816,7 @@ describe('runProjectScanners — lockfile loss and recovery', function () {
         vulnerableRange: '<1.2.6',
         severity: 'critical',
         fixVersion: '1.2.6',
-        fixInputs: { source: 'npm-audit', installed: ['1.2.5'], affected: { ranges: '<1.2.6', exact: [], complete: true }, patched: null, statedFix: '1.2.6', fixViaParent: false },
+        fixInputs: { source: 'npm-audit', installed: ['1.2.5'], affected: versionSetFromSemverRange('<1.2.6'), patched: null, patchedSet: null, statedFix: '1.2.6', fixViaParent: false },
         depPath: ['minimist']
     })
 

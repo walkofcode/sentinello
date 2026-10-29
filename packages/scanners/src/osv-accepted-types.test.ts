@@ -32,7 +32,8 @@ function pkg(name: string, version: string): ResolvedPackage {
         name,
         version,
         scope: { isProd: true, isDev: false, isOptional: false },
-        depPaths: []
+        depPaths: [],
+        manifestPath: 'lockfile'
     }
 }
 

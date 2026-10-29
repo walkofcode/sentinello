@@ -1,7 +1,7 @@
 import {
     GEMNASIUM_NORMALIZER_VERSION,
     GEMNASIUM_SEED_DOWNLOAD_BYTES,
-    OSV_NORMALIZER_VERSION,
+    osvNormalizerVersion,
     type EcosystemId,
     type GemnasiumAdvisoryRow,
     type OsvAdvisoryRow
@@ -116,7 +116,7 @@ export async function planSync(options: SyncOptions): Promise<SyncPlan> {
     for (const { source, purpose } of syncTargets(options.sources)) {
         if (source === 'osv' && osvFeedDisabled()) continue
         if (source === 'gemnasium' && gemnasiumFeedDisabled()) continue
-        const normalizerVersion = source === 'osv' ? OSV_NORMALIZER_VERSION : GEMNASIUM_NORMALIZER_VERSION
+        const normalizerVersion = source === 'osv' ? osvNormalizerVersion(options.ecosystem) : GEMNASIUM_NORMALIZER_VERSION
         const seeded = isSeeded(meta, source, options.ecosystem, normalizerVersion)
         if (seeded) {
             items.push({ source, ecosystem: options.ecosystem, purpose, kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false })
@@ -261,7 +261,7 @@ async function seedOsv(options: SyncOptions, meta: CacheMeta, item: SyncPlanItem
         throw err
     }
     setSourceState(meta, 'osv', item.ecosystem, {
-        normalizerVersion: OSV_NORMALIZER_VERSION,
+        normalizerVersion: osvNormalizerVersion(item.ecosystem),
         recordCount: rowCount,
         refreshedAt: Date.now(),
         cursorIso: lastModified,
@@ -350,7 +350,7 @@ async function refreshOsv(options: SyncOptions, meta: CacheMeta, item: SyncPlanI
     const path = advisoryFilePath(options.cacheDir, 'osv', item.ecosystem)
     const rowCount = await rewriteRows(path, { dropAdvisoryIds: new Set(changed.ids), append })
     setSourceState(meta, 'osv', item.ecosystem, {
-        normalizerVersion: OSV_NORMALIZER_VERSION,
+        normalizerVersion: osvNormalizerVersion(item.ecosystem),
         recordCount: rowCount,
         refreshedAt: Date.now(),
         cursorIso: changed.newestIso ?? state?.cursorIso ?? null,

@@ -1,4 +1,4 @@
-import { GEMNASIUM_NORMALIZER_VERSION, OSV_NORMALIZER_VERSION, DEFAULT_ECOSYSTEM } from '@sentinello/core'
+import { GEMNASIUM_NORMALIZER_VERSION, osvNormalizerVersion, DEFAULT_ECOSYSTEM } from '@sentinello/core'
 import { discoverProjectsInTree } from '@sentinello/scanners'
 import { advisoryFilePath, getSourceState, readCacheMeta, type SourceId } from './cache/meta'
 import { registryCacheSummary, registryFilePath } from './cache/registry'
@@ -29,7 +29,7 @@ export async function runDoctor(options: CliOptions, cacheDir: string): Promise<
     lines.push('  directory    ' + cacheDir)
     const meta = await readCacheMeta(cacheDir)
     for (const source of ['osv', 'gemnasium'] as SourceId[]) {
-        const expected = source === 'osv' ? OSV_NORMALIZER_VERSION : GEMNASIUM_NORMALIZER_VERSION
+        const expected = source === 'osv' ? osvNormalizerVersion(DEFAULT_ECOSYSTEM) : GEMNASIUM_NORMALIZER_VERSION
         const state = getSourceState(meta, source, DEFAULT_ECOSYSTEM)
         // Always count what is actually on disk. Reporting purely from metadata would say "not downloaded"
         // about a cache file that exists and is being matched against, which is precisely the kind of

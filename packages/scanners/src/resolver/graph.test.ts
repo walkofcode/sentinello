@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { makeGraph, parseDepKey, reachableFrom, splitVersions } from './graph'
+import { graphFromLock, makeGraph, parseDepKey, reachableFrom, splitVersions } from './graph'
 import type { DepScope, ResolvedPackage } from './types'
 
 function pkg(name: string, version: string, scope: Partial<DepScope> = {}): ResolvedPackage {
@@ -8,7 +8,8 @@ function pkg(name: string, version: string, scope: Partial<DepScope> = {}): Reso
         name,
         version,
         scope: { isProd: true, isDev: false, isOptional: false, ...scope },
-        depPaths: []
+        depPaths: [],
+        manifestPath: 'lockfile'
     }
 }
 
@@ -178,4 +179,26 @@ describe('parseDepKey', function () {
             expect(parseDepKey(key)).toBeNull()
         }
     )
+})
+
+describe('graphFromLock', function () {
+    // A diamond and a root named twice: every node reached once, each by a shortest chain.
+    it('reaches each node once by a shortest chain', function () {
+        const nodes = ['a@1', 'b@1', 'c@1', 'd@1'].map(function node(id) { return { id, name: id.split('@')[0] as string, version: '1' } })
+        const graph = graphFromLock({
+            ecosystem: 'crates.io',
+            manifestPath: 'Cargo.lock',
+            nodes,
+            edges: [
+                { from: 'a@1', to: 'b@1', kind: 'prod' },
+                { from: 'a@1', to: 'c@1', kind: 'prod' },
+                { from: 'b@1', to: 'd@1', kind: 'prod' },
+                { from: 'c@1', to: 'd@1', kind: 'prod' }
+            ],
+            roots: [{ importer: '.', nodeId: 'a@1', kind: 'prod' }, { importer: '.', nodeId: 'a@1', kind: 'dev' }],
+            auditable() { return true }
+        })
+        expect(graph.byName('d')[0]?.depPaths).toEqual(['a@1', 'b@1', 'd@1'])
+        expect(graph.byName('d')[0]?.scope).toEqual({ isProd: true, isDev: true, isOptional: false })
+    })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { satisfies, validRange } from 'semver'
-import { semverComparator, versionInRange } from '@sentinello/versions'
+import { goComparator, pep440Comparator, rubygemsComparator, semverComparator, versionInRange, type VersionComparator } from '@sentinello/versions'
 import { parseAffectedRange } from './normalize'
 
 // EXHAUSTIVE GRAMMAR SWEEP — generated spellings, not remembered ones.
@@ -375,5 +375,95 @@ describe('syntax this parser does not implement is refused, never guessed', func
             ranges: [{ introduced: '2.0.0', fixed: '3.0.0', lastAffected: null }],
             versions: []
         })
+    })
+})
+
+// THE SAME TWO PROPERTIES FOR EVERY OTHER DIALECT, over each one's own operators and the version shapes
+// it exists to express: PEP 440 epochs, pre-, post- and dev-releases; Go pseudo-versions and
+// `+incompatible`; Gem prereleases and `~>`. P1 needs no oracle. P2's oracle is the operator's definition,
+// evaluated with the ecosystem's own comparator — never node-semver, which is no authority here.
+type Dialect = { ecosystem: string; comparator: VersionComparator; operators: string[]; versions: string[]; probes: string[]; prefixes: string[] }
+const DIALECTS: Dialect[] = [
+    {
+        ecosystem: 'PyPI',
+        comparator: pep440Comparator,
+        operators: ['<', '<=', '>', '>=', '==', '===', '!='],
+        versions: ['1.0', '1!2.0', '2.0rc1', '2.0.post1', '2.0.dev3'],
+        probes: ['0.9', '1.0', '1.0.post1', '1!1.0', '1!2.0', '1!2.1', '2.0a1', '2.0rc1', '2.0', '2.0.post1', '2.0.dev3', '3.0'],
+        prefixes: ['', 'v']
+    },
+    {
+        ecosystem: 'Go',
+        comparator: goComparator,
+        operators: ['<', '<=', '>', '>=', '=', '!='],
+        versions: ['1.2.3', '0.0.0-20180523222229-09b5706aa936', '1.2.4-0.20190101000000-abcdefabcdef', '2.1.0+incompatible'],
+        probes: ['v0.0.0-20170101000000-aaaaaaaaaaaa', 'v0.0.0-20180523222229-09b5706aa936', 'v1.2.3', 'v1.2.4-0.20190101000000-abcdefabcdef', 'v1.2.4', 'v2.1.0', 'v3.0.0'],
+        prefixes: ['', 'v', 'V']
+    },
+    {
+        ecosystem: 'crates.io',
+        comparator: semverComparator,
+        operators: ['<', '<=', '>', '>=', '=', '!='],
+        versions: ['0.8.5', '1.0.0-alpha.2', '1.2.3'],
+        probes: ['0.8.4', '0.8.5', '1.0.0-alpha.1', '1.0.0-alpha.2', '1.0.0', '1.2.3', '1.2.4'],
+        prefixes: ['', 'v']
+    },
+    {
+        ecosystem: 'RubyGems',
+        comparator: rubygemsComparator,
+        operators: ['<', '<=', '>', '>=', '=', '!=', '~>'],
+        versions: ['1.2', '1.2.3', '2.0.0.pre1', '3.0.0-beta.1'],
+        probes: ['0.9', '1.1', '1.2', '1.2.2', '1.2.3', '1.2.9', '1.3', '2.0.0.pre1', '2.0.0', '2.1', '3.0.0.pre.beta.1', '3.0.0', '3.1'],
+        prefixes: ['']
+    }
+]
+
+// Gem::Version#bump for the versions above, worked out by hand from rubygems' version.rb.
+const GEM_BUMPS: Record<string, string> = { '1.2': '2', '1.2.3': '1.3', '2.0.0.pre1': '2.1' }
+
+function holds(operator: string, version: string, probe: string, dialect: Dialect): boolean {
+    const c = dialect.comparator
+    const v = c.normalize(probe) as string
+    const bound = c.normalize(version) as string
+    if (operator === '=' || operator === '==' || operator === '===') return c.compare(v, bound) === 0
+    if (operator === '!=') return c.compare(v, bound) !== 0
+    if (operator === '>=') return c.gte(v, bound)
+    if (operator === '>') return c.gt(v, bound)
+    if (operator === '<=') return c.lte(v, bound)
+    if (operator === '<') return c.lt(v, bound)
+    return c.gte(v, bound) && c.lt(v, c.normalize(GEM_BUMPS[version] as string) as string)
+}
+
+function reads(range: string, probe: string, dialect: Dialect): boolean {
+    const parsed = parseAffectedRange(range, [], dialect.ecosystem)
+    const v = dialect.comparator.normalize(probe)
+    return parsed.versions.some(function pinned(x) { return dialect.comparator.normalize(x) === v })
+        || parsed.ranges.some(function inside(r) { return versionInRange(probe, r, dialect.comparator) })
+}
+
+describe.each(DIALECTS)('$ecosystem — P1 and P2 over the generated grammar', function (dialect) {
+    const cases: Array<{ canonical: string; parts: Array<[string, string]>; spellings: string[] }> = []
+    for (const operator of dialect.operators) {
+        for (const version of dialect.versions) {
+            if (operator === '~>' && GEM_BUMPS[version] === undefined) continue
+            const spellings = GAPS.flatMap(function gap(g) { return dialect.prefixes.map(function prefix(p) { return comparator(operator, g, p, version) }) })
+            cases.push({ canonical: operator + version, parts: [[operator, version]], spellings })
+        }
+    }
+    const [low, high] = [dialect.versions[0] as string, dialect.versions[dialect.versions.length - 1] as string]
+    for (const [lo, hi] of [['>=', '<'], ['>', '<='], ['>=', '!=']] as const) {
+        const spellings = INTERSECTIONS.flatMap(function join(j) { return GAPS.map(function gap(g) { return comparator(lo, g, '', low) + j + comparator(hi, g, '', high) }) })
+        cases.push({ canonical: lo + low + ',' + hi + high, parts: [[lo, low], [hi, high]], spellings })
+    }
+
+    it.each(cases)('$canonical', function ({ canonical, parts, spellings }) {
+        const parsed = parseAffectedRange(canonical, [], dialect.ecosystem)
+        // A canonical spelling that parses to nothing would make every comparison below vacuous.
+        expect(parsed.ranges.length + parsed.versions.length, canonical).toBeGreaterThan(0)
+        for (const spelling of spellings) expect(parseAffectedRange(spelling, [], dialect.ecosystem), spelling).toEqual(parsed)
+        for (const probe of dialect.probes) {
+            const expected = parts.every(function each([op, v]) { return holds(op, v, probe, dialect) })
+            expect(reads(canonical, probe, dialect), canonical + ' @ ' + probe).toBe(expected)
+        }
     })
 })

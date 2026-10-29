@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { getConfigValue } from '@sentinello/db'
-import { compareVersions } from '@sentinello/versions'
+import { compareVersions, semverComparator } from '@sentinello/versions'
 import { getDb } from '@/lib/db'
 
 // Source of truth for the version shown in the UI footer and /api/health, plus the
@@ -135,7 +135,7 @@ export async function getVersionInfo(): Promise<VersionInfo> {
         const release = await fetchLatestRelease(feedUrl)
         const latestRaw = release.tag_name || ''
         const latest = stripVPrefix(latestRaw) || null
-        const updateAvailable = latest !== null && compareVersions(current, latest) < 0
+        const updateAvailable = latest !== null && compareVersions(current, latest, semverComparator) < 0
         const info: VersionInfo = {
             current,
             latest,
