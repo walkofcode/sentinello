@@ -18,29 +18,52 @@ export type WorkerRuntime = {
 // cache is still being rebuilt. A full sweep run while any cache is rebuilding records "not downloaded yet"
 // for every project that source covers (gemnasium too, while the OSV cache its withdrawal evidence comes
 // from is incomplete), so the scan-request poller holds full sweeps until none is.
+//
+// It also remembers, per cache, whether the last attempt to prepare it failed. The silent baseline waits
+// for a cache that is still on its way, never for one whose download failed: a failed feed would otherwise
+// hold the baseline, and with it every finding of the capability's languages, until a retry succeeds.
 export type CacheRebuilds = {
-    // Registers a sync until it settles. It counts as a rebuild only while `unusable` answers true, read at
-    // each check: a first seed or a normalizer rebuild from the start, an OSV incremental only once it has
-    // discarded the cache to re-seed, and a gemnasium refresh of a usable cache never.
-    track(sync: Promise<unknown>, unusable: () => boolean): void
+    // Registers a sync of one cache until it settles. It counts as a rebuild only while `unusable` answers
+    // true, read at each check: a first seed or a normalizer rebuild from the start, an OSV incremental only
+    // once it has discarded the cache to re-seed, and a gemnasium refresh of a usable cache never. When it
+    // settles, rejected or not, the cache it leaves behind decides whether the attempt failed.
+    track(cache: string, sync: Promise<unknown>, unusable: () => boolean): void
     active(): boolean
+    // True from the moment a sync of the cache settles with the cache still unusable until one settles with
+    // it usable. A retry in flight does not clear it, so retrying cannot extend a wait forever. Process-local:
+    // a restarted worker starts a fresh attempt at boot, and that attempt's outcome is the one asked about.
+    failed(cache: string): boolean
+}
+
+// The cache identities the sources track their syncs under. OSV downloads one cache per ecosystem;
+// gemnasium's is one multi-ecosystem download.
+export const GEMNASIUM_CACHE = 'gemnasium'
+
+export function osvCache(ecosystem: string): string {
+    return 'osv/' + ecosystem
 }
 
 export function createCacheRebuilds(): CacheRebuilds {
     const syncs = new Map<Promise<unknown>, () => boolean>()
+    const failures = new Set<string>()
     return {
-        track: function track(sync, unusable) {
+        track: function track(cache, sync, unusable) {
             syncs.set(sync, unusable)
-            function untrack(): void {
+            function settle(): void {
                 syncs.delete(sync)
+                if (unusable()) failures.add(cache)
+                else failures.delete(cache)
             }
-            sync.then(untrack, untrack)
+            sync.then(settle, settle)
         },
         active: function active() {
             for (const unusable of syncs.values()) {
                 if (unusable()) return true
             }
             return false
+        },
+        failed: function failed(cache) {
+            return failures.has(cache)
         }
     }
 }

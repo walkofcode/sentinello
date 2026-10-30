@@ -209,7 +209,7 @@ describe('pollOnce — while an advisory cache is rebuilding', function () {
     beforeEach(function startRebuild() {
         rebuilding = true
         seed = new Promise<void>(function executor(resolve) { finishSeed = resolve })
-        runtime.rebuilds.track(seed, function unusable() { return rebuilding })
+        runtime.rebuilds.track('osv/npm', seed, function unusable() { return rebuilding })
     })
 
     it('holds a full sweep until the cache lands, then runs it', async function () {

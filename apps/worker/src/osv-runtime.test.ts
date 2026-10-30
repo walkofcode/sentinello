@@ -370,7 +370,7 @@ describe('createOsvController — lazy lifecycle', function () {
 
     // A cache that cannot be opened (unwritable volume, corrupt file) must not take the worker down —
     // the rest of the estate is still scannable by npm-audit.
-    it('logs and stays disabled when the runtime fails to start', function () {
+    it('logs and stays disabled when the runtime fails to start', async function () {
         enable('npm')
         // A path that IS a directory. openOsvDb mkdir -p's the parent, so a merely-absent path
         // would succeed; SQLite cannot open a directory as a database file, which is the closest
@@ -379,6 +379,10 @@ describe('createOsvController — lazy lifecycle', function () {
         const controller = createOsvController(handle.db, runtime)
         expect(controller.getScanner()).toBeNull()
         expect(errorLines().some(function m(l) { return l.startsWith('[osv] runtime failed to start: ') })).toBe(true)
+        // Nothing downloads the cache while the runtime is down: a baseline must not wait on it (SENTINEL-159).
+        await Promise.resolve()
+        expect(runtime.rebuilds.failed('osv/npm')).toBe(true)
+        expect(runtime.rebuilds.active()).toBe(false)
     })
 })
 

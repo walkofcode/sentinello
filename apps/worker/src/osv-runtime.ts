@@ -37,7 +37,7 @@ import {
 export type { ScannerPlugin }
 import { incrementalSyncOsv, osvFeedDisabled, seedOsv } from './osv-sync'
 import { enabledGemnasiumEcosystems, gemnasiumSourceEnabled, type GemnasiumController } from './gemnasium-runtime'
-import type { WorkerRuntime } from './runtime'
+import { osvCache, type WorkerRuntime } from './runtime'
 
 // Owns the OSV cache connection + the OSV scanner instance + the periodic sync job. Opened lazily so a
 // worker that needs no OSV data never creates osv.db or touches the network. The main DB is read to learn
@@ -100,6 +100,12 @@ export function createOsvController(mainDb: DrizzleDb, runtime: WorkerRuntime): 
             } catch (err) {
                 console.error('[osv] runtime failed to start: ' + errText(err))
                 current = null
+                // Nothing will download these caches until the runtime starts, so the start was the attempt
+                // to prepare them, and it failed: a silent baseline must not wait on them (decision #70).
+                const failed = Promise.reject(err)
+                for (const ecosystem of syncedOsvEcosystems(mainDb)) {
+                    runtime.rebuilds.track(osvCache(ecosystem), failed, function unusable() { return true })
+                }
             }
             return
         }
@@ -457,7 +463,7 @@ function syncOnce(mainDb: DrizzleDb, osvDb: OsvDrizzleDb, ecosystem: EcosystemId
     if (running) return { done: running, started: false }
     const done = syncEcosystem(mainDb, osvDb, ecosystem, runtime.abortController.signal)
     flights.set(ecosystem, done)
-    runtime.rebuilds.track(done, function rebuilding() { return !osvCacheUsable(osvDb, ecosystem) })
+    runtime.rebuilds.track(osvCache(ecosystem), done, function rebuilding() { return !osvCacheUsable(osvDb, ecosystem) })
     // Settles on both arms, so a failed sync frees the slot too and the derived promise never rejects.
     function settle(): void {
         flights.delete(ecosystem)

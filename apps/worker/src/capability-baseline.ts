@@ -6,6 +6,7 @@ import {
     getConfigValue,
     getNotificationTargetById,
     listOpenSummaryDeliveries,
+    pendingBaselineCapabilities,
     recordSummaryAttempt,
     recordSummaryDryRun,
     recordSummaryFailure,
@@ -20,6 +21,7 @@ import { CONFIG_KEYS } from './config-loader'
 import { gemnasiumFeedDisabled } from './gemnasium-sync'
 import { osvFeedDisabled } from './osv-sync'
 import type { ProjectScanOutcome } from './runner'
+import { GEMNASIUM_CACHE, osvCache, type CacheRebuilds } from './runtime'
 import { sendByKind } from './transport'
 
 // The silent baseline's worker side (plan Phase 3 step 5, decisions SENTINEL-120/124/125). The notifier
@@ -116,18 +118,36 @@ async function dispatchOpenSummaries(input: DispatchSummariesInput): Promise<voi
 }
 
 // The sweep's scans in the capability's ecosystems that are unauditable only because an advisory cache is
-// not downloaded or is being rebuilt. Each is a source the operator enabled (the runner runs only enabled
-// cells) that has not answered yet: a summary counted now would leave out whatever it is about to find, and
-// every later finding would then be sent one by one. So the capability waits for the next sweep — the one
-// queued when the cache lands. A source whose feed is switched off is never downloading anything: its
-// "not downloaded" verdict is final, and waiting for it would hold the baseline for good.
-function scansWaitingOnACache(capability: Capability, outcomes: readonly ProjectScanOutcome[]): number {
-    return outcomes.filter(function waiting(outcome) {
-        const scan = outcome.scan
-        if (scan.status !== 'unauditable' || !isCacheNotReadyReason(scan.reasonCode)) return false
-        if (!(capability.ecosystems as string[]).includes(scan.ecosystem)) return false
-        return scan.reasonCode === 'gemnasium_db_not_seeded' ? !gemnasiumFeedDisabled() : !osvFeedDisabled()
-    }).length
+// not downloaded or is being rebuilt, split by whether that cache is still on its way. Each is a source the
+// operator enabled (the runner runs only enabled cells) that has not answered yet.
+//   - waiting: its cache is still being prepared — a download in flight, one not started yet, or one that
+//     landed after the scan. A summary counted now would leave out whatever that source is about to find,
+//     and every later finding would then be sent one by one; so the capability waits for the next sweep,
+//     the one queued when the cache lands.
+//   - failed: the last attempt to download its cache failed. Waiting for a retry to succeed would hold the
+//     baseline, and with it every finding of the capability's languages from the sources that did answer,
+//     for as long as the feed stays down. The scan keeps its unauditable verdict, as any failed cell does.
+// A source whose feed is switched off is never downloading anything: its "not downloaded" verdict is final,
+// and it is neither.
+type CacheWait = { waiting: number; failed: number }
+
+function scansWaitingOnACache(capability: Capability, outcomes: readonly ProjectScanOutcome[], rebuilds: Pick<CacheRebuilds, 'failed'>): CacheWait {
+    const wait: CacheWait = { waiting: 0, failed: 0 }
+    for (const { scan } of outcomes) {
+        if (scan.status !== 'unauditable' || !isCacheNotReadyReason(scan.reasonCode)) continue
+        if (!(capability.ecosystems as string[]).includes(scan.ecosystem)) continue
+        // gemnasium's own cache, or the OSV cache of the ecosystem: OSV's scans and gemnasium's withdrawal
+        // evidence both read it.
+        const gemnasium = scan.reasonCode === 'gemnasium_db_not_seeded'
+        if (gemnasium ? gemnasiumFeedDisabled() : osvFeedDisabled()) continue
+        if (rebuilds.failed(gemnasium ? GEMNASIUM_CACHE : osvCache(scan.ecosystem))) wait.failed += 1
+        else wait.waiting += 1
+    }
+    return wait
+}
+
+function scans(n: number): string {
+    return n + ' scan' + (n === 1 ? '' : 's')
 }
 
 function sameCounts(a: BaselineCounts, b: BaselineCounts): boolean {
@@ -138,14 +158,18 @@ function sameCounts(a: BaselineCounts, b: BaselineCounts): boolean {
 // pending one the sweep answered for — a concurrent completion loses the claim — then dispatch whatever
 // summary is still owed, including retries of earlier failures. Only a sweep that processed every project
 // and was not aborted counts; an interrupted one leaves the baseline pending for the next. `outcomes` is
-// every scan the sweep made.
-export async function onCompletedSweep(db: DrizzleDb, outcomes: readonly ProjectScanOutcome[], options: { send?: DispatchSummariesInput['send']; capabilities?: readonly Capability[] } = {}): Promise<void> {
+// every scan the sweep made; `rebuilds` says which advisory caches failed to download.
+export async function onCompletedSweep(db: DrizzleDb, outcomes: readonly ProjectScanOutcome[], options: { rebuilds: Pick<CacheRebuilds, 'failed'>; send?: DispatchSummariesInput['send']; capabilities?: readonly Capability[] }): Promise<void> {
     const capabilities = options.capabilities ?? CAPABILITIES
-    const answered = capabilities.filter(function sweptFor(capability) {
-        const waiting = scansWaitingOnACache(capability, outcomes)
-        if (waiting === 0) return true
-        console.log('[baseline] ' + capability.id + ' stays pending: ' + waiting + ' scan' + (waiting === 1 ? '' : 's') + ' of its languages could not answer while an advisory cache was not ready')
-        return false
+    // Only a pending baseline has anything to wait for, or to say it waits for.
+    const answered = pendingBaselineCapabilities(db, capabilities).filter(function sweptFor(capability) {
+        const wait = scansWaitingOnACache(capability, outcomes, options.rebuilds)
+        if (wait.waiting > 0) {
+            console.log('[baseline] ' + capability.id + ' stays pending: ' + scans(wait.waiting) + ' of its languages could not answer while an advisory cache was not ready')
+            return false
+        }
+        if (wait.failed > 0) console.log('[baseline] ' + capability.id + ' completes without ' + scans(wait.failed) + ' whose advisory cache failed to download; they stay unauditable until a download succeeds')
+        return true
     })
     claimCompletedBaselines(db, answered, Date.now())
     await dispatchCapabilitySummaries({

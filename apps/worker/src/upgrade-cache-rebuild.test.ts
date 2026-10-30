@@ -27,6 +27,7 @@ import {
     setGemnasiumMeta,
     setOsvMeta,
     upsertGemnasiumAdvisories,
+    upsertOsvAdvisories,
     upsertRoot,
     type GemnasiumDrizzleDb,
     type OsvDrizzleDb,
@@ -67,6 +68,8 @@ const feeds = vi.hoisted(function makeFeeds() {
         gate,
         osv: new Map<string, Gate>(),
         gemnasium: gate(),
+        // When set, the gemnasium download fails the way the archive handler reports it (gemnasium-sync.ts).
+        gemnasiumFails: false,
         stampOsv: null as ((ecosystem: string) => void) | null,
         stampGemnasium: null as (() => void) | null
     }
@@ -89,6 +92,7 @@ vi.mock('./gemnasium-sync', function mockGemnasiumSync() {
     return {
         syncGemnasium: async function syncGemnasium() {
             await feeds.gemnasium.promise
+            if (feeds.gemnasiumFails) return { status: 'error', upserted: 0, recordCount: 0, message: 'gemnasium archive sync failed after 0 rows: HTTP 503' }
             feeds.stampGemnasium!()
             return { status: 'ok', upserted: 0, recordCount: 0, message: null }
         },
@@ -183,6 +187,7 @@ beforeEach(async function upgradedInstall() {
     transport.sent = []
     feeds.osv = new Map(LANGUAGES.map(function gateFor(e) { return [e, feeds.gate()] }))
     feeds.gemnasium = feeds.gate()
+    feeds.gemnasiumFails = false
     feeds.stampOsv = function current(ecosystem) { stampOsv(ecosystem, osvNormalizerVersion(ecosystem)) }
     feeds.stampGemnasium = function current() { stampGemnasium(GEMNASIUM_NORMALIZER_VERSION) }
     handle = await openWorkerTestDb('worker-upgrade-rebuild')
@@ -344,5 +349,66 @@ describe('the silent baseline across that upgrade', function () {
         // The npm finding by itself (npm is never held), the one summary, and no scan failure at all.
         expect(sentKinds().sort()).toEqual(['capability_summary', 'findings'])
         expect(scanFailureEvents()).toBe(0)
+    })
+})
+
+// SENTINEL-159, sent back by review: a feed that keeps failing must not hold the baseline, and with it every
+// finding of the capability's languages from the sources that answered, until a retry succeeds. OSV seeds and
+// finds a critical Django advisory; gemnasium's rebuild fails, and its retry is still downloading when the
+// sweep after it completes.
+describe('the silent baseline when a feed keeps failing', function () {
+    beforeEach(function upgradedFrom37() {
+        insertScan(handle.db, { id: 'old-scan', projectId: projectId('code', 'web'), startedAt: T0, finishedAt: T0, scanner: 'npm-audit', source: 'npm-audit', ecosystem: 'npm', status: 'ok', reasonCode: 'ok', durationMs: 1, errorText: null, rawJson: '{}' })
+        seedCapabilityBaselines(handle.db, CAPABILITIES, T0)
+        insertNotificationTarget(handle.db, {
+            id: 'ops', kind: 'webhook', config: { url: 'https://hooks.example.test/ops' }, severityFilter: ['critical'],
+            envFilter: 'all', enabled: true, createdAt: T0, rootIds: [], projectIds: [], sourceScope: { mode: 'all', cells: [] }
+        })
+        upsertOsvAdvisories(osv.db, [{
+            advisoryId: 'GHSA-0001', ecosystem: 'PyPI', packageName: 'django', aliases: [], versions: [],
+            ranges: [{ type: 'ECOSYSTEM', introduced: '0', fixed: '3.2.5', lastAffected: null }],
+            severity: 'critical', summary: 'Remote code execution in django', url: 'https://advisories.example.test/0001', malicious: false, withdrawn: null
+        } as never])
+        feeds.gemnasiumFails = true
+    })
+
+    it('summarizes the healthy source\'s critical finding without a successful retry, and alerts on what comes after', async function () {
+        boot()
+        feeds.osv.get('npm')!.open()
+        feeds.osv.get('PyPI')!.open()
+        feeds.gemnasium.open()
+        await flush()
+        expect(runtime.rebuilds.active()).toBe(false)
+        // A retry ("Refresh now", or the daily sync) is downloading again while the next sweep runs.
+        feeds.gemnasium = feeds.gate()
+        const retry = controllers.gemnasiumController.refresh()
+        await flush()
+        expect(runtime.rebuilds.active()).toBe(true)
+
+        await scheduledSweep()
+        expect(latestVerdicts()).toEqual([
+            'api gemnasium/PyPI unauditable:gemnasium_db_not_seeded',
+            'api osv/PyPI ok',
+            'web gemnasium/npm unauditable:gemnasium_db_not_seeded',
+            // 3.7.7's scan, from before the upgrade.
+            'web npm-audit/npm ok',
+            'web osv/npm ok'
+        ])
+        expect(getBaselineState(handle.db, 'languages-3.8')).toBe('done')
+        expect(listSummaryDeliveries(handle.db, 'languages-3.8')[0]?.counts).toEqual({ findings: 1, projects: 1, critical: 1, sourceDisabledProjects: 0 })
+        expect(sentKinds()).toEqual(['capability_summary'])
+        expect(scanFailureEvents()).toBe(0)
+
+        // From here on a Python finding is alerted on its own, the feed still down.
+        upsertOsvAdvisories(osv.db, [{
+            advisoryId: 'GHSA-0003', ecosystem: 'PyPI', packageName: 'django', aliases: [], versions: [],
+            ranges: [{ type: 'ECOSYSTEM', introduced: '0', fixed: '3.2.9', lastAffected: null }],
+            severity: 'critical', summary: 'Authentication bypass in django', url: 'https://advisories.example.test/0003', malicious: false, withdrawn: null
+        } as never])
+        await scheduledSweep()
+        expect(sentKinds()).toEqual(['capability_summary', 'findings'])
+
+        feeds.gemnasium.open()
+        await retry
     })
 })

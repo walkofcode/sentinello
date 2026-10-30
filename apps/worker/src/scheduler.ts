@@ -100,7 +100,7 @@ export async function sweepProjects(input: SweepInput, scanners: () => Promise<S
     if (projects.length === 0) {
         console.log('[scheduler] active sweep finished (0 projects, ' + formatDurationMs(Date.now() - startedAt) + ')')
         // Nothing to scan is a completed sweep: a baseline must not wait for projects that may never come.
-        await onCompletedSweep(input.db, [], { send: input.send })
+        await onCompletedSweep(input.db, [], { rebuilds: input.runtime.rebuilds, send: input.send })
         return
     }
     const parallelism = (getConfigValue<number>(input.db, CONFIG_KEYS.parallelism)) || DEFAULT_PARALLELISM
@@ -115,7 +115,7 @@ export async function sweepProjects(input: SweepInput, scanners: () => Promise<S
     })
     console.log('[scheduler] active sweep finished (' + projects.length + ' project' + (projects.length === 1 ? '' : 's') + ', ' + formatDurationMs(Date.now() - startedAt) + ')')
     // Resolution of runBatch is not proof the sweep completed: an abort returns early with projects left.
-    if (batch.completed) await onCompletedSweep(input.db, batch.outcomes, { send: input.send })
+    if (batch.completed) await onCompletedSweep(input.db, batch.outcomes, { rebuilds: input.runtime.rebuilds, send: input.send })
 }
 
 function logSweepError(kind: string, err: unknown): void {

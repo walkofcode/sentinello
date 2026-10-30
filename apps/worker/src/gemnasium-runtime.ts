@@ -25,7 +25,7 @@ import {
 export type { ScannerPlugin }
 import { gemnasiumFeedDisabled, syncGemnasium } from './gemnasium-sync'
 import type { WithdrawalEvidence } from './osv-runtime'
-import type { WorkerRuntime } from './runtime'
+import { GEMNASIUM_CACHE, type WorkerRuntime } from './runtime'
 
 // Owns the gemnasium cache connection + the gemnasium scanner instance + the periodic sync job. Opened
 // lazily so a worker with the source disabled never creates gemnasium.db or touches the network. The main
@@ -226,7 +226,7 @@ export async function runSync(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb
     const sync = syncGemnasium(gemnasiumDb, signal)
     // A rebuild for as long as the cache is unusable: from the start for a first seed or a normalizer
     // change, never for the daily refresh of a usable one. The poller holds full sweeps meanwhile.
-    runtime.rebuilds.track(sync, function rebuilding() { return !gemnasiumCacheUsable(gemnasiumDb) })
+    runtime.rebuilds.track(GEMNASIUM_CACHE, sync, function rebuilding() { return !gemnasiumCacheUsable(gemnasiumDb) })
     try {
         await sync
     } finally {

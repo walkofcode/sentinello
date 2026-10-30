@@ -21,6 +21,7 @@ import { closeWorkerTestDb, openWorkerTestDb, seedProject, T0, type WorkerTestDb
 import { senderFor } from '@sentinello/notifications'
 import { MAX_SUMMARY_ATTEMPTS, dispatchCapabilitySummaries, onCompletedSweep } from './capability-baseline'
 import type { ProjectScanOutcome } from './runner'
+import { GEMNASIUM_CACHE, createCacheRebuilds, osvCache, type CacheRebuilds } from './runtime'
 
 // The real senders POST over the network; the default path is proven against a recording stand-in.
 vi.mock('@sentinello/notifications', async function mockNotifications(importOriginal) {
@@ -38,6 +39,8 @@ const CAPABILITIES = [CAPABILITY]
 
 let handle: WorkerTestDb
 let sent: { targetId: string; message: RenderedMessage }[]
+// The worker's record of which advisory caches failed to download; empty unless a test fails one.
+let rebuilds: CacheRebuilds
 
 function target(id: string, overrides: Partial<NotificationTarget> = {}): NotificationTarget {
     const row: NotificationTarget = {
@@ -101,6 +104,7 @@ function dispatch(send: NotificationSender, dryRun = false): Promise<void> {
 
 beforeEach(async function setup() {
     sent = []
+    rebuilds = createCacheRebuilds()
     eventSeq = 0
     handle = await openWorkerTestDb('worker-baseline')
     upsertRoot(handle.db, { id: 'root-a', path: '/roots/a', label: null, createdAt: T0 })
@@ -148,7 +152,7 @@ describe('one summary per enabled target, under its own policy', function () {
         target('team-a', { rootIds: ['root-a'] })
         target('ruby-only', { sourceScope: { mode: 'selected', cells: [{ source: 'osv', ecosystem: 'RubyGems' }] } })
         target('switched-off', { enabled: false })
-        await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES })
+        await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
         const counts = Object.fromEntries(Array.from(deliveries(), function count([id, d]) { return [id, d.counts] }))
         expect(counts).toEqual({
             everything: { findings: 3, projects: 2, critical: 1, sourceDisabledProjects: 0 },
@@ -169,7 +173,7 @@ describe('one summary per enabled target, under its own policy', function () {
         target('prod-only', { envFilter: 'prod' })
         target('everything')
         insertMute(handle.db, { id: 'm1', scope: 'finding', projectId: 'p-b', scanner: 'osv', ecosystem: 'RubyGems', advisoryId: 'GHSA-3', packageName: 'rack', reason: 'accepted', author: 'ops', createdAt: T0, expiresAt: null })
-        await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES })
+        await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
         const counts = deliveries()
         expect(counts.get('critical-only')?.counts).toMatchObject({ findings: 1, critical: 1 })
         // No findings row backs these events, so none is prod: a prod-only target is told of none.
@@ -183,7 +187,7 @@ describe('one summary per enabled target, under its own policy', function () {
         setConfigValue(handle.db, 'sources.osv.RubyGems.enabled', false)
         target('everything')
         target('team-b', { rootIds: ['root-b'] })
-        await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES })
+        await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
         expect(deliveries().get('everything')?.counts).toEqual({ findings: 0, projects: 0, critical: 0, sourceDisabledProjects: 2 })
         expect(deliveries().get('team-b')?.counts).toEqual({ findings: 0, projects: 0, critical: 0, sourceDisabledProjects: 1 })
         expect(sent.find(function e(s) { return s.targetId === 'team-b' })?.message.text)
@@ -193,12 +197,12 @@ describe('one summary per enabled target, under its own policy', function () {
     it('sends through the sender of the target kind when none is injected', async function () {
         target('everything')
         vi.mocked(senderFor).mockReturnValue(recordingSender())
-        await onCompletedSweep(handle.db, [], { capabilities: CAPABILITIES })
+        await onCompletedSweep(handle.db, [], { capabilities: CAPABILITIES, rebuilds })
         expect(sent.map(function to(s) { return s.targetId })).toEqual(['everything'])
     })
 
     it('closes a baseline with no target at all', async function () {
-        await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES })
+        await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
         expect(sent).toEqual([])
         expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('done')
     })
@@ -207,11 +211,11 @@ describe('one summary per enabled target, under its own policy', function () {
         baselineEvent('p-a')
         target('everything')
         setConfigValue(handle.db, 'dryRunNotify', true)
-        await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES })
+        await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
         expect(sent).toEqual([])
         expect(deliveries().get('everything')?.dryRunAt).not.toBeNull()
         setConfigValue(handle.db, 'dryRunNotify', false)
-        await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES })
+        await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
         expect(sent).toEqual([])
         expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('done')
     })
@@ -230,13 +234,13 @@ describe('retries', function () {
         target('slack')
         target('hook')
         const first = recordingSender([{ ok: false, errorText: 'channel down' }])
-        await onCompletedSweep(handle.db, [], { send: first, capabilities: CAPABILITIES })
+        await onCompletedSweep(handle.db, [], { send: first, capabilities: CAPABILITIES, rebuilds })
         const failed = sent[0]?.targetId as string
         const delivered = sent[1]?.targetId as string
         expect(deliveries().get(failed)).toMatchObject({ attempts: 1, lastErrorText: 'channel down', firstSucceededAt: null })
         expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('swept')
         sent = []
-        await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES })
+        await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
         expect(sent.map(function to(s) { return s.targetId })).toEqual([failed])
         expect(deliveries().get(delivered)?.attempts).toBe(1)
         expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('done')
@@ -246,7 +250,7 @@ describe('retries', function () {
         baselineEvent('p-a')
         target('hook')
         const down = { ok: false as const, errorText: 'still down' }
-        for (let n = 0; n < MAX_SUMMARY_ATTEMPTS + 2; n++) await onCompletedSweep(handle.db, [], { send: recordingSender([down]), capabilities: CAPABILITIES })
+        for (let n = 0; n < MAX_SUMMARY_ATTEMPTS + 2; n++) await onCompletedSweep(handle.db, [], { send: recordingSender([down]), capabilities: CAPABILITIES, rebuilds })
         expect(sent).toHaveLength(MAX_SUMMARY_ATTEMPTS)
         expect(deliveries().get('hook')?.gaveUpAt).not.toBeNull()
         expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('done')
@@ -258,15 +262,15 @@ describe('retries', function () {
             baselineEvent('p-a', 'critical', 'PyPI', 'django')
             baselineEvent('p-b', 'high', 'RubyGems', 'rack')
             target('hook')
-            await onCompletedSweep(handle.db, [], { send: recordingSender([{ ok: false, errorText: 'down' }]), capabilities: CAPABILITIES })
+            await onCompletedSweep(handle.db, [], { send: recordingSender([{ ok: false, errorText: 'down' }]), capabilities: CAPABILITIES, rebuilds })
             sent = []
         })
 
         it('makes zero sender calls once the target is disabled, and records why', async function () {
             setNotificationTargetEnabled(handle.db, 'hook', false)
-            await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES })
+            await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
             setNotificationTargetEnabled(handle.db, 'hook', true)
-            await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES })
+            await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
             expect(sent).toEqual([])
             expect(deliveries().get('hook')?.suppressedReason).toBe('target_disabled')
             expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('done')
@@ -274,21 +278,21 @@ describe('retries', function () {
 
         it('makes zero sender calls once its root scope is restricted', async function () {
             setTargetRoots(handle.db, 'hook', ['root-a'])
-            await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES })
+            await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
             expect(sent).toEqual([])
             expect(deliveries().get('hook')?.suppressedReason).toBe('policy_changed')
         })
 
         it('makes zero sender calls once a counted finding is muted', async function () {
             insertMute(handle.db, { id: 'm1', scope: 'finding', projectId: 'p-a', scanner: 'osv', ecosystem: 'PyPI', advisoryId: 'GHSA-1', packageName: 'django', reason: 'accepted', author: 'ops', createdAt: T0, expiresAt: null })
-            await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES })
+            await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
             expect(sent).toEqual([])
             expect(deliveries().get('hook')?.suppressedReason).toBe('eligibility_changed')
         })
 
         it('still retries and succeeds after a mute that touches nothing it counted', async function () {
             insertMute(handle.db, { id: 'm1', scope: 'finding', projectId: 'p-a', scanner: 'osv', ecosystem: 'npm', advisoryId: 'GHSA-1', packageName: 'django', reason: 'accepted', author: 'ops', createdAt: T0, expiresAt: null })
-            await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES })
+            await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
             expect(sent).toHaveLength(1)
             expect(deliveries().get('hook')).toMatchObject({ suppressedAt: null, attempts: 2 })
             expect(deliveries().get('hook')?.firstSucceededAt).not.toBeNull()
@@ -316,7 +320,7 @@ describe('a sweep in which a cache was not ready', function () {
     it('leaves the baseline pending when a source could not answer for one of its languages', async function () {
         baselineEvent('p-a')
         target('everything')
-        await onCompletedSweep(handle.db, [outcome('osv', 'PyPI', 'ok', 'ok'), outcome('gemnasium', 'PyPI', 'unauditable', 'osv_db_not_seeded')], { send: recordingSender(), capabilities: CAPABILITIES })
+        await onCompletedSweep(handle.db, [outcome('osv', 'PyPI', 'ok', 'ok'), outcome('gemnasium', 'PyPI', 'unauditable', 'osv_db_not_seeded')], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
         expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('pending')
         expect(sent).toEqual([])
         expect(listSummaryDeliveries(handle.db, CAPABILITY.id)).toEqual([])
@@ -327,7 +331,7 @@ describe('a sweep in which a cache was not ready', function () {
     it('counts the gemnasium cache not downloaded yet the same way', async function () {
         target('everything')
         const notReady = [outcome('gemnasium', 'RubyGems', 'unauditable', 'gemnasium_db_not_seeded'), outcome('gemnasium', 'PyPI', 'unauditable', 'gemnasium_db_not_seeded')]
-        await onCompletedSweep(handle.db, notReady, { send: recordingSender(), capabilities: CAPABILITIES })
+        await onCompletedSweep(handle.db, notReady, { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
         expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('pending')
         expect(vi.mocked(console.log).mock.calls.map(function first(c) { return String(c[0]) }))
             .toContain('[baseline] languages-3.8 stays pending: 2 scans of its languages could not answer while an advisory cache was not ready')
@@ -336,8 +340,8 @@ describe('a sweep in which a cache was not ready', function () {
     it('closes it on the next sweep, once every source answered', async function () {
         baselineEvent('p-a')
         target('everything')
-        await onCompletedSweep(handle.db, [outcome('osv', 'PyPI', 'unauditable', 'osv_db_not_seeded')], { send: recordingSender(), capabilities: CAPABILITIES })
-        await onCompletedSweep(handle.db, [outcome('osv', 'PyPI', 'ok', 'ok')], { send: recordingSender(), capabilities: CAPABILITIES })
+        await onCompletedSweep(handle.db, [outcome('osv', 'PyPI', 'unauditable', 'osv_db_not_seeded')], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
+        await onCompletedSweep(handle.db, [outcome('osv', 'PyPI', 'ok', 'ok')], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
         expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('done')
         expect(sent).toHaveLength(1)
         expect(sent[0]?.message.text).toBe('Sentinello 3.8 now checks Python/Go/Rust/Ruby: 1 finding across 1 project, 0 critical')
@@ -346,7 +350,7 @@ describe('a sweep in which a cache was not ready', function () {
     // npm is no language of the capability: its cache rebuilding says nothing about what the summary counts.
     it('closes it when only another language waited on a cache', async function () {
         target('everything')
-        await onCompletedSweep(handle.db, [outcome('osv', 'npm', 'unauditable', 'osv_db_not_seeded'), outcome('osv', 'PyPI', 'ok', 'ok')], { send: recordingSender(), capabilities: CAPABILITIES })
+        await onCompletedSweep(handle.db, [outcome('osv', 'npm', 'unauditable', 'osv_db_not_seeded'), outcome('osv', 'PyPI', 'ok', 'ok')], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
         expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('done')
     })
 
@@ -354,7 +358,7 @@ describe('a sweep in which a cache was not ready', function () {
     // would hold the baseline until someone fixes it.
     it('closes it on a failure that is not a cache getting ready', async function () {
         target('everything')
-        await onCompletedSweep(handle.db, [outcome('osv', 'PyPI', 'unauditable', 'no_lockfile'), outcome('gemnasium', 'PyPI', 'unauditable', 'gemnasium_db_unavailable')], { send: recordingSender(), capabilities: CAPABILITIES })
+        await onCompletedSweep(handle.db, [outcome('osv', 'PyPI', 'unauditable', 'no_lockfile'), outcome('gemnasium', 'PyPI', 'unauditable', 'gemnasium_db_unavailable')], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
         expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('done')
     })
 
@@ -364,15 +368,78 @@ describe('a sweep in which a cache was not ready', function () {
         vi.stubEnv('SENTINELLO_OSV_FEED_URL', 'off')
         vi.stubEnv('SENTINELLO_GEMNASIUM_FEED_URL', 'off')
         const final = [outcome('osv', 'PyPI', 'unauditable', 'osv_db_not_seeded'), outcome('gemnasium', 'RubyGems', 'unauditable', 'gemnasium_db_not_seeded')]
-        await onCompletedSweep(handle.db, final, { send: recordingSender(), capabilities: CAPABILITIES })
+        await onCompletedSweep(handle.db, final, { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
         expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('done')
     })
 
     it('still holds a gemnasium cell whose own feed is on while only the OSV feed is off', async function () {
         target('everything')
         vi.stubEnv('SENTINELLO_OSV_FEED_URL', 'off')
-        await onCompletedSweep(handle.db, [outcome('gemnasium', 'Go', 'unauditable', 'gemnasium_db_not_seeded')], { send: recordingSender(), capabilities: CAPABILITIES })
+        await onCompletedSweep(handle.db, [outcome('gemnasium', 'Go', 'unauditable', 'gemnasium_db_not_seeded')], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
         expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('pending')
+    })
+
+    // SENTINEL-159, sent back: a feed that keeps failing must not silence the capability for good. A failed
+    // attempt is settled: it ends with the cache still unusable.
+    function failDownload(cache: string): Promise<void> {
+        rebuilds.track(cache, Promise.resolve(), function unusable() { return true })
+        return Promise.resolve().then(function settled() {})
+    }
+
+    it('completes it once the download the scans waited on has failed, counting what the sources that answered found', async function () {
+        baselineEvent('p-a', 'critical')
+        target('everything')
+        await failDownload(GEMNASIUM_CACHE)
+        await onCompletedSweep(handle.db, [outcome('osv', 'PyPI', 'ok', 'ok'), outcome('gemnasium', 'PyPI', 'unauditable', 'gemnasium_db_not_seeded')], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
+        expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('done')
+        expect(sent.map(function text(s) { return s.message.text })).toEqual(['Sentinello 3.8 now checks Python/Go/Rust/Ruby: 1 finding across 1 project, 1 critical'])
+        expect(vi.mocked(console.log).mock.calls.map(function first(c) { return String(c[0]) }))
+            .toContain('[baseline] languages-3.8 completes without 1 scan whose advisory cache failed to download; they stay unauditable until a download succeeds')
+    })
+
+    it('reads a failed OSV download per ecosystem, for gemnasium\'s withdrawal evidence too', async function () {
+        target('everything')
+        await failDownload(osvCache('PyPI'))
+        await onCompletedSweep(handle.db, [outcome('osv', 'Go', 'unauditable', 'osv_db_not_seeded')], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
+        expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('pending')
+        await onCompletedSweep(handle.db, [outcome('osv', 'PyPI', 'unauditable', 'osv_db_not_seeded'), outcome('gemnasium', 'PyPI', 'unauditable', 'osv_db_not_seeded')], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
+        expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('done')
+    })
+
+    it('still waits on a cache still on its way when another one failed', async function () {
+        target('everything')
+        await failDownload(GEMNASIUM_CACHE)
+        await onCompletedSweep(handle.db, [outcome('gemnasium', 'PyPI', 'unauditable', 'gemnasium_db_not_seeded'), outcome('osv', 'PyPI', 'unauditable', 'osv_db_not_seeded')], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
+        expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('pending')
+    })
+
+    // A retry in flight is not progress the baseline waits for: retrying could otherwise extend the wait forever.
+    it('stays released while a retry of the failed download is in flight, and waits again once one succeeded', async function () {
+        target('everything')
+        let usable = false
+        await failDownload(GEMNASIUM_CACHE)
+        let land!: () => void
+        const retry = new Promise<void>(function executor(resolve) { land = resolve })
+        rebuilds.track(GEMNASIUM_CACHE, retry, function unusable() { return !usable })
+        expect(rebuilds.failed(GEMNASIUM_CACHE)).toBe(true)
+        usable = true
+        land()
+        await retry
+        await Promise.resolve()
+        expect(rebuilds.failed(GEMNASIUM_CACHE)).toBe(false)
+        // The cache landed after this sweep's scans: the re-scan it queued is the one that answers.
+        await onCompletedSweep(handle.db, [outcome('gemnasium', 'PyPI', 'unauditable', 'gemnasium_db_not_seeded')], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
+        expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('pending')
+    })
+
+    // Only a pending baseline waits, or says it does.
+    it('says nothing about a baseline that is already done', async function () {
+        target('everything')
+        await onCompletedSweep(handle.db, [], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
+        vi.mocked(console.log).mockClear()
+        await onCompletedSweep(handle.db, [outcome('osv', 'PyPI', 'unauditable', 'osv_db_not_seeded')], { send: recordingSender(), capabilities: CAPABILITIES, rebuilds })
+        expect(getBaselineState(handle.db, CAPABILITY.id)).toBe('done')
+        expect(vi.mocked(console.log).mock.calls.map(function first(c) { return String(c[0]) }).filter(function about(line) { return line.includes('languages-3.8') })).toEqual([])
     })
 })
 
