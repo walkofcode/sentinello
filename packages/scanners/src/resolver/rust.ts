@@ -1,5 +1,5 @@
 import { readdir, readFile } from 'node:fs/promises'
-import { dirname, join, relative, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { graphFromLock } from './graph'
 import { isInsideProject } from './paths'
 import { parseArrayOfTables, parseTomlDocument, tomlArray, tomlString, tomlTable, type TomlTable } from './toml-lite'
@@ -157,13 +157,17 @@ type CargoManifest = {
     // Every dependency it pulls in by `path` (absolute), with its crate name (a `package = "…"` rename wins),
     // from its dependency tables, `[workspace.dependencies]`, `[patch.*]` and `[replace]`.
     pathDependencies: Array<{ name: string; path: string }>
-    // Its `[workspace]` table, when it is a workspace root.
-    workspace: TomlTable | null
+    // Its `[workspace]`, when it is a workspace root.
+    workspace: WorkspaceRoot | null
 }
 
-// The workspace a manifest's `workspace = true` declarations inherit from: its root directory, which inherited
-// paths are relative to, and that root's `[workspace.dependencies]`.
-type Owner = { dir: string; dependencies: TomlTable }
+// A manifest's workspace configuration, as Cargo's `WorkspaceConfig` reads it: a root, from its `[workspace]`
+// table, or a member that may name its root's directory with `package.workspace`.
+type WorkspaceConfig = WorkspaceRoot | { kind: 'member'; pointer: string | null }
+
+// Cargo's `WorkspaceRootConfig`: the root's directory (which inherited paths are relative to), its raw
+// `members` and `exclude` entries, and the `[workspace.dependencies]` its members inherit.
+type WorkspaceRoot = { kind: 'root'; rootDir: string; members: string[]; exclude: string[]; dependencies: TomlTable }
 
 // Parsed Cargo.toml documents by directory, each read once however many manifests look it up.
 type ManifestLoader = (dir: string) => Promise<TomlTable | null>
@@ -192,7 +196,7 @@ async function readWorkspace(projectPath: string, lockDir: string): Promise<Work
         if (manifest === null) continue
         if (seen.size === 1) {
             root = manifest
-            if (manifest.workspace !== null) queue.push(...await expandMembers(projectPath, dir, manifest.workspace))
+            if (manifest.workspace !== null) queue.push(...await expandMembers(projectPath, manifest.workspace))
         }
         if (manifest.name !== null) own.set(manifest.name, mergeManifests(own.get(manifest.name), manifest))
         for (const dep of manifest.pathDependencies) {
@@ -226,10 +230,10 @@ function manifestLoader(): ManifestLoader {
 // The directories `[workspace] members` names, read relative to the workspace root. A segment may be a
 // glob of `*` and `?` (Cargo's `crates/*`); `exclude` removes paths. A member the patterns do not reach
 // (Cargo's `**`, character classes) is simply not found, and its crate is then not assumed to be own code.
-async function expandMembers(projectPath: string, rootDir: string, workspace: TomlTable): Promise<string[]> {
+async function expandMembers(projectPath: string, root: WorkspaceRoot): Promise<string[]> {
     const out: string[] = []
-    for (const pattern of tomlArray(workspace.members).flatMap(asString)) {
-        let dirs = [rootDir]
+    for (const pattern of root.members) {
+        let dirs = [root.rootDir]
         for (const segment of pattern.split('/').filter(function nonEmpty(s) { return s.length > 0 && s !== '.' })) {
             if (!/[*?]/.test(segment)) {
                 dirs = dirs.map(function into(dir) { return join(dir, segment) })
@@ -242,46 +246,93 @@ async function expandMembers(projectPath: string, rootDir: string, workspace: To
         }
         for (const dir of dirs) {
             const absolute = resolve(dir)
-            if (!excludes(rootDir, workspace, absolute) && isInsideProject(projectPath, rootDir, absolute)) out.push(absolute)
+            if (!isExcluded(root, join(absolute, 'Cargo.toml')) && isInsideProject(projectPath, root.rootDir, absolute)) out.push(absolute)
         }
     }
     return out
 }
 
-// Cargo's exclusion rule: a directory at or under an `exclude` path is out of the workspace unless a
-// `members` entry names it exactly.
-function excludes(rootDir: string, workspace: TomlTable, dir: string): boolean {
-    function paths(key: string): string[] {
-        return tomlArray(workspace[key]).flatMap(asString).map(function abs(path) { return resolve(rootDir, path) })
+// The lookups below are Cargo's own, from src/cargo/core/workspace.rs and src/cargo/util/toml/mod.rs
+// (https://rust.googlesource.com/cargo/+/f8984e1169dc670fd1c002d68c8c5efee63ff514), with the branches left
+// out recorded in the plan's decisions (#34). Only manifests inside the project are read: a root Cargo would
+// find above it, or one a pointer names outside it, is no owner.
+
+// `to_workspace_config`. A manifest with both a `[workspace]` and a `package.workspace` is one Cargo refuses
+// outright; it is read as the root it declares.
+function workspaceConfig(dir: string, doc: TomlTable): WorkspaceConfig {
+    const workspace = tomlTable(doc.workspace)
+    if (workspace === null) return { kind: 'member', pointer: tomlString(tomlTable(doc.package)?.workspace) }
+    return {
+        kind: 'root',
+        rootDir: dir,
+        members: tomlArray(workspace.members).flatMap(asString),
+        exclude: tomlArray(workspace.exclude).flatMap(asString),
+        dependencies: tomlTable(workspace.dependencies) ?? {}
     }
-    const excluded = paths('exclude').some(function holds(path) { return dir === path || dir.startsWith(path + sep) })
-    return excluded && !paths('members').includes(dir)
 }
 
-// Cargo's lookup of a manifest's workspace root (https://doc.rust-lang.org/cargo/reference/manifest.html#the-
-// workspace-field): the manifest itself when it has a `[workspace]` table, the directory `package.workspace`
-// names, or else the nearest ancestor with a `[workspace]` that does not exclude it. Only manifests inside the
-// project are read, so a root Cargo would find above it, or a `package.workspace` that leaves it or names no
-// workspace, is no owner: null, and the manifest's inherited declarations resolve to nothing.
-async function owningWorkspace(projectPath: string, dir: string, doc: TomlTable, load: ManifestLoader): Promise<Owner | null> {
-    const own = tomlTable(doc.workspace)
-    if (own !== null) return ownerAt(dir, own)
-    const pointer = tomlString(tomlTable(doc.package)?.workspace)
-    if (pointer !== null) {
-        const rootDir = resolve(dir, pointer)
-        const root = isInsideProject(projectPath, dir, pointer) ? tomlTable((await load(rootDir))?.workspace) : null
-        return root === null ? null : ownerAt(rootDir, root)
+// `WorkspaceRootConfig::is_excluded`: a manifest at or under an `exclude` entry is out of the workspace unless
+// it is at or under a raw (unexpanded) `members` entry too.
+function isExcluded(root: WorkspaceRoot, manifestPath: string): boolean {
+    const path = pathComponents(manifestPath, sep)
+    function holds(entry: string): boolean {
+        const base = isAbsolute(entry) ? pathComponents(entry, '/') : [...pathComponents(root.rootDir, sep), ...pathComponents(entry, '/')]
+        return base.every(function same(component, i) { return path[i] === component })
     }
-    for (let ancestor = dir; isInsideProject(projectPath, ancestor, '..');) {
+    return !root.members.some(holds) && root.exclude.some(holds)
+}
+
+// A path's components as Rust's `Path` sees them for `join` and `starts_with`: `.` and empty components drop
+// out, `..` stays a component and is never resolved, so an entry that climbs out of the root (`../ws/vendor`)
+// is a prefix of no normalized manifest path, in Cargo as here.
+function pathComponents(path: string, separator: string): string[] {
+    return path.split(separator).filter(function kept(component) { return component !== '' && component !== '.' })
+}
+
+// `WorkspaceConfig::get_ws_root`: the root manifest a configuration at `selfPath` names on behalf of the
+// manifest at `lookFrom` — itself when it is a root that does not exclude `lookFrom`, its pointer's target, or
+// nothing.
+function wsRootOf(config: WorkspaceConfig, selfPath: string, lookFrom: string): string | null {
+    if (config.kind === 'root') return isExcluded(config, lookFrom) ? null : selfPath
+    return config.pointer === null ? null : readRootPointer(selfPath, config.pointer)
+}
+
+// `read_root_pointer`: `package.workspace` is read relative to the manifest that writes it.
+function readRootPointer(memberManifest: string, rootLink: string): string {
+    return join(resolve(dirname(memberManifest), rootLink), 'Cargo.toml')
+}
+
+// `load_inheritable_fields`: the workspace a manifest's `workspace = true` declarations inherit from — its own
+// `[workspace]`, else the root its `package.workspace` names, else the one `find_workspace_root` finds.
+async function owningWorkspace(projectPath: string, dir: string, config: WorkspaceConfig, load: ManifestLoader): Promise<WorkspaceRoot | null> {
+    if (config.kind === 'root') return config
+    const manifestPath = join(dir, 'Cargo.toml')
+    const rootManifest = config.pointer === null ? await findWorkspaceRoot(projectPath, manifestPath, load) : readRootPointer(manifestPath, config.pointer)
+    return rootManifest === null ? null : await inheritableFrom(projectPath, rootManifest, load)
+}
+
+// `find_workspace_root_with_loader` over `find_root_iter`: the ancestors of the manifest's directory, nearest
+// first, that hold a Cargo.toml, each asked `get_ws_root` on the manifest's behalf — so an ancestor root that
+// excludes it is passed over and an ancestor's `package.workspace` pointer is followed. The walk stops at a
+// `target/package` directory, where `cargo package` unpacks a crate to verify it.
+async function findWorkspaceRoot(projectPath: string, manifestPath: string, load: ManifestLoader): Promise<string | null> {
+    for (let ancestor = dirname(manifestPath); isInsideProject(projectPath, ancestor, '..');) {
         ancestor = dirname(ancestor)
-        const root = tomlTable((await load(ancestor))?.workspace)
-        if (root !== null && !excludes(ancestor, root, dir)) return ownerAt(ancestor, root)
+        if (pathComponents(ancestor, sep).slice(-2).join('/') === 'target/package') return null
+        const doc = await load(ancestor)
+        const root = doc === null ? null : wsRootOf(workspaceConfig(ancestor, doc), join(ancestor, 'Cargo.toml'), manifestPath)
+        if (root !== null) return root
     }
     return null
 }
 
-function ownerAt(dir: string, workspace: TomlTable): Owner {
-    return { dir, dependencies: tomlTable(workspace.dependencies) ?? {} }
+// `inheritable_from_path`: the manifest a lookup lands on must be a workspace root; Cargo stops with "root of a
+// workspace inferred but wasn't a root" otherwise.
+async function inheritableFrom(projectPath: string, rootManifest: string, load: ManifestLoader): Promise<WorkspaceRoot | null> {
+    const rootDir = dirname(rootManifest)
+    if (!isInsideProject(projectPath, rootDir, '.')) return null
+    const config = workspaceConfig(rootDir, await load(rootDir) ?? {})
+    return config.kind === 'root' ? config : null
 }
 
 async function subdirectories(dir: string, matcher: RegExp): Promise<string[]> {
@@ -302,8 +353,9 @@ async function subdirectories(dir: string, matcher: RegExp): Promise<string[]> {
 async function readCargoManifest(projectPath: string, dir: string, load: ManifestLoader): Promise<CargoManifest | null> {
     const doc = await load(dir)
     if (doc === null) return null
-    const workspace = tomlTable(doc.workspace)
-    const owner = await owningWorkspace(projectPath, dir, doc, load)
+    const config = workspaceConfig(dir, doc)
+    const workspace = config.kind === 'root' ? config : null
+    const owner = await owningWorkspace(projectPath, dir, config, load)
     const pathDependencies: Array<{ name: string; path: string }> = []
     function recordPath(name: string | null, spec: TomlTable | null, from = dir): void {
         const path = tomlString(spec?.path)
@@ -325,11 +377,11 @@ async function readCargoManifest(projectPath: string, dir: string, load: Manifes
             if (from !== null) {
                 const base = tomlTable(from.dependencies[key])
                 into.add(crateName(key, base))
-                recordPath(crateName(key, base), base, from.dir)
+                recordPath(crateName(key, base), base, from.rootDir)
             } else if (scope === 'prod') unresolvedProd = true
         }
     }
-    for (const [key, value] of Object.entries(tomlTable(workspace?.dependencies) ?? {})) recordPath(crateName(key, tomlTable(value)), tomlTable(value))
+    for (const [key, value] of Object.entries(workspace?.dependencies ?? {})) recordPath(crateName(key, tomlTable(value)), tomlTable(value))
     for (const patches of Object.values(tomlTable(doc.patch) ?? {})) {
         for (const [key, value] of Object.entries(tomlTable(patches) ?? {})) recordPath(crateName(key, tomlTable(value)), tomlTable(value))
     }

@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { parseCargoLock } from './rust'
 import type { ResolverResult } from './types'
@@ -611,5 +611,72 @@ describe('parseCargoLock — inherited declarations resolve against their own wo
         if (result.status === 'unauditable') throw new Error('expected a graph')
         expect(result.graph.classify('bytes', '1.6.0')).toMatchObject({ isProd: false, isDev: true })
         expect(result.graph.classify('tokio', '1.38.0')).toMatchObject({ isProd: true, isDev: false })
+    })
+})
+
+// SENTINEL-129, fourth round: the owner lookup is Cargo's own (load_inheritable_fields over
+// find_workspace_root_with_loader, get_ws_root and WorkspaceRootConfig::is_excluded), so a manifest no exact rule
+// names still lands on the workspace Cargo would read it against.
+describe('parseCargoLock — the owner lookup Cargo performs', function () {
+    const HELPER = '[package]\nname = "helper"\nversion = "0.1.0"\n\n[dev-dependencies]\nbytes.workspace = true\n'
+    const LOCK = crate('app', '0.1.0', null, ['helper']) + crate('helper', '0.1.0', null, ['bytes']) + entry('bytes', '1.6.0')
+
+    async function bytesAt(lockDir = '.'): Promise<unknown> {
+        const path = join(dir, lockDir, 'Cargo.lock')
+        await writeFile(path, LOCK, 'utf8')
+        const result = await parseCargoLock(dir, path, 'Cargo.lock')
+        if (result.status === 'unauditable') throw new Error('expected a graph')
+        return result.graph.classify('bytes', '1.6.0')
+    }
+
+    // The reviewer's first reproduction: a `members` entry exempts everything under it from an `exclude`, as a
+    // path prefix, so helper below the explicitly listed vendor/app inherits from the outer workspace.
+    it('keeps a descendant of an explicitly listed member in the workspace despite an exclude around it', async function () {
+        await writeToml('[workspace]\nmembers = ["vendor/app"]\nexclude = ["vendor"]\n\n[workspace.dependencies]\nbytes = "1"\n')
+        await writeToml('[package]\nname = "app"\nversion = "0.1.0"\n\n[dependencies]\nhelper = { path = "helper" }\n', 'vendor/app')
+        await writeToml(HELPER, 'vendor/app/helper')
+        expect(await bytesAt()).toMatchObject({ isProd: false, isDev: true })
+    })
+
+    // The reviewer's second reproduction: an ancestor's `package.workspace` pointer is followed, relative to that
+    // ancestor, so helper inherits through app's pointer to the sibling tools workspace.
+    it('follows an ancestor package.workspace pointer to its workspace', async function () {
+        await writeToml('[workspace]\nmembers = ["../app"]\n\n[workspace.dependencies]\nbytes = "1"\n', 'tools')
+        await writeToml('[package]\nname = "app"\nversion = "0.1.0"\nworkspace = "../tools"\n\n[dependencies]\nhelper = { path = "helper" }\n', 'app')
+        await writeToml(HELPER, 'app/helper')
+        expect(await bytesAt('tools')).toMatchObject({ isProd: false, isDev: true })
+    })
+
+    // A pointer that leaves the project, or lands on no workspace, is no owner, wherever the walk meets it.
+    it.each(['../../../elsewhere', '../missing', '../other'])('claims nothing from an ancestor package.workspace of %j', async function (pointer) {
+        await writeToml('[workspace]\nmembers = ["app"]\n\n[workspace.dependencies]\nbytes = "1"\n')
+        await writeToml('[package]\nname = "other"\n', 'other')
+        await writeToml('[package]\nname = "app"\nversion = "0.1.0"\nworkspace = "' + pointer + '"\n\n[dependencies]\nhelper = { path = "helper" }\n', 'app')
+        await writeToml(HELPER, 'app/helper')
+        expect(await bytesAt()).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    // Path::join and Path::starts_with: `.` components and trailing slashes do not matter and an absolute entry
+    // stands alone, but `..` is a component that is never resolved, so an entry climbing out of the root matches
+    // no manifest at all.
+    it.each([
+        ['vendor', true],
+        ['./vendor/', true],
+        ['__ABSOLUTE__/vendor', true],
+        ['../__BASE__/vendor', false]
+    ])('reads exclude = [%j] as Cargo does', async function (exclude, excluded) {
+        const spelled = exclude.replace('__ABSOLUTE__', dir).replace('__BASE__', basename(dir))
+        await writeToml('[package]\nname = "app"\nversion = "0.1.0"\n\n[workspace]\nexclude = ["' + spelled + '"]\n\n[workspace.dependencies]\nbytes = "1"\n\n[dependencies]\nhelper = { path = "vendor/helper" }\n')
+        await writeToml(HELPER, 'vendor/helper')
+        expect(await bytesAt()).toMatchObject({ isProd: excluded, isDev: !excluded })
+    })
+
+    // find_root_iter stops at `target/package`, where `cargo package` unpacks a crate to verify it: such a crate
+    // is never read against the workspace around the target directory.
+    it('does not look for a workspace above target/package', async function () {
+        await writeToml('[workspace]\n\n[workspace.dependencies]\nbytes = "1"\n')
+        await writeToml('[package]\nname = "app"\nversion = "0.1.0"\n\n[dependencies]\nhelper = { path = "helper" }\n', 'target/package/app-0.1.0')
+        await writeToml(HELPER, 'target/package/app-0.1.0/helper')
+        expect(await bytesAt('target/package/app-0.1.0')).toMatchObject({ isProd: true, isDev: false })
     })
 })
