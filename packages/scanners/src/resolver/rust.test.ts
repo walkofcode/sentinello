@@ -506,11 +506,110 @@ describe('parseCargoLock — dependency spellings and inherited declarations', f
     })
 
     // A `[replace]` key is a package id spec (`name:version`, `name@version`, `<source>#name@version`), not a name.
-    it.each(['foo:0.1.0', 'foo@0.1.0', 'https://github.com/rust-lang/crates.io-index#foo@0.1.0', 'https://example.test/foo#0.1.0', 'https://example.test/foo'])('reads the crate a [replace] key %j names', async function (key) {
+    it.each(['foo:0.1.0', 'foo@0.1.0', 'https://github.com/rust-lang/crates.io-index#foo@0.1.0', 'https://example.test/foo#0.1.0'])('reads the crate a [replace] key %j names', async function (key) {
         await writeToml('[package]\nname = "root"\n\n[workspace]\nmembers = ["foo"]\n\n[replace]\n"' + key + '" = { path = "../outside-foo" }\n')
         await writeToml('[package]\nname = "foo"\n', 'foo')
         const lock = crate('root', '0.1.0', null, ['foo']) + crate('foo', '0.1.0', null, []) + entry('anyhow', '1.0.86')
         const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
         expect(result.status === 'partial' && result.details).toEqual(['1 crates from git, local path or other registry sources cannot be audited: foo (path)'])
+    })
+})
+
+// SENTINEL-135: a source URL in a package id spec may carry a `?branch=…`/`?tag=…`/`?rev=…` query before a
+// version-only fragment, and the query may hold a `/`. The crate is the URL's last PATH segment.
+describe('parseCargoLock — [replace] source URLs with a query', function () {
+    it.each([
+        'git+https://example.test/foo?branch=main#0.1.0',
+        'git+https://example.test/foo?branch=feature/topic#0.1.0',
+        'https://example.test/group/foo?rev=0a1b2c#0.1.0',
+        'git+https://example.test/foo/?tag=v0.1.0#0.1.0'
+    ])('records an outside replacement from %j under the crate it names', async function (key) {
+        await writeToml('[package]\nname = "root"\nversion = "0.1.0"\n\n[workspace]\nmembers = ["local-foo"]\n\n[dependencies]\nfoo = { git = "https://example.test/foo" }\n\n[replace]\n"' + key + '" = { path = "../outside-foo" }\n')
+        // An in-project crate of the same name, at another version: name alone would call the replacement own.
+        await writeToml('[package]\nname = "foo"\nversion = "0.2.0"\n', 'local-foo')
+        const lock = crate('root', '0.1.0', null, ['foo 0.1.0', 'anyhow']) + crate('foo', '0.1.0', null, []) + crate('foo', '0.2.0', null, []) + entry('anyhow', '1.0.86')
+        const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
+        expect(result.status).toBe('partial')
+        expect(result.status === 'partial' && result.details.join(' ')).toContain('foo (path)')
+    })
+
+    // A URL that does not parse, or has no path to name a crate, names none (Cargo rejects both).
+    it.each(['https://#0.1.0', 'git+https://example.test#0.1.0'])('records no crate for the [replace] key %j', async function (key) {
+        await writeToml('[package]\nname = "root"\n\n[replace]\n"' + key + '" = { path = "../outside" }\n')
+        const result = await parseCargoLock(dir, await writeLock(crate('root', '0.1.0', null, ['anyhow']) + entry('anyhow', '1.0.86')), 'Cargo.lock')
+        expect(result.status).toBe('ok')
+    })
+})
+
+// SENTINEL-129, third round: `workspace = true` inherits from the workspace that OWNS the manifest, which is
+// not always the one beside Cargo.lock. A path dependency can be its own workspace root, point at another one
+// with `package.workspace`, or be excluded from the outer workspace and owned by a nearer ancestor.
+describe('parseCargoLock — inherited declarations resolve against their own workspace', function () {
+    // The outer workspace renames `bytes` to tokio; the helper's own workspace does not.
+    const OUTER = '[package]\nname = "app"\nversion = "0.1.0"\n\n[workspace.dependencies]\nbytes = { package = "tokio", version = "1" }\n\n[dependencies]\nhelper = { path = "vendor/helper" }\n'
+    const HELPER = '[package]\nname = "helper"\nversion = "0.1.0"\n__WORKSPACE__\n[dependencies]\nbytes.workspace = true\n\n[dev-dependencies]\nbytes = "1"\n'
+    const LOCK = crate('app', '0.1.0', null, ['helper']) + crate('helper', '0.1.0', null, ['bytes']) + entry('bytes', '1.6.0')
+
+    async function shipped(): Promise<unknown> {
+        const result = await parseCargoLock(dir, await writeLock(LOCK), 'Cargo.lock')
+        if (result.status === 'unauditable') throw new Error('expected a graph')
+        return result.graph.classify('bytes', '1.6.0')
+    }
+
+    // The reviewer's reproduction: an excluded path dependency that is a workspace of its own.
+    it('reads an excluded nested workspace against its own [workspace.dependencies]', async function () {
+        await writeToml(OUTER.replace('[workspace.dependencies]', '[workspace]\nexclude = ["vendor/helper"]\n\n[workspace.dependencies]'))
+        await writeToml(HELPER.replace('__WORKSPACE__', '\n[workspace]\n\n[workspace.dependencies]\nbytes = "1"\n'), 'vendor/helper')
+        expect(await shipped()).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    // `package.workspace` names the root explicitly.
+    it('reads a manifest whose package.workspace points at another workspace', async function () {
+        await writeToml(OUTER.replace('[workspace.dependencies]', '[workspace]\nexclude = ["vendor"]\n\n[workspace.dependencies]'))
+        await writeToml('[workspace]\nmembers = ["../helper"]\n\n[workspace.dependencies]\nbytes = "1"\n', 'vendor/tools')
+        await writeToml(HELPER.replace('__WORKSPACE__', 'workspace = "../tools"\n'), 'vendor/helper')
+        expect(await shipped()).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    // Without either, the owner is the nearest ancestor workspace that does not exclude the manifest; its
+    // inherited paths are read relative to that root.
+    it('reads a manifest against the nearest ancestor workspace that does not exclude it', async function () {
+        await writeToml(OUTER.replace('[workspace.dependencies]', '[workspace]\nexclude = ["vendor"]\n\n[workspace.dependencies]'))
+        await writeToml('[workspace]\nmembers = ["helper"]\n\n[workspace.dependencies]\nbytes = "1"\ncore = { path = "core" }\n', 'vendor')
+        await writeToml(HELPER.replace('__WORKSPACE__', '').replace('[dev-dependencies]', 'core.workspace = true\n\n[dev-dependencies]'), 'vendor/helper')
+        await writeToml('[package]\nname = "core"\n', 'vendor/core')
+        const lock = crate('app', '0.1.0', null, ['helper']) + crate('helper', '0.1.0', null, ['bytes', 'core']) + crate('core', '0.1.0', null, []) + entry('bytes', '1.6.0')
+        const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
+        if (result.status === 'unauditable') throw new Error('expected a graph')
+        expect(result.status).toBe('ok')
+        expect(result.graph.classify('bytes', '1.6.0')).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    // An excluded manifest with no other workspace in the project has no owner this reader can read, so it
+    // borrows nothing from the outer workspace and claims nothing dev-only.
+    it('claims no dev-only scope for a manifest whose owning workspace is not found', async function () {
+        await writeToml(OUTER.replace('[workspace.dependencies]', '[workspace]\nexclude = ["vendor"]\n\n[workspace.dependencies]'))
+        await writeToml(HELPER.replace('__WORKSPACE__', ''), 'vendor/helper')
+        expect(await shipped()).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    // A `package.workspace` that leaves the project, or names a directory with no workspace, is no owner either.
+    it.each(['../../../elsewhere', '../not-a-workspace'])('claims no dev-only scope when package.workspace is %j', async function (pointer) {
+        await writeToml(OUTER.replace('[workspace.dependencies]', '[workspace]\nexclude = ["vendor"]\n\n[workspace.dependencies]'))
+        await writeToml('[package]\nname = "other"\n', 'vendor/not-a-workspace')
+        await writeToml(HELPER.replace('__WORKSPACE__', 'workspace = "' + pointer + '"\n'), 'vendor/helper')
+        expect(await shipped()).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    // A member the outer workspace lists explicitly is its own even under an excluded directory.
+    it('keeps an explicitly listed member in the outer workspace despite an exclude around it', async function () {
+        await writeToml('[package]\nname = "app"\nversion = "0.1.0"\n\n[workspace]\nmembers = ["vendor/helper"]\nexclude = ["vendor"]\n\n[workspace.dependencies]\nbytes = { package = "tokio", version = "1" }\n\n[dependencies]\nhelper = { path = "vendor/helper" }\n')
+        await writeToml(HELPER.replace('__WORKSPACE__', ''), 'vendor/helper')
+        // Inherited from the outer root, helper ships tokio and names bytes only for tests.
+        const lock = crate('app', '0.1.0', null, ['helper']) + crate('helper', '0.1.0', null, ['bytes', 'tokio']) + entry('bytes', '1.6.0') + entry('tokio', '1.38.0')
+        const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
+        if (result.status === 'unauditable') throw new Error('expected a graph')
+        expect(result.graph.classify('bytes', '1.6.0')).toMatchObject({ isProd: false, isDev: true })
+        expect(result.graph.classify('tokio', '1.38.0')).toMatchObject({ isProd: true, isDev: false })
     })
 })

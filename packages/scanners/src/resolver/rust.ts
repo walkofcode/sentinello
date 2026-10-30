@@ -12,7 +12,8 @@ import type { LockEdge, LockNode, LockRoot, ResolverResult } from './types'
 // that crate's own manifest, and reachability spreads it through the graph. A root manifest's
 // `[dev-dependencies]` says nothing about what a member ships. A declaration is read whatever its spelling
 // (`bytes = "1"`, `bytes.workspace = true`, `[dependencies.bytes]`, a top-level `dependencies.bytes`), and
-// one inherited with `workspace = true` names the crate the root's `[workspace.dependencies]` entry names.
+// one inherited with `workspace = true` names the crate the `[workspace.dependencies]` entry of the manifest's
+// OWN workspace names — found as Cargo finds it, which is not always the workspace beside the lockfile.
 //
 // Only crates from crates.io are matched. An advisory about crates.io's `openssl` says nothing about a
 // crate of the same name built from a git checkout, a local path or another registry, so those are counted
@@ -153,14 +154,19 @@ type CargoManifest = {
     name: string | null
     // Crates the manifest names only as dev-dependencies.
     devOnly: Set<string>
-    // Every dependency it pulls in by `path`, with its crate name (a `package = "…"` rename wins), from
-    // its dependency tables, `[workspace.dependencies]`, `[patch.*]` and `[replace]`.
+    // Every dependency it pulls in by `path` (absolute), with its crate name (a `package = "…"` rename wins),
+    // from its dependency tables, `[workspace.dependencies]`, `[patch.*]` and `[replace]`.
     pathDependencies: Array<{ name: string; path: string }>
-    // `[workspace] members` and `exclude`, as written, and the `[workspace.dependencies]` its members inherit.
-    members: string[]
-    exclude: string[]
-    workspaceDependencies: TomlTable
+    // Its `[workspace]` table, when it is a workspace root.
+    workspace: TomlTable | null
 }
+
+// The workspace a manifest's `workspace = true` declarations inherit from: its root directory, which inherited
+// paths are relative to, and that root's `[workspace.dependencies]`.
+type Owner = { dir: string; dependencies: TomlTable }
+
+// Parsed Cargo.toml documents by directory, each read once however many manifests look it up.
+type ManifestLoader = (dir: string) => Promise<TomlTable | null>
 
 type Workspace = {
     root: CargoManifest | null
@@ -176,20 +182,21 @@ async function readWorkspace(projectPath: string, lockDir: string): Promise<Work
     const own = new Map<string, CargoManifest>()
     const external = new Set<string>()
     let root: CargoManifest | null = null
+    const load = manifestLoader()
     const queue: string[] = [resolve(lockDir)]
     const seen = new Set<string>()
     for (let dir = queue.shift(); dir !== undefined && seen.size < MAX_MANIFESTS; dir = queue.shift()) {
         if (seen.has(dir)) continue
         seen.add(dir)
-        const manifest = await readCargoManifest(dir, root?.workspaceDependencies)
+        const manifest = await readCargoManifest(projectPath, dir, load)
         if (manifest === null) continue
         if (seen.size === 1) {
             root = manifest
-            queue.push(...await expandMembers(projectPath, dir, manifest.members, manifest.exclude))
+            if (manifest.workspace !== null) queue.push(...await expandMembers(projectPath, dir, manifest.workspace))
         }
         if (manifest.name !== null) own.set(manifest.name, mergeManifests(own.get(manifest.name), manifest))
         for (const dep of manifest.pathDependencies) {
-            if (isInsideProject(projectPath, dir, dep.path)) queue.push(resolve(dir, dep.path))
+            if (isInsideProject(projectPath, dir, dep.path)) queue.push(dep.path)
             else external.add(dep.name)
         }
     }
@@ -204,13 +211,24 @@ function mergeManifests(existing: CargoManifest | undefined, next: CargoManifest
     return { ...existing, devOnly: new Set([...existing.devOnly].filter(function both(name) { return next.devOnly.has(name) })) }
 }
 
+function manifestLoader(): ManifestLoader {
+    const cache = new Map<string, Promise<TomlTable | null>>()
+    return function load(dir) {
+        let doc = cache.get(dir)
+        if (doc === undefined) {
+            doc = readFile(join(dir, 'Cargo.toml'), 'utf8').then(parseTomlDocument, function unreadable() { return null })
+            cache.set(dir, doc)
+        }
+        return doc
+    }
+}
+
 // The directories `[workspace] members` names, read relative to the workspace root. A segment may be a
 // glob of `*` and `?` (Cargo's `crates/*`); `exclude` removes paths. A member the patterns do not reach
 // (Cargo's `**`, character classes) is simply not found, and its crate is then not assumed to be own code.
-async function expandMembers(projectPath: string, rootDir: string, patterns: string[], exclude: string[]): Promise<string[]> {
-    const excluded = new Set(exclude.map(function abs(path) { return resolve(rootDir, path) }))
+async function expandMembers(projectPath: string, rootDir: string, workspace: TomlTable): Promise<string[]> {
     const out: string[] = []
-    for (const pattern of patterns) {
+    for (const pattern of tomlArray(workspace.members).flatMap(asString)) {
         let dirs = [rootDir]
         for (const segment of pattern.split('/').filter(function nonEmpty(s) { return s.length > 0 && s !== '.' })) {
             if (!/[*?]/.test(segment)) {
@@ -224,10 +242,46 @@ async function expandMembers(projectPath: string, rootDir: string, patterns: str
         }
         for (const dir of dirs) {
             const absolute = resolve(dir)
-            if (!excluded.has(absolute) && isInsideProject(projectPath, rootDir, absolute)) out.push(absolute)
+            if (!excludes(rootDir, workspace, absolute) && isInsideProject(projectPath, rootDir, absolute)) out.push(absolute)
         }
     }
     return out
+}
+
+// Cargo's exclusion rule: a directory at or under an `exclude` path is out of the workspace unless a
+// `members` entry names it exactly.
+function excludes(rootDir: string, workspace: TomlTable, dir: string): boolean {
+    function paths(key: string): string[] {
+        return tomlArray(workspace[key]).flatMap(asString).map(function abs(path) { return resolve(rootDir, path) })
+    }
+    const excluded = paths('exclude').some(function holds(path) { return dir === path || dir.startsWith(path + sep) })
+    return excluded && !paths('members').includes(dir)
+}
+
+// Cargo's lookup of a manifest's workspace root (https://doc.rust-lang.org/cargo/reference/manifest.html#the-
+// workspace-field): the manifest itself when it has a `[workspace]` table, the directory `package.workspace`
+// names, or else the nearest ancestor with a `[workspace]` that does not exclude it. Only manifests inside the
+// project are read, so a root Cargo would find above it, or a `package.workspace` that leaves it or names no
+// workspace, is no owner: null, and the manifest's inherited declarations resolve to nothing.
+async function owningWorkspace(projectPath: string, dir: string, doc: TomlTable, load: ManifestLoader): Promise<Owner | null> {
+    const own = tomlTable(doc.workspace)
+    if (own !== null) return ownerAt(dir, own)
+    const pointer = tomlString(tomlTable(doc.package)?.workspace)
+    if (pointer !== null) {
+        const rootDir = resolve(dir, pointer)
+        const root = isInsideProject(projectPath, dir, pointer) ? tomlTable((await load(rootDir))?.workspace) : null
+        return root === null ? null : ownerAt(rootDir, root)
+    }
+    for (let ancestor = dir; isInsideProject(projectPath, ancestor, '..');) {
+        ancestor = dirname(ancestor)
+        const root = tomlTable((await load(ancestor))?.workspace)
+        if (root !== null && !excludes(ancestor, root, dir)) return ownerAt(ancestor, root)
+    }
+    return null
+}
+
+function ownerAt(dir: string, workspace: TomlTable): Owner {
+    return { dir, dependencies: tomlTable(workspace.dependencies) ?? {} }
 }
 
 async function subdirectories(dir: string, matcher: RegExp): Promise<string[]> {
@@ -243,23 +297,17 @@ async function subdirectories(dir: string, matcher: RegExp): Promise<string[]> {
 // `[dev-dependencies]`, `[build-dependencies]` (and Cargo's older `dev_dependencies`/`build_dependencies`),
 // and their `[target.'cfg(…)'.…]` forms. `[workspace.dependencies]`, `[patch.*]` and `[replace]` only declare
 // where a crate comes from, so they contribute paths but no scope. A declaration with `workspace = true`
-// is resolved against `inherited`, the workspace root's `[workspace.dependencies]` (the root's own when
-// `inherited` is undefined, as it is for the root itself); its path is the root's to record. Null when there
-// is no readable Cargo.toml in the directory.
-async function readCargoManifest(dir: string, inherited: TomlTable | undefined): Promise<CargoManifest | null> {
-    let text: string
-    try {
-        text = await readFile(join(dir, 'Cargo.toml'), 'utf8')
-    } catch {
-        return null
-    }
-    const doc = parseTomlDocument(text)
+// is resolved against the manifest's owning workspace, its inherited path relative to that root. Null when
+// there is no readable Cargo.toml in the directory.
+async function readCargoManifest(projectPath: string, dir: string, load: ManifestLoader): Promise<CargoManifest | null> {
+    const doc = await load(dir)
+    if (doc === null) return null
     const workspace = tomlTable(doc.workspace)
-    const workspaceDependencies = tomlTable(workspace?.dependencies) ?? {}
+    const owner = await owningWorkspace(projectPath, dir, doc, load)
     const pathDependencies: Array<{ name: string; path: string }> = []
-    function recordPath(name: string, spec: TomlTable | null): void {
+    function recordPath(name: string | null, spec: TomlTable | null, from = dir): void {
         const path = tomlString(spec?.path)
-        if (path !== null) pathDependencies.push({ name, path })
+        if (name !== null && path !== null) pathDependencies.push({ name, path: resolve(from, path) })
     }
     const dev = new Set<string>()
     const nonDev = new Set<string>()
@@ -273,28 +321,29 @@ async function readCargoManifest(dir: string, inherited: TomlTable | undefined):
                 recordPath(crateName(key, spec), spec)
                 continue
             }
-            const from = inherited ?? workspaceDependencies
-            const base = Object.hasOwn(from, key) ? from[key] : undefined
-            if (base !== undefined) into.add(crateName(key, tomlTable(base)))
-            else if (scope === 'prod') unresolvedProd = true
+            const from = owner !== null && Object.hasOwn(owner.dependencies, key) ? owner : null
+            if (from !== null) {
+                const base = tomlTable(from.dependencies[key])
+                into.add(crateName(key, base))
+                recordPath(crateName(key, base), base, from.dir)
+            } else if (scope === 'prod') unresolvedProd = true
         }
     }
-    for (const [key, value] of Object.entries(workspaceDependencies)) recordPath(crateName(key, tomlTable(value)), tomlTable(value))
+    for (const [key, value] of Object.entries(tomlTable(workspace?.dependencies) ?? {})) recordPath(crateName(key, tomlTable(value)), tomlTable(value))
     for (const patches of Object.values(tomlTable(doc.patch) ?? {})) {
         for (const [key, value] of Object.entries(tomlTable(patches) ?? {})) recordPath(crateName(key, tomlTable(value)), tomlTable(value))
     }
     for (const [key, value] of Object.entries(tomlTable(doc.replace) ?? {})) recordPath(pkgidName(key), tomlTable(value))
-    // An inherited production declaration the workspace does not define names a crate this reader cannot
-    // know, so nothing in the manifest is claimed dev-only: over-reporting, never hiding what ships.
+    // An inherited production declaration its workspace does not define — or with no owning workspace found —
+    // names a crate this reader cannot know, so nothing in the manifest is claimed dev-only: over-reporting,
+    // never hiding what ships.
     const devOnly = unresolvedProd ? new Set<string>() : new Set([...dev].filter(function only(crate) { return !nonDev.has(crate) }))
     return {
         dir,
         name: tomlString(tomlTable(doc.package)?.name),
         devOnly,
         pathDependencies,
-        members: tomlArray(workspace?.members).flatMap(asString),
-        exclude: tomlArray(workspace?.exclude).flatMap(asString),
-        workspaceDependencies
+        workspace
     }
 }
 
@@ -325,13 +374,23 @@ function crateName(key: string, spec: TomlTable | null): string {
     return tomlString(spec?.package) ?? key
 }
 
-// A `[replace]` key is a package id spec: `name`, `name:version`, `name@version`, or a source URL with the
-// name after `#` — or, when the fragment is only a version (`…/cargo#0.52.0`) or absent, as the URL's last
-// path segment. A crate name never starts with a digit, a version always does.
-function pkgidName(spec: string): string {
-    const [url, fragment] = spec.split('#') as [string, string | undefined]
-    const tail = fragment !== undefined && !/^[0-9]/.test(fragment) ? fragment : url.slice(url.lastIndexOf('/') + 1)
-    return tail.split(/[@:]/)[0] as string
+// A `[replace]` key is a package id spec (https://doc.rust-lang.org/cargo/reference/pkgid-spec.html): `name`,
+// `name:version`, `name@version`, or a source URL — with an optional `kind+` prefix and `?branch=…`-style
+// query — with the name after `#`, or, when the fragment is only a version (`…/cargo?branch=main#0.52.0`) or
+// absent, as the URL's last PATH segment. A crate name never starts with a digit, a version always does. Null
+// for a URL that does not parse or has no path, which Cargo rejects too.
+function pkgidName(spec: string): string | null {
+    const hash = spec.indexOf('#')
+    const fragment = hash === -1 ? null : spec.slice(hash + 1)
+    const head = hash === -1 ? spec : spec.slice(0, hash)
+    if (fragment !== null && !/^[0-9]/.test(fragment)) return nameOfPkgname(fragment)
+    if (!head.includes('://')) return nameOfPkgname(head)
+    const segments = (URL.parse(head)?.pathname ?? '').split('/').filter(function nonEmpty(s) { return s.length > 0 })
+    return segments.at(-1) ?? null
+}
+
+function nameOfPkgname(pkgname: string): string {
+    return pkgname.split(/[@:]/)[0] as string
 }
 
 function asString(value: unknown): string[] {
