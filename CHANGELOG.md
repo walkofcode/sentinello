@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.8.1](https://github.com/walkofcode/sentinello/compare/v3.8.0...v3.8.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **worker:** a failed advisory download no longer holds the silent baseline ([31d5c14](https://github.com/walkofcode/sentinello/commit/31d5c1484ffd9d50a42003b22399adf465d18298))
+* **worker:** no false scan-failure alerts and no early baseline while an upgrade rebuilds the advisory caches ([ae5d825](https://github.com/walkofcode/sentinello/commit/ae5d825b1a9f724d9fbf2f6b8d33a3e36723656c))
+
+
+### Documentation
+
+* **releases:** add the 3.8.1 what's-new entry for the upgrade cache-rebuild fixes ([648abcc](https://github.com/walkofcode/sentinello/commit/648abcc4176411bcbcefa33a2f28a0a326b2f8a5))
+* **releases:** qualify the 3.8.1 notes: alerts sent, rebuilds in progress, failed downloads ([299805b](https://github.com/walkofcode/sentinello/commit/299805b660ca8de548d0df55300e0475df9bf145))
+
 ## [3.8.0](https://github.com/walkofcode/sentinello/compare/v3.7.7...v3.8.0) (2026-10-30)
 
 
