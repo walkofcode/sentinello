@@ -187,12 +187,14 @@ golang.org/x/text v0.14.0 h1:ghi=
         expect(result.status === 'partial' && result.details.join(' ')).toContain('no go.mod')
     })
 
-    // A checksum database, not a build list: a module upgraded without `go mod tidy` keeps the old line
-    // too. MVS builds one version per module — the highest one required — so that is the one kept.
-    it('keeps only the highest version of each module', async function () {
-        const text = 'github.com/a/b v1.2.0 h1:a=\ngithub.com/a/b v1.10.0 h1:b=\ngithub.com/a/b v1.9.0 h1:c=\n'
+    // SENTINEL-131: a checksum database, not a build list. Which of several checksummed versions MVS
+    // selected depends on the requirement graph go.sum does not hold, so the highest is no evidence: every
+    // version stays a candidate, and an affected lower one is not discarded beside a fixed higher one.
+    it('keeps every checksummed version of a module as a candidate', async function () {
+        const text = 'github.com/a/b v1.0.0 h1:a=\ngithub.com/a/b v1.1.0 h1:b=\ngithub.com/a/b v1.1.0 h1:b=\n'
         const result = await parse('go.sum', text)
-        expect(result.status !== 'unauditable' && result.graph.packages.map(function v(p) { return p.version })).toEqual(['v1.10.0'])
+        expect(versions(result)).toEqual(['github.com/a/b@v1.0.0', 'github.com/a/b@v1.1.0'])
+        expect(result.status === 'partial' && result.details.join(' ')).toContain('not proof of what the build selects')
     })
 
     // A `/go.mod` line only says the module's go.mod was read during resolution; nothing was built from it.

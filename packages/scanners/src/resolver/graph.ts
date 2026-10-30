@@ -108,8 +108,11 @@ export function parseDepKey(key: string): { name: string; version: string } | nu
 //   - Scope is REACHABILITY: a package is prod when a prod root reaches it, dev when a dev root does, both
 //     when both do. One no root reaches (a cycle, a root the manifest did not name) is prod, the resolver's
 //     fail-open posture: a finding in the wrong bucket beats a finding not shown.
-//   - `depPaths` is the shortest chain of node ids from any root to the package, so a finding reads
-//     `rails@7.1.0 → actionpack@7.1.0 → rack@2.2.8` instead of the bare package it is about.
+//   - `depPaths` is the shortest chain from any root to the package, each step written `name@version`, so a
+//     finding reads `rails@7.1.0 → actionpack@7.1.0 → rack@2.2.8` instead of the bare package it is about.
+//     The chain is found over node ids, which a resolver may qualify beyond name and version (a Cargo
+//     crate's id carries its source, so a git `x@1.0.0` and the crates.io one stay two nodes); the label is
+//     only how a step reads.
 //
 // `auditable` says which nodes become packages: a node from a source no advisory database covers (a git
 // checkout, a local path) still carries edges, so what it depends on is still reached, but it is never
@@ -137,6 +140,11 @@ export function graphFromLock(input: LockGraphInput): ResolvedGraph {
     const optional = reachableFrom(rootsOf('optional'), adjacency)
     const dev = reachableFrom(rootsOf('dev'), adjacency)
     const chains = shortestChains(input.roots.map(function id(r) { return r.nodeId }), adjacency)
+    const labels = new Map(input.nodes.map(function label(node) { return [node.id, node.name + '@' + node.version] as const }))
+    // Every chain step is a node: roots and edges only ever name the nodes a resolver handed in.
+    function chainOf(nodeId: string): string[] {
+        return (chains.get(nodeId) ?? [nodeId]).map(function step(id) { return labels.get(id) as string })
+    }
     const packages: ResolvedPackage[] = []
     for (const node of input.nodes) {
         if (!input.auditable(node.id)) continue
@@ -150,7 +158,7 @@ export function graphFromLock(input: LockGraphInput): ResolvedGraph {
                 isDev: dev.has(node.id),
                 isOptional: optional.has(node.id) && !prod.has(node.id)
             },
-            depPaths: chains.get(node.id) ?? [node.id],
+            depPaths: chainOf(node.id),
             manifestPath: input.manifestPath
         })
     }

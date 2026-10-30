@@ -1,5 +1,5 @@
 import type { Severity } from '@sentinello/core'
-import { formatRange, versionInRange, type FormatOptions } from '@sentinello/versions'
+import { formatRange, isRefused, versionInSet, type FormatOptions, type SpecifierSemantics } from '@sentinello/versions'
 import type { ResolvedPackage } from '../resolver/types'
 import type { RawFinding } from '../types'
 import { rangesReadable, type AffectedSet } from '../version-fix'
@@ -91,7 +91,10 @@ function matchOne(
     // (matching, fix derivation, display) so a dropped range never leaks into any of them.
     const ranges = applicableRanges(advisory.affected.ranges, acceptedRangeTypes)
     const exactVersions = advisory.affected.exactVersions
-    const hasVersionData = ranges.length > 0 || exactVersions.length > 0
+    const specifier = advisory.affected.specifier
+    // A refused part of the source's range states versions nobody here can read, so it is not version
+    // data to match on — it only makes the affected set incomplete.
+    const hasVersionData = ranges.some(function readable(range) { return !isRefused(range) }) || exactVersions.length > 0
 
     if (!hasVersionData) {
         // The advisory carries no version info at all. For malware we still surface it (a known-bad
@@ -101,40 +104,35 @@ function matchOne(
         if (advisory.kind !== 'malware') return null
         // No version data on malware means every version is affected: the only way out is removal. But
         // "no data" is only true when the source supplied none. A record whose ranges were all dropped for
-        // this comparator (a GIT range, an unclassified one) did state versions we cannot read, so its
+        // this comparator (a GIT range, an unclassified one) or refused by the parser did state versions we cannot read, so its
         // evidence is incomplete — unknown, never "every version is affected, no fix".
         const sourceStatedRanges = advisory.affected.ranges.length > 0
         const everyVersion = { introduced: '0', fixed: null, lastAffected: null }
         return buildFinding(pkg, advisory, 'critical', null, '*', { comparator: comparator.id, ranges: [everyVersion], exact: [], complete: !sourceStatedRanges })
     }
 
-    if (!isAffected(pkg.version, ranges, exact, comparator)) return null
+    if (!isAffected(pkg.version, ranges, exact, comparator, specifier)) return null
 
     const severity = advisory.kind === 'malware' ? 'critical' : mapSeverity(advisory.severity)
-    const statedFix = statedFixFor(pkg.version, ranges, exact, comparator)
+    const statedFix = statedFixFor(pkg.version, ranges, exact, comparator, specifier)
     const dropped = ranges.length !== advisory.affected.ranges.length
-    return buildFinding(pkg, advisory, severity, statedFix, rangesToDisplay(ranges, exactVersions), affectedSetFor(ranges, exactVersions, dropped, comparator))
+    return buildFinding(pkg, advisory, severity, statedFix, rangesToDisplay(ranges, exactVersions), affectedSetFor(ranges, exactVersions, dropped, comparator, specifier))
 }
 
 // A version is affected when it equals an enumerated exact version OR falls inside any range. Each bound
 // is evaluated with the inclusivity the range declares — `>X` excludes X, `<=X` includes it — rather than
-// being forced into a half-open interval and rounded.
+// being forced into a half-open interval and rounded. An exact version written exactly as installed matches
+// even when the comparator cannot read it; everything else is versionInSet, the rule registry settlement
+// applies too, so a fix it picks is never one this would still flag.
 function isAffected(
     versionRaw: string,
     ranges: CanonicalAdvisory['affected']['ranges'],
     exact: ExactSet,
-    comparator: VersionComparator
+    comparator: VersionComparator,
+    specifier: SpecifierSemantics | undefined
 ): boolean {
     if (exact.raw.has(versionRaw)) return true
-    const version = comparator.normalize(versionRaw)
-    if (version === null) return false
-    if (exact.normalized.has(version)) return true
-
-    // Bound evaluation lives with the range type, so this and every other reader of a range agree on
-    // exactly what its bounds mean.
-    return ranges.some(function contains(range) {
-        return versionInRange(versionRaw, range, comparator)
-    })
+    return versionInSet(versionRaw, ranges, exact.normalized, comparator, specifier)
 }
 
 // The fix the advisory STATES: the lowest `fixed` bound that is not below the install and is itself outside
@@ -148,7 +146,8 @@ function statedFixFor(
     installedRaw: string,
     ranges: CanonicalAdvisory['affected']['ranges'],
     exact: ExactSet,
-    comparator: VersionComparator
+    comparator: VersionComparator,
+    specifier: SpecifierSemantics | undefined
 ): string | null {
     // An exact version can match an install the comparator cannot read; with no floor to compare against,
     // no fix is stated.
@@ -159,27 +158,31 @@ function statedFixFor(
         if (!range.fixed) continue
         const fixed = comparator.normalize(range.fixed)
         if (fixed === null || comparator.lt(fixed, installed)) continue
-        if (isAffected(range.fixed, ranges, exact, comparator)) continue
+        if (isAffected(range.fixed, ranges, exact, comparator, specifier)) continue
         if (best === null || comparator.lt(fixed, best.normalized)) best = { normalized: fixed, spelled: range.fixed }
     }
     return best === null ? null : best.spelled
 }
 
 // The whole affected set, for settling the fix against the registry: the same filtered ranges and exact
-// versions this finding matched with, in the same comparator. Incomplete when a range was dropped for this
-// comparator, or when one of its bounds is one the comparator cannot read — unknown, never "safe".
+// versions this finding matched with, in the same comparator and under the same specifier semantics.
+// Incomplete when a range was dropped for this comparator, when one of its bounds is one the comparator
+// cannot read, or when the parser refused a part of the source's range — unknown, never "safe".
 function affectedSetFor(
     ranges: CanonicalAdvisory['affected']['ranges'],
     exactVersions: string[],
     dropped: boolean,
-    comparator: VersionComparator
+    comparator: VersionComparator,
+    specifier: SpecifierSemantics | undefined
 ): AffectedSet {
-    return {
+    const set: AffectedSet = {
         comparator: comparator.id,
         ranges: ranges.map(function copy(range) { return { ...range } }),
         exact: [...exactVersions],
         complete: !dropped && rangesReadable(ranges, comparator)
     }
+    if (specifier !== undefined) set.specifier = specifier
+    return set
 }
 
 function buildFinding(

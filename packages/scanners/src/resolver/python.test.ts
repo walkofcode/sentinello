@@ -478,7 +478,7 @@ describe('parsePythonLock — entries it does not model', function () {
         expect(names(result)).toEqual(['a'])
         expect(result.status === 'partial' && result.details.join(' ')).toContain('local-wheel (path), unknown-source (path)')
         // Only the edge to a locked package survives; `missing` and `gone` lead nowhere.
-        expect(result.status !== 'unauditable' && result.graph.nodeGraph?.edges).toEqual([{ from: 'app@', to: 'a@1.0', kind: 'prod' }])
+        expect(result.status !== 'unauditable' && result.graph.nodeGraph?.edges).toEqual([{ from: 'app@ (virtual=.)', to: 'a@1.0 (registry=https://pypi.org/simple)', kind: 'prod' }])
     })
 
     it('is unauditable, naming them, when everything comes from git', async function () {
@@ -494,5 +494,77 @@ describe('parsePythonLock — entries it does not model', function () {
         if (result.status === 'unauditable') throw new Error('expected a graph')
         expect(result.graph.classify('django', '4.2')).toMatchObject({ isProd: true, isDev: false, isOptional: false })
         expect(result.graph.classify('redis', '5.0')).toMatchObject({ isProd: true, isDev: false, isOptional: true })
+    })
+})
+
+// SENTINEL-128: a local wheel or sdist is a built third-party package wherever it sits. Checked into the
+// project it is still not the project's own code, so it is counted as cannot-be-audited — never omitted.
+describe('parsePythonLock — local artifacts inside the project', function () {
+    it('counts a poetry file source inside the project', async function () {
+        const lock = '[[package]]\nname = "a"\nversion = "1.0"\n\n'
+            + '[[package]]\nname = "vendored-lib"\nversion = "1.0"\n\n[package.source]\ntype = "file"\nurl = "vendor/vendored_lib-1.0-py3-none-any.whl"\n'
+        const result = await parse('poetry.lock', lock)
+        expect(result.status).toBe('partial')
+        expect(names(result)).toEqual(['a'])
+        expect(result.status === 'partial' && result.details).toEqual(['1 packages from git, URL or local sources cannot be audited: vendored-lib (path)'])
+    })
+
+    it('counts a uv path source inside the project', async function () {
+        const lock = '[[package]]\nname = "app"\nsource = { virtual = "." }\ndependencies = [{ name = "a" }, { name = "vendored-lib" }]\n\n'
+            + '[[package]]\nname = "a"\nversion = "1.0"\nsource = { registry = "https://pypi.org/simple" }\n\n'
+            + '[[package]]\nname = "vendored-lib"\nversion = "1.0"\nsource = { path = "vendor/vendored_lib-1.0-py3-none-any.whl" }\n'
+        const result = await parse('uv.lock', lock)
+        expect(result.status).toBe('partial')
+        expect(names(result)).toEqual(['a'])
+        expect(result.status === 'partial' && result.details).toEqual(['1 packages from git, URL or local sources cannot be audited: vendored-lib (path)'])
+    })
+
+    // A source directory inside the project is still the project's own: a uv directory source, a poetry
+    // directory dependency.
+    it('keeps an in-project source directory as own code', async function () {
+        const lock = '[[package]]\nname = "app"\nsource = { virtual = "." }\ndependencies = [{ name = "a" }, { name = "sibling" }]\n\n'
+            + '[[package]]\nname = "a"\nversion = "1.0"\nsource = { registry = "https://pypi.org/simple" }\n\n'
+            + '[[package]]\nname = "sibling"\nversion = "0.1.0"\nsource = { directory = "libs/sibling" }\n'
+        expect((await parse('uv.lock', lock)).status).toBe('ok')
+    })
+})
+
+// SENTINEL-130: one name at one version from an index and from git are two packages. Only the index one is
+// audited, and each keeps its own edges and scope, whichever order the lockfile lists them in.
+describe('parsePythonLock — one name and version from two sources', function () {
+    const MEMBER = '[[package]]\nname = "app"\nversion = "0.1.0"\nsource = { editable = "." }\n'
+        + 'dependencies = [{ name = "x", version = "1.0", source = { git = "https://example.test/x.git?rev=abc#abc" } }]\n\n'
+        + '[package.dev-dependencies]\ndev = [{ name = "y" }]\n\n'
+        + '[[package]]\nname = "y"\nversion = "1.0"\nsource = { registry = "https://pypi.org/simple" }\n'
+        + 'dependencies = [{ name = "x", version = "1.0", source = { registry = "https://pypi.org/simple" } }]\n\n'
+    const INDEX_X = '[[package]]\nname = "x"\nversion = "1.0"\nsource = { registry = "https://pypi.org/simple" }\ndependencies = [{ name = "a" }]\n\n'
+    const GIT_X = '[[package]]\nname = "x"\nversion = "1.0"\nsource = { git = "https://example.test/x.git?rev=abc#abc" }\ndependencies = [{ name = "b" }]\n\n'
+    const LEAVES = '[[package]]\nname = "a"\nversion = "1.0"\nsource = { registry = "https://pypi.org/simple" }\n\n'
+        + '[[package]]\nname = "b"\nversion = "1.0"\nsource = { registry = "https://pypi.org/simple" }\n'
+
+    it.each([
+        ['index first', MEMBER + INDEX_X + GIT_X + LEAVES],
+        ['git first', MEMBER + GIT_X + INDEX_X + LEAVES]
+    ])('keeps them apart (%s)', async function (_order, lock) {
+        const result = await parse('uv.lock', lock)
+        if (result.status !== 'partial') throw new Error('expected a partial graph')
+        expect(result.details).toEqual(['1 packages from git, URL or local sources cannot be audited: x (git)'])
+        expect(result.graph.byName('x').map(function chain(p) { return p.depPaths.join(' > ') })).toEqual(['y@1.0 > x@1.0'])
+        // The index x is reached only through the dev group's y; the git x, which ships, is never audited.
+        expect(result.graph.classify('x', '1.0')).toMatchObject({ isProd: false, isDev: true })
+        expect(result.graph.classify('a', '1.0')).toMatchObject({ isProd: false, isDev: true })
+        expect(result.graph.classify('b', '1.0')).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    // poetry names a dependency without saying which locked entry it means; every one that could be it is
+    // linked, never an arbitrary first.
+    it('links a poetry dependency to every locked entry of its name', async function () {
+        await write('pyproject.toml', '[project]\ndependencies = ["app-lib"]\n')
+        const lock = '[[package]]\nname = "app-lib"\nversion = "1.0"\n\n[package.dependencies]\nnumpy = "*"\n\n'
+            + '[[package]]\nname = "numpy"\nversion = "1.26.4"\n\n'
+            + '[[package]]\nname = "numpy"\nversion = "2.0.0"\n'
+        const result = await parse('poetry.lock', lock)
+        if (result.status === 'unauditable') throw new Error('expected a graph')
+        expect(result.graph.byName('numpy').map(function chain(p) { return p.depPaths.join(' > ') }).sort()).toEqual(['app-lib@1.0 > numpy@1.26.4', 'app-lib@1.0 > numpy@2.0.0'])
     })
 })

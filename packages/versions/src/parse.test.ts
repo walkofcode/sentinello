@@ -18,6 +18,11 @@ describe('parseVersionRanges', function () {
         ])
     })
 
+    it('carries a refused part of the affected set', function () {
+        const written = [{ introduced: '~=2.0', fixed: null, lastAffected: null, refused: '~=2.0' }]
+        expect(parseVersionRanges(JSON.stringify(written))).toEqual(written)
+    })
+
     it('round-trips what the formatter-facing shape writes', function () {
         const written = [
             { introduced: '0', fixed: '4.17.21', lastAffected: null },

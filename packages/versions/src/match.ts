@@ -1,6 +1,54 @@
 import type { VersionComparator } from './comparator'
 import { isZeroVersion, type VersionRange } from './range'
 
+// How a source's ranges are MATCHED, beyond how its versions are ordered. Most sources state an affected
+// set as intervals of the ecosystem's version order (OSV's events, by its own schema), and ordering is the
+// whole of their meaning. A source that writes its ranges in an ecosystem's REQUIREMENT syntax means what
+// that syntax means, which can differ from the ordering:
+//
+//   pep440 — PEP 440 version specifiers (https://packaging.python.org/en/latest/specifications/
+//            version-specifiers/#version-matching). A public specifier ignores the candidate's local label:
+//            `==2.2.0` and `<=2.2.0` both select the local build `2.2.0+cpu`, which the ordering places
+//            ABOVE 2.2.0, and `>2.2.0` does not select it. gemnasium writes PyPI ranges this way.
+//
+// The ordering comparator itself is never changed: choosing an upgrade needs the total order, local labels
+// included. Only the candidate a specifier is evaluated against is.
+export type SpecifierSemantics = 'pep440'
+
+// The version a specifier is evaluated against. For PEP 440 that is the public version: everything before
+// the `+` that starts a local label (the only place `+` can appear). Works on raw and normalized spellings
+// alike. A local label in a SPECIFIER is refused by the dialect for every operator but `==`, whose exact
+// entry is matched strictly against the whole version (see versionInSet).
+export function specifierCandidate(version: string, specifier: SpecifierSemantics | undefined): string {
+    if (specifier === undefined) return version
+    const plus = version.indexOf('+')
+    return plus < 0 ? version : version.slice(0, plus)
+}
+
+// Whether a version is in an affected set: equal to one of its exact versions, or inside one of its ranges.
+// The ONE implementation the matcher and registry settlement share, so the two can never disagree about a
+// set's meaning. `exact` holds the exact versions already normalized by the same comparator.
+//
+// An exact entry is matched against the whole version first, which is the strict reading a pin with a local
+// label (`==1.0+abc`) requires; then, under specifier semantics, against the public candidate, which is how
+// a public pin (`==2.2.0`) selects a local build of it. Ranges see only the candidate.
+export function versionInSet(
+    version: string,
+    ranges: readonly VersionRange[],
+    exact: ReadonlySet<string>,
+    comparator: VersionComparator,
+    specifier: SpecifierSemantics | undefined
+): boolean {
+    const installed = comparator.normalize(version)
+    if (installed === null) return false
+    if (exact.has(installed)) return true
+    const candidate = specifierCandidate(installed, specifier)
+    if (candidate !== installed && exact.has(candidate)) return true
+    return ranges.some(function contains(range) {
+        return versionInRange(candidate, range, comparator)
+    })
+}
+
 // A bound as the comparator reads it. Zero, however upstream spelled it, is the release 0.0.0 in every
 // comparator — including Go's, which reads no partial version and so would refuse a bare "0", turning
 // gemnasium's `>0` ("every version") into a bound that matches nothing.
@@ -20,7 +68,11 @@ export function normalizeBound(bound: string, comparator: VersionComparator): st
 //
 // Returns false — never a guess — when a bound cannot be understood by the comparator: an unreadable bound
 // bounds nothing, and treating it as 0 would match every version of the package.
+//
+// A refused part of a source's affected set (`range.refused`) selects nothing: the parser could not say what
+// it selects, and a guess in either direction is a wrong answer.
 export function versionInRange(version: string, range: VersionRange, comparator: VersionComparator): boolean {
+    if (range.refused !== undefined) return false
     const installed = comparator.normalize(version)
     if (installed === null) return false
 

@@ -1,6 +1,6 @@
 import { validRange } from 'semver'
 import type { VersionComparator } from './comparator'
-import { normalizeBound } from './match'
+import { normalizeBound, type SpecifierSemantics } from './match'
 import { isZeroVersion, type VersionRange } from './range'
 
 // The dialect layer: what a range STRING means, and what a parsed interval may never be.
@@ -73,6 +73,13 @@ export function canonicaliseRange(raw: string, dialect: string): string | null {
     return stripSynthesisedPrereleaseMarker(canonical, raw)
 }
 
+// How a range written in this dialect is matched beyond the ordering of its versions — see
+// SpecifierSemantics. A source that states ranges in an ecosystem's own requirement syntax (gemnasium)
+// carries this onto every set it builds; one that states intervals of the order (OSV) does not.
+export function specifierSemantics(dialect: string): SpecifierSemantics | undefined {
+    return OPERATOR_DIALECTS[dialect]?.specifier
+}
+
 // `>0`, `> v0.0`, and the other spellings of an exclusive bound at zero — but ONLY when that is the whole
 // range, so a genuine intersection like `>0 <2.0.0` still canonicalises normally.
 const ZERO_EXCLUSIVE_LOWER = /^>\s*v?0(\.0)*$/i
@@ -122,7 +129,10 @@ function stripSynthesisedPrereleaseMarker(canonical: string, raw: string): strin
 // An inclusive zero lower bound is the bottom of the version space, exactly as versionInRange reads it, so
 // nothing is below it: `[0, 0.0.0-20180523222229-09b5706aa936)` is the Go advisory for every pseudo-version
 // before that commit, not an inverted interval. Ordering its bounds as the release 0.0.0 would drop it.
+//
+// A refused part of an affected set is unknown, never empty, for the same reason.
 export function canMatchSomething(range: VersionRange, comparator: VersionComparator): boolean {
+    if (range.refused !== undefined) return true
     const inclusiveUpper = range.lastAffected ?? null
     const upper = inclusiveUpper !== null ? inclusiveUpper : range.fixed
     if (upper === null) return true
@@ -151,6 +161,11 @@ type OperatorRules = {
     // Rewrites one operator-version pair into comparator tokens, or null to refuse it. `!=` never reaches
     // here: an exclusion is the same thing in every dialect and is expanded by the caller.
     rewrite(operator: string, version: string): string[] | null
+    // Whether `!=` may exclude this version. Absent: any version the caller accepts.
+    excludes?(version: string): boolean
+    // How ranges written in this dialect are matched beyond the ordering. Absent: ordering is the whole
+    // meaning.
+    specifier?: SpecifierSemantics
 }
 
 const PASS_THROUGH: OperatorRules = {
@@ -160,15 +175,34 @@ const PASS_THROUGH: OperatorRules = {
 }
 
 const OPERATOR_DIALECTS: Record<string, OperatorRules> = {
-    // PEP 440 (https://packaging.python.org/en/latest/specifications/version-specifiers/). `==X` is an
-    // exact pin and so is the arbitrary-equality `===X`. A `==X.*` prefix match and the compatible-release
-    // `~=` are refused rather than approximated: neither occurs in any frozen corpus, and the refusal
-    // ratchet names the record the day one does.
+    // PEP 440 (https://packaging.python.org/en/latest/specifications/version-specifiers/). The rewrite is
+    // text only; what makes these SPECIFIERS rather than intervals of the order is `specifier: 'pep440'`,
+    // which every reader applies when it evaluates the result: a public specifier ignores the candidate's
+    // local label, so `==2.2.0` and `<=2.2.0` select `2.2.0+cpu` and `>2.2.0` does not.
+    //
+    // `==X` is an exact pin (strict, local label included, when X carries one). Refused rather than
+    // approximated, each kept as a refused part of the record so its affected set reads incomplete:
+    //   - `===X`, arbitrary equality, is plain string equality — `===1.0` does not select `1.0.0` — and no
+    //     interval or normalized pin can say that;
+    //   - a local label on an ordered comparison or an exclusion, which PEP 440 does not permit;
+    //   - a `==X.*` prefix match and the compatible release `~=`.
+    // None occurs in the frozen corpus; the refusal ratchet names the record the day one does.
+    //
+    // Two PEP 440 exclusions are deliberately NOT applied, both in the over-reporting direction the Gem `~>`
+    // below also takes: `<V` keeps V's own prereleases (`2.0rc1` is inside `<2.0`) and `>V` keeps V's
+    // post-releases. Whether a prerelease of the fix carries the fix, or a post-release of the last clean
+    // version is clean, is exactly what an advisory does not say; reporting it is the safe answer.
     PyPI: {
         rewrite(operator: string, version: string): string[] | null {
-            if (operator === '==' || operator === '===') return version.includes('*') ? null : ['=' + version]
+            if (version.includes('*')) return null
+            if (operator === '==') return ['=' + version]
+            if (version.includes('+')) return null
             return PASS_THROUGH.rewrite(operator, version)
-        }
+        },
+        excludes(version: string): boolean {
+            return !version.includes('+')
+        },
+        specifier: 'pep440'
     },
     // Go advisories use the comparator form already; only spacing and the `v` change — and a partial
     // version. A Go module version is always a full vX.Y.Z (the toolchain refuses anything else), so a
@@ -230,7 +264,7 @@ function canonicaliseOperatorRange(raw: string, rules: OperatorRules): string | 
         // this dialect does not define (`^1.0` in PEP 440) or no version at all.
         if (!/^[0-9]/.test(version)) return null
         if (operator === '!=') {
-            if (version.includes('*')) return null
+            if (version.includes('*') || rules.excludes?.(version) === false) return null
             exclusions.push(version)
             continue
         }

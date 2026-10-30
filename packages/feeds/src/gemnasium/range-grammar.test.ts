@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { satisfies, validRange } from 'semver'
-import { goComparator, pep440Comparator, rubygemsComparator, semverComparator, versionInRange, type VersionComparator } from '@sentinello/versions'
+import { goComparator, parsePep440, pep440Comparator, refusedRange, rubygemsComparator, semverComparator, specifierSemantics, versionInRange, versionInSet, type VersionComparator } from '@sentinello/versions'
 import { parseAffectedRange } from './normalize'
 
 // EXHAUSTIVE GRAMMAR SWEEP — generated spellings, not remembered ones.
@@ -369,27 +369,39 @@ describe('syntax this parser does not implement is refused, never guessed', func
     })
 
     // One unreadable token still poisons its own disjunct rather than being skipped — a skip would leave
-    // the remaining comparators as an under-constrained range — and the sibling disjunct is unaffected.
-    it('drops only the unreadable disjunct of a union', function () {
+    // the remaining comparators as an under-constrained range — and the sibling disjunct is unaffected. The
+    // poisoned disjunct is kept as a refused part, so the record's affected set reads incomplete.
+    it('refuses only the unreadable disjunct of a union', function () {
         expect(parseAffectedRange('!=1.0.0 || >=2.0.0 <3.0.0', [], 'npm')).toEqual({
-            ranges: [{ introduced: '2.0.0', fixed: '3.0.0', lastAffected: null }],
+            ranges: [{ introduced: '2.0.0', fixed: '3.0.0', lastAffected: null }, refusedRange('!=1.0.0')],
             versions: []
         })
     })
 })
 
 // THE SAME TWO PROPERTIES FOR EVERY OTHER DIALECT, over each one's own operators and the version shapes
-// it exists to express: PEP 440 epochs, pre-, post- and dev-releases; Go pseudo-versions and
+// it exists to express: PEP 440 epochs, pre-, post-, dev-releases and local builds; Go pseudo-versions and
 // `+incompatible`; Gem prereleases and `~>`. P1 needs no oracle. P2's oracle is the operator's definition,
 // evaluated with the ecosystem's own comparator — never node-semver, which is no authority here.
+//
+// For PyPI the definition is PEP 440's VERSION MATCHING, not its ordering, and the oracle (pep440Holds) is
+// written clause by clause from https://packaging.python.org/en/latest/specifications/version-specifiers/
+// rather than from a comparison: a specifier is not an interval of the order, and an oracle that assumed it
+// was would pass whatever the parser did with a local build. The parsed result is evaluated the way the
+// matcher evaluates it (versionInSet, under the dialect's specifier semantics), so this checks the reading
+// a scan actually gets. `===` and local labels on ordered comparisons are refused, not read — pinned below.
 type Dialect = { ecosystem: string; comparator: VersionComparator; operators: string[]; versions: string[]; probes: string[]; prefixes: string[] }
 const DIALECTS: Dialect[] = [
     {
         ecosystem: 'PyPI',
         comparator: pep440Comparator,
-        operators: ['<', '<=', '>', '>=', '==', '===', '!='],
+        operators: ['<', '<=', '>', '>=', '==', '!='],
         versions: ['1.0', '1!2.0', '2.0rc1', '2.0.post1', '2.0.dev3'],
-        probes: ['0.9', '1.0', '1.0.post1', '1!1.0', '1!2.0', '1!2.1', '2.0a1', '2.0rc1', '2.0', '2.0.post1', '2.0.dev3', '3.0'],
+        probes: [
+            '0.9', '1.0', '1.0.post1', '1!1.0', '1!2.0', '1!2.1', '2.0a1', '2.0rc1', '2.0', '2.0.post1', '2.0.dev3', '3.0',
+            // Local builds of the bounds and around them: the specifier rules differ from the ordering here.
+            '1.0+cpu', '1.0.0+cu118', '0.9+local.7', '1!2.0+x', '2.0rc1+cpu', '2.0.post1+cpu', '2.0+cpu', '3.0+cpu'
+        ],
         prefixes: ['', 'v']
     },
     {
@@ -421,11 +433,36 @@ const DIALECTS: Dialect[] = [
 // Gem::Version#bump for the versions above, worked out by hand from rubygems' version.rb.
 const GEM_BUMPS: Record<string, string> = { '1.2': '2', '1.2.3': '1.3', '2.0.0.pre1': '2.1' }
 
+// One PEP 440 version-matching clause, from the specification's text:
+//   - "local version labels MUST be ignored entirely when checking if candidate versions match a given
+//     version specifier" — every clause below compares the candidate's PUBLIC version;
+//   - `==V` is version matching with zero padding; `!=` is its negation;
+//   - `>=V` / `<=V` are inclusive ordered comparisons;
+//   - `>V` "MUST NOT match a local version of the specified version", which the public comparison gives;
+//   - `<V`.
+// Two exclusions the specification makes are deliberately not taken, and are written out here so the
+// departure is stated rather than inherited: `<V` excluding V's own prereleases, and `>V` excluding V's
+// post-releases. Both over-report, the direction the PyPI dialect documents choosing.
+function pep440Holds(operator: string, version: string, probe: string): boolean {
+    const candidate = parsePep440(probe)
+    if (candidate === null) throw new Error('probe is not PEP 440: ' + probe)
+    const publicCandidate = probe.split('+')[0] as string
+    const order = pep440Comparator.compare(publicCandidate, version)
+    if (operator === '==') return order === 0
+    if (operator === '!=') return order !== 0
+    if (operator === '>=') return order >= 0
+    if (operator === '<=') return order <= 0
+    if (operator === '>') return order > 0
+    if (operator === '<') return order < 0
+    throw new Error('no PEP 440 clause ' + operator)
+}
+
 function holds(operator: string, version: string, probe: string, dialect: Dialect): boolean {
+    if (dialect.ecosystem === 'PyPI') return pep440Holds(operator, version, probe)
     const c = dialect.comparator
     const v = c.normalize(probe) as string
     const bound = c.normalize(version) as string
-    if (operator === '=' || operator === '==' || operator === '===') return c.compare(v, bound) === 0
+    if (operator === '=') return c.compare(v, bound) === 0
     if (operator === '!=') return c.compare(v, bound) !== 0
     if (operator === '>=') return c.gte(v, bound)
     if (operator === '>') return c.gt(v, bound)
@@ -434,11 +471,12 @@ function holds(operator: string, version: string, probe: string, dialect: Dialec
     return c.gte(v, bound) && c.lt(v, c.normalize(GEM_BUMPS[version] as string) as string)
 }
 
+// What a scan reads the parsed range as: the matcher's own membership rule, under the dialect's specifier
+// semantics (gemnasium's, applied by its scanner).
 function reads(range: string, probe: string, dialect: Dialect): boolean {
     const parsed = parseAffectedRange(range, [], dialect.ecosystem)
-    const v = dialect.comparator.normalize(probe)
-    return parsed.versions.some(function pinned(x) { return dialect.comparator.normalize(x) === v })
-        || parsed.ranges.some(function inside(r) { return versionInRange(probe, r, dialect.comparator) })
+    const exact = new Set(parsed.versions.map(function n(x) { return dialect.comparator.normalize(x) as string }))
+    return versionInSet(probe, parsed.ranges, exact, dialect.comparator, specifierSemantics(dialect.ecosystem))
 }
 
 describe.each(DIALECTS)('$ecosystem — P1 and P2 over the generated grammar', function (dialect) {
@@ -465,5 +503,29 @@ describe.each(DIALECTS)('$ecosystem — P1 and P2 over the generated grammar', f
             const expected = parts.every(function each([op, v]) { return holds(op, v, probe, dialect) })
             expect(reads(canonical, probe, dialect), canonical + ' @ ' + probe).toBe(expected)
         }
+    })
+})
+
+// What PEP 440 forbids or this parser cannot express is refused, never read as something else (SENTINEL-127).
+describe('PyPI — refused specifiers', function () {
+    it.each(['===1.0', '=== 1.0.0', '<=2.2.0+cpu', '>1.0+local', '!=1.0+local', '~=2.0', '==1.0.*'])('%j', function (raw) {
+        expect(parseAffectedRange(raw, [], 'PyPI')).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('<0.1 || ' + raw, [], 'PyPI')).toEqual({ ranges: [{ introduced: '0', fixed: '0.1', lastAffected: null }, refusedRange(raw)], versions: [] })
+    })
+
+    // The reviewer's reproduction: arbitrary equality is string equality, so `===1.0` does not select 1.0.0
+    // — and nothing that was read selects it either.
+    it('does not read ===1.0 as selecting 1.0.0', function () {
+        const parsed = parseAffectedRange('<0.1 || ===1.0', [], 'PyPI')
+        expect(versionInSet('1.0.0', parsed.ranges, new Set(parsed.versions), pep440Comparator, 'pep440')).toBe(false)
+    })
+
+    // A pin with a local label is exact and strict.
+    it('reads ==V+local as a strict pin', function () {
+        const parsed = parseAffectedRange('==2.2.0+cpu', [], 'PyPI')
+        const exact = new Set(parsed.versions.map(function n(x) { return pep440Comparator.normalize(x) as string }))
+        expect(versionInSet('2.2+cpu', parsed.ranges, exact, pep440Comparator, 'pep440')).toBe(true)
+        expect(versionInSet('2.2.0', parsed.ranges, exact, pep440Comparator, 'pep440')).toBe(false)
+        expect(versionInSet('2.2.0+cu118', parsed.ranges, exact, pep440Comparator, 'pep440')).toBe(false)
     })
 })

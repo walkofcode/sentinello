@@ -1,5 +1,5 @@
 import { canonicalPackageName, comparatorForEcosystem, type GemnasiumAdvisoryRow, type GemnasiumRange } from '@sentinello/core'
-import { canMatchSomething, canonicaliseRange, highestVersion, normalizeBound, type VersionComparator } from '@sentinello/versions'
+import { canMatchSomething, canonicaliseRange, highestVersion, normalizeBound, refusedRange, type VersionComparator } from '@sentinello/versions'
 import { severityFromCvss } from './cvss'
 
 // Parses a single gemnasium-db advisory (one *.yml file, already YAML-parsed to an object) into the
@@ -184,6 +184,8 @@ export function parseAffectedRange(affectedRange: string, fixedVersions: string[
     if (comparator === null) return { ranges: [], versions: [] }
     const ranges: BuiltRange[] = []
     const versions: string[] = []
+    // The source's own text of every disjunct this parser refused, in order.
+    const refused: string[] = []
     const trimmed = affectedRange.trim()
     // Split FIRST, canonicalise each disjunct SECOND. Handing node-semver the whole string lets one
     // unconstrained disjunct swallow the rest: `>=1 <2 || ` is `A || (any)` to npm, which is `*`, so a
@@ -192,23 +194,26 @@ export function parseAffectedRange(affectedRange: string, fixedVersions: string[
     //
     // The canonical form is split on `||` once more, because an operator dialect may itself answer with a
     // disjunction: a `!=` exclusion is the two intervals either side of the excluded version.
-    const disjuncts = (trimmed.length > 0 ? trimmed.split('||').map(trimToken).filter(nonEmpty) : [])
-        .map(function canonical(disjunct) {
-            return canonicaliseRange(disjunct, ecosystem)
-        })
-        .filter(isNotNull)
-        .flatMap(function split(canonical) { return canonical.split('||') })
-        .map(trimToken)
-        .filter(nonEmpty)
-
-    for (const disjunct of disjuncts) {
-        const interval = parseDisjunct(disjunct, comparator)
-        if (!interval) continue
-        if (interval.exact !== null) {
-            versions.push(interval.exact)
-        } else {
-            ranges.push(toRange(interval.introduced, interval.introducedExclusive, interval.fixed, interval.lastAffected))
+    //
+    // A disjunct refused at either step — a syntax the dialect does not implement, a bound the comparator
+    // cannot read — is REMEMBERED, not skipped. Skipping it left the surviving disjuncts looking like the
+    // whole affected set, which turned "this record also says something we cannot read" into proof that
+    // every version outside the survivors is safe: `<1.0 || ~=2.0` cached as `<1.0` let the fix picker
+    // name 2.0. An empty interval (`<0`) is not a refusal: it was read, and it selects nothing.
+    for (const disjunct of trimmed.length > 0 ? trimmed.split('||').map(trimToken).filter(nonEmpty) : []) {
+        const canonical = canonicaliseRange(disjunct, ecosystem)
+        let readAll = canonical !== null
+        for (const part of canonical === null ? [] : canonical.split('||').map(trimToken).filter(nonEmpty)) {
+            const interval = parseDisjunct(part, comparator)
+            if (!interval) {
+                readAll = false
+            } else if (interval.exact !== null) {
+                versions.push(interval.exact)
+            } else {
+                ranges.push(toRange(interval.introduced, interval.introducedExclusive, interval.fixed, interval.lastAffected))
+            }
         }
+        if (!readAll) refused.push(disjunct)
     }
 
     // Every parsed interval selects no version (`<0`, or any other degenerate bound), or there was no
@@ -222,7 +227,9 @@ export function parseAffectedRange(affectedRange: string, fixedVersions: string[
     // parsed upper bound. See rule 2 above for why the count check is load-bearing.
     const only = ranges[0]
     const authoritativeFixed = fixedVersions[0]
-    if (ranges.length === 1 && versions.length === 0 && only && fixedVersions.length === 1 && authoritativeFixed !== undefined
+    // A refused sibling disqualifies it too: the record then had more than one disjunct, and the one fix
+    // may belong to the branch nobody could read.
+    if (ranges.length === 1 && versions.length === 0 && refused.length === 0 && only && fixedVersions.length === 1 && authoritativeFixed !== undefined
         // …but only when it is actually ABOVE the interval's lower bound. A fix at or below it describes a
         // different branch, and substituting it builds an interval that selects nothing — the identical
         // reasoning to the highest-fix bounding below, which has always carried this check while the
@@ -270,7 +277,12 @@ export function parseAffectedRange(affectedRange: string, fixedVersions: string[
     // An interval that selects nothing is dropped even when a sibling is live: cached, it would sit in the
     // row looking like an affected range and could never report — `[1.1.5.post1, 1.1.5)` under PEP 440, or
     // npm's `[4.0.0-beta1, 4.0.0-beta.11)`, where `beta1` sorts above `beta.11`.
-    return { ranges: bounded.filter(function live(range) { return canMatchSomething(range, comparator) }), versions }
+    //
+    // Refused disjuncts follow the live ones as refused parts (see VersionRange.refused): they match
+    // nothing, and they keep the record's affected set incomplete wherever it is read. They are only kept
+    // beside something that was read — a record refused whole was already returned empty above.
+    const live = bounded.filter(function live(range) { return canMatchSomething(range, comparator) })
+    return { ranges: [...live, ...refused.map(function marker(text) { return refusedRange(text) })], versions }
 }
 
 // Whether `fix` is a readable version above the range's lower bound, so `[lower, fix)` selects something.
@@ -532,8 +544,4 @@ function trimToken(s: string): string {
 
 function nonEmpty(s: string): boolean {
     return s.length > 0
-}
-
-function isNotNull(value: string | null): value is string {
-    return value !== null
 }

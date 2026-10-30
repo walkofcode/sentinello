@@ -1,5 +1,5 @@
 import { Range, satisfies, gte, gt, valid, compare as semverCompare, type Comparator } from 'semver'
-import { comparatorById, isZeroVersion, normalizeBound, versionInRange, type ComparatorId, type VersionComparator, type VersionRange } from '@sentinello/versions'
+import { comparatorById, isZeroVersion, normalizeBound, versionInSet, type ComparatorId, type SpecifierSemantics, type VersionComparator, type VersionRange } from '@sentinello/versions'
 
 // A fix version is a fact about the package registry, not arithmetic on a range. This module used to turn a
 // `<=X` bound into "X+1" and a `>X` bound into "X+1" and report the result as the fix — which is how braces
@@ -31,9 +31,13 @@ export type VersionSet = {
     // normalization the matcher used, so `<1.1.0` plus exact `1.1.0` rejects 1.1.0.
     exact: string[]
     // False when some of the source's data could not be carried here — a range dropped for this
-    // comparator, a bound it cannot read, a range string that does not parse. An incomplete set can never
-    // prove a version safe.
+    // comparator, a bound it cannot read, a part of the source's range the parser refused, a range string
+    // that does not parse. An incomplete set can never prove a version safe.
     complete: boolean
+    // How the ranges and exact versions are matched beyond the comparator's ordering, when the source wrote
+    // them in an ecosystem's requirement syntax (gemnasium's PyPI ranges are PEP 440 specifiers). Absent:
+    // ordering is the whole meaning, as for OSV's intervals and npm audit's ranges.
+    specifier?: SpecifierSemantics
 }
 
 // Everything a source said that bears on which version fixes a finding. One per reporting source/copy; the
@@ -267,9 +271,11 @@ function withinBounds(version: string, lower: Bound | null, upper: Bound | null)
 }
 
 // Whether the comparator can read every bound of every range. An inclusive zero lower bound is the bottom
-// of the version space, which versionInRange never compares against, so it needs no reading.
+// of the version space, which versionInRange never compares against, so it needs no reading. A part of the
+// source's range the parser refused is unread by definition.
 export function rangesReadable(ranges: readonly VersionRange[], comparator: VersionComparator): boolean {
     return ranges.every(function readable(range) {
+        if (range.refused !== undefined) return false
         const bottom = range.introducedExclusive !== true && isZeroVersion(range.introduced)
         if (!bottom && normalizeBound(range.introduced, comparator) === null) return false
         const upper = range.fixed ?? range.lastAffected ?? null
@@ -280,7 +286,7 @@ export function rangesReadable(ranges: readonly VersionRange[], comparator: Vers
 // A version set ready to test versions against. Null when it cannot be evaluated: incomplete, a bound the
 // comparator cannot read, or an exact version it cannot read (it might be the very version a candidate
 // spells differently).
-export type EvaluableSet = { comparator: VersionComparator; ranges: readonly VersionRange[]; exact: Set<string> }
+export type EvaluableSet = { comparator: VersionComparator; ranges: readonly VersionRange[]; exact: Set<string>; specifier: SpecifierSemantics | undefined }
 export type EvaluableAffected = EvaluableSet
 
 export function evaluableAffected(set: VersionSet): EvaluableSet | null {
@@ -293,7 +299,7 @@ export function evaluableAffected(set: VersionSet): EvaluableSet | null {
         if (v === null) return null
         exact.add(v)
     }
-    return { comparator, ranges: set.ranges, exact }
+    return { comparator, ranges: set.ranges, exact, specifier: set.specifier }
 }
 
 // Whether a set holds a version: true / false, or null when the set — or the version — cannot be evaluated
@@ -307,10 +313,8 @@ export function affectedSetContains(set: VersionSet, version: string): boolean |
 }
 
 // `version` must already be normalized by the set's comparator, the way the exact entries were: `v1.2.1`
-// and `1.2.1+build` are the release 1.2.1, and an exact entry of 1.2.1 has to catch both spellings.
+// and `1.2.1+build` are the release 1.2.1, and an exact entry of 1.2.1 has to catch both spellings. The
+// membership rule itself is the matcher's (versionInSet), so settlement cannot disagree with a finding.
 export function evaluableContains(ev: EvaluableSet, version: string): boolean {
-    if (ev.exact.has(version)) return true
-    return ev.ranges.some(function contains(range) {
-        return versionInRange(version, range, ev.comparator)
-    })
+    return versionInSet(version, ev.ranges, ev.exact, ev.comparator, ev.specifier)
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { refusedRange } from '@sentinello/versions'
 import { normalizeOsvRecord } from './normalize'
 
 function record(overrides: Record<string, unknown> = {}) {
@@ -302,11 +303,22 @@ describe('normalizeOsvRecord — range extraction', function () {
         expect(rows[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '1.0.0', fixed: null, lastAffected: '1.5.0' }])
     })
 
+    // Refused, and remembered as refused: the interval it opened is lost, so the row's affected set must not
+    // read as complete without it (SENTINEL-132).
     it('refuses an unreadable SEMVER lower bound without inventing one', function () {
-        const ranges = [{ type: 'SEMVER', events: [{ introduced: 'not-a-version' }] }]
+        const ranges = [{ type: 'SEMVER', events: [{ introduced: 'not-a-version' }, { fixed: '2.0.0' }] }]
         const rows = normalizeOsvRecord(record({ affected: affected({ ranges }) }), 'npm')
-        expect(rows[0]?.ranges).toEqual([])
+        expect(rows[0]?.ranges).toEqual([refusedRange('>=not-a-version', 'SEMVER')])
         expect(rows[0]?.versions).toEqual(['1.0.0'])
+    })
+
+    // A row with nothing but refused parts has nothing to match on, and is skipped like an empty one.
+    it('skips a row whose every range was refused', function () {
+        const ranges = [{ type: 'SEMVER', events: [{ introduced: 'not-a-version' }] }]
+        expect(normalizeOsvRecord(record({ affected: [{ package: { name: 'lodash', ecosystem: 'npm' }, ranges }] }), 'npm')).toEqual([])
+        // Malware is kept: the matcher reads a row with no readable range as "versions unknown".
+        const malware = normalizeOsvRecord(record({ id: 'MAL-1', affected: [{ package: { name: 'lodash', ecosystem: 'npm' }, ranges }] }), 'npm')
+        expect(malware[0]?.ranges).toEqual([refusedRange('>=not-a-version', 'SEMVER')])
     })
 
     it.each([
@@ -315,13 +327,14 @@ describe('normalizeOsvRecord — range extraction', function () {
     ])('keeps an interval open when its SEMVER upper event is unreadable', function (...events) {
         const ranges = [{ type: 'SEMVER', events }]
         const rows = normalizeOsvRecord(record({ affected: affected({ ranges }) }), 'npm')
-        expect(rows[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '1.0.0', fixed: null, lastAffected: null }])
+        const text = 'fixed' in (events[1] as object) ? '<not-a-version' : '<=not-a-version'
+        expect(rows[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '1.0.0', fixed: null, lastAffected: null }, refusedRange(text, 'SEMVER')])
     })
 
     it('uses semver validation for an ECOSYSTEM range in a semver ecosystem', function () {
         const ranges = [{ type: 'ECOSYSTEM', events: [{ introduced: '1.0.0' }, { fixed: 'not-a-version' }] }]
         const rows = normalizeOsvRecord(record({ affected: affected({ ranges }) }), 'npm')
-        expect(rows[0]?.ranges).toEqual([{ type: 'ECOSYSTEM', introduced: '1.0.0', fixed: null, lastAffected: null }])
+        expect(rows[0]?.ranges).toEqual([{ type: 'ECOSYSTEM', introduced: '1.0.0', fixed: null, lastAffected: null }, refusedRange('<not-a-version', 'ECOSYSTEM')])
     })
 
     it('emits an open-ended range for a trailing introduced with no bound', function () {
@@ -690,9 +703,9 @@ describe('normalizeOsvRecord — each ecosystem in its own comparator', function
     // An unreadable bound is validated for every ecosystem now: an unreadable lower bound cannot open an
     // interval, and an unreadable close leaves a valid interval open rather than unmatchable.
     it('reads every bound with the ecosystem comparator', function () {
-        expect(rows('PyPI', 'pkg', [{ type: 'ECOSYSTEM', events: [{ introduced: 'garbage' }, { fixed: '2.0' }] }], ['0.1'])[0]?.ranges).toEqual([])
-        expect(rows('PyPI', 'pkg', [{ type: 'ECOSYSTEM', events: [{ introduced: '1.0' }, { fixed: '4.2-20.el8_6' }] }])[0]?.ranges).toEqual([{ type: 'ECOSYSTEM', introduced: '1.0', fixed: null, lastAffected: null }])
-        expect(rows('PyPI', 'pkg', [{ type: 'ECOSYSTEM', events: [{ introduced: '1.0' }, { last_affected: 'not-a-version' }] }])[0]?.ranges).toEqual([{ type: 'ECOSYSTEM', introduced: '1.0', fixed: null, lastAffected: null }])
+        expect(rows('PyPI', 'pkg', [{ type: 'ECOSYSTEM', events: [{ introduced: 'garbage' }, { fixed: '2.0' }] }], ['0.1'])[0]?.ranges).toEqual([refusedRange('>=garbage', 'ECOSYSTEM')])
+        expect(rows('PyPI', 'pkg', [{ type: 'ECOSYSTEM', events: [{ introduced: '1.0' }, { fixed: '4.2-20.el8_6' }] }])[0]?.ranges).toEqual([{ type: 'ECOSYSTEM', introduced: '1.0', fixed: null, lastAffected: null }, refusedRange('<4.2-20.el8_6', 'ECOSYSTEM')])
+        expect(rows('PyPI', 'pkg', [{ type: 'ECOSYSTEM', events: [{ introduced: '1.0' }, { last_affected: 'not-a-version' }] }])[0]?.ranges).toEqual([{ type: 'ECOSYSTEM', introduced: '1.0', fixed: null, lastAffected: null }, refusedRange('<=not-a-version', 'ECOSYSTEM')])
     })
 
     it('reads nothing for an ecosystem the registry does not know', function () {

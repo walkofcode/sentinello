@@ -17,10 +17,17 @@ import type { DepScope, LockEdge, LockNode, LockRoot, LockRootKind, ResolvedPack
 // prod/dev; Pipfile.lock and requirements.txt do not, and keep the flat list.
 //
 // A package from somewhere other than a package index — a git checkout, a URL, a local directory or file —
-// is not the PyPI release of the same name, so it is never matched against PyPI advisories. A local one
-// inside the project is the project's own code (uv's editable/virtual workspace members, a poetry path
-// dependency on a sibling package) and is not a dependency at all; the rest are counted as
-// cannot-be-audited.
+// is not the PyPI release of the same name, so it is never matched against PyPI advisories. Only a local
+// SOURCE DIRECTORY inside the project is the project's own code (uv's editable/virtual workspace members and
+// directory sources, a poetry directory dependency on a sibling package) and is not a dependency at all.
+// A local ARTIFACT — a wheel or sdist file, poetry `type = "file"`, uv `source = { path = … }` — is a built
+// third-party package wherever it sits: one checked into `vendor/` is still someone else's code, so it is
+// counted as cannot-be-audited like a git checkout, a URL, or a local source outside the project.
+//
+// A node is identified by name, version AND source, because a lockfile can lock one name at one version
+// from an index and from git; keyed by name and version alone, whichever came last decided whether both were
+// audited. A dependency reference is resolved by every identity field it carries (uv adds `version` and
+// `source` to one exactly when the name alone is ambiguous).
 
 const PYPI_ECOSYSTEM = 'PyPI'
 
@@ -46,9 +53,18 @@ type LockContext = { projectPath: string; lockDir: string; manifestPath: string 
 // something no advisory database covers.
 type Origin = 'index' | 'own' | 'git' | 'url' | 'path'
 
-// A locked package as both lockfiles describe it: node id, the dependency names its entry lists (each with
-// a version when the lockfile disambiguates one), and its origin.
-type LockedPackage = { id: string; name: string; version: string; origin: Origin; deps: Array<{ name: string; version: string | null }> }
+// A dependency reference: the name, plus the version and source a lockfile writes when the name alone is
+// ambiguous.
+type LockedDependency = { name: string; version: string | null; source: string | null }
+
+// A locked package as both lockfiles describe it: node id, the dependency references its entry lists, and
+// its origin. `source` is the lockfile's own statement of where it came from (null for poetry's default
+// index), which is part of its identity.
+type LockedPackage = { id: string; name: string; version: string; source: string | null; origin: Origin; deps: LockedDependency[] }
+
+function lockedId(name: string, version: string, source: string | null): string {
+    return source === null ? name + '@' + version : name + '@' + version + ' (' + source + ')'
+}
 
 // poetry.lock: `[[package]]` entries, each followed by `[package.dependencies]` (name → constraint) and,
 // for a package not from an index, `[package.source]` (`type` git | url | file | directory). The project
@@ -65,9 +81,11 @@ function fromPoetryLock(text: string, context: LockContext, pyprojectRoots: Pypr
         const version = tomlString(entry.values.version)
         if (!name || !version) continue
         const canonical = normalizePyName(name)
-        const id = canonical + '@' + version
-        const deps = Object.keys(entry.sub.dependencies ?? {}).map(function dep(key) { return { name: normalizePyName(key), version: null } })
-        locked.push({ id, name: canonical, version, origin: poetryOrigin(entry, context), deps })
+        const source = poetrySource(entry)
+        const id = lockedId(canonical, version, source)
+        // poetry writes a dependency as name → constraint, never which locked entry it resolved to.
+        const deps = Object.keys(entry.sub.dependencies ?? {}).map(function dep(key) { return { name: normalizePyName(key), version: null, source: null } })
+        locked.push({ id, name: canonical, version, source, origin: poetryOrigin(entry, context), deps })
         const category = tomlString(entry.values.category)
         if (category !== null) categories.set(id, category)
         if (tomlString(entry.values.optional) === 'true') optionalIds.add(id)
@@ -101,8 +119,16 @@ function poetryOrigin(entry: ArrayTableEntry, context: LockContext): Origin {
     if (type === null || type === 'legacy') return 'index'
     if (type === 'git') return 'git'
     if (type === 'url') return 'url'
+    // Only a source directory can be the project's own; a `file` (a wheel or sdist) never is.
     const url = tomlString(source.url)
-    return url !== null && isInsideProject(context.projectPath, context.lockDir, url) ? 'own' : 'path'
+    return type === 'directory' && url !== null && isInsideProject(context.projectPath, context.lockDir, url) ? 'own' : 'path'
+}
+
+// `[package.source]` as an identity: type, url and git reference. Null for the default index.
+function poetrySource(entry: ArrayTableEntry): string | null {
+    const source = entry.sub.source
+    if (source === undefined) return null
+    return [tomlString(source.type), tomlString(source.url), tomlString(source.reference)].map(function part(p) { return p ?? '' }).join(' ')
 }
 
 // uv.lock: `[[package]]` entries whose `source` is an inline table — `{ registry = … }` for an index
@@ -119,11 +145,13 @@ function fromUvLock(text: string, context: LockContext): ResolverResult {
         const version = tomlString(entry.values.version)
         if (!name) continue
         const canonical = normalizePyName(name)
-        const origin = uvOrigin(tomlTable(entry.values.source), context)
+        const sourceTable = tomlTable(entry.values.source)
+        const origin = uvOrigin(sourceTable, context)
+        const source = uvSource(sourceTable)
         // A workspace member may be locked without a version (a virtual project has none).
-        const id = canonical + '@' + (version ?? '')
+        const id = lockedId(canonical, version ?? '', source)
         const optional = Object.values(entry.sub['optional-dependencies'] ?? {}).flatMap(uvDependencies)
-        locked.push({ id, name: canonical, version: version ?? '', origin, deps: [...uvDependencies(entry.values.dependencies), ...optional] })
+        locked.push({ id, name: canonical, version: version ?? '', source, origin, deps: [...uvDependencies(entry.values.dependencies), ...optional] })
         if (origin === 'own') members.push({ id, entry })
     }
     const roots: LockRoot[] = []
@@ -135,8 +163,7 @@ function fromUvLock(text: string, context: LockContext): ResolverResult {
         ]
         for (const group of groups) {
             for (const dep of uvDependencies(group.deps)) {
-                const target = resolveLocked(dep, locked)
-                if (target !== null) roots.push({ importer: '.', nodeId: target.id, kind: group.kind })
+                for (const target of resolveLocked(dep, locked)) roots.push({ importer: '.', nodeId: target.id, kind: group.kind })
             }
         }
     }
@@ -151,27 +178,45 @@ function fromUvLock(text: string, context: LockContext): ResolverResult {
     return fromLockedPackages(locked, roots, context)
 }
 
+// `editable`, `virtual` and `directory` are source directories; `path` is a wheel or sdist file
+// (https://docs.astral.sh/uv/concepts/projects/dependencies/#path), never the project's own.
 function uvOrigin(source: TomlTable | null, context: LockContext): Origin {
     if (source === null || tomlString(source.registry) !== null) return 'index'
     if (tomlString(source.git) !== null) return 'git'
     if (tomlString(source.url) !== null) return 'url'
-    const local = tomlString(source.editable) ?? tomlString(source.virtual) ?? tomlString(source.directory) ?? tomlString(source.path)
-    return local !== null && isInsideProject(context.projectPath, context.lockDir, local) ? 'own' : 'path'
+    const directory = tomlString(source.editable) ?? tomlString(source.virtual) ?? tomlString(source.directory)
+    return directory !== null && isInsideProject(context.projectPath, context.lockDir, directory) ? 'own' : 'path'
 }
 
-function uvDependencies(value: TomlValue | undefined): Array<{ name: string; version: string | null }> {
+const UV_SOURCE_KINDS = ['registry', 'git', 'url', 'path', 'directory', 'editable', 'virtual'] as const
+
+// A uv `source` inline table as an identity — `registry=https://pypi.org/simple`, `git=…` — the same string
+// whether it is read off a package or off a dependency reference to it. Null when there is none.
+function uvSource(source: TomlTable | null): string | null {
+    if (source === null) return null
+    for (const kind of UV_SOURCE_KINDS) {
+        const value = tomlString(source[kind])
+        if (value !== null) return kind + '=' + value
+    }
+    return null
+}
+
+function uvDependencies(value: TomlValue | undefined): LockedDependency[] {
     return tomlArray(value).flatMap(function dep(item) {
         const table = tomlTable(item)
         const name = table !== null ? tomlString(table.name) : null
-        return name === null ? [] : [{ name: normalizePyName(name), version: tomlString((table as TomlTable).version) }]
+        if (name === null) return []
+        const t = table as TomlTable
+        return [{ name: normalizePyName(name), version: tomlString(t.version), source: uvSource(tomlTable(t.source)) }]
     })
 }
 
-function resolveLocked(dep: { name: string; version: string | null }, locked: LockedPackage[]): LockedPackage | null {
-    for (const pkg of locked) {
-        if (pkg.name === dep.name && (dep.version === null || pkg.version === dep.version)) return pkg
-    }
-    return null
+// Every locked package a reference can mean: all its written identity fields must agree. One, for a
+// lockfile that disambiguates as it should; all of them — never an arbitrary first — for one that does not.
+function resolveLocked(dep: LockedDependency, locked: LockedPackage[]): LockedPackage[] {
+    return locked.filter(function matches(pkg) {
+        return pkg.name === dep.name && (dep.version === null || pkg.version === dep.version) && (dep.source === null || pkg.source === dep.source)
+    })
 }
 
 function fromLockedPackages(locked: LockedPackage[], roots: LockRoot[], context: LockContext): ResolverResult {
@@ -182,8 +227,7 @@ function fromLockedPackages(locked: LockedPackage[], roots: LockRoot[], context:
         nodes.push({ id: pkg.id, name: pkg.name, version: pkg.version })
         if (pkg.origin !== 'index' && pkg.origin !== 'own') cannotAudit.push(pkg.name + ' (' + pkg.origin + ')')
         for (const dep of pkg.deps) {
-            const target = resolveLocked(dep, locked)
-            if (target !== null) edges.push({ from: pkg.id, to: target.id, kind: 'prod' })
+            for (const target of resolveLocked(dep, locked)) edges.push({ from: pkg.id, to: target.id, kind: 'prod' })
         }
     }
     const byId = new Map(locked.map(function entry(pkg) { return [pkg.id, pkg] as const }))

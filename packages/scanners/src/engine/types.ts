@@ -4,7 +4,7 @@
 // every normalizer upstream had to round any other operator into that shape before it arrived.
 export type { VersionRange, VersionComparator } from '@sentinello/versions'
 
-import type { VersionRange } from '@sentinello/versions'
+import type { SpecifierSemantics, VersionRange } from '@sentinello/versions'
 
 export type CanonicalAdvisory = {
     id: string
@@ -18,6 +18,9 @@ export type CanonicalAdvisory = {
     affected: {
         ranges: VersionRange[]
         exactVersions: string[]
+        // Set when the source wrote these in an ecosystem's requirement syntax, whose matching rule differs
+        // from the plain ordering (gemnasium's PyPI ranges are PEP 440 specifiers). Absent for OSV.
+        specifier?: SpecifierSemantics
     }
     kind: 'vulnerability' | 'malware'
     // Raw severity bucket as the source expresses it (e.g. OSV's upper-case "MODERATE"); the matcher

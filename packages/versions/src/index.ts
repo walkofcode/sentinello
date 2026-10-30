@@ -7,11 +7,12 @@
 // matcher ran had none of the range-syntax guard that a sibling module documented as necessary. Each copy
 // was individually reasonable; together they disagreed, and the disagreements were invisible.
 export type { VersionRange, FormatOptions } from './range'
-export { formatRange, formatRanges, isZeroVersion } from './range'
+export { formatRange, formatRanges, isRefused, isZeroVersion, refusedRange } from './range'
 export { parseVersionRanges } from './parse'
-export { normalizeBound, versionInRange } from './match'
+export type { SpecifierSemantics } from './match'
+export { normalizeBound, specifierCandidate, versionInRange, versionInSet } from './match'
 export { compareVersions, highestVersion } from './compare'
-export { canonicaliseRange, canMatchSomething } from './dialect'
+export { canonicaliseRange, canMatchSomething, specifierSemantics } from './dialect'
 export type { ComparatorId, ReleaseKind, VersionComparator } from './comparator'
 export { comparatorById } from './comparators'
 export { semverComparator, normalizeSemver } from './comparators/semver'

@@ -89,7 +89,11 @@ export type OsvAdvisoryLink = Pick<OsvAdvisoryRow, 'advisoryId' | 'aliases' | 'w
 //     a valid interval and an inverted PyPI or Go interval is dropped as surely as an npm one; an inclusive
 //     zero lower bound is the bottom of the version space, so a Go interval ending at a pseudo-version
 //     (`[0, 0.0.0-20210101000000-abcdef123456)`) is no longer read as inverted and deleted; and PyPI package
-//     names are PEP 503-canonical, so they meet the resolver's. npm reads exactly as it did at v7.
+//     names are PEP 503-canonical, so they meet the resolver's. An event the comparator cannot read is kept
+//     as a refused part of the row's ranges (VersionRange.refused), which matches nothing and keeps the
+//     affected set incomplete, instead of vanishing. npm reads exactly as it did at v7: its ranges are
+//     SEMVER-typed, which OSV's schema requires to be valid SemVer, and the semver comparator reads every
+//     such version, so no npm event is refused.
 //
 // PER ECOSYSTEM, because each ecosystem's cache is its own download: a change that only re-derives PyPI
 // rows must re-seed PyPI and nothing else, and npm's export alone is over 200 MB. Every store keys the
@@ -215,6 +219,9 @@ export type GemnasiumAdvisoryRow = {
 //     pins (192 ranges) were cached as the unmatchable "version" `=X` and now pin X; a conjunction's bounds
 //     intersect instead of the last one winning; the single-fix override and the highest-fix bound are
 //     ordered by PEP 440, Go or Gem rules rather than semver; Go's `v` and RubyGems' `~>`/`!=` are read;
-//     and the gemnasium `gem` package type is cached, for Ruby. One archive carries every ecosystem, so
-//     this is one version for all of them; npm rows re-derive identically.
+//     and the gemnasium `gem` package type is cached, for Ruby. A disjunct the parser refuses (a syntax no
+//     dialect implements, such as PEP 440's `~=` or `===`, or a bound the comparator cannot read) is kept
+//     beside the disjuncts it did read as a refused part of the row's ranges, so the row's affected set
+//     reads incomplete rather than complete without it. One archive carries every ecosystem, so this is one
+//     version for all of them; npm rows re-derive identically except where a disjunct was refused.
 export const GEMNASIUM_NORMALIZER_VERSION = 8

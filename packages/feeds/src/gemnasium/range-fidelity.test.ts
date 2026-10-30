@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { coerce, inc, parse, satisfies, validRange } from 'semver'
-import { goComparator, pep440Comparator, rubygemsComparator, semverComparator, versionInRange, type VersionComparator } from '@sentinello/versions'
+import { goComparator, pep440Comparator, rubygemsComparator, semverComparator, specifierSemantics, versionInRange, versionInSet, type VersionComparator } from '@sentinello/versions'
 import { normalizeGemnasiumRecord, parseAffectedRange } from './normalize'
 
 // A DIFFERENTIAL test, not an example-based one.
@@ -247,31 +247,29 @@ describe('every npm range gemnasium states agrees with node-semver', function ()
 
 // NOTHING GEMNASIUM PUBLISHES MAY BE SILENTLY DROPPED.
 //
-// This is the assertion the rest of the file was missing, and it is the one that matters most, because
-// refusing a range is not a neutral outcome. `parseAffectedRange` returning nothing makes
-// normalizeGemnasiumRecord return no row at all: the advisory is never cached, never matched, and never
-// reported. There is no error, no warning and no count — a real vulnerability simply stops existing as far
-// as Sentinello is concerned. Every other failure in this codebase at least produces a wrong answer; this
-// one produces silence, which is strictly harder to notice.
+// Refusing a range is not a neutral outcome. When `parseAffectedRange` reads nothing of a range,
+// normalizeGemnasiumRecord returns no row: the advisory is never cached, never matched and never reported,
+// with no error and no count. When it reads SOME of a range and refuses a disjunct, the row is cached with
+// the refused disjunct kept as a refused part (VersionRange.refused) — it matches nothing, and it keeps the
+// record's affected set incomplete, so the fix picker never reads the surviving disjuncts as the whole set.
 //
-// The parser refuses syntax it cannot read on purpose, and that is right — guessing at a range is how
-// `^1.0.0` once got cached as a pin on the literal string "^1.0.0". But "we refuse what we cannot read"
-// is only safe while the set of things we cannot read is EMPTY. Today it is: across all 26,547 records
-// with a machine-readable range, in all four ecosystems, the number refused is zero. The only records that
-// yield nothing are the 1,121 carrying gemnasium's `<0` sentinel, which is upstream stating that the
-// record has no machine-readable range at all — their omission is intentional and theirs, not ours.
+// The parser refuses on purpose, and that is right — guessing is how `^1.0.0` once got cached as a pin on
+// the literal string "^1.0.0" — but only while every refusal is a known one. Two kinds are told apart:
+//   - a MALFORMED SPELLING the ecosystem's own grammar does not define (a distro suffix in a PyPI bound, a
+//     date or a four-segment version in a Go one) is refused knowingly, and the record states it;
+//   - a SUPPORTED RANGE the parser fails to read would be a parser defect, and must never be refused.
+// So every refusal is inventoried, for all five ecosystems — whole ranges (KNOWN_REFUSALS: the record
+// yields no row) and single disjuncts (KNOWN_PARTIAL_REFUSALS: the row is incomplete) — and the moment
+// upstream writes a shape outside the inventory, this fails and names it. The records yielding nothing
+// because they carry gemnasium's `<0` sentinel are excluded: that is upstream stating the record has no
+// machine-readable range, and its omission is theirs, not ours.
 //
-// So the number is pinned at zero. The moment upstream writes a shape this parser cannot read, this test
-// fails and names it, and someone goes and implements it — instead of the advisory quietly vanishing and
-// the suite staying green. That is the whole point: it converts the one failure mode that produces silence
-// into the one that produces a red build.
-//
-// All four ecosystems, not just npm. The npm path is canonicalised through node-semver upstream of the
-// parser and the other three are not, so PyPI, Go and crates.io depend on the hand-written parser alone —
-// they are the ones most likely to meet a shape nobody has taught it.
+// Every ecosystem now has its own dialect (canonicaliseRange: node-semver for npm, an operator dialect for
+// the other four), so none relies on the bare parser alone; the inventory is what is left after the
+// dialect and the comparator have read everything they define.
 const ECOSYSTEM_SENTINEL = /^<\s*v?0(\.0){0,2}$/
 
-// What each ecosystem's corpus holds that its dialect does not define, pinned. These are refused — the
+// What each ecosystem's corpus holds that its dialect does not define, pinned. These are refused whole — the
 // record yields no row — and each is a spelling upstream wrote that no version grammar of that ecosystem
 // reads: a distro release suffix (`4.2-20.el8_6`), an Ubuntu revision (`1.9.3ubuntu2`), a Ruby
 // patchlevel in a PyPI record. Before 3.8 they were cached as live rows with a bound no comparator could
@@ -330,6 +328,22 @@ const KNOWN_REFUSALS: Record<string, string[]> = {
     RubyGems: []
 }
 
+// The ranges of which ONE disjunct is refused and the rest read: cached incomplete, never complete without
+// the refused branch (SENTINEL-132). Each refused disjunct is a spelling no Go module version has: a
+// partial-with-suffix `1.1-1.12`, a Docker-style `23.0.15` epoch beside real tags, a `3.0-beta1` lower
+// bound with no patch.
+const KNOWN_PARTIAL_REFUSALS: Record<string, string[]> = {
+    npm: [],
+    PyPI: [],
+    Go: [
+        '=1.1-1.12||>=1.13.0 <1.13.11||>=1.14.0 <1.14.7||>=1.15.0 <1.15.4',
+        '>=19.03.0 <23.0.15||>=24.0.0 <25.0.6||>=26.0.0 <26.1.5||>=27.0.0 <27.1.1',
+        '>=3.0-beta1 <7.5.15||>=8.0.0 <8.3.5'
+    ],
+    'crates.io': [],
+    RubyGems: []
+}
+
 describe('every range gemnasium publishes can be read', function () {
     it.each(Object.entries(KNOWN_REFUSALS).map(function count([ecosystem, refused]) { return [ecosystem, refused.length] as const }))('refuses only the pinned spellings in the %s corpus: %i', function (ecosystem) {
         const ranges = FIXTURE.ranges[ecosystem] ?? []
@@ -347,6 +361,14 @@ describe('every range gemnasium publishes can be read', function () {
         console.log('[range-fidelity] ' + ecosystem + ' refused ' + refused.length + ' of ' + ranges.length)
         expect(refused).toEqual(KNOWN_REFUSALS[ecosystem])
     })
+
+    it.each(Object.entries(KNOWN_PARTIAL_REFUSALS).map(function count([ecosystem, refused]) { return [ecosystem, refused.length] as const }))('refuses a disjunct of only the pinned %s ranges: %i', function (ecosystem) {
+        const partial = (FIXTURE.ranges[ecosystem] ?? []).filter(function refusedInPart(range) {
+            return parseAffectedRange(range, [], ecosystem).ranges.some(function refused(r) { return r.refused !== undefined })
+        })
+        console.log('[range-fidelity] ' + ecosystem + ' refused a disjunct of ' + partial.length)
+        expect(partial).toEqual(KNOWN_PARTIAL_REFUSALS[ecosystem])
+    })
 })
 
 // THE SAME DIFFERENTIAL for every other dialect. node-semver is no oracle for PEP 440, Go or Gem ranges,
@@ -354,6 +376,12 @@ describe('every range gemnasium publishes can be read', function () {
 // version, and evaluate every operator with the ecosystem's own comparator — the operator's definition,
 // written without canonicaliseRange or the parser. Anywhere Sentinello's reading disagrees with it on a
 // probe generated in the ecosystem's grammar, one of them is wrong.
+//
+// For PyPI the operator's definition is PEP 440 version matching, under which "local version labels MUST
+// be ignored entirely when checking if candidate versions match" a public specifier: the oracle compares
+// the candidate's public version, and the probes include local builds of every version the range names.
+// The PEP's two exclusive-bound exclusions (prereleases of V under `<V`, post-releases of V under `>V`)
+// are the documented over-reporting departure — see the PyPI dialect — and the plain comparison states it.
 type Dialect = { ecosystem: string; comparator: VersionComparator }
 const DIALECTS: Dialect[] = [
     { ecosystem: 'PyPI', comparator: pep440Comparator },
@@ -363,7 +391,7 @@ const DIALECTS: Dialect[] = [
 ]
 
 function oracleSays(range: string, version: string, comparator: VersionComparator): boolean | null {
-    const v = comparator.normalize(version)
+    const v = comparator.normalize(comparator.id === 'pep440' ? version.split('+')[0] as string : version)
     if (v === null) return null
     let unreadable = false
     const verdict = range.split('||').some(function disjunct(raw) {
@@ -410,15 +438,11 @@ function oracleSays(range: string, version: string, comparator: VersionComparato
     }
 }
 
+// What a scan reads: the matcher's membership rule, under gemnasium's specifier semantics for the ecosystem.
 function sentinelloReads(range: string, version: string, ecosystem: string, comparator: VersionComparator): boolean {
     const parsed = parseAffectedRange(range, [], ecosystem)
-    const normalized = comparator.normalize(version)
-    for (const pinned of parsed.versions) {
-        if (comparator.normalize(pinned) === normalized) return true
-    }
-    return parsed.ranges.some(function inAny(r) {
-        return versionInRange(version, r, comparator)
-    })
+    const exact = new Set(parsed.versions.flatMap(function n(x) { const v = comparator.normalize(x); return v === null ? [] : [v] }))
+    return versionInSet(version, parsed.ranges, exact, comparator, specifierSemantics(ecosystem))
 }
 
 // Probes in the comparator's own grammar: every version the range names, stepped either side, a
@@ -436,7 +460,8 @@ function dialectProbes(range: string, comparator: VersionComparator): string[] {
         const down = parts[last] as number > 0 ? parts.map(function lower(p, i) { return i === last ? p - 1 : p }).join('.') : null
         const prefix = comparator.id === 'go' ? 'v' : ''
         for (const candidate of [up, down]) if (candidate !== null) out.add(prefix + candidate)
-        if (comparator.id === 'pep440') for (const s of ['rc1', '.post1', '.dev0']) out.add(release + s)
+        if (comparator.id === 'pep440') for (const s of ['rc1', '.post1', '.dev0', '+cpu']) out.add(release + s)
+        if (comparator.id === 'pep440') out.add(raw + '+cu118')
         if (comparator.id === 'rubygems') out.add(release + '.pre1')
         if (comparator.id === 'go' || comparator.id === 'semver') out.add(prefix + release + '-rc.1')
     }

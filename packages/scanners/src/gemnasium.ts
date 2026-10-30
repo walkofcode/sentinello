@@ -1,4 +1,4 @@
-import type { VersionRange } from '@sentinello/versions'
+import { specifierSemantics, type VersionRange } from '@sentinello/versions'
 import { unresolvedGraphReason, unresolvedGraphRawJson } from './coverage'
 import { comparatorForEcosystem } from './engine/comparators'
 import { matchAdvisories } from './engine/matcher'
@@ -151,6 +151,15 @@ function evidenceNotReady(packages: ResolvedPackage[], deps: GemnasiumScannerDep
     return null
 }
 
+// gemnasium writes `affected_range` in "the machine-readable syntax used by the package manager", so a
+// range means what that ecosystem's requirement syntax means — for PyPI, PEP 440 specifier matching, under
+// which a local build (`2.2.0+cpu`) is inside `==2.2.0`. The matcher applies it; the cached row needs no
+// field for it, because it is a property of the source and the ecosystem, not of one record.
+export function gemnasiumAffected(ecosystem: string, ranges: VersionRange[], exactVersions: string[]): CanonicalAdvisory['affected'] {
+    const specifier = specifierSemantics(ecosystem)
+    return specifier === undefined ? { ranges, exactVersions } : { ranges, exactVersions, specifier }
+}
+
 function toCanonicalAdvisory(packageName: string, ecosystem: string, advisory: GemnasiumAdvisory): CanonicalAdvisory {
     return {
         id: advisory.advisoryId,
@@ -158,10 +167,7 @@ function toCanonicalAdvisory(packageName: string, ecosystem: string, advisory: G
         aliases: advisory.aliases,
         ecosystem,
         packageName,
-        affected: {
-            ranges: advisory.ranges,
-            exactVersions: advisory.versions
-        },
+        affected: gemnasiumAffected(ecosystem, advisory.ranges, advisory.versions),
         kind: 'vulnerability',
         severity: advisory.severity,
         summary: advisory.summary,

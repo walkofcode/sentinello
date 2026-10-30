@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -28,8 +28,14 @@ async function writeLock(text: string): Promise<string> {
     return path
 }
 
-async function writeToml(text: string): Promise<void> {
-    await writeFile(join(dir, 'Cargo.toml'), text, 'utf8')
+async function writeToml(text: string, at = '.'): Promise<void> {
+    await mkdir(join(dir, at), { recursive: true })
+    await writeFile(join(dir, at, 'Cargo.toml'), text, 'utf8')
+}
+
+// The crates.io id Cargo.lock gives a registry crate: name, version and source.
+function registryId(name: string, version: string): string {
+    return name + '@' + version + ' (' + REGISTRY + ')'
 }
 
 function entry(name: string, version: string, source: string | null = REGISTRY): string {
@@ -53,9 +59,15 @@ describe('parseCargoLock failure handling', function () {
     })
 
     it('is unauditable when there are no registry packages', async function () {
+        await writeToml('[package]\nname = "my-app"\n')
         const result = await parseCargoLock(dir, await writeLock(entry('my-app', '0.1.0', null)), 'Cargo.lock')
-        expect(result.status).toBe('unauditable')
-        expect(result.status === 'unauditable' && result.reasonCode).toBe('ambiguous_dependency_spec')
+        expect(result).toMatchObject({ status: 'unauditable', reasonCode: 'ambiguous_dependency_spec', details: ['no crates.io packages found in Cargo.lock'] })
+    })
+
+    // Without a manifest the source-less crate cannot be shown to be the project's own, and says so.
+    it('names a source-less crate it cannot locate when nothing else is locked', async function () {
+        const result = await parseCargoLock(dir, await writeLock(entry('my-app', '0.1.0', null)), 'Cargo.lock')
+        expect(result).toMatchObject({ status: 'unauditable', details: ['1 crates from git, local path or other registry sources cannot be audited: my-app (path)'] })
     })
 
     it('always reports the crates.io ecosystem', async function () {
@@ -208,7 +220,8 @@ describe('parseCargoLock sources', function () {
     // A path dependency inside the project is the project's own code; one outside it is someone's local
     // checkout, which no advisory database covers.
     it('treats an in-project path dependency as own code and an outside one as cannot be audited', async function () {
-        await writeToml('[dependencies]\nmy-core = { path = "crates/core" }\nvendored = { path = "../vendored", package = "vendored-fork" }\n')
+        await writeToml('[package]\nname = "my-app"\n\n[dependencies]\nmy-core = { path = "crates/core" }\nvendored = { path = "../vendored", package = "vendored-fork" }\n')
+        await writeToml('[package]\nname = "my-core"\n', 'crates/core')
         const lock = crate('my-app', '0.1.0', null, ['my-core', 'vendored-fork']) + crate('my-core', '0.1.0', null, ['anyhow']) + crate('vendored-fork', '2.0.0', null, []) + entry('anyhow', '1.0.86')
         const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
         expect(result.status).toBe('partial')
@@ -225,17 +238,19 @@ describe('parseCargoLock graph', function () {
         + crate('criterion', '0.5.1', REGISTRY, ['plotters'])
         + crate('plotters', '0.3.6', REGISTRY, [])
 
-    // The chain starts at the project's direct dependency, as npm's does.
+    // The chain starts at the project's direct dependency, as npm's does, and reads name@version whatever
+    // the node id carries.
     it('gives each crate its shortest chain from the project', async function () {
+        await writeToml('[package]\nname = "my-app"\n')
         const result = await parseCargoLock(dir, await writeLock(LOCK), 'Cargo.lock')
         if (result.status === 'unauditable') throw new Error('expected a graph')
         expect(result.graph.byName('bytes')[0]?.depPaths).toEqual(['tokio@1.38.0', 'bytes@1.6.0'])
-        expect(result.graph.nodeGraph?.roots.map(function id(r) { return r.nodeId }).sort()).toEqual(['criterion@0.5.1', 'tokio@1.38.0'])
+        expect(result.graph.nodeGraph?.roots.map(function id(r) { return r.nodeId }).sort()).toEqual([registryId('criterion', '0.5.1'), registryId('tokio', '1.38.0')])
     })
 
     // The roots are the project's own dependencies, so a dev-dependency's own dependencies are dev too.
     it('spreads dev scope through the graph', async function () {
-        await writeToml('[dependencies]\ntokio = "1"\n\n[dev-dependencies]\ncriterion = "0.5"\n')
+        await writeToml('[package]\nname = "my-app"\n\n[dependencies]\ntokio = "1"\n\n[dev-dependencies]\ncriterion = "0.5"\n')
         const result = await parseCargoLock(dir, await writeLock(LOCK), 'Cargo.lock')
         if (result.status === 'unauditable') throw new Error('expected a graph')
         expect(result.graph.classify('plotters', '0.3.6')).toMatchObject({ isProd: false, isDev: true })
@@ -243,11 +258,12 @@ describe('parseCargoLock graph', function () {
     })
 
     it('resolves a dependency that names its version', async function () {
+        await writeToml('[package]\nname = "my-app"\n')
         const lock = crate('my-app', '0.1.0', null, ['rand 0.8.5', 'rand 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)']) + entry('rand', '0.7.3') + entry('rand', '0.8.5')
         const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
         if (result.status === 'unauditable') throw new Error('expected a graph')
         expect(result.graph.byName('rand').map(function chain(p) { return p.depPaths.join(' > ') }).sort()).toEqual(['rand@0.7.3', 'rand@0.8.5'])
-        expect(result.graph.nodeGraph?.roots.map(function id(r) { return r.nodeId }).sort()).toEqual(['rand@0.7.3', 'rand@0.8.5'])
+        expect(result.graph.nodeGraph?.roots.map(function id(r) { return r.nodeId }).sort()).toEqual([registryId('rand', '0.7.3'), registryId('rand', '0.8.5')])
     })
 
     it('records the lockfile as the manifest of every crate', async function () {
@@ -289,15 +305,124 @@ describe('parseCargoLock — entries it does not model', function () {
 
     // A dependency naming nothing locked, and one written as something other than a string, are skipped.
     it('skips a dependency it cannot resolve', async function () {
-        const lock = '[[package]]\nname = "my-app"\nversion = "0.1.0"\ndependencies = [\n "missing",\n { name = "odd" },\n "anyhow",\n]\n\n' + entry('anyhow', '1.0.86')
+        await writeToml('[package]\nname = "my-app"\n')
+        const lock = '[[package]]\nname = "my-app"\nversion = "0.1.0"\ndependencies = [\n "missing",\n { name = "odd" },\n "anyhow",\n "anyhow 1.0.86 (bad",\n]\n\n' + entry('anyhow', '1.0.86')
         const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
-        expect(result.status !== 'unauditable' && result.graph.nodeGraph?.roots.map(function id(r) { return r.nodeId })).toEqual(['anyhow@1.0.86'])
+        expect(result.status !== 'unauditable' && result.graph.nodeGraph?.roots.map(function id(r) { return r.nodeId })).toEqual([registryId('anyhow', '1.0.86')])
     })
 
     // With no project crate to start from, a crate another depends on is not a root of its own.
     it('roots a lockfile without project crates at what nothing depends on', async function () {
         const lock = crate('tokio', '1.38.0', REGISTRY, ['bytes']) + crate('bytes', '1.6.0', REGISTRY, [])
         const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
-        expect(result.status !== 'unauditable' && result.graph.nodeGraph?.roots.map(function id(r) { return r.nodeId })).toEqual(['tokio@1.38.0'])
+        expect(result.status !== 'unauditable' && result.graph.nodeGraph?.roots.map(function id(r) { return r.nodeId })).toEqual([registryId('tokio', '1.38.0')])
+    })
+})
+
+// SENTINEL-129: scope and path ownership belong to the crate whose manifest declares them, not to the
+// manifest that happens to sit beside Cargo.lock.
+describe('parseCargoLock — workspace members', function () {
+    // The reviewer's reproduction: the root package uses `bytes` only for tests, the `app` member ships it.
+    it('scopes each member\'s dependencies by its own manifest', async function () {
+        await writeToml('[package]\nname = "root"\n\n[workspace]\nmembers = ["app"]\n\n[dev-dependencies]\nbytes = "1"\n')
+        await writeToml('[package]\nname = "app"\n\n[dependencies]\nbytes = "1"\n', 'app')
+        const lock = crate('root', '0.1.0', null, ['bytes']) + crate('app', '0.1.0', null, ['bytes']) + entry('bytes', '1.6.0')
+        const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
+        expect(result.status).toBe('ok')
+        if (result.status === 'unauditable') throw new Error('expected a graph')
+        expect(result.graph.classify('bytes', '1.6.0')).toMatchObject({ isProd: true, isDev: true })
+        expect(result.graph.nodeGraph?.roots.map(function importer(r) { return r.importer + ' ' + r.kind }).sort()).toEqual(['. dev', 'app prod'])
+    })
+
+    // …and a member's dev-dependency is dev even when the root manifest names none.
+    it('reads a member\'s dev-dependencies as dev', async function () {
+        await writeToml('[workspace]\nmembers = ["crates/*"]\n')
+        await writeToml('[package]\nname = "app"\n\n[dev-dependencies]\ncriterion = "0.5"\n', 'crates/app')
+        const lock = crate('app', '0.1.0', null, ['criterion']) + entry('criterion', '0.5.1')
+        const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
+        expect(result.status !== 'unauditable' && result.graph.classify('criterion', '0.5.1')).toMatchObject({ isProd: false, isDev: true })
+    })
+
+    // The reviewer's second reproduction: only the member declares the path dependency outside the project.
+    it('counts a member-only path dependency outside the project as cannot be audited', async function () {
+        await writeToml('[workspace]\nmembers = ["crates/*"]\n')
+        await writeToml('[package]\nname = "app"\n\n[dependencies]\noutside = { path = "../../../outside" }\n', 'crates/app')
+        const lock = crate('app', '0.1.0', null, ['outside', 'anyhow']) + crate('outside', '0.3.0', null, []) + entry('anyhow', '1.0.86')
+        const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
+        expect(result.status).toBe('partial')
+        expect(result.status === 'partial' && result.details).toEqual(['1 crates from git, local path or other registry sources cannot be audited: outside (path)'])
+    })
+
+    // A crate with no source whose manifest is not found cannot be shown to be the project's own.
+    it('never assumes a source-less crate it cannot locate is own code', async function () {
+        await writeToml('[workspace]\nmembers = ["crates/*"]\nexclude = ["crates/skipped"]\n')
+        await writeToml('[package]\nname = "app"\n', 'crates/app')
+        await writeToml('[package]\nname = "skipped"\n', 'crates/skipped')
+        await mkdir(join(dir, 'crates', 'not-a-crate'), { recursive: true })
+        const lock = crate('app', '0.1.0', null, ['anyhow']) + crate('skipped', '0.1.0', null, []) + crate('stray', '0.1.0', null, []) + entry('anyhow', '1.0.86')
+        const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
+        expect(result.status === 'partial' && result.details).toEqual(['2 crates from git, local path or other registry sources cannot be audited: skipped (path), stray (path)'])
+    })
+
+    // A path dependency inside the project is a member too, wherever it is declared — including a
+    // `[workspace.dependencies]` entry and a `[patch.crates-io]` override.
+    it('follows in-project path dependencies from every manifest', async function () {
+        await writeToml('[package]\nname = "root"\n\n[workspace.dependencies]\ncore = { path = "libs/core" }\n\n[patch.crates-io]\nserde = { path = "vendor/serde" }\n\n[dependencies]\ncore = { workspace = true }\n')
+        await writeToml('[package]\nname = "core"\n\n[dependencies]\nhelper = { path = "../helper" }\n', 'libs/core')
+        await writeToml('[package]\nname = "helper"\n', 'libs/helper')
+        await writeToml('[package]\nname = "serde"\n', 'vendor/serde')
+        const lock = crate('root', '0.1.0', null, ['core', 'serde']) + crate('core', '0.1.0', null, ['helper']) + crate('helper', '0.1.0', null, []) + crate('serde', '1.0.200', null, []) + entry('anyhow', '1.0.86')
+        const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
+        expect(result.status).toBe('ok')
+    })
+
+    // Two manifests can declare one package name; the lockfile cannot tell them apart, so prod wins.
+    it('keeps a dependency prod when only one of two same-named manifests calls it dev', async function () {
+        await writeToml('[workspace]\nmembers = ["a", "b"]\n')
+        await writeToml('[package]\nname = "tool"\n\n[dev-dependencies]\nbytes = "1"\n', 'a')
+        await writeToml('[package]\nname = "tool"\n\n[dependencies]\nbytes = "1"\n', 'b')
+        const result = await parseCargoLock(dir, await writeLock(crate('tool', '0.1.0', null, ['bytes']) + entry('bytes', '1.6.0')), 'Cargo.lock')
+        expect(result.status !== 'unauditable' && result.graph.classify('bytes', '1.6.0')).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    it('reads a workspace with no member list or a member that is not there', async function () {
+        await writeToml('[package]\nname = "root"\n\n[workspace]\nmembers = ["missing", "./", "gone/*"]\n')
+        const result = await parseCargoLock(dir, await writeLock(crate('root', '0.1.0', null, ['anyhow']) + entry('anyhow', '1.0.86')), 'Cargo.lock')
+        expect(result.status).toBe('ok')
+    })
+})
+
+// SENTINEL-130: one lockfile can hold `x 1.0.0` from crates.io and `x 1.0.0` from git. They are two crates:
+// only the registry one is audited, and their edges and scope stay their own.
+describe('parseCargoLock — one name and version from two sources', function () {
+    const GIT = 'git+https://example.test/x?branch=main#abc'
+    const appCrate = crate('my-app', '0.1.0', null, ['x 1.0.0 (' + GIT + ')', 'y'])
+    const yCrate = crate('y', '1.0.0', REGISTRY, ['x 1.0.0 (' + REGISTRY + ')'])
+    const registryX = crate('x', '1.0.0', REGISTRY, ['a'])
+    const gitX = crate('x', '1.0.0', GIT, ['b'])
+    const leaves = entry('a', '1.0.0') + entry('b', '1.0.0')
+
+    it.each([
+        ['registry first', appCrate + yCrate + registryX + gitX + leaves],
+        ['git first', appCrate + yCrate + gitX + registryX + leaves]
+    ])('keeps them apart (%s)', async function (_order, lock) {
+        await writeToml('[package]\nname = "my-app"\n\n[dependencies]\nx = { git = "https://example.test/x" }\n\n[dev-dependencies]\ny = "1"\n')
+        const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
+        if (result.status !== 'partial') throw new Error('expected a partial graph')
+        expect(result.details.join(' ')).toContain('x (git)')
+        expect(result.graph.byName('x').map(function chain(p) { return p.depPaths.join(' > ') })).toEqual(['y@1.0.0 > x@1.0.0'])
+        // The registry x is reached only through the dev-only y; the git x, which ships, is never audited.
+        expect(result.graph.classify('x', '1.0.0')).toMatchObject({ isProd: false, isDev: true })
+        expect(result.graph.classify('a', '1.0.0')).toMatchObject({ isProd: false, isDev: true })
+        expect(result.graph.classify('b', '1.0.0')).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    // A dependency reference written without the git commit names the same source.
+    it('resolves a source reference written without its commit', async function () {
+        await writeToml('[package]\nname = "my-app"\n')
+        const lock = crate('my-app', '0.1.0', null, ['x 1.0.0 (git+https://example.test/x?branch=main)']) + gitX + leaves
+        const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
+        expect(result.status !== 'unauditable' && result.graph.classify('b', '1.0.0')).toMatchObject({ isProd: true })
+        expect(result.status !== 'unauditable' && result.graph.byName('b')[0]?.depPaths).toEqual(['x@1.0.0', 'b@1.0.0'])
     })
 })

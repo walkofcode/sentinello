@@ -1,5 +1,5 @@
 import { canonicalPackageName, comparatorForEcosystem, type OsvAdvisoryRow, type OsvRange } from '@sentinello/core'
-import { canMatchSomething, isZeroVersion, type VersionComparator } from '@sentinello/versions'
+import { canMatchSomething, isRefused, isZeroVersion, refusedRange, type VersionComparator } from '@sentinello/versions'
 
 // Parses a single OSV record (one *.json file from a per-ecosystem export, or one /v1/vulns response) into
 // the denormalized advisory→package rows we cache. One record can affect multiple packages, each with its
@@ -116,7 +116,9 @@ export function normalizeOsvRecord(record: unknown, ecosystem: string): OsvAdvis
         // withdrawal. A withdrawn record with no `affected` entry for this ecosystem at all (identity-only)
         // produces no row and stays out of reach: there is no package to scope it to, and the per-ecosystem
         // export and modified_id.csv list a record only through its affected packages.
-        if (row.ranges.length === 0 && row.versions.length === 0 && !malicious && row.withdrawn === null) continue
+        // A refused part (an event no comparator reads) is not something to match on either.
+        const matchable = row.ranges.some(function readable(range) { return !isRefused(range) })
+        if (!matchable && row.versions.length === 0 && !malicious && row.withdrawn === null) continue
         rows.push(row)
     }
     return rows
@@ -134,6 +136,10 @@ function extractVersions(versions: string[] | undefined): string[] {
 function extractRanges(ranges: OsvRangeRaw[] | undefined, lastKnownAffected: string | undefined, comparator: VersionComparator): OsvRange[] {
     if (!Array.isArray(ranges)) return []
     const out: ExtractedRange[] = []
+    // Every event the comparator cannot read, as a refused part of the affected set (VersionRange.refused):
+    // it matches nothing, and it keeps the set incomplete, so a version inside the interval it opened or
+    // closed is never proved safe by its absence.
+    const refused: OsvRange[] = []
     for (const range of ranges) {
         // Retain SEMVER (npm/Go/Rust) and ECOSYSTEM (PyPI PEP 440) ranges — the ecosystem's comparator
         // interprets the version strings. GIT ranges carry commit hashes, not versions, and no comparator
@@ -157,12 +163,17 @@ function extractRanges(ranges: OsvRangeRaw[] | undefined, lastKnownAffected: str
                 introduced = isZeroVersion(event.introduced) || comparator.normalize(event.introduced) !== null
                     ? event.introduced
                     : null
+                if (introduced === null) refused.push(refusedRange('>=' + event.introduced, type))
                 continue
             }
             if (typeof event.fixed === 'string' && introduced !== null) {
                 // An unreadable upper bound must not turn a valid open interval into one the matcher can
-                // never enter. Ignore the close and keep the interval open instead.
-                if (comparator.normalize(event.fixed) === null) continue
+                // never enter. Ignore the close and keep the interval open instead — wider than the source
+                // meant, so it is refused as well and the set stays incomplete.
+                if (comparator.normalize(event.fixed) === null) {
+                    refused.push(refusedRange('<' + event.fixed, type))
+                    continue
+                }
                 out.push({ type, introduced, fixed: event.fixed, lastAffected: null })
                 introduced = null
                 lastAffected = null
@@ -170,7 +181,10 @@ function extractRanges(ranges: OsvRangeRaw[] | undefined, lastKnownAffected: str
             }
             if (typeof event.last_affected === 'string' && introduced !== null) {
                 // Inclusive upper bound with no clean fix — remember it for the current interval.
-                if (comparator.normalize(event.last_affected) === null) continue
+                if (comparator.normalize(event.last_affected) === null) {
+                    refused.push(refusedRange('<=' + event.last_affected, type))
+                    continue
+                }
                 lastAffected = event.last_affected
             }
         }
@@ -186,7 +200,7 @@ function extractRanges(ranges: OsvRangeRaw[] | undefined, lastKnownAffected: str
     for (const range of out) {
         if (canMatchSomething(range, comparator)) matchable.push(range)
     }
-    return boundOpenEndedRange(matchable, lastKnownAffected, comparator)
+    return [...boundOpenEndedRange(matchable, lastKnownAffected, comparator), ...refused]
 }
 
 // Every bound above is read by the ECOSYSTEM'S comparator, whatever the range's `type` says. This used to

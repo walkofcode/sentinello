@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { matchAdvisories } from './matcher'
 import { affectedSetContains } from '../version-fix'
-import { goComparator, pep440Comparator, rubygemsComparator, semverComparator, type VersionComparator } from '@sentinello/versions'
+import { goComparator, pep440Comparator, refusedRange, rubygemsComparator, semverComparator, type VersionComparator } from '@sentinello/versions'
 import type { CanonicalAdvisory, VersionRange } from './types'
 import type { ResolvedPackage } from '../resolver/types'
 
@@ -74,6 +74,30 @@ describe('matchAdvisories — unusable range bounds', function () {
             affected: { ranges: [range('not-a-version', '2.0.0'), range('0', '2.0.0')], exactVersions: [] }
         })
         expect(match([pkg('lodash', '1.0.0')], [adv])).toHaveLength(1)
+    })
+})
+
+// A part of the source's range the normalizer refused (SENTINEL-132) matches nothing, leaves the affected set
+// incomplete, and is not version data: malware whose every range was refused is "versions unknown", as when
+// its ranges were all dropped for the comparator.
+describe('matchAdvisories — refused parts of a range', function () {
+    it('matches the readable ranges and marks the set incomplete', function () {
+        const adv = advisory('GHSA-1', { affected: { ranges: [range('0', '2.0.0'), refusedRange('1.0.0', 'SEMVER')], exactVersions: [] } })
+        const [finding] = match([pkg('lodash', '1.0.0')], [adv])
+        expect(finding?.fixInputs.affected.complete).toBe(false)
+        expect(match([pkg('lodash', '2.0.0')], [adv])).toEqual([])
+    })
+
+    it('does not match a vulnerability whose every range was refused', function () {
+        const adv = advisory('GHSA-1', { affected: { ranges: [refusedRange('>=garbage', 'SEMVER')], exactVersions: [] } })
+        expect(match([pkg('lodash', '1.0.0')], [adv])).toEqual([])
+    })
+
+    it('reads malware whose every range was refused as every version, incomplete', function () {
+        const adv = advisory('MAL-1', { kind: 'malware', affected: { ranges: [refusedRange('>=garbage', 'SEMVER')], exactVersions: [] } })
+        const [finding] = match([pkg('lodash', '1.0.0')], [adv], SEMVER_TYPES)
+        expect(finding?.fixInputs.affected.complete).toBe(false)
+        expect(finding?.vulnerableRange).toBe('*')
     })
 })
 

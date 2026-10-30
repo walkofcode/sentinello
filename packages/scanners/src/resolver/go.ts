@@ -19,9 +19,13 @@ import type { ResolvedPackage, ResolverResult } from './types'
 //
 // `go.sum` is only the fallback for a project with no go.mod. It is a checksum database, not a build list:
 // it holds a `/go.mod` line for every module version MVS merely consulted, and can hold several versions of
-// one module. The real fallback reads only the content-hash lines (a version whose source was actually
-// downloaded) and keeps the highest version of each module, which is the one MVS selects. Still partial —
-// it can include modules the build does not use.
+// one module — an upgrade, a revert, a version another requirement path asked for — none of which says which
+// one the build selected. MVS selects from the requirement graph (https://go.dev/ref/mod#minimal-version-
+// selection), and that graph is exactly what is missing here, so the highest checksum is no evidence of the
+// selected version. Every content-hash line (a version whose source was downloaded) is therefore kept as a
+// CANDIDATE, `/go.mod`-only lines excluded: a lower version that is affected stays visible beside a fixed
+// higher one rather than being discarded on a guess. Always partial, and the detail says the versions are
+// checksummed, not proven built.
 //
 // Go has no dev/test scope at the module level, so every module is prod. Module paths are the OSV key
 // verbatim; a major-version suffix (`/v2`) is part of the path and so of the name.
@@ -82,26 +86,22 @@ function fromGoMod(text: string, manifestPath: string): ResolverResult {
 }
 
 function fromGoSum(text: string, manifestPath: string): ResolverResult {
-    const highest = new Map<string, { version: string; normalized: string }>()
+    const packages: ResolvedPackage[] = []
+    const seen = new Set<string>()
     for (const rawLine of text.split(/\r?\n/)) {
         const [path, version] = rawLine.trim().split(/\s+/)
         // `<module> <version>/go.mod <hash>` records only that the module's go.mod was read.
         if (!path || !version || version.endsWith('/go.mod')) continue
-        const normalized = goComparator.normalize(version)
-        if (normalized === null) continue
-        const current = highest.get(path)
-        if (current === undefined || goComparator.gt(normalized, current.normalized)) highest.set(path, { version, normalized })
+        if (goComparator.normalize(version) === null) continue
+        addModule(path, version, manifestPath, packages, seen)
     }
-    const packages: ResolvedPackage[] = []
-    const seen = new Set<string>()
-    for (const [path, { version }] of highest) addModule(path, version, manifestPath, packages, seen)
     if (packages.length === 0) return unauditable(['no modules found in ' + manifestPath])
     return {
         status: 'partial',
         ecosystem: GO_ECOSYSTEM,
         graph: makeGraph(packages),
         reasonCode: 'partial_dependency_graph',
-        details: ['Go modules read from ' + manifestPath + ' with no go.mod: the highest checksummed version of each module, which can include modules the build does not use']
+        details: ['Go modules read from ' + manifestPath + ' with no go.mod: every checksummed module version is a candidate, not proof of what the build selects, and can include modules the build does not use']
     }
 }
 

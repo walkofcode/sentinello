@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { satisfies, validRange } from 'semver'
-import { canMatchSomething, canonicaliseRange } from './dialect'
+import { canMatchSomething, canonicaliseRange, specifierSemantics } from './dialect'
 import type { VersionComparator } from './comparator'
 import { goComparator } from './comparators/go'
 import { pep440Comparator } from './comparators/pep440'
 import { rubygemsComparator } from './comparators/rubygems'
 import { semverComparator } from './comparators/semver'
+import { refusedRange } from './range'
 
 // canonicaliseRange is the single place a range STRING is interpreted, so its two failure directions are
 // the ones the whole advisory pipeline inherits: read a range too narrowly and a real vulnerability never
@@ -99,10 +100,25 @@ describe('canonicaliseRange — an unknown dialect is left alone', function () {
 // `==1.0.*`, so npm's X-range reading applied here would invent an interval the record never claimed. Go and
 // crates.io advisories use plain comparators, and Gem requirements add `~>`.
 describe('canonicaliseRange — operator dialects', function () {
-    it('reads a PEP 440 pin, in both spellings, as an exact version', function () {
+    it('reads a PEP 440 pin as an exact version', function () {
         expect(canonicaliseRange('==1.0', 'PyPI')).toBe('=1.0')
-        expect(canonicaliseRange('===1.0', 'PyPI')).toBe('=1.0')
         expect(canonicaliseRange('== 2.0.0rc1', 'PyPI')).toBe('=2.0.0rc1')
+        // A pin may carry a local label: it then matches that build strictly.
+        expect(canonicaliseRange('==1.0+cpu', 'PyPI')).toBe('=1.0+cpu')
+    })
+
+    // `===` is string equality (`===1.0` does not select 1.0.0), which no interval or normalized pin
+    // expresses; a local label is not permitted on an ordered comparison or an exclusion.
+    it('refuses what a PEP 440 specifier cannot be read as', function () {
+        for (const raw of ['===1.0', '=== 1.0', '<=2.2.0+cpu', '>1.0+local', '!=1.0+local', '>=1.0,<2.0+cpu', '~=2.0', '==1.0.*', '!=1.*']) {
+            expect(canonicaliseRange(raw, 'PyPI'), raw).toBeNull()
+        }
+    })
+
+    // Only PyPI's ranges are specifiers whose matching departs from the ordering.
+    it('names the specifier semantics of each dialect', function () {
+        expect(specifierSemantics('PyPI')).toBe('pep440')
+        for (const dialect of ['npm', 'Go', 'crates.io', 'RubyGems', 'Maven']) expect(specifierSemantics(dialect), dialect).toBeUndefined()
     })
 
     it('turns a PEP 440 comma intersection, spaced or not, into one conjunction', function () {
@@ -165,18 +181,16 @@ describe('canonicaliseRange — operator dialects', function () {
 // selects. Checked over a generated cross-product of every operator, spacing and the version shapes each
 // dialect exists to express, against a reading of the RAW string that evaluates each operator directly with
 // the dialect's comparator — written from the specification, not from canonicaliseRange.
+//
+// PyPI is not here. Its operators are PEP 440 specifiers, whose meaning is not the comparator's ordering
+// (a public specifier ignores the candidate's local label), so an oracle that evaluates them by ordering
+// would only restate an assumption. Its oracle is written from the specifier rules themselves and runs
+// end to end, through the parser and the matching rule: range-grammar.test.ts in @sentinello/feeds.
 describe('canonicaliseRange — operator dialects keep their meaning across the generated grammar', function () {
     type Dialect = { id: string; comparator: VersionComparator; operators: string[]; versions: string[]; probes: string[] }
     // Gem::Version#bump for the versions below, worked out by hand from rubygems' version.rb.
     const GEM_BUMPS: Record<string, string> = { '1': '2', '1.2': '2', '1.2.3': '1.3', '2.0.0.pre1': '2.1', '0.9': '1' }
     const DIALECTS: Dialect[] = [
-        {
-            id: 'PyPI',
-            comparator: pep440Comparator,
-            operators: ['==', '===', '>=', '>', '<=', '<', '!='],
-            versions: ['1.0', '1.0.0', '1!2.0', '2.0rc1', '2.0.post1', '2.0.dev3', '1.0+local.7'],
-            probes: ['0.9', '1.0', '1.0.1', '1!1.0', '1!2.0', '1!2.1', '2.0a1', '2.0rc1', '2.0', '2.0.post1', '2.0.dev3', '2.0.dev4', '1.0+local.7', '3.0']
-        },
         {
             id: 'Go',
             comparator: goComparator,
@@ -204,7 +218,7 @@ describe('canonicaliseRange — operator dialects keep their meaning across the 
         const c = dialect.comparator
         const v = c.normalize(probe) as string
         const bound = c.normalize(version.replace(/^v/, '')) as string
-        if (operator === '==' || operator === '===' || operator === '=') return c.compare(v, bound) === 0
+        if (operator === '=') return c.compare(v, bound) === 0
         if (operator === '!=') return c.compare(v, bound) !== 0
         if (operator === '>=') return c.gte(v, bound)
         if (operator === '>') return c.gt(v, bound)
@@ -333,6 +347,12 @@ describe('canMatchSomething', function () {
     it('keeps an interval from the bottom to a pseudo-version', function () {
         expect(canMatchSomething({ introduced: '0', fixed: '0.0.0-20180523222229-09b5706aa936' }, goComparator)).toBe(true)
         expect(canMatchSomething({ introduced: '0', introducedExclusive: true, fixed: '0.0.0-20180523222229-09b5706aa936' }, semverComparator)).toBe(false)
+    })
+
+    // A part of a source's range the parser refused is unknown, not empty — whatever text it carries.
+    it('keeps a refused part', function () {
+        expect(canMatchSomething(refusedRange('~=2.0'), pep440Comparator)).toBe(true)
+        expect(canMatchSomething(refusedRange('<0'), semverComparator)).toBe(true)
     })
 
     it('keeps an interval when either bound is unreadable', function () {

@@ -17,8 +17,9 @@ export type DepScope = {
 //
 // `depPaths` is shown as the dependency chain beside a finding. For package-lock.json and pnpm-lock.yaml it
 // is the package's node ids (an npm lock path already spells its chain). For the other lockfiles that carry
-// a graph (Cargo.lock, poetry.lock, uv.lock, Gemfile.lock) it is the shortest chain of `name@version` node
-// ids from a root to the package. Where the lockfile has no graph it is the package alone.
+// a graph (Cargo.lock, poetry.lock, uv.lock, Gemfile.lock) it is the shortest chain from a root to the
+// package, each step written `name@version` (their node ids may also carry the source). Where the lockfile
+// has no graph it is the package alone.
 export type ResolvedPackage = {
     ecosystem: string
     name: string

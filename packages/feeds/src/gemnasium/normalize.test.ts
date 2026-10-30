@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { refusedRange } from '@sentinello/versions'
 import { normalizeGemnasiumRecord, parseAffectedRange } from './normalize'
 
 // Three things are being pinned here, and the third one is why this file exists.
@@ -953,7 +954,32 @@ describe('parseAffectedRange — each ecosystem in its own dialect', function ()
     // them was cached as a pin nothing could ever equal.
     it('reads a PyPI == pin as an exact version', function () {
         expect(parseAffectedRange('<0.33.1||==0.34.0', [], 'PyPI')).toEqual({ ranges: [{ introduced: '0', fixed: '0.33.1', lastAffected: null }], versions: ['0.34.0'] })
-        expect(parseAffectedRange('===1.0', [], 'PyPI').versions).toEqual(['1.0'])
+    })
+
+    // SENTINEL-127: `===` is string equality, which no pin or interval here can express. Refused whole, the
+    // record is dropped; beside a disjunct that was read, it is kept as a refused part (SENTINEL-132).
+    it('refuses PEP 440 arbitrary equality', function () {
+        expect(parseAffectedRange('===1.0', [], 'PyPI')).toEqual({ ranges: [], versions: [] })
+        expect(parseAffectedRange('<0.5 || ===1.0', [], 'PyPI')).toEqual({ ranges: [{ introduced: '0', fixed: '0.5', lastAffected: null }, refusedRange('===1.0')], versions: [] })
+    })
+
+    // SENTINEL-132, the reviewer's reproduction. `~=2.0` is not read, and `<1.0` alone is not the record:
+    // the refused branch stays in the row so its affected set reads incomplete.
+    it('keeps a refused disjunct beside the ones it read', function () {
+        expect(parseAffectedRange('<1.0 || ~=2.0', [], 'PyPI')).toEqual({ ranges: [{ introduced: '0', fixed: '1.0', lastAffected: null }, refusedRange('~=2.0')], versions: [] })
+        // A disjunct whose canonical form is read only in part (one half of an exclusion) is refused too.
+        expect(parseAffectedRange('<1.0 <1.0.x || >=3', [], 'PyPI').ranges).toEqual([{ introduced: '3', fixed: null, lastAffected: null }, refusedRange('<1.0 <1.0.x')])
+    })
+
+    // An interval that was read and selects nothing is not a refusal.
+    it('does not count an empty interval as refused', function () {
+        expect(parseAffectedRange('<0 || <1.0', [], 'PyPI').ranges).toEqual([{ introduced: '0', fixed: '1.0', lastAffected: null }])
+    })
+
+    // The one-fix override assumes the record has one branch; a refused sibling says it has more.
+    it('does not apply the single-fix override beside a refused disjunct', function () {
+        expect(parseAffectedRange('<1.0 || ~=2.0', ['2.5'], 'PyPI').ranges).toEqual([{ introduced: '0', fixed: '1.0', lastAffected: null }, refusedRange('~=2.0')])
+        expect(parseAffectedRange('<1.0', ['0.9.1'], 'PyPI').ranges).toEqual([{ introduced: '0', fixed: '0.9.1', lastAffected: null }])
     })
 
     // A `==` no dialect defines is refused, never cached as the version `=X`.

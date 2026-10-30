@@ -261,6 +261,46 @@ describe('pickReleasedFix — in the ecosystem\'s own comparator', function () {
     })
 })
 
+// gemnasium states PyPI ranges as PEP 440 specifiers, which ignore a candidate's local label; OSV states
+// intervals of the order, where a local build sorts above its public version. Settlement applies the same
+// rule the matcher did, so the fix it names is never a version the finding's own source still covers
+// (SENTINEL-127).
+describe('pickReleasedFix — PEP 440 specifier semantics', function () {
+    function pep440Evidence(source: string, specifier: AffectedSet['specifier']): FixEvidence {
+        const set: AffectedSet = { comparator: 'pep440', ranges: [{ introduced: '0', fixed: null, lastAffected: '2.2.0' }], exact: [], complete: true }
+        if (specifier !== undefined) set.specifier = specifier
+        return { source, installed: ['2.1.0'], affected: set, patched: null, patchedSet: null, statedFix: null, fixViaParent: false }
+    }
+
+    it('never names a local build of a version a public specifier covers', function () {
+        const versions = published('2.2.0+cu118', '2.2.1')
+        expect(pickReleasedFix({ published: versions, evidence: [pep440Evidence('gemnasium', 'pep440')], installed: ['2.1.0'] }))
+            .toEqual({ kind: 'released', version: '2.2.1' })
+        // Under the ordering, the local build is above `<=2.2.0`, so it is outside the set.
+        expect(pickReleasedFix({ published: versions, evidence: [pep440Evidence('osv', undefined)], installed: ['2.1.0'] }))
+            .toEqual({ kind: 'released', version: '2.2.0+cu118' })
+    })
+})
+
+// A part of the source's range the normalizer refused is unknown, so the rest of the set cannot prove a
+// candidate safe (SENTINEL-132): gemnasium `<1.0 || ~=2.0` kept `~=2.0` as a refused part, and 2.0 — inside
+// that branch — must not come back as the fix.
+describe('pickReleasedFix — a refused part of the affected set', function () {
+    it('answers unknown rather than proving a version inside the refused branch safe', function () {
+        const set: AffectedSet = {
+            comparator: 'pep440',
+            ranges: [{ introduced: '0', fixed: '1.0', lastAffected: null }, { introduced: '~=2.0', fixed: null, lastAffected: null, refused: '~=2.0' }],
+            exact: [],
+            complete: false
+        }
+        const evidence: FixEvidence = { source: 'gemnasium', installed: ['0.5'], affected: set, patched: null, patchedSet: null, statedFix: null, fixViaParent: false }
+        expect(pickReleasedFix({ published: published('2.0'), evidence: [evidence], installed: ['0.5'] })).toEqual({ kind: 'unknown', reason: 'affected_incomplete' })
+        // Even a set that claimed completeness cannot be evaluated with a refused part in it.
+        expect(pickReleasedFix({ published: published('2.0'), evidence: [{ ...evidence, affected: { ...set, complete: true } }], installed: ['0.5'] }))
+            .toEqual({ kind: 'unknown', reason: 'affected_incomplete' })
+    })
+})
+
 describe('pickReleasedFix — stated fixes it cannot read', function () {
     // An unreadable stated fix admits nothing; the rest of the evidence still settles.
     it('ignores a stated fix its comparator cannot read', function () {

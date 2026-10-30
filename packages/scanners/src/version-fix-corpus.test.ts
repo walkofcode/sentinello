@@ -2,10 +2,11 @@ import { readFileSync } from 'node:fs'
 import { gunzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { parse as parseSemver } from 'semver'
-import { canMatchSomething, parsePep440, type VersionComparator, type VersionRange } from '@sentinello/versions'
+import { canMatchSomething, isRefused, parsePep440, versionInSet, type VersionComparator, type VersionRange } from '@sentinello/versions'
 import { acceptedRangeTypesForEcosystem, comparatorForEcosystem } from './engine/comparators'
 import { matchAdvisories } from './engine/matcher'
 import type { CanonicalAdvisory } from './engine/types'
+import { gemnasiumAffected } from './gemnasium'
 import type { RawFinding } from './types'
 import { affectedSetContains, rangesReadable } from './version-fix'
 
@@ -23,12 +24,19 @@ import { affectedSetContains, rangesReadable } from './version-fix'
 //      never sent to 3.2.x);
 //   3. no empty interval — the normalizers cache no range that can match nothing;
 //   4. the affected set handed to registry settlement keeps every exact version, is incomplete exactly
-//      when a range was dropped or carries a bound the comparator cannot read, and — where complete — says
-//      "affected" for exactly the probes the matcher does;
+//      when a range was dropped, carries a bound the comparator cannot read or is a part of the source's
+//      range the normalizer refused, and — where complete — says "affected" for exactly the probes the
+//      matcher does;
 //   5. spelling invariance — two spellings of one version (`1.2` and `1.2.0`, `v1.2.3` and `1.2.3`) get one
 //      answer;
-//   6. the refusal ratchet — the records whose bounds a comparator cannot read are counted and the count is
-//      pinned, so a new unreadable spelling fails the build instead of silently matching nothing.
+//   6. the refusal ratchet — the records whose bounds a comparator cannot read, or of which the normalizer
+//      refused a part, are counted and the count is pinned, so a new unreadable spelling fails the build
+//      instead of silently matching nothing;
+//   7. every enumerated version, not only the probed spread, is readable by its comparator and is in its
+//      own record's affected set.
+//
+// gemnasium records are matched the way its scanner matches them, under the ecosystem's specifier
+// semantics (PEP 440 version matching for PyPI); OSV's under the plain ordering.
 
 type CorpusRecord = {
     source: 'osv' | 'gemnasium'
@@ -50,13 +58,19 @@ const CORPUS: CorpusRecord[] = gunzipSync(readFileSync(new URL('./fixtures/fix-c
 
 const ECOSYSTEMS = ['Go', 'PyPI', 'RubyGems', 'crates.io', 'npm']
 
-// Pinned: the records in which some range carries a bound its comparator cannot read, per source and
-// ecosystem. Such a range matches nothing and its affected set is incomplete, so the fix is never
-// settled from it. Each is a spelling upstream wrote that the ecosystem's own grammar does not define —
-// a distro release suffix in a PyPI bound (`4.2-20.el8_6`), a Ruby patchlevel (`0.7.11p3`), a Go version
-// written without its patch. If a count moves, look at the records before moving it: down is an upstream
-// fix or a comparator that learnt a spelling; up is a new spelling to read or to refuse knowingly.
-const REFUSALS: Record<string, number> = { 'gemnasium/Go': 1, 'gemnasium/npm': 2 }
+// Pinned: the records in which some range carries a bound its comparator cannot read, or is a part of the
+// source's range the normalizer refused, per source and ecosystem. Such a range matches nothing and its
+// affected set is incomplete, so the fix is never settled from it. Each is a spelling upstream wrote that
+// the ecosystem's own grammar does not define — a distro release suffix in a PyPI bound (`4.2-20.el8_6`),
+// a Ruby patchlevel (`0.7.11p3`), a Go version written without its patch or as a date. The OSV Go and PyPI
+// ones are refused events (OSV's ECOSYSTEM ranges for Go carry upstream product versions such as `<136.1`
+// beside the SEMVER module range). If a count moves, look at the records before moving it: down is an
+// upstream fix or a comparator that learnt a spelling; up is a new spelling to read or to refuse knowingly.
+const REFUSALS: Record<string, number> = { 'gemnasium/Go': 4, 'gemnasium/npm': 2, 'osv/Go': 29, 'osv/PyPI': 24 }
+
+// Pinned: enumerated versions (OSV `versions`, gemnasium pins) their comparator cannot read, per source and
+// ecosystem. Counted, not refused — see the all-exact sweep below.
+const UNREADABLE_EXACT: Record<string, number> = { 'osv/Go': 4, 'osv/PyPI': 2186 }
 
 function advisoryFor(record: CorpusRecord): CanonicalAdvisory {
     return {
@@ -65,7 +79,7 @@ function advisoryFor(record: CorpusRecord): CanonicalAdvisory {
         aliases: [],
         ecosystem: record.ecosystem,
         packageName: 'pkg',
-        affected: { ranges: record.ranges, exactVersions: record.versions },
+        affected: record.source === 'gemnasium' ? gemnasiumAffected(record.ecosystem, record.ranges, record.versions) : { ranges: record.ranges, exactVersions: record.versions },
         kind: record.malicious ? 'malware' : 'vulnerability',
         severity: 'HIGH',
         summary: null,
@@ -113,7 +127,8 @@ function neighbours(version: string, comparator: VersionComparator): string[] {
         const release = v.release
         const last = release[release.length - 1] as number
         const up = [...release.slice(0, -1), last + 1].join('.')
-        const out = [up, release.join('.') + '.post1', release.join('.') + 'rc1', release.join('.') + '.dev0']
+        // A local build too, where PEP 440 specifier matching (gemnasium) and the ordering (OSV) differ.
+        const out = [up, release.join('.') + '.post1', release.join('.') + 'rc1', release.join('.') + '.dev0', release.join('.') + '+cpu']
         if (last > 0) out.push([...release.slice(0, -1), last - 1].join('.'))
         return out
     }
@@ -158,6 +173,7 @@ function probesFor(record: CorpusRecord): string[] {
     const out = new Set<string>(comparator.id === 'go' ? ['v0.0.1', 'v9999.0.0'] : ['0.0.1', '9999.0.0'])
     const named = spread(record.versions)
     for (const r of record.ranges) {
+        if (isRefused(r)) continue
         named.push(r.introduced)
         if (r.fixed) named.push(r.fixed)
         if (r.lastAffected) named.push(r.lastAffected)
@@ -304,6 +320,41 @@ describe('fix derivation over the frozen advisory corpus', function () {
         }
         expect(bad.slice(0, 20)).toEqual([])
         expect(compared).toBeGreaterThan(100000)
+    }, SWEEP_TIMEOUT_MS)
+
+    // The probes above take an even spread of each record's enumerated versions. This takes ALL of them —
+    // ~645,000, a set lookup each — through the membership rule the matcher and settlement share, so
+    // a spelling only the unsampled entries use cannot hide: each readable one must be in its own set, and
+    // the unreadable ones are counted and pinned. An unreadable enumerated version is not lost — the matcher
+    // still compares it as written, and settlement treats its set as unknown — but it is a spelling the
+    // ecosystem does not define: OSV Go's `0.1`, and on PyPI mostly upstream git tags OSV enumerates beside
+    // the releases (`folsom-2`, `essex-rc1`, `@gradio/…@0.2.…`, `name==0.2.3`). A moved count is worth a look.
+    it('reads every enumerated version and finds it in its own set: ' + JSON.stringify(UNREADABLE_EXACT), function () {
+        const unreadable: Record<string, number> = {}
+        const missing: string[] = []
+        let checked = 0
+        for (const record of CORPUS) {
+            if (record.versions.length === 0) continue
+            const comparator = comparatorOf(record)
+            const exact = new Set<string>()
+            for (const v of record.versions) {
+                const normalized = comparator.normalize(v)
+                if (normalized !== null) exact.add(normalized)
+            }
+            const specifier = advisoryFor(record).affected.specifier
+            for (const v of record.versions) {
+                if (comparator.normalize(v) === null) {
+                    const cell = record.source + '/' + record.ecosystem
+                    unreadable[cell] = (unreadable[cell] ?? 0) + 1
+                    continue
+                }
+                checked++
+                if (!versionInSet(v, applicableRanges(record), exact, comparator, specifier)) missing.push(record.source + '/' + record.ecosystem + ' ' + v)
+            }
+        }
+        expect(missing.slice(0, 20)).toEqual([])
+        expect(unreadable).toEqual(UNREADABLE_EXACT)
+        expect(checked).toBeGreaterThan(100000)
     }, SWEEP_TIMEOUT_MS)
 
     it('refuses exactly the pinned records: ' + JSON.stringify(REFUSALS), function () {
