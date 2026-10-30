@@ -184,7 +184,10 @@ const OPERATOR_DIALECTS: Record<string, OperatorRules> = {
     // approximated, each kept as a refused part of the record so its affected set reads incomplete:
     //   - `===X`, arbitrary equality, is plain string equality — `===1.0` does not select `1.0.0` — and no
     //     interval or normalized pin can say that;
-    //   - a local label on an ordered comparison or an exclusion, which PEP 440 does not permit;
+    //   - a local label on an ordered comparison, which PEP 440 does not permit;
+    //   - a local label on an exclusion: `!=1.0+local` is valid PEP 440 (an exclusion takes `==`'s
+    //     identifiers) and excludes that one build, but the public-candidate reading above cannot carve a
+    //     single local build out of a set, so it is unsupported here rather than approximated;
     //   - a `==X.*` prefix match and the compatible release `~=`.
     // None occurs in the frozen corpus; the refusal ratchet names the record the day one does.
     //

@@ -426,3 +426,91 @@ describe('parseCargoLock — one name and version from two sources', function ()
         expect(result.status !== 'unauditable' && result.graph.byName('b')[0]?.depPaths).toEqual(['x@1.0.0', 'b@1.0.0'])
     })
 })
+
+// SENTINEL-129, second round: Cargo spells one dependency several ways — a dotted key (`bytes.workspace = true`),
+// an inline table, a header of its own, a top-level dotted table — and a member may inherit it, under an alias,
+// from `[workspace.dependencies]`. Every spelling names the same locked crate, or a shipped crate reads as dev.
+describe('parseCargoLock — dependency spellings and inherited declarations', function () {
+    const WORKSPACE = '[workspace]\nmembers = ["app"]\n\n[workspace.dependencies]\nbytes = "1"\n'
+    const LOCK = crate('app', '0.1.0', null, ['bytes']) + entry('bytes', '1.6.0')
+
+    // The reviewer's reproduction: app ships bytes through workspace inheritance and also names it for tests.
+    it.each([
+        ['a dotted key', '[dependencies]\nbytes.workspace = true\n'],
+        ['a quoted dotted key', '[dependencies]\n"bytes".workspace = true\n'],
+        ['an inline table', '[dependencies]\nbytes = { workspace = true }\n'],
+        ['a header of its own', '[dependencies.bytes]\nworkspace = true\n'],
+        ['a target table', '[target.\'cfg(unix)\'.dependencies]\nbytes.workspace = true\n']
+    ])('reads an inherited prod declaration written as %s', async function (_spelling, dependencies) {
+        await writeToml(WORKSPACE)
+        await writeToml('[package]\nname = "app"\nversion = "0.1.0"\n\n' + dependencies + '\n[dev-dependencies]\nbytes = "1"\n', 'app')
+        const result = await parseCargoLock(dir, await writeLock(LOCK), 'Cargo.lock')
+        if (result.status === 'unauditable') throw new Error('expected a graph')
+        expect(result.graph.classify('bytes', '1.6.0')).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    // A top-level dotted key is a table too: `dev-dependencies.criterion` is `[dev-dependencies] criterion`.
+    it('reads a dependency table written as top-level dotted keys', async function () {
+        await writeToml('dev-dependencies.criterion = "0.5"\n\n[package]\nname = "app"\n')
+        const result = await parseCargoLock(dir, await writeLock(crate('app', '0.1.0', null, ['criterion']) + entry('criterion', '0.5.1')), 'Cargo.lock')
+        expect(result.status !== 'unauditable' && result.graph.classify('criterion', '0.5.1')).toMatchObject({ isProd: false, isDev: true })
+    })
+
+    // An inherited declaration takes the locked name from the workspace entry's `package` rename.
+    it('resolves an inherited alias to the crate it renames', async function () {
+        await writeToml('[workspace]\nmembers = ["app"]\n\n[workspace.dependencies]\nnet = { package = "bytes", version = "1" }\nbench.package = "criterion"\nbench.version = "0.5"\n')
+        await writeToml('[package]\nname = "app"\n\n[dependencies]\nnet.workspace = true\n\n[dev-dependencies]\nbytes = "1"\nbench = { workspace = true }\n', 'app')
+        const lock = crate('app', '0.1.0', null, ['bytes', 'criterion']) + entry('bytes', '1.6.0') + entry('criterion', '0.5.1')
+        const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
+        if (result.status === 'unauditable') throw new Error('expected a graph')
+        expect(result.graph.classify('bytes', '1.6.0')).toMatchObject({ isProd: true, isDev: false })
+        expect(result.graph.classify('criterion', '0.5.1')).toMatchObject({ isProd: false, isDev: true })
+    })
+
+    // An inherited prod declaration the workspace does not define names no crate this reader can trust, so
+    // the manifest claims nothing is dev-only rather than hiding what it may ship.
+    it('claims no dev-only scope when an inherited prod declaration cannot be resolved', async function () {
+        await writeToml('[workspace]\nmembers = ["app"]\n')
+        await writeToml('[package]\nname = "app"\n\n[dependencies]\nnet.workspace = true\n\n[dev-dependencies]\nbytes = "1"\n', 'app')
+        const result = await parseCargoLock(dir, await writeLock(LOCK), 'Cargo.lock')
+        expect(result.status !== 'unauditable' && result.graph.classify('bytes', '1.6.0')).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    // An unresolved inherited dev-dependency names nothing (it stays out of the dev set), and a `target` or
+    // `[patch]` entry that is not a table holds no declaration.
+    it('skips declarations it cannot read without losing the rest', async function () {
+        await writeToml('target.odd = "x"\npatch.crates-io = "y"\n\n[package]\nname = "app"\n\n[dev-dependencies]\nnet.workspace = true\ncriterion = "0.5"\n')
+        const result = await parseCargoLock(dir, await writeLock(crate('app', '0.1.0', null, ['criterion', 'net']) + entry('criterion', '0.5.1') + entry('net', '1.0.0')), 'Cargo.lock')
+        if (result.status === 'unauditable') throw new Error('expected a graph')
+        expect(result.graph.classify('criterion', '0.5.1')).toMatchObject({ isProd: false, isDev: true })
+        expect(result.graph.classify('net', '1.0.0')).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    // Path ownership reads every spelling too: a dotted `path`, a `[patch]` entry with a header of its own.
+    it('follows a path dependency written as a dotted key', async function () {
+        await writeToml('[workspace]\nmembers = ["app"]\n')
+        await writeToml('[package]\nname = "app"\n\n[dependencies]\nhelper.path = "../libs/helper"\n', 'app')
+        await writeToml('[package]\nname = "helper"\n', 'libs/helper')
+        const lock = crate('app', '0.1.0', null, ['helper', 'anyhow']) + crate('helper', '0.3.0', null, []) + entry('anyhow', '1.0.86')
+        const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
+        expect(result.status).toBe('ok')
+    })
+
+    it('reads [patch] and [workspace.dependencies] paths in every spelling', async function () {
+        await writeToml('[package]\nname = "root"\n\n[workspace.dependencies]\ncore.path = "libs/core"\n\n[patch.crates-io]\nserde.path = "vendor/serde"\n\n[patch."https://example.test/x".tokio]\npath = "../outside-tokio"\n')
+        await writeToml('[package]\nname = "core"\n', 'libs/core')
+        await writeToml('[package]\nname = "serde"\n', 'vendor/serde')
+        const lock = crate('root', '0.1.0', null, ['core', 'serde', 'tokio']) + crate('core', '0.1.0', null, []) + crate('serde', '1.0.200', null, []) + crate('tokio', '1.38.0', null, []) + entry('anyhow', '1.0.86')
+        const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
+        expect(result.status === 'partial' && result.details).toEqual(['1 crates from git, local path or other registry sources cannot be audited: tokio (path)'])
+    })
+
+    // A `[replace]` key is a package id spec (`name:version`, `name@version`, `<source>#name@version`), not a name.
+    it.each(['foo:0.1.0', 'foo@0.1.0', 'https://github.com/rust-lang/crates.io-index#foo@0.1.0', 'https://example.test/foo#0.1.0', 'https://example.test/foo'])('reads the crate a [replace] key %j names', async function (key) {
+        await writeToml('[package]\nname = "root"\n\n[workspace]\nmembers = ["foo"]\n\n[replace]\n"' + key + '" = { path = "../outside-foo" }\n')
+        await writeToml('[package]\nname = "foo"\n', 'foo')
+        const lock = crate('root', '0.1.0', null, ['foo']) + crate('foo', '0.1.0', null, []) + entry('anyhow', '1.0.86')
+        const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
+        expect(result.status === 'partial' && result.details).toEqual(['1 crates from git, local path or other registry sources cannot be audited: foo (path)'])
+    })
+})

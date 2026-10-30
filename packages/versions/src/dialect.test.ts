@@ -108,7 +108,8 @@ describe('canonicaliseRange — operator dialects', function () {
     })
 
     // `===` is string equality (`===1.0` does not select 1.0.0), which no interval or normalized pin
-    // expresses; a local label is not permitted on an ordered comparison or an exclusion.
+    // expresses; a local label is not permitted on an ordered comparison, and on an exclusion it is valid
+    // PEP 440 (`!=1.0+local` excludes that one build) but unsupported here.
     it('refuses what a PEP 440 specifier cannot be read as', function () {
         for (const raw of ['===1.0', '=== 1.0', '<=2.2.0+cpu', '>1.0+local', '!=1.0+local', '>=1.0,<2.0+cpu', '~=2.0', '==1.0.*', '!=1.*']) {
             expect(canonicaliseRange(raw, 'PyPI'), raw).toBeNull()

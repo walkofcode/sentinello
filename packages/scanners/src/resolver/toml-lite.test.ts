@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseArrayOfTables, parseArrayTableEntries, parseTomlSections, tomlArray, tomlString, tomlTable } from './toml-lite'
+import { parseArrayOfTables, parseArrayTableEntries, parseTomlDocument, parseTomlSections, tomlArray, tomlKeyPath, tomlString, tomlTable } from './toml-lite'
 
 // Scoped to the TOML the resolvers read: headers, arrays (across lines) and inline tables in Cargo.lock,
 // poetry.lock, uv.lock, pyproject.toml and Cargo.toml. The tests below pin the supported subset AND what
@@ -224,6 +224,86 @@ describe('parseTomlSections', function () {
         'a ='
     ])('skips the unreadable value %j', function (line) {
         expect(parseTomlSections(line + '\nz = "ok"\n')[0]?.values).toEqual({ z: 'ok' })
+    })
+})
+
+// A dotted key is a table (https://toml.io/en/v1.0.0#keys): `bytes.workspace = true` is `bytes = { workspace = true }`.
+describe('dotted keys', function () {
+    it('nests a dotted key, merging keys that share a prefix', function () {
+        expect(parseTomlSections('bytes.workspace = true\nbytes.features = ["a"]\n')[0]?.values).toEqual({ bytes: { workspace: 'true', features: ['a'] } })
+    })
+
+    it('reads quoted segments and spaces around the dots', function () {
+        expect(parseTomlSections('"a.b" . \'c\' . d = 1\n')[0]?.values).toEqual({ 'a.b': { c: { d: '1' } } })
+    })
+
+    it('nests a dotted key inside an inline table', function () {
+        expect(parseTomlSections('a = { b.c = 1, b.d = 2 }\n')[0]?.values).toEqual({ a: { b: { c: '1', d: '2' } } })
+    })
+
+    // `a = 1` then `a.b = 2` is not TOML: the second line is skipped, never folded into a guess.
+    it('skips a dotted key that runs into a plain value', function () {
+        expect(parseTomlSections('a = 1\na.b = 2\n')[0]?.values).toEqual({ a: '1' })
+    })
+
+    it('rejects a key with an empty segment', function () {
+        expect(parseTomlSections('a. = 1\nz = "ok"\n')[0]?.values).toEqual({ z: 'ok' })
+    })
+
+    // Keys come from scanned repositories: `__proto__` is a key like any other, never a prototype.
+    it('keeps a __proto__ key as data', function () {
+        const [top] = parseTomlSections('__proto__.polluted = "yes"\n')
+        expect(Object.keys(top?.values ?? {})).toEqual(['__proto__'])
+        expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+        expect(Object.keys(parseTomlDocument('[__proto__]\npolluted = "yes"\n[[__proto__.x]]\n'))).toEqual(['__proto__'])
+        expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+    })
+})
+
+describe('tomlKeyPath', function () {
+    it('splits a header into its segments', function () {
+        expect(tomlKeyPath('target.\'cfg(target_os = "linux")\'.dev-dependencies')).toEqual(['target', 'cfg(target_os = "linux")', 'dev-dependencies'])
+    })
+
+    it('is null for text that is not a key', function () {
+        expect(tomlKeyPath('a b')).toBeNull()
+        expect(tomlKeyPath('a.')).toBeNull()
+    })
+})
+
+describe('parseTomlDocument', function () {
+    it('merges headers, dotted keys and top-level dotted keys into one tree', function () {
+        const doc = parseTomlDocument('dev-dependencies.a = "1"\n\n[dependencies]\nb.workspace = true\n\n[dependencies.c]\nversion = "2"\n\n[dependencies.b]\nfeatures = ["x"]\n')
+        expect(doc).toEqual({ 'dev-dependencies': { a: '1' }, dependencies: { b: { workspace: 'true', features: ['x'] }, c: { version: '2' } } })
+    })
+
+    it('reads a quoted header segment', function () {
+        expect(parseTomlDocument('[patch."https://example.test/x".tokio]\npath = "../t"\n')).toEqual({ patch: { 'https://example.test/x': { tokio: { path: '../t' } } } })
+    })
+
+    // A `[[a]]` entry is an element of `a`; a following `[a.x]` belongs to the latest element.
+    it('reads array-of-tables entries and their sub-tables', function () {
+        const doc = parseTomlDocument('[[bin]]\nname = "a"\n\n[[bin]]\nname = "b"\n\n[bin.extra]\nk = 1\n')
+        expect(doc).toEqual({ bin: [{ name: 'a' }, { name: 'b', extra: { k: '1' } }] })
+    })
+
+    // A header naming a plain value, or an array header naming a table, is not TOML: its section is skipped.
+    it('skips a section whose header runs into a value it cannot hold', function () {
+        expect(parseTomlDocument('a = 1\n\n[a.b]\nk = 1\n\n[[a]]\nk = 2\n\n[c]\n\n[[c]]\nk = 3\n\n[d e]\nk = 4\n')).toEqual({ a: '1', c: {} })
+    })
+
+    it('skips an array header under a plain value', function () {
+        expect(parseTomlDocument('a = 1\n\n[[a.b]]\nk = 1\n')).toEqual({ a: '1' })
+    })
+
+    // Defined twice, a table holds the keys of both and a plain key keeps its later value, as within one section.
+    it('merges a table defined twice', function () {
+        expect(parseTomlDocument('[a]\nb.c = 1\n\n[a]\nb.d = 2\n')).toEqual({ a: { b: { c: '1', d: '2' } } })
+        expect(parseTomlDocument('[a]\nb.c = 1\n\n[a]\nb = 2\n')).toEqual({ a: { b: '2' } })
+    })
+
+    it('reaches no table through an array whose last element is not one', function () {
+        expect(parseTomlDocument('a = ["x"]\n\n[a.b]\nk = 1\n')).toEqual({ a: ['x'] })
     })
 })
 

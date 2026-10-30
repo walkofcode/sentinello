@@ -2,18 +2,20 @@
 // poetry.lock, uv.lock, and the `[project]`/`[tool.poetry]`/`[dev-dependencies]` tables of pyproject.toml
 // and Cargo.toml. It reads table and array-of-tables headers, `key = value` pairs with bare or quoted keys,
 // basic and literal strings, arrays (across lines, trailing comma allowed) and inline tables, which is every
-// construct those files put where the resolvers look. It avoids a TOML dependency (offline, sync, no
-// supply-chain surface).
+// construct those files put where the resolvers look. Dotted keys (`bytes.workspace = true`, `"a.b".c = 1`)
+// are tables, as TOML defines them, and `parseTomlDocument` merges every header into one tree, so a
+// hand-written manifest reads the same however it spells a table. It avoids a TOML dependency (offline,
+// sync, no supply-chain surface).
 //
-// It is NOT a general TOML parser: dotted keys, multi-line strings, dates and the numeric forms are not
-// interpreted (a number or boolean is kept as its source text), and a value it cannot read is skipped
-// rather than guessed at. Nothing the resolvers derive a version or a dependency from needs any of them.
+// It is NOT a general TOML parser: multi-line strings, dates and the numeric forms are not interpreted (a
+// number or boolean is kept as its source text), and a value it cannot read is skipped rather than guessed
+// at. Nothing the resolvers derive a version or a dependency from needs any of them.
 
 export type TomlValue = string | TomlValue[] | { [key: string]: TomlValue }
 export type TomlTable = Record<string, TomlValue>
 
-// One `[header]` or `[[header]]` section, in file order. Keys before the first header belong to a section
-// whose header is ''.
+// One `[header]` or `[[header]]` section, in file order, its header as written. Keys before the first header
+// belong to a section whose header is ''.
 export type TomlSection = { header: string; array: boolean; values: TomlTable }
 
 // One `[[<tableName>]]` entry: its own keys, plus each `[<tableName>.<sub>]` section that follows it before
@@ -42,9 +44,30 @@ export function parseTomlSections(text: string): TomlSection[] {
             line += ' ' + stripComment(lines[i] as string).trim()
         }
         const pair = readPair(line)
-        if (pair !== null) current.values[pair.key] = pair.value
+        if (pair !== null) assign(current.values, pair.key, pair.value)
     }
     return sections
+}
+
+// The whole file as one tree: `[a.b]`, `[a] b.c = 1` and a top-level `a.b.c = 1` all land in `a.b`, and a
+// `[[a]]` entry is an element of the array `a`, which a later `[a.x]` header extends. A header that names a
+// key already holding a plain value is not TOML, and its section is skipped.
+export function parseTomlDocument(text: string): TomlTable {
+    const doc: TomlTable = {}
+    for (const section of parseTomlSections(text)) {
+        const path = section.header === '' ? [] : tomlKeyPath(section.header)
+        if (path === null) continue
+        const table = section.array ? appendTable(doc, path) : tableAt(doc, path)
+        if (table !== null) merge(table, section.values)
+    }
+    return doc
+}
+
+// A dotted key's segments: bare or quoted, separated by dots, nothing else after them.
+export function tomlKeyPath(text: string): string[] | null {
+    const reader = new Reader(text)
+    const path = reader.key()
+    return path !== null && reader.atEnd() ? path : null
 }
 
 // Every `[[<tableName>]]` entry with the `[<tableName>.<sub>]` sections that belong to it. Any other header
@@ -84,7 +107,7 @@ export function tomlTable(value: TomlValue | undefined): TomlTable | null {
     return value !== undefined && typeof value === 'object' && !Array.isArray(value) ? value : null
 }
 
-type Pair = { key: string; value: TomlValue }
+type Pair = { key: string[]; value: TomlValue }
 
 function readPair(line: string): Pair | null {
     const reader = new Reader(line)
@@ -92,6 +115,58 @@ function readPair(line: string): Pair | null {
     if (key === null || !reader.consume('=')) return null
     const value = reader.value()
     return value === null ? null : { key, value }
+}
+
+// Set a dotted key, creating the tables it passes through. One that runs into a plain value is not TOML, and
+// is skipped.
+function assign(table: TomlTable, path: string[], value: TomlValue): void {
+    const parent = tableAt(table, path.slice(0, -1))
+    if (parent !== null) setOwn(parent, path[path.length - 1] as string, value)
+}
+
+// Keys come from the scanned repository, so they are read and written as own properties only: a key named
+// `__proto__` is data, never a way into a prototype.
+function ownValue(table: TomlTable, key: string): TomlValue | undefined {
+    return Object.hasOwn(table, key) ? table[key] : undefined
+}
+
+function setOwn<T extends TomlValue>(table: TomlTable, key: string, value: T): T {
+    Object.defineProperty(table, key, { value, enumerable: true, writable: true, configurable: true })
+    return value
+}
+
+// The table at `path` under `root`, created where missing. An array along the way stands for its last
+// element (where a `[[a]]` entry's `[a.x]` sub-table belongs); a plain value makes the path unreachable.
+function tableAt(root: TomlTable, path: string[]): TomlTable | null {
+    let table = root
+    for (const segment of path) {
+        const value = ownValue(table, segment) ?? setOwn(table, segment, {})
+        const next = Array.isArray(value) ? tomlTable(value[value.length - 1]) : tomlTable(value)
+        if (next === null) return null
+        table = next
+    }
+    return table
+}
+
+function appendTable(root: TomlTable, path: string[]): TomlTable | null {
+    const parent = tableAt(root, path.slice(0, -1))
+    if (parent === null) return null
+    const key = path[path.length - 1] as string
+    const list = ownValue(parent, key) ?? setOwn(parent, key, [])
+    if (!Array.isArray(list)) return null
+    const entry: TomlTable = {}
+    list.push(entry)
+    return entry
+}
+
+// A table defined in two places (`[a] b.c = 1` and `[a.b]`) holds the keys of both.
+function merge(into: TomlTable, values: TomlTable): void {
+    for (const [key, value] of Object.entries(values)) {
+        const existing = tomlTable(ownValue(into, key))
+        const incoming = tomlTable(value)
+        if (existing !== null && incoming !== null) merge(existing, incoming)
+        else setOwn(into, key, value)
+    }
 }
 
 // Whether every `[` and `{` outside a string has closed.
@@ -132,11 +207,27 @@ class Reader {
     private pos = 0
     constructor(private readonly text: string) {}
 
-    key(): string | null {
+    // A key, dotted or not, as its segments.
+    key(): string[] | null {
+        const path: string[] = []
+        do {
+            const segment = this.keySegment()
+            if (segment === null) return null
+            path.push(segment)
+        } while (this.consume('.'))
+        return path
+    }
+
+    atEnd(): boolean {
+        this.skipSpace()
+        return this.pos === this.text.length
+    }
+
+    private keySegment(): string | null {
         this.skipSpace()
         const ch = this.text[this.pos]
         if (ch === '"' || ch === "'") return this.string()
-        const match = /^[A-Za-z0-9_.-]+/.exec(this.text.slice(this.pos))
+        const match = /^[A-Za-z0-9_-]+/.exec(this.text.slice(this.pos))
         if (!match) return null
         this.pos += match[0].length
         return match[0]
@@ -203,7 +294,7 @@ class Reader {
             if (key === null || !this.consume('=')) return null
             const item = this.value()
             if (item === null) return null
-            out[key] = item
+            assign(out, key, item)
             if (this.consume(',')) continue
             return this.consume('}') ? out : null
         }
