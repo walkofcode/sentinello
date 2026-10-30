@@ -61,6 +61,10 @@ export function NotRechecked({ reason }: { reason: NotRecheckedBecause }) {
     const locale = useLocale() as Locale
     const format = useFormatter()
     const label = scanReasonLabel(reason, locale)
+    // Kept copies of a row the latest scan saw elsewhere: no date, since no per-copy history is kept.
+    if (reason.manifests !== null) {
+        return <span data-testid="not-rechecked" className="text-[0.625rem] text-amber-700 dark:text-amber-400">{t('notRecheckedCopies', { manifests: reason.manifests.join(', '), reason: label })}</span>
+    }
     const text = reason.projectState === 'cannot_scan' ? t('notRecheckedCannotScan', { reason: label }) : t('notRecheckedPartial', { reason: label })
     const when = reason.lastOkScanAt === null
         ? t('neverScannedSuccessfully')

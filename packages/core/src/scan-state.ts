@@ -56,8 +56,10 @@ export function reasonSide(code: string | null): ScanStateSide {
 // `scanned` — every expected source's latest scan is ok and every detected ecosystem's coverage is known and ok.
 // `partial` — at least one expected source answered, but something else did not: another source failed,
 //   one has not run yet, or an ecosystem could not be fully read. Shown as "cannot be fully scanned".
-// `cannot_scan` — no expected source answered, and at least one tried and failed.
-// `not_scanned_yet` — no expected source has ever scanned the project: the existing "never scanned".
+// `cannot_scan` — no expected source answered: every one that tried failed, or no source is enabled for any
+//   detected ecosystem at all (only ecosystem_source_disabled reasons, before any scan was attempted).
+// `not_scanned_yet` — an enabled source is expected but none has scanned the project yet: the existing "never scanned". Its
+//   only reasons are ecosystem_source_disabled ones, for a detected language no source is enabled for.
 export type ScanStateValue = 'scanned' | 'partial' | 'cannot_scan' | 'not_scanned_yet'
 
 // One reason the project is not `scanned`. A source's failed scan names the source; an ecosystem whose
@@ -76,13 +78,25 @@ export type ScanState = {
     reasons: ScanStateReason[]
 }
 
-// A source's latest scan of the project, as the scans table holds it.
+// A source's latest scan of the project for one ecosystem — one (source, ecosystem) cell — as the scans
+// table holds it. A feed source writes one scan per cell it ran, so two cells of one source can disagree:
+// OSV can have read Ruby fine and failed on Python.
 export type LatestSourceScan = {
     source: string
+    ecosystem: string
     status: string
     reasonCode: string | null
     finishedAt: number
 }
+
+// A (source, ecosystem) cell the project should have heard from.
+export type ExpectedCell = {
+    source: string
+    ecosystem: string
+}
+
+// What a project can be missing a source for. An ecosystem today; 3.9 adds `{ kind: 'runtime', id }`.
+export type ScanSubject = { kind: 'ecosystem'; id: string }
 
 // One ecosystem's resolver coverage, from the project's latest scan.
 export type ScanStateCoverage = {
@@ -91,31 +105,51 @@ export type ScanStateCoverage = {
     reasonCode: string | null
 }
 
-// Everything the state is computed from. `expectedSources` is the set the project should have heard from
+// Everything the state is computed from. `expectedCells` is the set the project should have heard from
 // (its runnable source cells, restricted to its detected ecosystems): it is passed in, never inferred from
-// the scans that exist, because an absent scan means "has not run", never "is fine". In the same way,
-// `detectedEcosystems` is what the coverage must answer for: an ecosystem with no coverage entry, or
-// `coverage: null` (the latest scan recorded none), is unknown — never read as fully covered.
+// the scans that exist, because an absent scan means "has not run", never "is fine". `sourceDisabled` is
+// every detected subject no runnable cell answers for: nothing will ever scan it until the operator turns
+// a source on, so it reads as a reason, never as clean. In the same way, `detectedEcosystems` is what the
+// coverage must answer for: an ecosystem with no coverage entry, or `coverage: null` (the latest scan
+// recorded none), is unknown — never read as fully covered.
 export type ScanStateInputs = {
-    expectedSources: readonly string[]
+    expectedCells: readonly ExpectedCell[]
     latestScans: readonly LatestSourceScan[]
     detectedEcosystems: readonly string[]
+    sourceDisabled: readonly ScanSubject[]
     coverage: readonly ScanStateCoverage[] | null
 }
 
+function cellKey(source: string, ecosystem: string): string {
+    return source + '|' + ecosystem
+}
+
 export function projectScanState(inputs: ScanStateInputs): ScanState {
-    const expected = new Set(inputs.expectedSources)
-    const latestBySource = new Map<string, LatestSourceScan>()
+    const expected = new Map<string, ExpectedCell>()
+    for (const cell of inputs.expectedCells) expected.set(cellKey(cell.source, cell.ecosystem), cell)
+    const latestByCell = new Map<string, LatestSourceScan>()
     for (const scan of inputs.latestScans) {
-        if (expected.has(scan.source)) latestBySource.set(scan.source, scan)
+        const key = cellKey(scan.source, scan.ecosystem)
+        if (expected.has(key)) latestByCell.set(key, scan)
     }
-    if (latestBySource.size === 0) return { state: 'not_scanned_yet', reasons: [] }
+    const disabledEcosystems = inputs.sourceDisabled.map(function id(subject) { return subject.id })
+    const disabledReasons: ScanStateReason[] = disabledEcosystems.map(function reason(ecosystem): ScanStateReason {
+        return { source: null, ecosystem, reasonCode: 'ecosystem_source_disabled', side: REASON_SIDE.ecosystem_source_disabled }
+    })
+    if (latestByCell.size === 0) {
+        // Nothing is expected to scan it at all: no sweep will ever change that, so it is not "not scanned
+        // yet" — it cannot be scanned until a source is turned on.
+        if (expected.size === 0 && disabledReasons.length > 0) return { state: 'cannot_scan', reasons: disabledReasons }
+        // Its other languages have not been scanned yet, but a language no source is enabled for is a
+        // configuration fact already: the marker and the Turn on count must not wait for the first sweep.
+        return { state: 'not_scanned_yet', reasons: disabledReasons }
+    }
     const reasons: ScanStateReason[] = []
     let answered = 0
-    for (const source of expected) {
-        const scan = latestBySource.get(source)
+    for (const [key, cell] of expected) {
+        const scan = latestByCell.get(key)
         if (!scan) {
-            reasons.push({ source, ecosystem: null, reasonCode: 'not_yet_run', side: null })
+            addReason(reasons, { source: cell.source, ecosystem: null, reasonCode: 'not_yet_run', side: null })
             continue
         }
         if (scan.status === 'ok') {
@@ -123,21 +157,30 @@ export function projectScanState(inputs: ScanStateInputs): ScanState {
             continue
         }
         const reasonCode = failureReasonCode(scan.reasonCode)
-        reasons.push({ source, ecosystem: null, reasonCode, side: REASON_SIDE[reasonCode] })
+        addReason(reasons, { source: cell.source, ecosystem: null, reasonCode, side: REASON_SIDE[reasonCode] })
     }
     const coverage = inputs.coverage ?? []
     for (const entry of coverage) {
         if (entry.status === 'ok') continue
         const reasonCode = failureReasonCode(entry.reasonCode)
-        reasons.push({ source: null, ecosystem: entry.ecosystem, reasonCode, side: REASON_SIDE[reasonCode] })
+        addReason(reasons, { source: null, ecosystem: entry.ecosystem, reasonCode, side: REASON_SIDE[reasonCode] })
     }
     for (const ecosystem of inputs.detectedEcosystems) {
+        if (disabledEcosystems.includes(ecosystem)) continue
         if (coverage.some(function recorded(entry) { return entry.ecosystem === ecosystem })) continue
-        reasons.push({ source: null, ecosystem, reasonCode: 'not_yet_run', side: null })
+        addReason(reasons, { source: null, ecosystem, reasonCode: 'not_yet_run', side: null })
     }
+    for (const reason of disabledReasons) addReason(reasons, reason)
     if (answered === 0) return { state: 'cannot_scan', reasons }
     if (reasons.length > 0) return { state: 'partial', reasons }
     return { state: 'scanned', reasons }
+}
+
+// Two cells of one source failing the same way (OSV not downloaded for Python and for Ruby), or two
+// manifests of one ecosystem with the same gap, are one reason to the reader.
+function addReason(reasons: ScanStateReason[], reason: ScanStateReason): void {
+    if (reasons.some(function same(r) { return r.source === reason.source && r.ecosystem === reason.ecosystem && r.reasonCode === reason.reasonCode })) return
+    reasons.push(reason)
 }
 
 // The label of the side-less reason, in the same ten locales as REASON_CODE_LABELS. Every other reason is
@@ -155,28 +198,51 @@ export const NOT_YET_RUN_LABELS: Record<Locale, string> = {
     'ru': 'Ещё не запускался'
 }
 
-// Why a finding still listed was not re-checked: its source's latest scan of the project failed, so the
-// row is what an earlier scan left behind. Read-time only, never stored. `lastOkScanAt` is when that
-// source last scanned the project successfully, or null when it never did.
+// Why a finding still listed was not re-checked: its source's latest scan of the project failed, or was ok
+// but could not read a manifest the row lives behind, so the row is what an earlier scan left behind.
+// Read-time only, never stored. `manifests` says how much of the row it covers: null, the whole row; a list,
+// only the copies installed through those manifests — the latest ok scan re-checked the row through its other
+// manifests and kept these copies as they were, unread (SENTINEL-145). `lastOkScanAt` is when the whole row
+// was last checked successfully: the last ok scan that saw it (its last_seen_at) when the findings query
+// passed the row's facts, else the source's last ok scan of the project; null when it never scanned it
+// successfully, and always null for kept copies (`manifests` set) — the row's timestamp is the scan that saw
+// its other copies, and no per-copy history is kept.
 export type NotRecheckedBecause = {
     reasonCode: FailureReasonCode
     side: ScanStateSide
     projectState: ScanStateValue
     lastOkScanAt: number | null
+    manifests: readonly string[] | null
 }
 
-// What a findings query knows about the row's source: its latest scan of the project and the last ok one.
+// What a findings query knows about the row's source: its latest scan of the project, and when the row was
+// last checked successfully (`lastOkScanAt`, the same contract as NotRecheckedBecause's: for an open row read
+// with its facts, the last ok scan that saw it — never a later ok scan that kept it unseen, whether or not a
+// failed scan followed). `unreadReasonCode` is set when that latest scan was ok but did not see the row, or
+// some of its copies, because a manifest they may live behind could not be read (the lifecycle merge keeps
+// such a row open, and such copies on it, rather than resolve them): the coverage reason of that manifest.
+// `unreadManifests` is set beside it when the scan saw the row through other manifests: the manifests whose
+// copies it kept unread. Null or absent otherwise.
 export type FindingScanContext = {
     latestStatus: string | null
     latestReasonCode: string | null
     lastOkScanAt: number | null
     projectState: ScanStateValue
+    unreadReasonCode?: string | null
+    unreadManifests?: readonly string[] | null
 }
 
-// Null when the source's latest scan was ok (the row was re-checked by it) or when the source has no scan
-// of the project at all (nothing failed). Otherwise the row was retained by a failed scan, settled or not.
+// Null when the source's latest scan was ok and re-checked the row, or when the source has no scan of the
+// project at all (nothing failed). Otherwise the row was retained, settled or not: by a failed scan, or by
+// an ok one that could not read the manifest the row lives in.
 export function notRecheckedBecause(context: FindingScanContext | null): NotRecheckedBecause | null {
-    if (context === null || context.latestStatus === null || context.latestStatus === 'ok') return null
+    if (context === null || context.latestStatus === null) return null
+    if (context.latestStatus === 'ok') {
+        if (context.unreadReasonCode === undefined || context.unreadReasonCode === null) return null
+        const unread = failureReasonCode(context.unreadReasonCode)
+        const manifests = context.unreadManifests ?? null
+        return { reasonCode: unread, side: REASON_SIDE[unread], projectState: context.projectState, lastOkScanAt: manifests === null ? context.lastOkScanAt : null, manifests }
+    }
     const reasonCode = failureReasonCode(context.latestReasonCode)
-    return { reasonCode, side: REASON_SIDE[reasonCode], projectState: context.projectState, lastOkScanAt: context.lastOkScanAt }
+    return { reasonCode, side: REASON_SIDE[reasonCode], projectState: context.projectState, lastOkScanAt: context.lastOkScanAt, manifests: null }
 }

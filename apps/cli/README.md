@@ -13,11 +13,25 @@ Scan the projects in a folder for vulnerable dependencies and get back an adviso
 npx sentinello
 ```
 
-Walks the current directory for JavaScript projects, checks their dependencies against **npm audit**,
-**OSV**, and **GitLab gemnasium**, and writes a markdown advisory with a remediation prompt attached.
+Walks the current directory for projects — Node.js, Python, Go, Rust and Ruby — checks their
+dependencies against **npm audit**, **OSV**, and **GitLab gemnasium**, and writes a markdown advisory with a
+remediation prompt attached.
 
-It is `npm audit` with two differences that matter: it covers a folder of repositories rather than one
-project, and it sees things npm audit cannot — including OSV's ~214,000 malicious-package records.
+| ecosystem | lockfiles read |
+|---|---|
+| npm | `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` (Yarn 2 and later) |
+| PyPI | `poetry.lock`, `Pipfile.lock`, `requirements.txt` (its `==` pins), `uv.lock` |
+| Go | `go.mod` (`go.sum` only where there is no `go.mod`) |
+| crates.io | `Cargo.lock` |
+| RubyGems | `Gemfile.lock` |
+
+npm audit answers for npm only; OSV and GitLab gemnasium answer for all five. A `package.json`,
+`pyproject.toml`, `Pipfile`, `Cargo.toml` or `Gemfile` with no lockfile is reported as cannot be scanned,
+never as clean. No pip, go, cargo or bundle is run: every lockfile is read as a file.
+
+For npm projects it is `npm audit` with two differences that matter: it covers a folder of repositories
+rather than one project, and it sees things npm audit cannot — including OSV's ~214,000 malicious-package
+records.
 
 ## Use it
 
@@ -46,23 +60,28 @@ manifest, and never close a finding by muting it. Print it with `--print-prompt`
 
 ## The advisory cache
 
-The first run downloads the advisory databases (~200 MB for OSV, ~80 MB for gemnasium) and asks before
-it does. After that every run refreshes incrementally: OSV answers `304 Not Modified` when nothing was
-published, and gemnasium is gated on its repository's HEAD commit, so a routine scan transfers almost
-nothing and completes in about a second.
+The first run downloads the advisory databases for the ecosystems the folder holds, and asks before it
+does: OSV publishes one export per ecosystem (~200 MB for npm, 37.5 MB for PyPI, 12.7 MB for Go, 5.2 MB
+for RubyGems, 3.7 MB for crates.io), and GitLab gemnasium is one ~80 MB archive for all of them. After
+that every run refreshes incrementally: OSV answers `304 Not Modified` when nothing was published, and
+gemnasium is gated on its repository's HEAD commit, so a routine scan transfers almost nothing and
+completes in about a second.
 
 The cache lives in `$XDG_CACHE_HOME/sentinello` or `~/.cache/sentinello`. It is the only thing written
-outside your project. Beside the advisories it keeps the npm registry answers the fix check read
-(`registry-npm.ndjson.gz`), reused for 24 hours so a repeat scan asks the registry nothing.
+outside your project. Beside the advisories it keeps the registry answers the fix check read, one file
+per ecosystem (`registry-npm.ndjson.gz`, `registry-PyPI.ndjson.gz`, …), reused for 24 hours so a repeat
+scan asks the registries nothing.
 
-## Fixes are checked against npm
+## Fixes are checked against each registry
 
-A fix version an advisory states is not trusted on its word. For every npm finding the CLI asks the npm
-registry whether a version outside every source's affected range has actually been published, exactly
-as the Sentinello portal does: a published one reads "upgrade to", none reads "No fixed version
-released" with the way out (which dependency chain carries the package, whether a parent upgrade frees
-it, and curated alternatives), and one the registry could not settle reads "not checked against the
-registry" with the reason.
+A fix version an advisory states is not trusted on its word. For every finding the CLI asks its
+ecosystem's registry — npm, PyPI, the Go module proxy, the crates.io index or rubygems.org — whether a
+version outside every source's affected range has actually been published, exactly as the Sentinello
+portal does: a published one reads "upgrade to"; none reads "No fixed version released", with the way out
+for npm (which dependency chain carries the package, whether a parent upgrade frees it, and curated
+alternatives); and one the registry could not settle reads "not checked against the registry" with the
+reason. `SENTINELLO_NPM_REGISTRY_URL`, `SENTINELLO_PYPI_URL`, `SENTINELLO_GOPROXY_URL`,
+`SENTINELLO_CRATES_INDEX_URL` and `SENTINELLO_RUBYGEMS_URL` point a check at a mirror.
 
 A project that cannot be read — a `package.json` with no lockfile, say — is reported as **cannot be
 scanned**, with the reason and whose fix it is, in the summary, the markdown and the JSON
@@ -74,9 +93,11 @@ scanned**, with the reason and whose fix it is, in the summary, the markdown and
 history is kept between runs.
 
 Outbound requests go to `osv-vulnerabilities.storage.googleapis.com` and `gitlab.com` to download public
-advisory data, to `registry.npmjs.org` and `api.npmjs.org` to read the public metadata and download counts
-of the packages with findings and of the chains the way out weighs (package names only), and `npm audit`
-talks to your configured npm registry exactly as it always does. Use `--source osv,gemnasium` to skip npm
+advisory data; to `registry.npmjs.org` and `api.npmjs.org` to read the public metadata and download counts
+of the npm packages with findings and of the chains the way out weighs; to `pypi.org`, `proxy.golang.org`,
+`index.crates.io` and `rubygems.org` to read which versions of the other packages with findings are
+published (package names only, everywhere); and `npm audit` talks to your configured npm registry exactly
+as it always does. Use `--source osv,gemnasium` to skip npm
 audit, or `--offline` to make no network requests at all — npm audit is then skipped and fixes read "not
 checked against the registry (offline)".
 
@@ -94,7 +115,7 @@ Run `sentinello --help` for the full list. The ones people reach for:
 | `--out <file\|->` | where the advisory goes |
 | `--json` | machine-readable output |
 | `-y, --yes` | accept the first-run download without asking. Required on a non-TTY |
-| `--offline` | use the cache as-is, no network — npm audit is skipped and fixes are not checked against npm |
+| `--offline` | use the cache as-is, no network — npm audit is skipped and fixes are not checked against any registry |
 | `--doctor` | cache status, resolved settings, and what was skipped and why |
 
 Exit codes: `0` completed, `1` a scan or configuration error — including a `--fail-on` run that could

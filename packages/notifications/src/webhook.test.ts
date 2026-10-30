@@ -54,6 +54,7 @@ function finding(overrides: Partial<Finding> = {}): Finding {
     return {
         packageName: 'lodash',
         installedVersion: '4.17.11',
+        installations: [],
         fixStatus: 'released',
         fixAvailable: true,
         fixVersion: '4.17.21',
@@ -74,7 +75,7 @@ function webhookContext(overrides: Partial<WebhookPayloadContext> = {}): Webhook
         event: 'findings',
         isBaseline: false,
         root: { id: 'root-1', label: 'Repos', path: '/repo' },
-        project: { id: 'project-1', name: 'app', relPath: 'app', packageManager: 'npm' },
+        project: { id: 'project-1', name: 'app', relPath: 'app', packageManager: 'npm', ecosystems: ['npm'], manifests: [{ path: 'package-lock.json', ecosystem: 'npm', kind: 'package-lock.json' }] },
         findings: [finding()],
         failureSignature: null,
         scanState: { state: 'scanned', reasons: [] },
@@ -197,10 +198,29 @@ describe('sendWebhook — body shape', function () {
     // A finding an earlier scan left, whose source's latest scan failed: the receiver gets why it was not
     // re-checked, beside fix fields that are as of that earlier scan.
     it('carries each finding\'s not-re-checked context, null for a re-checked one', async function () {
-        const reason = { reasonCode: 'no_lockfile' as const, side: 'project' as const, projectState: 'cannot_scan' as const, lastOkScanAt: 1 }
+        const reason = { reasonCode: 'no_lockfile' as const, side: 'project' as const, projectState: 'cannot_scan' as const, lastOkScanAt: 1, manifests: null }
         await sendWebhook(target(), message({ webhook: webhookContext({ findings: [finding(), finding({ notRecheckedBecause: reason })] }) }))
         const body = post.mock.calls[0]?.[1] as { vulnerabilities: Record<string, unknown>[] }
         expect(body.vulnerabilities.map(function context(v) { return v.notRecheckedBecause })).toEqual([null, reason])
+    })
+
+    // Additive 3.8 fields: which ecosystem a vulnerability is in and every manifest it is installed through,
+    // and every language and manifest the project has.
+    it('carries each vulnerability\'s ecosystem and installations, and the project\'s ecosystems and manifests', async function () {
+        const rack = finding({ ecosystem: 'RubyGems', packageName: 'rack', installations: [{ manifestPath: 'ios/Gemfile.lock', version: '2.0.8' }, { manifestPath: 'android/Gemfile.lock', version: '2.1.0' }] } as Partial<Finding>)
+        await sendWebhook(target(), message({ webhook: webhookContext({ findings: [rack] }) }))
+        const body = post.mock.calls[0]?.[1] as { project: Record<string, unknown>; vulnerabilities: Record<string, unknown>[] }
+        expect(body.vulnerabilities[0]).toMatchObject({ ecosystem: 'RubyGems', library: 'rack', installations: [{ manifestPath: 'ios/Gemfile.lock', version: '2.0.8' }, { manifestPath: 'android/Gemfile.lock', version: '2.1.0' }] })
+        expect(body.project).toMatchObject({ ecosystems: ['npm'], manifests: [{ path: 'package-lock.json', ecosystem: 'npm', kind: 'package-lock.json' }] })
+    })
+
+    // The silent baseline's summary is structured for a JSON receiver, and plain text for the text flavor.
+    it('sends a capability summary as its own event', async function () {
+        const summary = { event: 'capability_summary' as const, capability: { id: 'languages-3.8', since: '3.8.0', ecosystems: ['PyPI'] }, counts: { findings: 1, projects: 1, critical: 0, sourceDisabledProjects: 2 } }
+        await sendWebhook(target(), message({ webhook: summary }))
+        expect(post.mock.calls[0]?.[1]).toEqual({ ...summary, title: 'New vulnerabilities in app', text: 'plain text body', portalUrl: 'https://portal.example.test/projects/project-1' })
+        await sendWebhook(target({ flavor: 'text' }), message({ webhook: summary }))
+        expect(post.mock.calls[1]?.[1]).toEqual({ text: 'plain text body' })
     })
 
     it('sends just the advisory text for the text flavor', async function () {

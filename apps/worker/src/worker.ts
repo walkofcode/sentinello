@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import lockfile from 'proper-lockfile'
-import { errText } from '@sentinello/core'
-import { backfillEcosystemIdentity, backfillFindingsLifecycle, getConfigValue, getLastScanFinishedAt, listRoots, openDb, resetOrphanedRunningRequests, resolveDbPath, resolveLockPath, runMigrations } from '@sentinello/db'
+import { CAPABILITIES, errText } from '@sentinello/core'
+import { backfillEcosystemIdentity, backfillFindingsLifecycle, seedCapabilityBaselines, getConfigValue, getLastScanFinishedAt, listRoots, openDb, resetOrphanedRunningRequests, resolveDbPath, resolveLockPath, runMigrations } from '@sentinello/db'
 import { CONFIG_KEYS, DEFAULT_SCHEDULE, discoverDockerRoots, loadConfigFile, pruneDockerRoots, seedFromConfig, type IntervalHours } from './config-loader'
 import { startScheduler, sweepActiveProjects } from './scheduler'
 import { startScanRequestPoller } from './scan-request-poller'
@@ -87,6 +87,11 @@ export async function main(): Promise<void> {
     if (ecoBackfilled > 0) {
         console.log('[worker] polyglot backfill updated ' + ecoBackfilled + ' row' + (ecoBackfilled === 1 ? '' : 's') + ' (source/identity)')
     }
+    // Every capability this release adds starts its silent baseline here, after the backfills and before any
+    // sweep: until the first completed sweep, its new findings are recorded without a message each, and each
+    // enabled target then gets one summary (capability-baseline.ts). A database with no scan yet has nothing
+    // to baseline and records it done.
+    seedCapabilityBaselines(db, CAPABILITIES, Date.now())
     const config = loadConfigFile(process.cwd())
     if (config) {
         seedFromConfig(db, config, Date.now())

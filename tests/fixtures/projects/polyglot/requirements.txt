@@ -1,0 +1,2 @@
+fake-py-lib==1.0.0
+fake-py-nofix==2.0.0

@@ -196,12 +196,12 @@ describe('which events count', function () {
         expect(requests()).toHaveLength(1)
     })
 
+    // Every offered ecosystem's lockfiles, so a Gemfile.lock bump is noticed like a package-lock.json one.
     it('recognizes every supported lockfile name', function () {
-        for (const name of ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock']) {
-            emit('change', join(rootPath, 'web', name))
-        }
+        const names = ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'poetry.lock', 'Pipfile.lock', 'requirements.txt', 'uv.lock', 'go.mod', 'go.sum', 'Cargo.lock', 'Gemfile.lock']
+        for (const name of names) emit('change', join(rootPath, 'web', name))
         vi.advanceTimersByTime(DEBOUNCE)
-        expect(requests()).toHaveLength(3)
+        expect(requests()).toHaveLength(names.length)
     })
 
     // The watcher subscribes to every add/change under the root, so this filter is the only thing
@@ -304,6 +304,16 @@ describe('what gets enqueued', function () {
         emit('change', join(rootPath, 'web', 'packages', 'ui', 'package-lock.json'))
         vi.advanceTimersByTime(DEBOUNCE)
         expect(requests()[0]).toMatchObject({ projectId: makeProjectId('root-1', 'web') })
+    })
+
+    // A repo-root project (a requirements.txt) encloses apps/web; apps/web's own lockfile is apps/web's,
+    // and its ios/Gemfile.lock is a sub-manifest of apps/web too.
+    it('attributes a lockfile to the nearest enclosing project, not the first one listed', function () {
+        seedProject(handle.db, { id: makeProjectId('root-1', '.'), relPath: '.', name: 'monorepo' })
+        emit('change', join(rootPath, 'web', 'ios', 'Gemfile.lock'))
+        emit('change', join(rootPath, 'requirements.txt'))
+        vi.advanceTimersByTime(DEBOUNCE)
+        expect(requests().map(function p(r) { return r.projectId }).sort()).toEqual([makeProjectId('root-1', '.'), makeProjectId('root-1', 'web')].sort())
     })
 
     // The interesting case: a project that does not exist in the database yet. Enqueueing a full sweep

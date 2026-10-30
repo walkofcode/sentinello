@@ -150,7 +150,7 @@
         "colBranch": "브랜치",
         "colRoot": "루트",
         "colPm": "PM",
-        "colNode": "Node",
+        "colRuntime": "런타임",
         "colSeverity": "심각도",
         "colState": "상태",
         "colActions": "작업",
@@ -166,7 +166,10 @@
         "statePartial": "완전히 스캔할 수 없음",
         "stateNotScannedYet": "아직 스캔되지 않음",
         "stateSideProject": "프로젝트 측",
-        "stateSideEnvironment": "이 Sentinello 설치 측"
+        "stateSideEnvironment": "이 Sentinello 설치 측",
+        "stateSourceDisabled": "{languages}에 활성화된 소스 없음",
+        "sourceDisabledNotice": "프로젝트 {count}개에 {languages}용으로 활성화된 소스가 없어 스캔되지 않습니다.",
+        "sourceDisabledAction": "설정 → 소스에서 하나를 켜세요"
     },
     "WhatsNew": {
         "pillLabel": "새로운 기능",
@@ -226,7 +229,7 @@
         "schedule": {
             "metaTitle": "일정 · 설정",
             "scanEvery": "스캔 주기",
-            "cadenceHelp": "워커는 구성된 각 루트를 탐색하고 발견된 모든 프로젝트에 대해 이 주기로 npm audit를 실행합니다.",
+            "cadenceHelp": "워커는 이 주기로 구성된 각 루트를 탐색하고 발견된 모든 프로젝트를 활성화된 소스와 대조합니다.",
             "saveButton": "일정 저장",
             "startHour": "시작 시각",
             "startHourHelp": "1시간보다 긴 간격의 경우 스캔이 시작되는 시각을 고정합니다(워커 로컬 시간).",
@@ -301,7 +304,7 @@
         "sources": {
             "metaTitle": "소스 · 설정",
             "title": "취약점 소스",
-            "description": "Sentinello는 프로젝트의 Node.js 의존성을 아래 소스와 대조합니다. 최소한 하나는 활성화된 상태로 유지해야 합니다.",
+            "description": "Sentinello는 지원하는 모든 언어의 의존성을 아래 소스와 대조합니다. 최소한 하나는 활성화된 상태로 유지해야 합니다.",
             "enabled": "활성화됨",
             "disabled": "비활성화됨",
             "seeded": "최신",
@@ -313,7 +316,9 @@
             "lastError": "마지막 오류",
             "refreshNow": "지금 새로 고침",
             "refreshQueued": "새로 고침 요청됨 — 백그라운드에서 실행됩니다.",
-            "previewNote": "아직 개발 중이라 제공하지 않습니다: {names}.",
+            "turnOnTitle": "{language}에 활성화된 소스 없음",
+            "turnOnBody": "프로젝트 {count}개가 {language}를 사용하지만 스캔하는 소스가 없습니다. 소스를 켜면 해당 권고를 내려받고 모든 프로젝트를 다시 스캔합니다.",
+            "turnOn": "{language}에 {source} 켜기",
             "aboutTitle": "이 소스들에 대하여",
             "colSource": "소스",
             "colAdds": "무엇을 더하는지",
@@ -322,10 +327,10 @@
             "npmAuditAdds": "GitHub Advisory Database. 프로젝트 자체의 패키지 관리자를 통해 가져옵니다.",
             "npmAuditDownloads": "없음. 스캔이 실행되는 동안 registry.npmjs.org에 질의합니다.",
             "npmAuditRuns": "스캔할 때마다.",
-            "osvAdds": "npm audit가 놓치는 CVE와, 실제로 침해된 정확한 버전에 연결된 알려진 악성 패키지.",
+            "osvAdds": "모든 언어의 권고(Node.js에서는 npm audit가 놓치는 CVE)와, 실제로 침해된 정확한 버전에 연결된 알려진 악성 패키지.",
             "osvDownloads": "osv-vulnerabilities.storage.googleapis.com에서 약 {mb} MB. 여유 공간 {freeMb} MB가 필요합니다. 재구축 가능하며 발견 항목과 별도로 저장됩니다.",
             "osvRuns": "매일 03:17경, 그리고 새로 고칠 때마다. 대조 자체는 오프라인으로 이루어집니다.",
-            "gemnasiumAdds": "npm audit와 OSV를 넘어 독립적으로 선별된 권고. 심각도는 CVSS 벡터에서 산출합니다.",
+            "gemnasiumAdds": "OSV(Node.js에서는 npm audit도)를 넘어 모든 언어에 대해 독립적으로 선별된 권고. 심각도는 CVSS 벡터에서 산출합니다.",
             "gemnasiumDownloads": "gitlab.com에서 약 {mb} MB. 여유 공간 {freeMb} MB가 필요합니다. 재구축 가능하며 발견 항목과 별도로 저장됩니다.",
             "gemnasiumRuns": "매일 03:42경, 그리고 새로 고칠 때마다. 대조 자체는 오프라인으로 이루어집니다."
         },
@@ -488,6 +493,7 @@
             "verdictBlocked": "{escape} {version} 이상은 {target}을(를) 제거하지만, 게시된 {blockedBy} 중 이를 허용하는 버전이 없습니다(최신 {latest}은(는) {range} 요구)",
             "verdictNoEscape": "게시된 {packages} 중 {target}을(를) 제거하는 버전이 없습니다",
             "verdictUnknown": "알 수 없음 — {at}에서 레지스트리 정보가 부족합니다",
+            "verdictNpmOnly": "알 수 없음 — 해결 방법은 npm에서만 계산됩니다. 이 생태계의 도구로 상위 패키지 업그레이드를 확인하세요",
             "verdictDirect": "{target}은(는) 직접 의존성입니다 — 교체하는 것만이 유일한 방법입니다",
             "morePaths": "외 {count, plural, other {경로 #개}}",
             "morePathsAtLeast": "외 최소 {count, plural, other {경로 #개}}",
@@ -527,6 +533,10 @@
         },
         "notRecheckedCannotScan": "다시 확인되지 않음 — 프로젝트를 스캔할 수 없음: {reason}",
         "notRecheckedPartial": "다시 확인되지 않음 — 프로젝트를 완전히 스캔할 수 없음: {reason}",
+        "notRecheckedCopies": "{manifests}의 사본은 다시 확인되지 않음 — 프로젝트를 완전히 스캔할 수 없음: {reason}",
+        "chainUnknown": "체인 알 수 없음",
+        "chainUnknownHint": "잠금 파일에 의존성 그래프가 없어 이 패키지를 가져오는 대상을 알 수 없습니다. 해결 방법이 없다는 뜻은 아닙니다.",
+        "installedThrough": "{manifests}에 있음",
         "lastScannedSuccessfully": "마지막 성공 스캔 {date}",
         "neverScannedSuccessfully": "스캔에 성공한 적 없음"
     },
@@ -615,11 +625,11 @@
         "title": "Sentinello",
         "intro": "포트폴리오 전반의 의존성 취약점을 중앙에서 모니터링합니다 — 자체 인프라에서 셀프 호스팅됩니다.",
         "notDoTitle": "Sentinello가 하지 않는 일",
-        "notDoBody": "Sentinello는 전적으로 사용자의 인프라에서 실행됩니다. 소스 코드를 읽지 않으며, 종속성 매니페스트와 lockfile(<code>package.json</code>, <code>package-lock.json</code>, <code>pnpm-lock.yaml</code>, <code>yarn.lock</code>)을 찾아 프로젝트를 발견합니다 — 어디에도 업로드되지 않고, 텔레메트리가 사용자의 머신을 떠나지 않으며, 중앙 계정이 없고, LLM이나 AI가 관여하지 않습니다. 기본적으로는 순수한 <code>npm audit</code>입니다. 선택적인 OSV 및 gemnasium 소스(설정 → 소스, 기본값 꺼짐)는 HTTPS를 통해 공개 권고 데이터만 가져옵니다.",
+        "notDoBody": "Sentinello는 전적으로 사용자의 인프라에서 실행됩니다. 애플리케이션 코드는 절대 읽지 않으며, 지원하는 각 생태계의 종속성 매니페스트와 lockfile(Node.js는 <code>package.json</code>과 그 lockfile, Python은 <code>requirements.txt</code>, <code>pyproject.toml</code>, <code>Pipfile</code>과 그 lockfile, Go는 <code>go.mod</code>, Rust는 <code>Cargo.toml</code>과 <code>Cargo.lock</code>, Ruby는 <code>Gemfile</code>과 <code>Gemfile.lock</code>)을 찾아 프로젝트를 발견합니다 — 읽은 내용은 사용자의 머신을 떠나지 않고, 텔레메트리를 보내지 않으며, 중앙 계정이 없고, LLM이나 AI가 관여하지 않습니다. 기본적으로 Node.js에는 순수한 <code>npm audit</code>를 사용합니다. 선택적인 OSV 및 gemnasium 소스(설정 → 소스, 기본값 꺼짐)는 HTTPS를 통해 공개 권고 데이터만 가져옵니다.",
         "whoTitle": "제작자",
         "whoBody": "<company>Walk of Code LLC</company>와 Sebastian Arena가 제작했습니다 (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "권고 데이터의 출처",
-        "advisoryBody": "취약점 데이터는 GitHub Advisory Database에서 비롯되며, <code>npm audit</code>를 통해 npm 레지스트리의 권고 엔드포인트로 접근합니다. 또한 OSV와 GitLab gemnasium을 활성화하여(설정 → 소스) Node.js 패키지를 이러한 공개 권고 데이터베이스와 대조할 수 있습니다 — npm audit가 놓치는 권고를 찾아내고 알려진 악성 패키지를 표시합니다. 두 소스 모두 lockfile에서 의존성을 오프라인으로 해석하고 로컬에 캐시된 권고 사본과 대조하므로, 스캔 중에 프로젝트별 요청이 사용자의 머신을 떠나지 않습니다. 모호한 매니페스트는 정상으로 처리되지 않고 부분적 또는 감사 불가로 보고됩니다. Sentinello는 권고가 무엇에 영향을 주는지 판단할 때 gemnasium 자체의 기계 판독 가능한 버전 범위와 해당 레코드가 명시한 수정 버전만 읽습니다. npm 범위는 npm 자체의 semver 구현으로 해석되며, 읽을 수 없는 상한이 유효한 구간을 침묵시키지 않도록 무시됩니다. 범위가 어떤 버전도 선택하지 않거나 Sentinello가 구현하지 않은 문법으로 작성된 레코드는 추측하지 않고 폐기되며, 빈틈을 메우기 위해 다른 소스를 참조하지 않습니다. Python, Go, Rust는 구현되어 있지만 제공하지 않습니다. 수정 버전 도출과 OSV의 PyPI 이름 일치가 아직 정확하지 않으며, 잘못된 이유로 “취약점 없음”이라고 답하는 소스는 아예 제공하지 않는 편보다 나쁘기 때문입니다.",
+        "advisoryBody": "Sentinello는 Node.js, Python, Go, Rust, Ruby를 지원합니다. Node.js의 취약점 데이터는 기본적으로 GitHub Advisory Database에서 비롯되며, <code>npm audit</code>를 통해 npm 레지스트리의 권고 엔드포인트로 접근합니다. OSV와 GitLab gemnasium(설정 → 소스)은 다섯 가지 모두를 지원합니다. Node.js에서는 npm audit가 놓치는 권고를 더하고 알려진 악성 패키지를 표시하며, Python, Go, Rust, Ruby에서는 유일한 소스입니다. 두 소스 모두 기본값이 꺼짐이므로, 이 네 언어의 프로젝트는 소스를 하나 켤 때까지 “…에 활성화된 소스 없음”으로 표시됩니다. 두 소스 모두 lockfile에서 의존성을 오프라인으로 해석하고 로컬에 캐시된 권고 사본과 대조하므로, 스캔 중에 프로젝트별 요청이 사용자의 머신을 떠나지 않습니다. 모호한 매니페스트나 lockfile이 없는 매니페스트는 정상으로 처리되지 않고 부분적 또는 감사 불가로 보고됩니다. Sentinello는 권고가 무엇에 영향을 주는지 판단할 때 gemnasium 자체의 기계 판독 가능한 버전 범위와 해당 레코드가 명시한 수정 버전만 읽습니다. 각 생태계의 버전은 그 생태계의 규칙으로 비교됩니다. npm은 npm 자체의 semver 구현, crates.io는 semver, Python은 PEP 440, Go는 모듈 버전 규칙, RubyGems는 자체 버전 순서를 따릅니다. OSV 이벤트 범위에서 읽을 수 없는 상한은 유효한 구간을 침묵시키지 않도록 무시됩니다. 범위가 어떤 버전도 선택하지 않거나 Sentinello가 구현하지 않은 문법으로 작성된 레코드는 추측하지 않고 폐기되며, 빈틈을 메우기 위해 다른 소스를 참조하지 않습니다. 수정 버전은 각 생태계 자체의 레지스트리에서 확인합니다.",
         "sendsTitle": "Sentinello가 외부로 보내는 것",
         "tableDestination": "대상",
         "tablePurpose": "목적",
@@ -642,7 +652,7 @@
                 "disable": "끌 수 없음 — SENTINELLO_NPM_DOWNLOADS_URL로 다른 곳을 지정할 수 있습니다. 연결할 수 없으면 마지막으로 알려진 수가 표시되고, 그것도 없으면 알 수 없음으로 표시됩니다"
             },
             "osv": {
-                "purpose": "npm 생태계의 공개 OSV 권고 내보내기 파일 다운로드",
+                "purpose": "OSV가 활성화된 각 생태계(npm, PyPI, Go, crates.io, RubyGems)의 공개 OSV 권고 내보내기 파일 다운로드",
                 "when": "매일 03:17경, 수동 새로 고침 포함 — OSV가 활성화된 경우에만",
                 "disable": "설정 → 소스(기본값 꺼짐) 또는 SENTINELLO_OSV_FEED_URL=off"
             },
@@ -665,6 +675,26 @@
                 "purpose": "알림을 설정한 발견 항목을 전송합니다 — 프로젝트 이름, git 브랜치, 패키지와 버전, 심각도, 권고 ID, 이 포털로 돌아오는 링크",
                 "when": "스캔에서 새 발견, 해결된 발견 또는 스캔 실패가 생겼을 때",
                 "disable": "설정 → 알림 — 추가하기 전까지는 대상이 없습니다"
+            },
+            "pypi": {
+                "purpose": "발견 항목이 있는 Python 패키지의 수정 버전이 실제로 게시되었고 철회(yank)되지 않았는지 확인",
+                "when": "각 스캔 후, Python 발견 항목에 한해, 최근 24시간 동안 성공한 답이 없는 패키지에 대해. 실패한 요청은 저장되지 않으므로 더 일찍 다시 시도될 수 있습니다",
+                "disable": "Python에 활성화된 소스가 있는 동안에만 실행됩니다(설정 → 소스). SENTINELLO_PYPI_URL로 미러를 지정할 수 있습니다. 연결할 수 없으면 이전 답을 가져온 날짜와 함께 재사용하고, 없으면 수정 버전은 레지스트리에서 확인되지 않은 것으로 표시됩니다"
+            },
+            "goproxy": {
+                "purpose": "발견 항목이 있는 Go 모듈의 수정 버전이 실제로 게시되었는지 확인. 모듈의 버전 목록을 읽고, 권고가 언급한 버전이 목록에 없으면 그 버전 자체를 확인합니다",
+                "when": "각 스캔 후, Go 발견 항목에 한해, 최근 24시간 동안 성공한 답이 없는 모듈에 대해. 실패한 요청은 저장되지 않으므로 더 일찍 다시 시도될 수 있습니다",
+                "disable": "Go에 활성화된 소스가 있는 동안에만 실행됩니다(설정 → 소스). SENTINELLO_GOPROXY_URL로 다른 모듈 프록시를 지정할 수 있습니다. 연결할 수 없으면 이전 답을 가져온 날짜와 함께 재사용하고, 없으면 수정 버전은 레지스트리에서 확인되지 않은 것으로 표시됩니다"
+            },
+            "crates": {
+                "purpose": "발견 항목이 있는 Rust 크레이트의 수정 버전이 실제로 게시되었고 철회(yank)되지 않았는지 스파스 인덱스의 크레이트 파일로 확인",
+                "when": "각 스캔 후, Rust 발견 항목에 한해, 최근 24시간 동안 성공한 답이 없는 크레이트에 대해. 실패한 요청은 저장되지 않으므로 더 일찍 다시 시도될 수 있습니다",
+                "disable": "Rust에 활성화된 소스가 있는 동안에만 실행됩니다(설정 → 소스). SENTINELLO_CRATES_INDEX_URL로 미러를 지정할 수 있습니다. 연결할 수 없으면 이전 답을 가져온 날짜와 함께 재사용하고, 없으면 수정 버전은 레지스트리에서 확인되지 않은 것으로 표시됩니다"
+            },
+            "rubygems": {
+                "purpose": "발견 항목이 있는 Ruby gem의 수정 버전이 실제로 게시되었고 철회(yank)되지 않았는지 확인",
+                "when": "각 스캔 후, Ruby 발견 항목에 한해, 최근 24시간 동안 성공한 답이 없는 gem에 대해. 실패한 요청은 저장되지 않으므로 더 일찍 다시 시도될 수 있습니다",
+                "disable": "Ruby에 활성화된 소스가 있는 동안에만 실행됩니다(설정 → 소스). SENTINELLO_RUBYGEMS_URL로 미러를 지정할 수 있습니다. 연결할 수 없으면 이전 답을 가져온 날짜와 함께 재사용하고, 없으면 수정 버전은 레지스트리에서 확인되지 않은 것으로 표시됩니다"
             }
         },
         "dataLivesTitle": "데이터가 저장되는 곳",
@@ -688,7 +718,11 @@
             "gemnasiumFeedUrl": "GitLab gemnasium 권고 아카이브의 URL. gemnasium 소스가 활성화된 경우에만 사용됩니다. off로 설정하면 gemnasium의 모든 네트워크 접근을 비활성화합니다.",
             "gemnasiumDbPath": "재구축 가능한 gemnasium 권고 캐시의 위치. 기본적으로 메인 데이터베이스 옆에 위치합니다.",
             "npmRegistryUrl": "매 스캔 후 수정 버전을 확인하고 해결 방법에 필요한 패키지 메타데이터를 읽는 npm 레지스트리입니다. 미러를 쓴다면 미러를 지정하세요. 연결할 수 없으면 이전에 가져온 패키지 메타데이터를 아직 쓸 수 있으면 이를 재사용해 현재 검출 결과를 평가하고 그 가져온 날짜를 표시하며, 쓸 수 있는 메타데이터가 없으면 수정 버전은 레지스트리에서 확인되지 않은 것으로 표시됩니다.",
-            "npmDownloadsUrl": "해결 방법에 표시되는 주간 다운로드 수를 읽는 npm 다운로드 수 API입니다. 연결할 수 없으면 마지막으로 알려진 수가 표시되고, 그것도 없으면 알 수 없음으로 표시됩니다."
+            "npmDownloadsUrl": "해결 방법에 표시되는 주간 다운로드 수를 읽는 npm 다운로드 수 API입니다. 연결할 수 없으면 마지막으로 알려진 수가 표시되고, 그것도 없으면 알 수 없음으로 표시됩니다.",
+            "pypiUrl": "매 스캔 후 Python 발견 항목의 수정 버전을 확인하는 PyPI입니다. Python에 활성화된 소스가 있는 동안에만 사용됩니다. 미러를 쓴다면 미러를 지정하세요. 연결할 수 없으면 이전 답을 가져온 날짜와 함께 재사용하고, 없으면 수정 버전은 레지스트리에서 확인되지 않은 것으로 표시됩니다.",
+            "goproxyUrl": "매 스캔 후 Go 발견 항목의 수정 버전을 확인하는 Go 모듈 프록시입니다. Go에 활성화된 소스가 있는 동안에만 사용됩니다. 다른 프록시를 쓴다면 그 프록시를 지정하세요. 연결할 수 없으면 이전 답을 가져온 날짜와 함께 재사용하고, 없으면 수정 버전은 레지스트리에서 확인되지 않은 것으로 표시됩니다.",
+            "cratesIndexUrl": "매 스캔 후 Rust 발견 항목의 수정 버전을 확인하는 crates.io 스파스 인덱스입니다. Rust에 활성화된 소스가 있는 동안에만 사용됩니다. 미러를 쓴다면 미러를 지정하세요. 연결할 수 없으면 이전 답을 가져온 날짜와 함께 재사용하고, 없으면 수정 버전은 레지스트리에서 확인되지 않은 것으로 표시됩니다.",
+            "rubygemsUrl": "매 스캔 후 Ruby 발견 항목의 수정 버전을 확인하는 RubyGems입니다. Ruby에 활성화된 소스가 있는 동안에만 사용됩니다. 미러를 쓴다면 미러를 지정하세요. 연결할 수 없으면 이전 답을 가져온 날짜와 함께 재사용하고, 없으면 수정 버전은 레지스트리에서 확인되지 않은 것으로 표시됩니다."
         },
         "builtWithTitle": "사용 기술",
         "reportingTitle": "Sentinello의 취약점 신고",
@@ -742,6 +776,8 @@
             "scanReasonSideProject": "프로젝트 측 문제: 프로젝트의 파일이 읽기를 막고 있으며, 그 파일을 고치는 것이 해결책입니다",
             "scanReasonSideEnvironment": "이 Sentinello 설치 측 문제: 설치가 스캔을 수행하지 못했으며, 운영자가 해결해야 합니다",
             "scanReasonNotYetRun": "아직 아무것도 확인하지 않았습니다: 다음 스캔에서 확인합니다",
+            "sourceDisabledReason": "{languages}에 활성화된 소스 없음",
+            "sourceDisabledAction": "설정 → 소스에서 하나를 켜세요",
             "noFindingsUnknownTitle": "기록된 발견 항목 없음",
             "noFindingsUnknownBody": "아무것도 발견되지 않았지만 이 프로젝트는 완전히 스캔되지 않았습니다: 안전이 아니라 알 수 없음입니다.",
             "noFindingsNotScannedBody": "이 프로젝트는 아직 스캔되지 않았습니다."

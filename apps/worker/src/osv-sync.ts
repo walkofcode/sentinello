@@ -17,7 +17,7 @@ import {
 } from '@sentinello/feeds'
 import {
     OSV_META_KEYS,
-    OSV_NORMALIZER_VERSION,
+    osvNormalizerVersion,
     countOsvAdvisories,
     deleteOsvAdvisories,
     deleteOsvAdvisoriesForEcosystem,
@@ -123,7 +123,7 @@ export async function seedOsv(
     }
     const recordCount = ecoCount()
     setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, ecosystem), true)
-    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, ecosystem), OSV_NORMALIZER_VERSION)
+    setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, ecosystem), osvNormalizerVersion(ecosystem))
     setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.recordCount, ecosystem), recordCount)
     setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.refreshedAt, ecosystem), Date.now())
     setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.lastError, ecosystem), null)

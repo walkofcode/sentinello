@@ -1,7 +1,7 @@
 {
     "Meta": {
         "title": "Sentinello — ポートフォリオ全体のための早期警告型CVE監視",
-        "description": "セルフホスト型・オープンソースの、Node.js プロジェクト向け依存関係脆弱性監視。リポジトリを指定するだけで、すべてのプロジェクトにまたがる既知の CVE を 1 つのトリアージキューにまとめます。",
+        "description": "セルフホスト型・オープンソースの、Node.js・Python・Go・Rust・Ruby プロジェクト向け依存関係脆弱性監視。リポジトリを指定するだけで、すべてのプロジェクトにまたがる既知の CVE を 1 つのトリアージキューにまとめます。",
         "tagline": "ポートフォリオ全体のためのCVE早期警告",
         "tabTitle": "Sentinello — 多言語対応の CVE 監視"
     },
@@ -38,7 +38,7 @@
     },
     "Hero": {
         "title": "見守るのをやめた依存関係のための、早期警告システム。",
-        "subtitle": "AI の時代、あなたは維持できる以上のプロジェクトをリリースしています。Sentinello はそのすべてを見守り、Node.js 依存関係に潜む既知の CVE を浮かび上がらせます。忘れられたプロジェクトがインシデントになる前に。",
+        "subtitle": "AI の時代、あなたは維持できる以上のプロジェクトをリリースしています。Sentinello はそのすべてを見守り、依存関係（Node.js、Python、Go、Rust、Ruby）に潜む既知の CVE を浮かび上がらせます。忘れられたプロジェクトがインシデントになる前に。",
         "commandCaption": "コマンド1つで実行:",
         "ctaPrimary": "クイックスタートを読む",
         "ctaSecondary": "GitHubでスターを付ける",
@@ -86,7 +86,7 @@
         "title": "機能",
         "subtitle": "セルフホスト型ポータルにすべてを — 外部サービスなし、データがネットワークの外に出ることもありません。",
         "queueTitle": "単一のトリアージキュー",
-        "queueBody": "十数個のチェックアウトに散らばった npm audit ではなく、ポートフォリオ全体のCVEを1か所で確認・トリアージできます。",
+        "queueBody": "十数個のチェックアウトに散らばった監査結果ではなく、ポートフォリオ全体のCVEを言語を問わず1か所で確認・トリアージできます。",
         "browseTitle": "プロジェクト別・ライブラリ別に見る",
         "browseBody": "任意のリポジトリを開いて、検出結果、修正バージョン、履歴を掘り下げる — あるいは脆弱なパッケージに切り替えて、影響を受けるすべてのプロジェクトを確認し、一度にすべてをミュートできます。",
         "exportTitle": "アドバイザリのエクスポート",
@@ -94,7 +94,9 @@
         "scanningTitle": "継続的なスキャン",
         "scanningBody": "バックグラウンドのワーカーがスケジュールに沿って再スキャンするので、確認を覚えていなくても新しいアドバイザリが表示されます。",
         "sourcesTitle": "複数のソース",
-        "sourcesBody": "npm audit を超えて、OSV と GitLab gemnasium の両方と照合し、より広い CVE カバレッジと既知の悪意あるパッケージの検出を実現します。",
+        "sourcesBody": "Node.js には npm audit、すべての言語には OSV と GitLab gemnasium。より広い CVE カバレッジと既知の悪意あるパッケージの検出を実現します。",
+        "ecosystemsTitle": "Python · Go · Rust · Ruby",
+        "ecosystemsBody": "Node.js に加えて、Python、Go、Rust、Ruby のプロジェクトをロックファイル（requirements.txt、poetry.lock、uv.lock、go.mod、Cargo.lock、Gemfile.lock）からスキャンします。オフラインで解析し、pip、go、cargo、bundler は一切実行しません。",
         "notificationsTitle": "通知とWebhook",
         "notificationsBody": "失敗や検出のアラートを、Slack、Telegram、またはシンプルなWebhookで受け取れます — ルートまたはプロジェクト単位でスコープ指定でき、言語も選べます。自動修正エージェント向けに JSON またはプレーンテキストのペイロードを送信します。",
         "selfContainedTitle": "1つのイメージ、1つのファイル",
@@ -166,6 +168,9 @@
         "row_scope": "対象範囲",
         "npm_scope": "今いる 1 つのプロジェクトのみ。",
         "ours_scope": "フォルダー配下のすべてのプロジェクトを、1 回の実行と 1 つのレポートで。",
+        "row_languages": "言語",
+        "npm_languages": "npm プロジェクトのみ。",
+        "ours_languages": "Node.js、Python、Go、Rust、Ruby のロックファイルに対応。Python、Go、Rust、Ruby はオフラインで読み取り、パッケージマネージャーのインストールや実行は一切行いません。Node.js では npm audit も実行します。",
         "row_sources": "アドバイザリソース",
         "npm_sources": "利用中のレジストリのアドバイザリフィード。",
         "ours_sources": "それに加えて OSV と GitLab gemnasium。重複は抑制されるため、ソースを増やしても新規の検出だけが加わります。",

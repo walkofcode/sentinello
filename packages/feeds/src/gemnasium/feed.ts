@@ -1,6 +1,6 @@
 import yaml from 'js-yaml'
 import unzipper from 'unzipper'
-import { ECOSYSTEMS, type GemnasiumAdvisoryRow } from '@sentinello/core'
+import { canonicalPackageName, ECOSYSTEMS, type GemnasiumAdvisoryRow } from '@sentinello/core'
 import {
     getJson,
     getTextOrNull,
@@ -185,6 +185,19 @@ export function advisoryIdFromPath(path: string): string | null {
     // Always non-empty: `file` passed the guard above, and `dot > 0` means the slice keeps at least one
     // character, so the length check it used to carry was a tautology.
     return dot > 0 ? file.slice(0, dot) : file
+}
+
+// The one (advisory, ecosystem, package) a repo-relative advisory file holds, read from its path the way the
+// normalizer reads the record: the package is everything between the type directory and the file (the
+// record's package_slug), keyed as the normalizer keys it (PEP 503 for PyPI). Null for a path outside a
+// supported ecosystem or with no package. A changed or deleted file touches exactly this row, never the same
+// advisory id under another package or ecosystem.
+export function gemnasiumPathIdentity(path: string): { advisoryId: string; ecosystem: string; packageName: string } | null {
+    const located = advisoryPathEcosystem(path, 0)
+    if (located === null) return null
+    const name = path.split('/').slice(1, -1).join('/')
+    if (name.split('/').includes('')) return null
+    return { advisoryId: advisoryIdFromPath(path) as string, ecosystem: located.ecosystem, packageName: canonicalPackageName(located.ecosystem, name) }
 }
 
 export type GemnasiumArchiveBatch = {

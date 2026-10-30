@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-    insertMute,
+    insertMute, muteWriteOf,
     insertScan,
     mergeFindingsForScan,
     openDb,
@@ -59,6 +59,7 @@ function seedProject(overrides: Record<string, unknown> = {}): void {
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems: ['npm'],
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,
@@ -83,6 +84,7 @@ function incoming(overrides: Partial<IncomingFinding> = {}): IncomingFinding {
         advisoryUrl: 'https://example.invalid/' + advisoryId,
         packageName: 'lodash',
         installedVersion: '4.17.11',
+        installations: [],
         vulnerableRange: '<4.17.21',
         severity: 'high',
         fixAvailable: true,
@@ -99,8 +101,12 @@ function incoming(overrides: Partial<IncomingFinding> = {}): IncomingFinding {
 // source rather than carrying their own — a row attributed to a source that did not run the scan is
 // not a state the worker can produce, and letting a caller build one silently collapses the two scans
 // into a single merge scope.
+//
+// One scan is one (source, ecosystem) cell, so the scan and its merge take the cell's ecosystem from the
+// rows; a scan with none is npm's.
 function scanWith(rows: IncomingFinding[], scanner = 'npm-audit', finishedAt = T0 + HOUR): void {
     const scanId = 'scan-' + scanner + '-' + finishedAt
+    const ecosystem = rows[0]?.ecosystem ?? 'npm'
     insertScan(db, {
         id: scanId,
         projectId: PROJECT_ID,
@@ -108,7 +114,7 @@ function scanWith(rows: IncomingFinding[], scanner = 'npm-audit', finishedAt = T
         finishedAt,
         scanner,
         source: scanner,
-        ecosystem: 'npm',
+        ecosystem,
         status: 'ok',
         reasonCode: 'ok',
         durationMs: 1000,
@@ -118,6 +124,7 @@ function scanWith(rows: IncomingFinding[], scanner = 'npm-audit', finishedAt = T
     mergeFindingsForScan(db, {
         projectId: PROJECT_ID,
         scanner,
+        ecosystem,
         scanId,
         scanFinishedAt: finishedAt,
         incoming: rows.map(function stampSource(row) {
@@ -254,7 +261,7 @@ describe('buildProjectAdvisoryExport — muted findings', function () {
     // The regression this module was extracted to fix. A muted finding must not reach the document.
     it('excludes a muted finding from the document', function () {
         scanWith([incoming(), incoming({ advisoryId: 'GHSA-def', packageName: 'express' })])
-        insertMute(db, mute())
+        insertMute(db, muteWriteOf(mute()))
 
         const result = exportAt()
         expect(result?.findingCount).toBe(1)
@@ -269,8 +276,8 @@ describe('buildProjectAdvisoryExport — muted findings', function () {
             incoming({ advisoryId: 'GHSA-def', packageName: 'express' }),
             incoming({ advisoryId: 'GHSA-ghi', packageName: 'axios' })
         ])
-        insertMute(db, mute({ id: 'm1' }))
-        insertMute(db, mute({ id: 'm2', advisoryId: 'GHSA-def', packageName: 'express' }))
+        insertMute(db, muteWriteOf(mute({ id: 'm1' })))
+        insertMute(db, muteWriteOf(mute({ id: 'm2', advisoryId: 'GHSA-def', packageName: 'express' })))
 
         const result = exportAt()
         expect(result?.findingCount).toBe(1)
@@ -281,13 +288,13 @@ describe('buildProjectAdvisoryExport — muted findings', function () {
     // than silently reverting to per-finding filtering.
     it('excludes everything under a project-scope mute', function () {
         scanWith([incoming(), incoming({ advisoryId: 'GHSA-def', packageName: 'express' })])
-        insertMute(db, mute({
+        insertMute(db, muteWriteOf(mute({
             scope: 'project',
             scanner: null,
             ecosystem: null,
             advisoryId: null,
             packageName: null
-        }))
+        })))
 
         const result = exportAt()
         expect(result?.findingCount).toBe(0)
@@ -297,7 +304,7 @@ describe('buildProjectAdvisoryExport — muted findings', function () {
     // An expired mute is a lapsed decision — the finding comes back rather than staying hidden.
     it('includes a finding whose mute has expired', function () {
         scanWith([incoming()])
-        insertMute(db, mute({ expiresAt: T0 + HOUR }))
+        insertMute(db, muteWriteOf(mute({ expiresAt: T0 + HOUR })))
 
         const result = exportAt()
         expect(result?.findingCount).toBe(1)
@@ -306,7 +313,7 @@ describe('buildProjectAdvisoryExport — muted findings', function () {
 
     it('still excludes a finding whose mute has not expired yet', function () {
         scanWith([incoming()])
-        insertMute(db, mute({ expiresAt: T0 + 10 * HOUR }))
+        insertMute(db, muteWriteOf(mute({ expiresAt: T0 + 10 * HOUR })))
 
         const result = exportAt()
         expect(result?.findingCount).toBe(0)
@@ -317,7 +324,7 @@ describe('buildProjectAdvisoryExport — muted findings', function () {
     // silence the same advisory reported against a different package.
     it('does not let a mute leak across packages', function () {
         scanWith([incoming(), incoming({ packageName: 'express' })])
-        insertMute(db, mute())
+        insertMute(db, muteWriteOf(mute()))
 
         const result = exportAt()
         expect(result?.findingCount).toBe(1)
@@ -335,11 +342,11 @@ describe('buildProjectAdvisoryExport — mute accounting across sources', functi
     }
 
     function muteLodash(source: string): void {
-        insertMute(db, mute({
+        insertMute(db, muteWriteOf(mute({
             id: 'mute-' + source,
             scanner: source,
             advisoryId: source === 'osv' ? 'CVE-2026-1' : 'GHSA-abc'
-        }))
+        })))
     }
 
     it('excludes an advisory only when every source reporting it is muted', function () {

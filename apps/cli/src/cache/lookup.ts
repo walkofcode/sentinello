@@ -1,4 +1,4 @@
-import { OSV_NORMALIZER_VERSION, type GemnasiumAdvisoryRow, type OsvAdvisoryRow } from '@sentinello/core'
+import { cacheEcosystemKey, osvNormalizerVersion, type EcosystemId, type GemnasiumAdvisoryRow, type OsvAdvisoryRow } from '@sentinello/core'
 import { stampWithdrawnByPackage, type GemnasiumAdvisory, type OsvAdvisory } from '@sentinello/scanners'
 import { advisoryFilePath, isSeeded, type CacheMeta, type SourceId } from './meta'
 import { readRowsForPackages } from './store'
@@ -15,7 +15,8 @@ import { readRowsForPackages } from './store'
 // The lookups are synchronous because ScannerPlugin.scan calls them inline, so every cache file is read
 // once up front and the resolved rows are served from memory for the rest of the run.
 
-export type LoadedCache = {
+// One ecosystem's preloaded advisories, keyed by package name.
+export type EcosystemCache = {
     osv: Map<string, OsvAdvisory[]>
     gemnasium: Map<string, GemnasiumAdvisory[]>
     // Whether the gemnasium advisories were stamped from a complete OSV snapshot. False means an advisory
@@ -23,27 +24,59 @@ export type LoadedCache = {
     withdrawalsChecked: boolean
 }
 
-// Reads only the rows matching the packages actually installed. The npm corpus holds ~217k distinct
-// package names; a real project resolves under a thousand, so this discards over 99% of the file without
-// parsing it.
-//
+// Every ecosystem the run reads, keyed by cacheEcosystemKey. Each ecosystem's rows sit in their own files and
+// their own map, so a lookup for one can never be answered with another's advisories.
+export type LoadedCache = Map<string, EcosystemCache>
+
+// A feed source answering for one ecosystem in this run (the CLI's view of a portal source cell).
+export type FeedCell = { source: SourceId; ecosystem: EcosystemId }
+
+// Reads, per ecosystem, only the rows matching the packages actually installed. The npm corpus holds ~217k
+// distinct package names; a real project resolves under a thousand, so this discards over 99% of the file
+// without parsing it. An ecosystem is read only for the sources the run audits it with (`cells`).
+export async function loadCacheForPackages(
+    cacheDir: string,
+    packagesByEcosystem: ReadonlyMap<EcosystemId, readonly string[]>,
+    cells: readonly FeedCell[],
+    meta: CacheMeta
+): Promise<LoadedCache> {
+    const out: LoadedCache = new Map()
+    for (const [ecosystem, names] of packagesByEcosystem) {
+        const sources = cells.filter(function ofEcosystem(cell) { return cell.ecosystem === ecosystem }).map(function source(cell) { return cell.source })
+        out.set(cacheEcosystemKey(ecosystem), await loadEcosystemCache(cacheDir, ecosystem, names, sources, meta))
+    }
+    return out
+}
+
+// The ecosystems whose gemnasium advisories are reported unstamped: gemnasium audits them and their OSV
+// withdrawal evidence is not complete.
+export function withdrawalsUnchecked(cache: LoadedCache, cells: readonly FeedCell[]): EcosystemId[] {
+    const out: EcosystemId[] = []
+    for (const cell of cells) {
+        if (cell.source !== 'gemnasium') continue
+        const loaded = cache.get(cacheEcosystemKey(cell.ecosystem))
+        if (loaded && !loaded.withdrawalsChecked) out.push(cell.ecosystem)
+    }
+    return out
+}
+
 // The OSV file is also gemnasium's withdrawal evidence, so it is read whenever gemnasium is selected,
 // whether or not OSV is, but only when its meta says it is complete at the current normalizer version: a
 // partial or old-shape file could hold a withdrawn duplicate without its active twin and drop a live
 // advisory. A refresh never leaves a partial file behind: refreshOsv rewrites it only once every changed
 // advisory was re-read, so a seeded file is always a complete snapshot.
-export async function loadCacheForPackages(
+async function loadEcosystemCache(
     cacheDir: string,
-    ecosystem: string,
+    ecosystem: EcosystemId,
     packageNames: readonly string[],
     sources: readonly SourceId[],
     meta: CacheMeta
-): Promise<LoadedCache> {
+): Promise<EcosystemCache> {
     const wanted = new Set(packageNames)
     const osv = new Map<string, OsvAdvisory[]>()
     const gemnasium = new Map<string, GemnasiumAdvisory[]>()
     const withGemnasium = sources.includes('gemnasium')
-    const evidenceComplete = withGemnasium && isSeeded(meta, 'osv', ecosystem, OSV_NORMALIZER_VERSION)
+    const evidenceComplete = withGemnasium && isSeeded(meta, 'osv', ecosystem, osvNormalizerVersion(ecosystem))
     let osvRows = new Map<string, OsvAdvisoryRow[]>()
     if (sources.includes('osv') || evidenceComplete) {
         osvRows = await readRowsForPackages<OsvAdvisoryRow>(advisoryFilePath(cacheDir, 'osv', ecosystem), wanted)
@@ -68,7 +101,7 @@ export async function loadCacheForPackages(
 
 // Moved to @sentinello/core so the worker's OSV lookup shares this one implementation instead of
 // carrying an inlined copy. Re-exported here because this module is where the CLI reaches for it.
-export { cacheEcosystemKey } from '@sentinello/core'
+export { cacheEcosystemKey }
 
 function toOsvAdvisory(row: OsvAdvisoryRow): OsvAdvisory {
     return {

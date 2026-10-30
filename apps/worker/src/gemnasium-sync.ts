@@ -5,25 +5,26 @@ import {
     GEMNASIUM_SEED_DOWNLOAD_BYTES
 } from '@sentinello/core'
 import {
-    advisoryIdFromPath,
     errText,
     fetchGemnasiumChangedPaths,
     fetchGemnasiumFileRows,
     fetchGemnasiumHeadSha,
     gemnasiumFeedDisabled,
+    gemnasiumPathIdentity,
     streamGemnasiumArchive
 } from '@sentinello/feeds'
 import {
     GEMNASIUM_META_KEYS,
     GEMNASIUM_NORMALIZER_VERSION,
+    applyGemnasiumIncrement,
     countGemnasiumAdvisories,
-    deleteGemnasiumAdvisories,
     deleteGemnasiumAdvisoriesExcept,
     gemnasiumRowKeyFor,
     getGemnasiumMeta,
     resolveGemnasiumDbPath,
     setGemnasiumMeta,
     upsertGemnasiumAdvisories,
+    type GemnasiumAdvisoryRow,
     type GemnasiumDrizzleDb
 } from '@sentinello/db'
 
@@ -104,46 +105,39 @@ async function incrementalSyncGemnasium(
         setGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastError, null)
         return { status: 'ok', upserted: 0, recordCount: countGemnasiumAdvisories(db), message: 'no relevant changes' }
     }
-    let upserted = 0
+    // Every changed file is fetched before the cache changes at all. A failed or aborted fetch therefore
+    // leaves the previous snapshot whole and the sha where it was, so the next sync repeats the window;
+    // clearing rows first would leave a seeded, current cache missing still-live advisories, and a scan
+    // reading it would resolve their findings.
+    const staged: GemnasiumAdvisoryRow[] = []
+    let fetched = 0
     try {
-        const deletedIds: string[] = []
-        for (const path of changed.deleted) {
-            const id = advisoryIdFromPath(path)
-            if (id) deletedIds.push(id)
-        }
-        // Clear the rows of every touched advisory before rewriting them, so a package dropped from an
-        // advisory's affected set disappears instead of lingering as a phantom finding.
-        for (const path of changed.changed) {
-            const id = advisoryIdFromPath(path)
-            if (id) deletedIds.push(id)
-        }
-        deleteGemnasiumAdvisories(db, deletedIds)
         for (const path of changed.changed) {
             if (abortSignal && abortSignal.aborted) throw new Error('aborted')
-            const rows = await fetchGemnasiumFileRows(path, toSha, { abortSignal })
-            if (rows.length > 0) {
-                upsertGemnasiumAdvisories(db, rows)
-                upserted += rows.length
-            }
+            staged.push(...await fetchGemnasiumFileRows(path, toSha, { abortSignal }))
+            fetched += 1
         }
     } catch (err) {
-        // The sha is deliberately NOT advanced here: a partially applied catch-up must be retried from the
-        // same starting point, not skipped past.
-        const message = 'gemnasium incremental sync failed after ' + upserted + ' rows: ' + errText(err)
+        const message =
+            'gemnasium incremental sync failed after fetching ' + fetched + ' of ' + changed.changed.length +
+            ' changed files, the previous cache is kept: ' + errText(err)
         setGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastError, message)
-        return { status: 'error', upserted, recordCount: countGemnasiumAdvisories(db), message }
+        return { status: 'error', upserted: 0, recordCount: countGemnasiumAdvisories(db), message }
     }
-    const recordCount = countGemnasiumAdvisories(db)
-    setGemnasiumMeta(db, GEMNASIUM_META_KEYS.headSha, toSha)
-    setGemnasiumMeta(db, GEMNASIUM_META_KEYS.recordCount, recordCount)
-    setGemnasiumMeta(db, GEMNASIUM_META_KEYS.refreshedAt, Date.now())
-    setGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastError, null)
+    // Each touched file held exactly one row, cleared so that an advisory a file no longer yields (or a deleted
+    // file) disappears instead of lingering as a phantom finding, and only that row: the same advisory id
+    // under another package or ecosystem lives in another file.
+    const drop = [...changed.deleted, ...changed.changed].flatMap(function identity(path) {
+        const found = gemnasiumPathIdentity(path)
+        return found === null ? [] : [found]
+    })
+    const { recordCount } = applyGemnasiumIncrement(db, { drop, upsert: staged, headSha: toSha, refreshedAt: Date.now() })
     console.log(
         '[gemnasium-sync] incremental sync: ' +
         changed.changed.length + ' changed, ' + changed.deleted.length + ' deleted, ' +
-        upserted + ' rows upserted'
+        staged.length + ' rows upserted'
     )
-    return { status: 'ok', upserted, recordCount, message: null }
+    return { status: 'ok', upserted: staged.length, recordCount, message: null }
 }
 
 // Full rebuild from the repo archive. Streams the zip, normalizes each *.yml, batch-upserts, then purges

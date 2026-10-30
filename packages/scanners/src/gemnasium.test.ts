@@ -27,7 +27,8 @@ function pkg(name: string, version: string, ecosystem = 'npm'): ResolvedPackage 
         name,
         version,
         scope: { isProd: true, isDev: false, isOptional: false },
-        depPaths: []
+        depPaths: [],
+        manifestPath: 'lockfile'
     }
 }
 
@@ -322,6 +323,41 @@ describe('matchPackages', function () {
             PyPI: { django: [advisory({ ranges: [{ introduced: '0', fixed: '3.2.14' }] })] }
         })
         expect(matchPackages([pkg('django', '3.2.13rc1', 'PyPI')], lookup)).toHaveLength(1)
+    })
+
+    // SENTINEL-127, the reviewer's reproduction: gemnasium `==2.2.0` and `<=2.2.0` are PEP 440 specifiers, and
+    // a public specifier ignores the candidate's local label, so torch's CPU build is affected by both.
+    it('matches a PyPI local build under PEP 440 specifier semantics', function () {
+        const { lookup } = recordingLookup({
+            PyPI: {
+                torch: [
+                    advisory({ advisoryId: 'PIN', ranges: [], versions: ['2.2.0'] }),
+                    advisory({ advisoryId: 'THROUGH', ranges: [{ introduced: '0', fixed: null, lastAffected: '2.2.0' }] }),
+                    advisory({ advisoryId: 'AFTER', ranges: [{ introduced: '2.2.0', introducedExclusive: true, fixed: '3.0' }] })
+                ]
+            }
+        })
+        const findings = matchPackages([pkg('torch', '2.2.0+cpu', 'PyPI')], lookup)
+        expect(findings.map(function id(f) { return f.advisoryId }).sort()).toEqual(['PIN', 'THROUGH'])
+        // The set settlement reads carries the same semantics, so it agrees with the finding.
+        expect(findings.every(function carried(f) { return f.fixInputs.affected.specifier === 'pep440' })).toBe(true)
+    })
+
+    // Only the ecosystem whose requirement syntax departs from the ordering carries specifier semantics.
+    it('carries no specifier semantics outside PyPI', function () {
+        const { lookup } = recordingLookup({ npm: { lodash: [advisory()] } })
+        expect(matchPackages([pkg('lodash', '4.17.20')], lookup)[0]?.fixInputs.affected).not.toHaveProperty('specifier')
+    })
+
+    // SENTINEL-132: a refused part of the row's ranges matches nothing and leaves the set incomplete.
+    it('reads a refused part as unknown, never as the end of the affected set', function () {
+        const { lookup } = recordingLookup({
+            PyPI: { pkg: [advisory({ ranges: [{ introduced: '0', fixed: '1.0' }, { introduced: '~=2.0', fixed: null, refused: '~=2.0' }] })] }
+        })
+        const [finding] = matchPackages([pkg('pkg', '0.5', 'PyPI')], lookup)
+        expect(finding?.fixInputs.affected.complete).toBe(false)
+        expect(finding?.vulnerableRange).toBe('>=0 <1.0 || ~=2.0')
+        expect(matchPackages([pkg('pkg', '2.0', 'PyPI')], lookup)).toEqual([])
     })
 
     it('returns nothing for an empty package list', function () {

@@ -3,11 +3,12 @@ import { homedir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { DrizzleDb, SqliteDb } from '@sentinello/db'
+import type { NotificationSenders } from '@sentinello/notifications'
 import type { Finding, Project } from '@sentinello/core'
 import type { NpmDownloadsResult, NpmPackageResult, NpmPackageSummary } from '@sentinello/feeds'
 import type { ScannerPlugin } from '@sentinello/scanners'
 import type { ProjectScanOutcome } from '../src/runner'
-import type { PackumentRequest, RegistryClient, RegistryEntry } from '@sentinello/fixes'
+import type { PackumentRequest, RegistryClients, RegistryEntry } from '@sentinello/fixes'
 
 // The one bootstrap every scratch tool goes through (the smoke scripts, and later print-advisory and the
 // fleet rescan). A scratch run rescans real projects against a COPY of the live database; this file is
@@ -21,6 +22,14 @@ import type { PackumentRequest, RegistryClient, RegistryEntry } from '@sentinell
 //   4. force notification delivery off three ways: dryRunNotify on, every target disabled, and a
 //      recording notifier handed to runProjectScanners that never calls a sender;
 //   5. never import src/index.ts or src/worker.ts — no scheduler, no feed sync, no MCP server.
+//
+// One opt-in changes step 4, for the live-copy check of the silent baseline (SENTINEL-123): `senders`, a map
+// of recording senders by target kind. With it the copied targets keep their live `enabled` flags, scopes
+// and filters, so per-target counts are real; every target's credentials are replaced on the copy by inert
+// placeholders (an `.invalid` host never resolves) and every SENTINELLO_* environment variable a target
+// could resolve a secret from is unset; and `sweep()` runs the real scheduler sweep, notifier and baseline
+// dispatcher through transportFor(senders), which throws for any kind the map lacks, so nothing can fall
+// back to a real sender. dryRunNotify stays on until the caller turns it off on the copy.
 //
 // Only type imports at module level: everything that touches a database is imported after step 2.
 
@@ -96,6 +105,10 @@ export type ScratchEnv = {
     // Scans one project through the real runner with the recording registry and notifier. Returns the
     // time the run started (the invariants' freshness floor) and its outcomes.
     scan(project: Project, scanners: ScannerPlugin[]): Promise<{ startedAt: number; outcomes: ProjectScanOutcome[] }>
+    // Only with the `senders` option: one full sweep of every root through the scheduler's own path
+    // (discovery, the batch, the real notifier, the silent baseline's completion and dispatch), sending
+    // through the recording senders. Throws when the option was not given.
+    sweep(scanners: ScannerPlugin[]): Promise<void>
     // Every request the registry client made, counted as it went.
     traffic: RegistryTraffic
     // Deletes the scratch database's registry cache, for a cold-cache run. Never touches anything else.
@@ -116,6 +129,8 @@ export type OpenScratchEnvOptions = {
     gemnasiumDb?: string
     // The registry client's request limit; its default (REGISTRY_FETCH_CONCURRENCY) when absent.
     concurrency?: number
+    // Recording senders by target kind: keeps the copied targets live and enables sweep() (see above).
+    senders?: NotificationSenders
 }
 
 const MIGRATIONS = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'packages', 'db', 'drizzle')
@@ -136,19 +151,37 @@ export async function openScratchEnv(options: OpenScratchEnvOptions): Promise<Sc
     const { buildAdvisoryMarkdown } = await import('@sentinello/core')
     const { toWebhookVulnerability } = await import('@sentinello/notifications')
     const { runProjectScanners } = await import('../src/runner')
-    const { createNpmRegistryClient } = await import('@sentinello/fixes')
+    const { createNpmRegistryClient, createRegistryClients } = await import('@sentinello/fixes')
     const { fetchNpmPackage, fetchNpmWeeklyDownloads } = await import('@sentinello/feeds')
-    const { createDbRegistryStore } = await import('../src/registry-store')
+    const { createDbRegistryStore, createDbRegistryStores } = await import('../src/registry-store')
     const { toExportFinding } = await import('../src/notifier')
     const { CONFIG_KEYS } = await import('../src/config-loader')
+    const { transportFor } = await import('@sentinello/notifications')
+    const { sweepProjects } = await import('../src/scheduler')
+    const { createWorkerRuntime } = await import('../src/runtime')
 
     // 3.
     const { db, sqlite } = openDb({ dbPath })
     runMigrations(db, { migrationsFolder: MIGRATIONS })
 
-    // 4. Delivery off, three independent ways.
+    // 4. Delivery off, three independent ways — or, with recording senders, live targets with nothing real
+    // left to send to.
     setConfigValue(db, CONFIG_KEYS.dryRunNotify, true)
-    db.update(schema.notificationTargets).set({ enabled: false }).run()
+    if (options.senders === undefined) {
+        db.update(schema.notificationTargets).set({ enabled: false }).run()
+    } else {
+        const replace = sqlite.prepare('UPDATE notification_targets SET config_json = ? WHERE id = ?')
+        for (const target of sqlite.prepare('SELECT id, kind FROM notification_targets').all() as { id: string; kind: string }[]) {
+            replace.run(JSON.stringify(inertConfig(target.id, target.kind)), target.id)
+        }
+        for (const name of Object.keys(process.env)) {
+            if (name.startsWith('SENTINELLO_')) delete process.env[name]
+        }
+        // Step 2's bindings, which the loop above just removed with every other SENTINELLO_ variable.
+        process.env.SENTINELLO_DB_PATH = dbPath
+        process.env.SENTINELLO_OSV_DB_PATH = osvPath
+        process.env.SENTINELLO_GEMNASIUM_DB_PATH = gemnasiumPath
+    }
 
     const snapshot: RegistrySnapshotEntry[] = []
     const notifications: RecordedNotification[] = []
@@ -178,15 +211,20 @@ export async function openScratchEnv(options: OpenScratchEnvOptions): Promise<Sc
         if (result.status === 'error') failed('downloads: ' + result.reason)
         return result
     }
-    const live = createNpmRegistryClient(createDbRegistryStore(db), { fetchPackage: countedPackument, fetchDownloads: countedDownloads, concurrency: options.concurrency })
-    const registry: RegistryClient = {
-        lookup: async function recordedLookup(names) {
-            const served = await live.lookup(names)
-            for (const [name, entry] of served) snapshot.push(snapshotEntry(name, entry))
-            return served
-        },
-        weeklyDownloads: function weeklyDownloads(names) {
-            return live.weeklyDownloads(names)
+    const live = createNpmRegistryClient(createDbRegistryStore(db, 'npm'), { fetchPackage: countedPackument, fetchDownloads: countedDownloads, concurrency: options.concurrency })
+    // npm is counted and snapshotted; every other ecosystem settles against its own live registry, as the
+    // worker's does.
+    const registry: RegistryClients = {
+        ...createRegistryClients(createDbRegistryStores(db)),
+        npm: {
+            lookup: async function recordedLookup(names) {
+                const served = await live.lookup(names)
+                for (const [name, entry] of served) snapshot.push(snapshotEntry(name, entry))
+                return served
+            },
+            weeklyDownloads: function weeklyDownloads(names) {
+                return live.weeklyDownloads(names)
+            }
         }
     }
     async function recordNotification(outcome: ProjectScanOutcome): Promise<void> {
@@ -216,6 +254,10 @@ export async function openScratchEnv(options: OpenScratchEnvOptions): Promise<Sc
             const outcomes = await runProjectScanners({ db, scanners, project, registry, notify: recordNotification })
             return { startedAt, outcomes }
         },
+        sweep: async function sweep(scanners) {
+            if (options.senders === undefined) throw new Error('sweep() needs the senders option: without it every target is disabled')
+            await sweepProjects({ db, sqlite, runtime: createWorkerRuntime(), send: transportFor(options.senders) }, async function batchScanners() { return scanners })
+        },
         clearRegistryCache: function clearRegistryCache() {
             db.delete(schema.registryPackages).run()
         },
@@ -229,6 +271,14 @@ export async function openScratchEnv(options: OpenScratchEnvOptions): Promise<Sc
             sqlite.close()
         }
     }
+}
+
+// A target's configuration with every credential and destination replaced: an `.invalid` host (RFC 2606)
+// never resolves, and a Telegram token that is not a token reaches nothing.
+export function inertConfig(id: string, kind: string): Record<string, unknown> {
+    if (kind === 'telegram') return { botToken: 'not-a-real-bot-token-' + id, chatId: 'not-a-real-chat-' + id }
+    if (kind === 'slack') return { webhookUrl: 'https://capture.invalid/' + id }
+    return { url: 'https://capture.invalid/' + id, headers: {} }
 }
 
 function snapshotEntry(name: string, entry: RegistryEntry): RegistrySnapshotEntry {

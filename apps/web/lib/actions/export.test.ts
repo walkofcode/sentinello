@@ -101,6 +101,16 @@ describe('exportLibraryAdvisoryMarkdownAction', function () {
         expect(result.markdown).toContain('CVE-2024-9')
     })
 
+    // Each row's installations and chain reach the document: the chain is unknown only when the row has none.
+    it('lists where each copy is installed and its dependency chain', async function () {
+        const covered = { rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'ok' }] }) }
+        scanProject(handle.db, 'project-1', [finding({ packageName: 'axios', advisoryId: 'CVE-2024-5', installations: [{ manifestPath: 'web/package-lock.json', version: '1.0.0' }], depPath: ['web>axios'] })], covered)
+        const result = await exportLibraryAdvisoryMarkdownAction('axios', 'all')
+        expect(result.markdown).toContain('- **Installed through:** `web/package-lock.json` (1.0.0)')
+        expect(result.markdown).toContain('- **Dependency path:** `web>axios`')
+        expect(result.markdown).not.toContain('chain unknown')
+    })
+
     it('names the file after the package', async function () {
         const result = await exportLibraryAdvisoryMarkdownAction('lodash', 'all')
 

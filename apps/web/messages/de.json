@@ -150,7 +150,7 @@
         "colBranch": "Branch",
         "colRoot": "Wurzel",
         "colPm": "PM",
-        "colNode": "Node",
+        "colRuntime": "Laufzeit",
         "colSeverity": "Schweregrad",
         "colState": "Status",
         "colActions": "Aktionen",
@@ -166,7 +166,10 @@
         "statePartial": "Nicht vollständig scanbar",
         "stateNotScannedYet": "Noch nicht gescannt",
         "stateSideProject": "das Projekt",
-        "stateSideEnvironment": "diese Sentinello-Installation"
+        "stateSideEnvironment": "diese Sentinello-Installation",
+        "stateSourceDisabled": "Keine Quelle für {languages} aktiviert",
+        "sourceDisabledNotice": "{count, plural, one {# Projekt hat} other {# Projekte haben}} keine aktivierte Quelle für {languages}, daher {count, plural, one {wird es} other {werden sie}} nicht gescannt.",
+        "sourceDisabledAction": "Aktiviere eine unter Einstellungen → Quellen"
     },
     "WhatsNew": {
         "pillLabel": "Neuigkeiten",
@@ -226,7 +229,7 @@
         "schedule": {
             "metaTitle": "Zeitplan · Einstellungen",
             "scanEvery": "Scannen alle",
-            "cadenceHelp": "Der Worker durchsucht jede konfigurierte Wurzel und führt in diesem Takt npm audit für jedes entdeckte Projekt aus.",
+            "cadenceHelp": "Der Worker durchsucht in diesem Takt jede konfigurierte Wurzel und gleicht jedes entdeckte Projekt mit seinen aktivierten Quellen ab.",
             "saveButton": "Zeitplan speichern",
             "startHour": "Beginn um",
             "startHourHelp": "Bei Intervallen über 1 h legt dies die Tageszeit fest, zu der Scans starten (lokale Zeit des Workers).",
@@ -301,7 +304,7 @@
         "sources": {
             "metaTitle": "Quellen · Einstellungen",
             "title": "Schwachstellenquellen",
-            "description": "Sentinello gleicht Ihre Node.js-Abhängigkeiten mit den unten stehenden Quellen ab. Mindestens eine muss aktiviert bleiben.",
+            "description": "Sentinello gleicht Ihre Abhängigkeiten in jeder unterstützten Sprache mit den unten stehenden Quellen ab. Mindestens eine muss aktiviert bleiben.",
             "enabled": "Aktiviert",
             "disabled": "Deaktiviert",
             "seeded": "Aktuell",
@@ -313,7 +316,9 @@
             "lastError": "Letzter Fehler",
             "refreshNow": "Jetzt aktualisieren",
             "refreshQueued": "Aktualisierung angefordert — sie läuft im Hintergrund.",
-            "previewNote": "Noch in Entwicklung und noch nicht verfügbar: {names}.",
+            "turnOnTitle": "Keine Quelle für {language} aktiviert",
+            "turnOnBody": "{count, plural, one {# Projekt nutzt} other {# Projekte nutzen}} {language}, und nichts scannt {count, plural, one {es} other {sie}}. Wenn du eine Quelle aktivierst, werden ihre Hinweise heruntergeladen und alle Projekte erneut gescannt.",
+            "turnOn": "{source} für {language} aktivieren",
             "aboutTitle": "Über diese Quellen",
             "colSource": "Quelle",
             "colAdds": "Was sie ergänzt",
@@ -322,10 +327,10 @@
             "npmAuditAdds": "Die GitHub Advisory Database, erreicht über den Paketmanager Ihres Projekts.",
             "npmAuditDownloads": "Nichts. Sie fragt registry.npmjs.org während des Scans ab.",
             "npmAuditRuns": "Bei jedem Scan.",
-            "osvAdds": "CVEs, die npm audit übersieht, sowie bekannte bösartige Pakete, zugeordnet zu genau den betroffenen Versionen.",
+            "osvAdds": "Hinweise für jede Sprache (bei Node.js die CVEs, die npm audit übersieht) sowie bekannte bösartige Pakete, zugeordnet zu genau den betroffenen Versionen.",
             "osvDownloads": "Etwa {mb} MB von osv-vulnerabilities.storage.googleapis.com. Benötigt {freeMb} MB frei. Neu aufbaubar und getrennt von Ihren Funden gespeichert.",
             "osvRuns": "Täglich gegen 03:17 Uhr und bei jeder Aktualisierung. Der Abgleich selbst läuft offline.",
-            "gemnasiumAdds": "Unabhängig kuratierte Hinweise über npm audit und OSV hinaus, bewertet anhand des CVSS-Vektors.",
+            "gemnasiumAdds": "Unabhängig kuratierte Hinweise für jede Sprache, über OSV (und bei Node.js npm audit) hinaus, bewertet anhand des CVSS-Vektors.",
             "gemnasiumDownloads": "Etwa {mb} MB von gitlab.com. Benötigt {freeMb} MB frei. Neu aufbaubar und getrennt von Ihren Funden gespeichert.",
             "gemnasiumRuns": "Täglich gegen 03:42 Uhr und bei jeder Aktualisierung. Der Abgleich selbst läuft offline."
         },
@@ -488,6 +493,7 @@
             "verdictBlocked": "{escape} ≥ {version} entfernt {target}, aber keine veröffentlichte Version von {blockedBy} lässt es zu (neueste {latest} verlangt {range})",
             "verdictNoEscape": "Keine veröffentlichte Version von {packages} entfernt {target}",
             "verdictUnknown": "Unbekannt — nicht genug Registry-Daten bei {at}",
+            "verdictNpmOnly": "Unbekannt — der Ausweg wird nur für npm berechnet; prüfen Sie das Upgrade des übergeordneten Pakets mit den Werkzeugen dieses Ökosystems",
             "verdictDirect": "{target} ist eine direkte Abhängigkeit — der einzige Ausweg ist, es zu ersetzen",
             "morePaths": "und {count, plural, one {# weiterer Pfad} other {# weitere Pfade}}",
             "morePathsAtLeast": "und mindestens {count, plural, one {# weiterer Pfad} other {# weitere Pfade}}",
@@ -527,6 +533,10 @@
         },
         "notRecheckedCannotScan": "nicht erneut geprüft — das Projekt kann nicht gescannt werden: {reason}",
         "notRecheckedPartial": "nicht erneut geprüft — das Projekt kann nicht vollständig gescannt werden: {reason}",
+        "notRecheckedCopies": "Kopien in {manifests} nicht erneut geprüft — das Projekt kann nicht vollständig gescannt werden: {reason}",
+        "chainUnknown": "Kette unbekannt",
+        "chainUnknownHint": "Die Lockdatei enthält keinen Abhängigkeitsgraphen, daher ist unbekannt, was dieses Paket einbindet. Das heißt nicht, dass es keinen Ausweg gibt.",
+        "installedThrough": "in {manifests}",
         "lastScannedSuccessfully": "zuletzt erfolgreich gescannt am {date}",
         "neverScannedSuccessfully": "nie erfolgreich gescannt"
     },
@@ -615,11 +625,11 @@
         "title": "Sentinello",
         "intro": "Zentralisierte Überwachung von Abhängigkeits-Schwachstellen über Ihr gesamtes Portfolio — selbst gehostet, auf Ihrer eigenen Infrastruktur.",
         "notDoTitle": "Was Sentinello nicht tut",
-        "notDoBody": "Sentinello läuft vollständig auf Ihrer Infrastruktur. Es liest Ihren Quellcode nicht — es entdeckt Projekte, indem es ihre Abhängigkeitsmanifeste und Lockfiles auffindet (<code>package.json</code>, <code>package-lock.json</code>, <code>pnpm-lock.yaml</code>, <code>yarn.lock</code>) — nichts wird irgendwohin hochgeladen, keine Telemetrie verlässt Ihren Rechner, es gibt kein zentrales Konto, und es ist kein LLM oder KI beteiligt. Standardmäßig ist es schlichtes <code>npm audit</code>; die optionalen Quellen OSV und gemnasium (Einstellungen → Quellen, standardmäßig aus) rufen lediglich öffentliche Advisory-Daten über HTTPS ab.",
+        "notDoBody": "Sentinello läuft vollständig auf Ihrer Infrastruktur. Es liest nie den Code Ihrer Anwendung — es entdeckt Projekte, indem es die Abhängigkeitsmanifeste und Lockfiles jedes unterstützten Ökosystems auffindet (<code>package.json</code> und sein Lockfile für Node.js; <code>requirements.txt</code>, <code>pyproject.toml</code>, <code>Pipfile</code> und ihre Lockfiles für Python; <code>go.mod</code> für Go; <code>Cargo.toml</code> und <code>Cargo.lock</code> für Rust; <code>Gemfile</code> und <code>Gemfile.lock</code> für Ruby) — nichts davon verlässt Ihren Rechner, es wird keine Telemetrie gesendet, es gibt kein zentrales Konto, und es ist kein LLM oder KI beteiligt. Standardmäßig ist es für Node.js schlichtes <code>npm audit</code>; die optionalen Quellen OSV und gemnasium (Einstellungen → Quellen, standardmäßig aus) rufen lediglich öffentliche Advisory-Daten über HTTPS ab.",
         "whoTitle": "Wer es entwickelt hat",
         "whoBody": "Entwickelt von <company>Walk of Code LLC</company> und Sebastian Arena (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "Woher die Advisory-Daten stammen",
-        "advisoryBody": "Die Schwachstellendaten stammen aus der GitHub Advisory Database, erreicht über den Advisory-Endpunkt der npm-Registry via <code>npm audit</code>. Sie können zusätzlich OSV und GitLab gemnasium aktivieren (Einstellungen → Quellen), um Ihre Node.js-Pakete mit diesen öffentlichen Advisory-Datenbanken abzugleichen — so werden Advisories erkannt, die npm audit übersieht, und bekannte Schadpakete markiert. Beide lösen Ihre Abhängigkeiten offline aus dem Lockfile auf und gleichen sie mit einer lokal zwischengespeicherten Kopie der Advisory-Daten ab, sodass beim Scannen keine Anfrage pro Projekt Ihren Rechner verlässt; mehrdeutige Manifeste werden als teilweise oder nicht prüfbar gemeldet, statt als sauber behandelt zu werden. Sentinello liest ausschließlich den maschinenlesbaren Versionsbereich von gemnasium selbst — zusammen mit der im Eintrag genannten Fix-Version —, um zu bestimmen, was ein Advisory betrifft. npm-Bereiche werden von npms eigener Semver-Implementierung interpretiert; eine unlesbare Obergrenze wird ignoriert, statt ein ansonsten gültiges Intervall verstummen zu lassen. Ein Eintrag, dessen Bereich keine Version auswählt oder in einer Syntax geschrieben ist, die Sentinello nicht implementiert, wird verworfen statt erraten, und es wird keine andere Quelle herangezogen, um die Lücke zu füllen. Python, Go und Rust sind gebaut, werden aber nicht angeboten: Fix-Ableitung und OSVs PyPI-Namensabgleich stimmen noch nicht, und eine Quelle, die aus den falschen Gründen „keine Schwachstellen“ antwortet, ist schlechter als eine, die gar nicht erst angeboten wird.",
+        "advisoryBody": "Sentinello deckt Node.js, Python, Go, Rust und Ruby ab. Für Node.js stammen die Schwachstellendaten standardmäßig aus der GitHub Advisory Database, erreicht über den Advisory-Endpunkt der npm-Registry via <code>npm audit</code>. OSV und GitLab gemnasium (Einstellungen → Quellen) decken alle fünf ab: Für Node.js ergänzen sie Advisories, die npm audit übersieht, und markieren bekannte Schadpakete; für Python, Go, Rust und Ruby sind sie die einzigen Quellen. Beide sind standardmäßig aus, daher zeigt ein Projekt in einer dieser vier Sprachen „Keine Quelle für … aktiviert“, bis Sie eine einschalten. Beide lösen Ihre Abhängigkeiten offline aus dem Lockfile auf und gleichen sie mit einer lokal zwischengespeicherten Kopie der Advisory-Daten ab, sodass beim Scannen keine Anfrage pro Projekt Ihren Rechner verlässt; ein mehrdeutiges Manifest oder eines ohne Lockfile wird als teilweise oder nicht prüfbar gemeldet, statt als sauber behandelt zu werden. Sentinello liest ausschließlich den maschinenlesbaren Versionsbereich von gemnasium selbst — zusammen mit der im Eintrag genannten Fix-Version —, um zu bestimmen, was ein Advisory betrifft. Die Versionen jedes Ökosystems werden nach dessen eigenen Regeln verglichen: npms eigene Semver-Implementierung für npm, Semver für crates.io, PEP 440 für Python, Go-Modulversionen und die Versionsordnung von RubyGems. In OSV-Ereignisbereichen wird eine unlesbare Obergrenze ignoriert, statt ein ansonsten gültiges Intervall verstummen zu lassen. Ein Eintrag, dessen Bereich keine Version auswählt oder in einer Syntax geschrieben ist, die Sentinello nicht implementiert, wird verworfen statt erraten, und es wird keine andere Quelle herangezogen, um die Lücke zu füllen. Fix-Versionen werden gegen die eigene Registry des jeweiligen Ökosystems geprüft.",
         "sendsTitle": "Was Sentinello nach außen sendet",
         "tableDestination": "Ziel",
         "tablePurpose": "Zweck",
@@ -642,7 +652,7 @@
                 "disable": "Nicht abschaltbar – SENTINELLO_NPM_DOWNLOADS_URL verweist anderswohin. Ist er nicht erreichbar, wird die letzte bekannte Zahl angezeigt, oder unbekannt, wenn es keine gibt"
             },
             "osv": {
-                "purpose": "Den öffentlichen OSV-Advisory-Export für das npm-Ökosystem herunterladen",
+                "purpose": "Den öffentlichen OSV-Advisory-Export für jedes Ökosystem herunterladen, für das OSV aktiviert ist (npm, PyPI, Go, crates.io, RubyGems)",
                 "when": "Täglich gegen 03:17 Uhr, zusätzlich manuelle Aktualisierung — nur wenn OSV aktiviert ist",
                 "disable": "Einstellungen → Quellen (standardmäßig aus), oder SENTINELLO_OSV_FEED_URL=off"
             },
@@ -665,6 +675,26 @@
                 "purpose": "Sendet die Funde, für die du Benachrichtigungen eingerichtet hast — Projektname, Git-Branch, Paket und Version, Schweregrad, Advisory-ID und ein Link zurück zu diesem Portal",
                 "when": "Wenn ein Scan einen neuen Fund, einen behobenen Fund oder einen Scan-Fehler ergibt",
                 "disable": "Einstellungen → Benachrichtigungen — es existiert keine, bis du eine hinzufügst"
+            },
+            "pypi": {
+                "purpose": "Prüfen, ob eine Fix-Version eines Python-Pakets mit Befund tatsächlich veröffentlicht und nicht zurückgezogen (yanked) wurde",
+                "when": "Nach jedem Scan, nur für Python-Befunde, für Pakete ohne erfolgreiche Antwort in den letzten 24 Stunden; eine fehlgeschlagene Anfrage wird nicht gespeichert und kann daher früher wiederholt werden",
+                "disable": "Läuft nur, solange eine Quelle für Python aktiviert ist (Einstellungen → Quellen); SENTINELLO_PYPI_URL verweist auf einen Mirror. Ist er nicht erreichbar, wird eine frühere Antwort mit dem Datum ihres Abrufs wiederverwendet; ohne sie wird der Fix als nicht gegen die Registry geprüft angezeigt"
+            },
+            "goproxy": {
+                "purpose": "Prüfen, ob eine Fix-Version eines Go-Moduls mit Befund tatsächlich veröffentlicht wurde: die Versionsliste des Moduls und, wenn ein Advisory eine Version nennt, die in der Liste fehlt, diese Version selbst",
+                "when": "Nach jedem Scan, nur für Go-Befunde, für Module ohne erfolgreiche Antwort in den letzten 24 Stunden; eine fehlgeschlagene Anfrage wird nicht gespeichert und kann daher früher wiederholt werden",
+                "disable": "Läuft nur, solange eine Quelle für Go aktiviert ist (Einstellungen → Quellen); SENTINELLO_GOPROXY_URL verweist auf einen anderen Modul-Proxy. Ist er nicht erreichbar, wird eine frühere Antwort mit dem Datum ihres Abrufs wiederverwendet; ohne sie wird der Fix als nicht gegen die Registry geprüft angezeigt"
+            },
+            "crates": {
+                "purpose": "Prüfen, ob eine Fix-Version eines Rust-Crates mit Befund tatsächlich veröffentlicht und nicht zurückgezogen (yanked) wurde, anhand der Datei des Crates im Sparse-Index",
+                "when": "Nach jedem Scan, nur für Rust-Befunde, für Crates ohne erfolgreiche Antwort in den letzten 24 Stunden; eine fehlgeschlagene Anfrage wird nicht gespeichert und kann daher früher wiederholt werden",
+                "disable": "Läuft nur, solange eine Quelle für Rust aktiviert ist (Einstellungen → Quellen); SENTINELLO_CRATES_INDEX_URL verweist auf einen Mirror. Ist er nicht erreichbar, wird eine frühere Antwort mit dem Datum ihres Abrufs wiederverwendet; ohne sie wird der Fix als nicht gegen die Registry geprüft angezeigt"
+            },
+            "rubygems": {
+                "purpose": "Prüfen, ob eine Fix-Version eines Ruby-Gems mit Befund tatsächlich veröffentlicht und nicht zurückgezogen (yanked) wurde",
+                "when": "Nach jedem Scan, nur für Ruby-Befunde, für Gems ohne erfolgreiche Antwort in den letzten 24 Stunden; eine fehlgeschlagene Anfrage wird nicht gespeichert und kann daher früher wiederholt werden",
+                "disable": "Läuft nur, solange eine Quelle für Ruby aktiviert ist (Einstellungen → Quellen); SENTINELLO_RUBYGEMS_URL verweist auf einen Mirror. Ist er nicht erreichbar, wird eine frühere Antwort mit dem Datum ihres Abrufs wiederverwendet; ohne sie wird der Fix als nicht gegen die Registry geprüft angezeigt"
             }
         },
         "dataLivesTitle": "Wo Ihre Daten liegen",
@@ -688,7 +718,11 @@
             "gemnasiumFeedUrl": "URL für GitLabs gemnasium-Advisory-Archiv, nur verwendet, wenn die gemnasium-Quelle aktiviert ist; auf off setzen, um jeglichen gemnasium-Netzwerkzugriff zu deaktivieren.",
             "gemnasiumDbPath": "Speicherort des neu aufbaubaren gemnasium-Advisory-Caches; liegt standardmäßig neben der Hauptdatenbank.",
             "npmRegistryUrl": "npm-Registry, gegen die Fix-Versionen nach jedem Scan geprüft werden und aus der die Paketmetadaten für den Ausweg gelesen werden; bei Bedarf auf einen Mirror zeigen lassen. Ist sie nicht erreichbar, werden früher abgerufene Paketmetadaten wiederverwendet, sofern sie noch brauchbar sind, und aktuelle Befunde mit dem Datum dieses Abrufs dagegen geprüft; ohne sie wird der Fix als nicht gegen die Registry geprüft angezeigt.",
-            "npmDownloadsUrl": "npm-Download-API, aus der die wöchentlichen Downloads in einem Ausweg gelesen werden. Ist sie nicht erreichbar, wird die letzte bekannte Zahl angezeigt, oder unbekannt, wenn es keine gibt."
+            "npmDownloadsUrl": "npm-Download-API, aus der die wöchentlichen Downloads in einem Ausweg gelesen werden. Ist sie nicht erreichbar, wird die letzte bekannte Zahl angezeigt, oder unbekannt, wenn es keine gibt.",
+            "pypiUrl": "PyPI, gegen das Fix-Versionen von Python-Befunden nach jedem Scan geprüft werden, nur solange eine Quelle für Python aktiviert ist; bei Bedarf auf einen Mirror zeigen lassen. Ist es nicht erreichbar, wird eine frühere Antwort mit dem Datum ihres Abrufs wiederverwendet; ohne sie wird der Fix als nicht gegen die Registry geprüft angezeigt.",
+            "goproxyUrl": "Go-Modul-Proxy, gegen den Fix-Versionen von Go-Befunden nach jedem Scan geprüft werden, nur solange eine Quelle für Go aktiviert ist; bei Bedarf auf einen anderen Proxy zeigen lassen. Ist er nicht erreichbar, wird eine frühere Antwort mit dem Datum ihres Abrufs wiederverwendet; ohne sie wird der Fix als nicht gegen die Registry geprüft angezeigt.",
+            "cratesIndexUrl": "Sparse-Index von crates.io, gegen den Fix-Versionen von Rust-Befunden nach jedem Scan geprüft werden, nur solange eine Quelle für Rust aktiviert ist; bei Bedarf auf einen Mirror zeigen lassen. Ist er nicht erreichbar, wird eine frühere Antwort mit dem Datum ihres Abrufs wiederverwendet; ohne sie wird der Fix als nicht gegen die Registry geprüft angezeigt.",
+            "rubygemsUrl": "RubyGems, gegen das Fix-Versionen von Ruby-Befunden nach jedem Scan geprüft werden, nur solange eine Quelle für Ruby aktiviert ist; bei Bedarf auf einen Mirror zeigen lassen. Ist es nicht erreichbar, wird eine frühere Antwort mit dem Datum ihres Abrufs wiederverwendet; ohne sie wird der Fix als nicht gegen die Registry geprüft angezeigt."
         },
         "builtWithTitle": "Erstellt mit",
         "reportingTitle": "Eine Schwachstelle in Sentinello melden",
@@ -742,6 +776,8 @@
             "scanReasonSideProject": "auf Seiten des Projekts: Eine Datei im Projekt verhindert, dass es gelesen wird, und sie dort zu ändern ist die Lösung",
             "scanReasonSideEnvironment": "auf Seiten dieser Sentinello-Installation: Die Installation konnte den Scan nicht durchführen, die Lösung liegt beim Betreiber",
             "scanReasonNotYetRun": "noch hat nichts nachgesehen: Der nächste Scan tut es",
+            "sourceDisabledReason": "Keine Quelle für {languages} aktiviert",
+            "sourceDisabledAction": "Aktiviere eine unter Einstellungen → Quellen",
             "noFindingsUnknownTitle": "Keine Befunde erfasst",
             "noFindingsUnknownBody": "Es wurde nichts gefunden, aber dieses Projekt konnte nicht vollständig gescannt werden: Das ist unbekannt, nicht sicher.",
             "noFindingsNotScannedBody": "Dieses Projekt wurde noch nicht gescannt."

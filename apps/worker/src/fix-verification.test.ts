@@ -11,19 +11,20 @@ import {
     openDb,
     runMigrations,
     schema,
+    setConfigValue,
     upsertProject,
     upsertRegistryPackage,
     upsertRoot,
     type DrizzleDb,
     type SqliteDb
 } from '@sentinello/db'
-import { buildAdvisoryMarkdown, type Finding, type Project } from '@sentinello/core'
+import { buildAdvisoryMarkdown, sourceEnabledKey, WAY_OUT_NPM_ONLY, type Finding, type Project } from '@sentinello/core'
 import type { NpmPackageSummary } from '@sentinello/feeds'
-import type { FixEvidence, RawFinding, ScannerPlugin, ScanResult } from '@sentinello/scanners'
+import { versionSetFromSemverRange, type FixEvidence, type RawFinding, type ScanContext, type ScannerPlugin, type ScanResult } from '@sentinello/scanners'
 import { toWebhookVulnerability } from '@sentinello/notifications'
 import { toExportFinding } from './notifier'
 import { runProjectScanners, type ProjectScanOutcome } from './runner'
-import { fixEvidenceKey, settleProject, type RegistryClient, type RegistryEntry } from '@sentinello/fixes'
+import { createPublishedRegistryClient, createMemoryRegistryStore, fixEvidenceKey, settleProject, type PublicationClient, type RegistryClient, type RegistryClients, type RegistryEntry } from '@sentinello/fixes'
 import { verifyFixes } from './fix-verification'
 
 // Pass-throughs, so a test can see how often and in what order the adapter calls them.
@@ -52,7 +53,7 @@ let dir: string
 function project(): Project {
     return {
         id: PROJECT_ID, rootId: ROOT_ID, relPath: 'app', name: 'app', alias: null, packageManager: 'npm', nvmrcVersion: null,
-        gitBranch: null, ecosystems: ['npm'], muted: false, tags: [], createdAt: T0, updatedAt: T0
+        gitBranch: null, ecosystems: ['npm', 'PyPI'], manifests: [], muted: false, tags: [], createdAt: T0, updatedAt: T0
     }
 }
 
@@ -83,7 +84,13 @@ function fakeRegistry(entries: Record<string, RegistryEntry>): RegistryClient & 
 }
 
 function evidence(source: string, ranges: string, installed = '1.0.0', statedFix: string | null = null): FixEvidence {
-    return { source, installed: [installed], affected: { ranges, exact: [], complete: true }, patched: null, statedFix, fixViaParent: false }
+    return { source, installed: [installed], affected: versionSetFromSemverRange(ranges), patched: null, patchedSet: null, statedFix, fixViaParent: false }
+}
+
+// A PyPI source's evidence: its affected set in PEP 440, as the matcher builds it.
+function pep440(source: string, ranges: string, installed = '1.0.0', statedFix: string | null = null): FixEvidence {
+    const e = evidence(source, ranges, installed, statedFix)
+    return { ...e, affected: { ...e.affected, comparator: 'pep440' } }
 }
 
 function raw(source: string, advisoryId: string, ranges: string, overrides: Partial<RawFinding> = {}): RawFinding {
@@ -96,6 +103,7 @@ function raw(source: string, advisoryId: string, ranges: string, overrides: Part
         packageName: 'pkg',
         ecosystem: 'npm',
         installedVersion: '1.0.0',
+        installations: [],
         vulnerableRange: ranges,
         severity: 'high',
         fixAvailable: stated !== null,
@@ -108,23 +116,27 @@ function raw(source: string, advisoryId: string, ranges: string, overrides: Part
     }
 }
 
+// A source run once per (source, ecosystem) cell, as the runner runs it: each run answers with that cell's
+// findings only.
 function scanner(name: string, findings: RawFinding[]): ScannerPlugin {
     return {
         name,
-        scan: async function scan(): Promise<ScanResult> {
-            return { status: 'ok', reasonCode: 'ok', findings, rawJson: '{}', errorText: null, durationMs: 1 }
+        scan: async function scan(_path: string, ctx: ScanContext): Promise<ScanResult> {
+            const cell = findings.filter(function inCell(f) { return (f.ecosystem ?? 'npm') === ctx.ecosystem })
+            return { status: 'ok', reasonCode: 'ok', findings: cell, rawJson: '{}', errorText: null, durationMs: 1 }
         }
     }
 }
 
 const PKG_RELEASES: RegistryEntry = { status: 'ok', summary: summary('pkg', ['1.0.0', '1.1.0', '1.1.6', '1.2.0']), checkedAt: T0 - 1000, origin: 'fetched' }
 
-async function scan(scanners: ScannerPlugin[], registry: RegistryClient, notified: ProjectScanOutcome[] = []): Promise<ProjectScanOutcome[]> {
+// `registry` is npm's client, or the whole per-ecosystem map.
+async function scan(scanners: ScannerPlugin[], registry: RegistryClient | RegistryClients, notified: ProjectScanOutcome[] = []): Promise<ProjectScanOutcome[]> {
     return await runProjectScanners({
         db,
         scanners,
         project: project(),
-        registry,
+        registry: 'lookup' in registry ? { npm: registry } : registry,
         notify: async function record(outcome) { notified.push(structuredClone(outcome)) }
     })
 }
@@ -142,6 +154,11 @@ beforeEach(async function setup() {
     runMigrations(db, { migrationsFolder: MIGRATIONS })
     upsertRoot(db, { id: ROOT_ID, path: join(dir, 'repo'), label: null, createdAt: T0 })
     upsertProject(db, project())
+    // The runner runs a source only for the cells the operator enabled; the fakes stand in for OSV and
+    // gemnasium on both languages these tests scan.
+    for (const source of ['osv', 'gemnasium'] as const) {
+        for (const ecosystem of ['npm', 'PyPI'] as const) setConfigValue(db, sourceEnabledKey(source, ecosystem), true)
+    }
 })
 
 afterEach(async function teardown() {
@@ -158,8 +175,8 @@ describe('settlement over every source', function () {
         expect(rows[0]).toMatchObject({ source: 'npm-audit', fixStatus: 'released', fixVersion: '1.2.0', fixAvailable: true })
         const check = JSON.parse(rows[0]?.fixCheckJson as string)
         expect(check.sources).toEqual([
-            { source: 'npm-audit', installed: ['1.0.0'], affected: '<1.1.0', patched: null, statedFix: '1.1.0', noPatchedSentinel: false },
-            { source: 'osv', installed: ['1.0.0'], affected: '<1.2.0', patched: null, statedFix: '1.2.0', noPatchedSentinel: false }
+            { source: 'npm-audit', installed: ['1.0.0'], affected: '>=0 <1.1.0', patched: null, statedFix: '1.1.0', noPatchedSentinel: false },
+            { source: 'osv', installed: ['1.0.0'], affected: '>=0 <1.2.0', patched: null, statedFix: '1.2.0', noPatchedSentinel: false }
         ])
         expect(check).toMatchObject({ registry: 'ok', packageDataAsOf: T0 - 1000, unevaluable: null })
     })
@@ -221,8 +238,8 @@ describe('the way out travels with the finding', function () {
         expect(buildAdvisoryMarkdown({ scope: { kind: 'project', projectName: 'app', projectPath: 'app', depType: 'all' }, prompt: '', findings: [toExportFinding(again)], generatedAt: T0 })).not.toContain('Way out')
     })
 
-    it('computes one way out for rows with the same evidence, and none for other ecosystems', async function () {
-        const pypi = raw('osv', 'PYSEC-1', '<=1.0.0', { packageName: 'pkg', ecosystem: 'PyPI', fixInputs: evidence('osv', '<=1.0.0') })
+    it('computes one way out for rows with the same evidence, and none for an ecosystem with no registry', async function () {
+        const pypi = raw('osv', 'PYSEC-1', '<=1.0.0', { packageName: 'pkg', ecosystem: 'PyPI', fixInputs: pep440('osv', '<=1.0.0') })
         const sameEvidence = raw('osv', 'GHSA-other', '<=3.0.3', { aliases: [], packageName: 'braces', installedVersion: '3.0.3', fixInputs: evidence('osv', '<=3.0.3', '3.0.3') })
         const registry = fakeRegistry({ braces: { status: 'ok', summary: summary('braces', ['3.0.3']), checkedAt: T0, origin: 'cache' } })
         await scan([scanner('osv', [{ ...braces, aliases: [] }, sameEvidence, pypi])], registry)
@@ -270,10 +287,10 @@ describe('settlement without a registry answer', function () {
         expect(JSON.parse(row?.fixCheckJson as string)).toMatchObject({ registry: 'stale', packageDataAsOf: T0 - 86_400_000 * 3 })
     })
 
-    // D1: only npm is checked against a registry. Other ecosystems are never sent to it.
-    it('skips the registry for an ecosystem it does not cover', async function () {
+    // An ecosystem with no client in the map is never sent to another's registry.
+    it('skips the registry for an ecosystem it has no client for', async function () {
         const registry = fakeRegistry({})
-        const pypi = raw('osv', 'PYSEC-1', '<2.0.0', { ecosystem: 'PyPI', packageName: 'requests', aliases: [] })
+        const pypi = raw('osv', 'PYSEC-1', '<2.0.0', { ecosystem: 'PyPI', packageName: 'requests', aliases: [], fixInputs: pep440('osv', '<2.0.0', '1.0.0', '2.0.0') })
         await scan([scanner('osv', [pypi])], registry)
         expect(registry.asked).toEqual([])
         expect(activeRows()[0]).toMatchObject({ fixStatus: 'unverified', fixVersion: '2.0.0' })
@@ -289,8 +306,34 @@ describe('settlement without a registry answer', function () {
         const notified: ProjectScanOutcome[] = []
         await scan([scanner('osv', [raw('osv', 'GHSA-pkg-1', '<1.1.0')])], broken, notified)
         expect(activeRows()[0]).toMatchObject({ fixStatus: null, fixCheckJson: null })
-        expect(notified).toHaveLength(1)
+        expect(notified.filter(function withFindings(o) { return o.findings.length > 0 })).toHaveLength(1)
         expect(notified[0]?.findings[0]).toMatchObject({ fixStatus: 'unverified', fixVersion: null, fixCheck: null })
+    })
+})
+
+// Every ecosystem is settled against its own registry; the way out stays npm's (SENTINEL-119).
+describe('settlement beyond npm', function () {
+    function pypiRegistry(releases: Record<string, string[]>): PublicationClient {
+        return createPublishedRegistryClient(createMemoryRegistryStore(), async function fetchPackage(name) {
+            const versions = releases[name]
+            if (versions === undefined) return { status: 'not_found' }
+            return { status: 'ok', etag: null, summary: { v: 1, name, versions: Object.fromEntries(versions.map(function r(v) { return [v, { yanked: false }] })) } }
+        }, { now: () => T0 })
+    }
+
+    it('settles a PyPI row released against PyPI, and a none_released one with the npm-only way out, persisted and notified', async function () {
+        const requests = raw('osv', 'PYSEC-1', '<2.0.0', { ecosystem: 'PyPI', packageName: 'requests', aliases: [], fixInputs: pep440('osv', '<2.0.0', '1.0.0', '2.0.0') })
+        const flask = raw('osv', 'PYSEC-2', '<=2.0.1', { ecosystem: 'PyPI', packageName: 'flask', aliases: [], installedVersion: '2.0.0', fixInputs: pep440('osv', '<=2.0.1', '2.0.0') })
+        const notified: ProjectScanOutcome[] = []
+        await scan([scanner('osv', [requests, flask])], { PyPI: pypiRegistry({ requests: ['1.0.0', '2.0.0'], flask: ['2.0.0', '2.0.1'] }) }, notified)
+        const rows = new Map(activeRows().map(function byName(r) { return [r.packageName, r] }))
+        expect(rows.get('requests')).toMatchObject({ fixStatus: 'released', fixVersion: '2.0.0' })
+        expect(JSON.parse(rows.get('requests')?.fixCheckJson as string)).toMatchObject({ registry: 'ok', packageDataAsOf: T0 })
+        expect(rows.get('flask')).toMatchObject({ fixStatus: 'none_released', fixVersion: null })
+        expect(JSON.parse(rows.get('flask')?.remediationJson as string)).toMatchObject({ package: 'flask', chains: [{ verdict: { kind: 'unknown', at: 'flask', reason: WAY_OUT_NPM_ONLY } }] })
+        const python = notified.find(function cell(o) { return o.scan.ecosystem === 'PyPI' })
+        const notifiedFlask = python?.findings.find(function f(x) { return x.packageName === 'flask' })
+        expect(notifiedFlask?.remediation?.chains[0]?.verdict).toEqual({ kind: 'unknown', at: 'flask', reason: WAY_OUT_NPM_ONLY })
     })
 })
 
@@ -340,14 +383,14 @@ describe('verifyFixes', function () {
 
     it('does nothing for a scan with no findings', async function () {
         const registry = fakeRegistry({})
-        expect(await verifyFixes({ db, findings: [], evidence: new Map(), graph: null, registry, checkedAt: T0 })).toEqual({ wayOutError: null })
+        expect(await verifyFixes({ db, findings: [], evidence: new Map(), graph: null, registry: { npm: registry }, checkedAt: T0 })).toEqual({ wayOutError: null })
         expect(registry.asked).toEqual([])
     })
 
     it('settles a finding with no recorded evidence as unverified, never as a verdict', async function () {
         await scan([scanner('osv', [raw('osv', 'GHSA-pkg-1', '<1.1.0')])], fakeRegistry({ pkg: PKG_RELEASES }))
         const findings = listFindingsForProject(db, PROJECT_ID)
-        await verifyFixes({ db, findings, evidence: new Map(), graph: null, registry: fakeRegistry({ pkg: PKG_RELEASES }), checkedAt: T0 })
+        await verifyFixes({ db, findings, evidence: new Map(), graph: null, registry: { npm: fakeRegistry({ pkg: PKG_RELEASES }) }, checkedAt: T0 })
         expect(findings[0]).toMatchObject({ fixStatus: 'unverified', fixVersion: null })
         expect(findings[0]?.fixCheck?.unevaluable).toBe('no_evidence')
     })
@@ -370,7 +413,7 @@ describe('verifyFixes', function () {
         sqlite.exec("CREATE TRIGGER no_way_out BEFORE UPDATE OF remediation_json ON findings WHEN NEW.remediation_json IS NOT NULL BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END")
         const findings = listFindingsForProject(db, PROJECT_ID)
         const evidenceOf = new Map(findings.map(function own(f): [string, FixEvidence[]] { return [fixEvidenceKey(f), [braces.fixInputs]] }))
-        const result = await verifyFixes({ db, findings, evidence: evidenceOf, graph: null, registry: bracesRegistry(), checkedAt: T0 })
+        const result = await verifyFixes({ db, findings, evidence: evidenceOf, graph: null, registry: { npm: bracesRegistry() }, checkedAt: T0 })
         expect(result).toEqual({ wayOutError: 'disk I/O error' })
         expect(activeRows()[0]).toMatchObject({ fixStatus: 'none_released', remediationJson: null })
         expect(findings[0]).toMatchObject({ fixStatus: 'none_released', remediation: null })
@@ -383,7 +426,7 @@ describe('verifyFixes', function () {
         const notified: ProjectScanOutcome[] = []
         await scan([scanner('osv', [braces])], registry, notified)
         expect(error).toHaveBeenCalledWith('[runner] way-out guidance failed for project ' + PROJECT_ID + ': database is locked')
-        expect(notified).toHaveLength(1)
+        expect(notified.filter(function withFindings(o) { return o.findings.length > 0 })).toHaveLength(1)
         error.mockRestore()
     })
 })

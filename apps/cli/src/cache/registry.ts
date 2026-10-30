@@ -1,11 +1,15 @@
 import { readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { gunzipSync, gzipSync } from 'node:zlib'
+import { ECOSYSTEMS, type EcosystemId } from '@sentinello/core'
 import { createMemoryRegistryStore, type RegistryRow, type RegistryStore } from '@sentinello/fixes'
-import { ensureCacheDir, tryAcquireLock } from './meta'
+import { ecosystemFileSlug, ensureCacheDir, tryAcquireLock } from './meta'
 
-// The CLI's npm registry cache: the store behind the same cache-first client the worker uses, kept as one
-// gzipped ndjson file in the cache directory, one RegistryRow per line (D-b).
+// The CLI's registry cache: the stores behind the same cache-first clients the worker uses, one per
+// ecosystem's registry (npm, PyPI, the Go module proxy, crates.io's index, rubygems.org), each kept as one
+// gzipped ndjson file in the cache directory, one RegistryRow per line (D-b). Every registry's answers share
+// the row shape — the client owns what its summaryJson holds — so npm's file kept its name and format, and
+// the other registries are files beside it rather than a new layout.
 //
 //   - Loaded IN FULL at run start. The way out asks for names nobody can list up front — the dependencies
 //     of candidate releases and the curated replacements it discovers as it walks — so a reader filtered
@@ -18,8 +22,8 @@ import { ensureCacheDir, tryAcquireLock } from './meta'
 // It holds public package metadata only — names, versions, publish dates, download counts — never
 // anything about the scanned code.
 
-export function registryFilePath(cacheDir: string): string {
-    return join(cacheDir, 'registry-npm.ndjson.gz')
+export function registryFilePath(cacheDir: string, ecosystem: string): string {
+    return join(cacheDir, 'registry-' + ecosystemFileSlug(ecosystem) + '.ndjson.gz')
 }
 
 export type FileRegistryStore = RegistryStore & {
@@ -78,8 +82,17 @@ export function parseRow(line: string): RegistryRow | null {
     }
 }
 
-export async function loadRegistryStore(cacheDir: string): Promise<FileRegistryStore> {
-    const inner = createMemoryRegistryStore(await readRows(registryFilePath(cacheDir)))
+// One store per ecosystem the registry knows, so the clients for every registry can be built at once.
+export type RegistryStores = Map<EcosystemId, FileRegistryStore>
+
+export async function loadRegistryStores(cacheDir: string): Promise<RegistryStores> {
+    const stores: RegistryStores = new Map()
+    for (const ecosystem of ECOSYSTEMS) stores.set(ecosystem.id, await loadRegistryStore(cacheDir, ecosystem.id))
+    return stores
+}
+
+export async function loadRegistryStore(cacheDir: string, ecosystem: string): Promise<FileRegistryStore> {
+    const inner = createMemoryRegistryStore(await readRows(registryFilePath(cacheDir, ecosystem)))
     const dirty = new Set<string>()
     return {
         get: inner.get,
@@ -118,29 +131,34 @@ export function mergeRow(onDisk: RegistryRow | undefined, mine: RegistryRow): Re
 
 export type RegistrySaveResult = 'saved' | 'unchanged' | 'locked'
 
-export async function saveRegistryStore(cacheDir: string, store: FileRegistryStore): Promise<RegistrySaveResult> {
-    const mine = store.dirtyRows()
-    if (mine.length === 0) return 'unchanged'
+// Saves every store this run answered from, under one hold of the cache lock.
+export async function saveRegistryStores(cacheDir: string, stores: RegistryStores): Promise<RegistrySaveResult> {
+    const dirty = [...stores].filter(function answered([, store]) { return store.dirtyRows().length > 0 })
+    if (dirty.length === 0) return 'unchanged'
     await ensureCacheDir(cacheDir)
     const lock = await tryAcquireLock(cacheDir)
     if (!lock) return 'locked'
-    const path = registryFilePath(cacheDir)
-    const tmp = path + '.tmp'
     try {
-        const merged = new Map<string, RegistryRow>()
-        for (const row of await readRows(path)) merged.set(row.name, row)
-        for (const row of mine) merged.set(row.name, mergeRow(merged.get(row.name), row))
-        const lines = [...merged.values()].map(function encode(row) { return JSON.stringify(row) + '\n' })
-        try {
-            await writeFile(tmp, gzipSync(lines.join('')))
-            await rename(tmp, path)
-        } catch (err) {
-            await rm(tmp, { force: true })
-            throw err
-        }
+        for (const [ecosystem, store] of dirty) await mergeIntoFile(registryFilePath(cacheDir, ecosystem), store.dirtyRows())
         return 'saved'
     } finally {
         await lock.release()
+    }
+}
+
+// Merges this run's rows into the file on disk. Called with the cache lock held.
+async function mergeIntoFile(path: string, mine: readonly RegistryRow[]): Promise<void> {
+    const tmp = path + '.tmp'
+    const merged = new Map<string, RegistryRow>()
+    for (const row of await readRows(path)) merged.set(row.name, row)
+    for (const row of mine) merged.set(row.name, mergeRow(merged.get(row.name), row))
+    const lines = [...merged.values()].map(function encode(row) { return JSON.stringify(row) + '\n' })
+    try {
+        await writeFile(tmp, gzipSync(lines.join('')))
+        await rename(tmp, path)
+    } catch (err) {
+        await rm(tmp, { force: true })
+        throw err
     }
 }
 
@@ -148,8 +166,8 @@ export type RegistryCacheSummary = { rows: number; oldestCheckedAt: number }
 
 // What --doctor shows: how many packages are cached and how old the oldest answer is. Null when there is
 // no usable cache.
-export async function registryCacheSummary(cacheDir: string): Promise<RegistryCacheSummary | null> {
-    const rows = await readRows(registryFilePath(cacheDir))
+export async function registryCacheSummary(cacheDir: string, ecosystem: string): Promise<RegistryCacheSummary | null> {
+    const rows = await readRows(registryFilePath(cacheDir, ecosystem))
     if (rows.length === 0) return null
     let oldestCheckedAt = Infinity
     for (const row of rows) oldestCheckedAt = Math.min(oldestCheckedAt, row.checkedAt)

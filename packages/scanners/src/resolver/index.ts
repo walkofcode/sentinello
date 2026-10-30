@@ -1,12 +1,14 @@
-import { access } from 'node:fs/promises'
-import { join } from 'node:path'
-import { STABLE_ECOSYSTEMS } from '@sentinello/core'
+import { statSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { getEcosystem, STABLE_ECOSYSTEMS, type EcosystemDefinition } from '@sentinello/core'
 import type { DetectedLockfile } from '../types'
 import { parseGoMod } from './go'
 import { makeGraph } from './graph'
 import { parseNpmLock } from './npm-lock'
+import { isWithin, manifestPathOf } from './paths'
 import { parsePnpmLock } from './pnpm'
 import { parsePythonLock } from './python'
+import { parseGemfileLock } from './ruby'
 import { parseCargoLock } from './rust'
 import type { DetectedManifest, ResolvedGraph, ResolvedPackage, ResolverResult } from './types'
 
@@ -20,47 +22,73 @@ export async function resolveProject(
     projectPath: string,
     lockfile: DetectedLockfile
 ): Promise<ResolvedGraph | null> {
+    const manifestPath = manifestPathOf(projectPath, lockfile.absolutePath)
     if (lockfile.kind === 'package-lock.json') {
-        return parseNpmLock(projectPath, lockfile.absolutePath)
+        return parseNpmLock(projectPath, lockfile.absolutePath, manifestPath)
     }
     if (lockfile.kind === 'pnpm-lock.yaml') {
-        return parsePnpmLock(lockfile.absolutePath)
+        return parsePnpmLock(lockfile.absolutePath, manifestPath)
     }
     return null
 }
 
 // Multi-manifest discovery for one project directory. For each OFFERED ecosystem, find the first present
-// manifest (in the registry's preference order) and record it — one manifest per ecosystem, so a single
-// directory can yield one project spanning several. The runner resolves each of these into its own graph.
+// lockfile (in the registry's preference order) and record it — one per ecosystem, so a single directory
+// can yield one project spanning several. The runner resolves each of these into its own graph.
 //
 // Preview ecosystems are skipped rather than detected-and-then-ignored. Detecting them stamped their id
 // onto the project and produced per-ecosystem coverage rows for an ecosystem no source would ever answer
 // for, which reads to an operator as "found and handled" when nothing was scanned at all.
 //
-// A package.json with no lockfile beside it is still the npm manifest — discovery makes it an npm project
-// (detectEcosystems) — so it is detected too, and resolves to `unauditable / no_lockfile`. Detecting
-// nothing left the scan with no coverage at all, and so no recorded reason why the project could not be
-// read.
+// A manifest with no lockfile covering it (a package.json, Gemfile, Cargo.toml, pyproject.toml or Pipfile
+// on its own) is detected too, and resolves to `unauditable / no_lockfile`. Detecting nothing left the
+// scan with no coverage at all, and so no recorded reason why the project could not be read.
 export async function detectManifests(projectPath: string): Promise<DetectedManifest[]> {
+    return detectManifestsIn(projectPath, projectPath, STABLE_ECOSYSTEMS)
+}
+
+// The same, for one directory inside a project — the project's own directory, or one below it. `ecosystems`
+// is the set to look for; discovery passes the stable ones.
+export async function detectManifestsIn(dir: string, projectPath: string, ecosystems: readonly EcosystemDefinition[]): Promise<DetectedManifest[]> {
+    return Promise.resolve(detectManifestsInSync(dir, projectPath, ecosystems))
+}
+
+// The synchronous form, for project discovery, whose walk is synchronous end to end. It IS the rule set:
+// the async form above returns its answer, so what a directory holds is decided in one place.
+export function detectManifestsInSync(dir: string, projectPath: string, ecosystems: readonly EcosystemDefinition[]): DetectedManifest[] {
     const out: DetectedManifest[] = []
-    for (const eco of STABLE_ECOSYSTEMS) {
-        const kind = await firstPresent(projectPath, eco.resolverKinds)
+    for (const eco of ecosystems) {
+        const kind = firstPresent(dir, eco.resolverKinds)
         if (kind !== null) {
-            out.push({ kind, ecosystem: eco.id, absolutePath: join(projectPath, kind) })
+            out.push({ kind, ecosystem: eco.id, absolutePath: join(dir, kind) })
             continue
         }
-        if (eco.id === 'npm' && await fileExists(join(projectPath, NPM_MANIFEST))) {
-            out.push({ kind: NPM_MANIFEST, ecosystem: eco.id, absolutePath: join(projectPath, NPM_MANIFEST) })
+        const manifest = firstPresent(dir, eco.manifestKinds)
+        if (manifest !== null && !coveredByLock(eco, manifest, dir, projectPath)) {
+            out.push({ kind: manifest, ecosystem: eco.id, absolutePath: join(dir, manifest) })
         }
     }
     return out
 }
 
-const NPM_MANIFEST = 'package.json'
+// Whether a manifest with no lockfile beside it is still covered by one (decision SENTINEL-118). Only a
+// Cargo workspace member is: Cargo writes ONE Cargo.lock at the workspace root for every member, so a
+// member's Cargo.toml is covered by a Cargo.lock in any directory above it — up to the owning project's
+// directory and never above it, because a lock outside the project is another project's. Bundler and the
+// Python tools lock beside the manifest, so for them "no lockfile beside it" is the whole test.
+function coveredByLock(eco: EcosystemDefinition, manifest: string, dir: string, projectPath: string): boolean {
+    if (manifest !== 'Cargo.toml') return false
+    const root = resolve(projectPath)
+    for (let current = dirname(resolve(dir)); isWithin(root, current); current = dirname(current)) {
+        if (firstPresent(current, eco.resolverKinds) !== null) return true
+        if (current === root) break
+    }
+    return false
+}
 
-async function firstPresent(projectPath: string, kinds: readonly string[]): Promise<string | null> {
+function firstPresent(dir: string, kinds: readonly string[]): string | null {
     for (const kind of kinds) {
-        if (await fileExists(join(projectPath, kind))) return kind
+        if (fileExists(join(dir, kind))) return kind
     }
     return null
 }
@@ -70,23 +98,32 @@ async function firstPresent(projectPath: string, kinds: readonly string[]): Prom
 // matches the advisory rows OSV/gemnasium key on.
 export async function resolveManifest(projectPath: string, manifest: DetectedManifest): Promise<ResolverResult> {
     const { ecosystem, kind, absolutePath } = manifest
+    const manifestPath = manifestPathOf(projectPath, absolutePath)
+    const lockless = locklessDetail(ecosystem, kind, manifestPath)
+    if (lockless !== null) return { status: 'unauditable', ecosystem, reasonCode: 'no_lockfile', details: [lockless] }
     if (ecosystem === 'npm') {
         if (kind === 'package-lock.json') {
-            return wrapNpm(ecosystem, await parseNpmLock(projectPath, absolutePath), kind)
+            return wrapNpm(ecosystem, await parseNpmLock(projectPath, absolutePath, manifestPath), kind)
         }
         if (kind === 'pnpm-lock.yaml') {
-            return wrapNpm(ecosystem, await parsePnpmLock(absolutePath), kind)
-        }
-        if (kind === NPM_MANIFEST) {
-            return { status: 'unauditable', ecosystem, reasonCode: 'no_lockfile', details: ['package.json has no lockfile beside it (package-lock.json, pnpm-lock.yaml or yarn.lock)'] }
+            return wrapNpm(ecosystem, await parsePnpmLock(absolutePath, manifestPath), kind)
         }
         // yarn.lock (and anything else) is not parsed — unauditable, same posture as the JS-only path.
         return { status: 'unauditable', ecosystem, reasonCode: 'unsupported_lockfile', details: [kind + ' is not a supported JavaScript lockfile format'] }
     }
-    if (ecosystem === 'PyPI') return parsePythonLock(kind, absolutePath)
-    if (ecosystem === 'Go') return parseGoMod(kind, absolutePath)
-    if (ecosystem === 'crates.io') return parseCargoLock(projectPath, absolutePath)
+    if (ecosystem === 'PyPI') return parsePythonLock(projectPath, kind, absolutePath, manifestPath)
+    if (ecosystem === 'Go') return parseGoMod(kind, absolutePath, manifestPath)
+    if (ecosystem === 'crates.io') return parseCargoLock(projectPath, absolutePath, manifestPath)
+    if (ecosystem === 'RubyGems') return parseGemfileLock(projectPath, absolutePath, manifestPath)
     return { status: 'unauditable', ecosystem, reasonCode: 'unsupported_lockfile', details: ['no resolver for ecosystem ' + ecosystem] }
+}
+
+// The `no_lockfile` detail for a manifest kind, naming the lockfiles that would have covered it; null for
+// a lockfile kind.
+function locklessDetail(ecosystem: string, kind: string, manifestPath: string): string | null {
+    const eco = getEcosystem(ecosystem)
+    if (eco === null || !eco.manifestKinds.includes(kind)) return null
+    return manifestPath + ' has no lockfile covering it (' + eco.resolverKinds.join(', ') + ')'
 }
 
 // Resolve every detected manifest into its classified result (one per ecosystem present). The runner uses
@@ -131,10 +168,11 @@ function wrapNpm(ecosystem: string, graph: ResolvedGraph | null, kind: string): 
     return { status: 'ok', ecosystem, graph }
 }
 
-async function fileExists(path: string): Promise<boolean> {
+// A directory that happens to carry a manifest's name is not a manifest, and one that cannot be stat'ed
+// (missing, unreadable parent, gone mid-walk) is not present.
+function fileExists(path: string): boolean {
     try {
-        await access(path)
-        return true
+        return statSync(path).isFile()
     } catch {
         return false
     }

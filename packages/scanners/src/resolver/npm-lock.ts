@@ -25,7 +25,7 @@ type NpmLockDoc = {
 // trust, then we force any name listed under the root package.json `dependencies` back to prod (a direct
 // prod dep should always read as prod even when a dev tree shares the same node). Returns null on
 // read/parse failure so the caller fails open.
-export async function parseNpmLock(projectPath: string, absolutePath: string): Promise<ResolvedGraph | null> {
+export async function parseNpmLock(projectPath: string, absolutePath: string, manifestPath: string): Promise<ResolvedGraph | null> {
     let text: string
     try {
         text = await readFile(absolutePath, 'utf8')
@@ -73,7 +73,8 @@ export async function parseNpmLock(projectPath: string, absolutePath: string): P
             name,
             version: entry.version,
             scope: { isProd, isDev, isOptional: entry.optional === true || entry.devOptional === true },
-            depPaths: [nodePath]
+            depPaths: [nodePath],
+            manifestPath
         })
     }
     return makeGraph(out, doc.packages ? buildNodeGraph(packages) : null)

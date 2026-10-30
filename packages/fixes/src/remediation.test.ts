@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Remediation } from '@sentinello/core'
-import type { LockRootKind, NodeGraph } from '@sentinello/scanners'
+import { versionSetFromSemverRange, type LockRootKind, type NodeGraph } from '@sentinello/scanners'
 import { computeRemediations, findChains } from './remediation'
 import { fakeRegistry, type FakePackage, type FakeRelease } from './registry-fake.fixture'
 import type { ReplacementDataset } from './replacements'
@@ -13,7 +13,7 @@ import type { ReplacementDataset } from './replacements'
 const DAY = 24 * 60 * 60 * 1000
 const CHECKED_AT = Date.UTC(2026, 9, 3)
 const BRACES_PUBLISHED = Date.UTC(2024, 4, 21)
-const BRACES_TARGET = { name: 'braces', affected: [{ ranges: '<=3.0.3', exact: [], complete: true }] }
+const BRACES_TARGET = { name: 'braces', affected: [versionSetFromSemverRange('<=3.0.3')] }
 
 // A node graph from `parent > child` lines and roots, nodes named by name@version ids.
 function graph(spec: { edges?: string[]; roots: [string, LockRootKind, string?][] }): NodeGraph {
@@ -115,7 +115,7 @@ describe('the nodemon path', function () {
 // target through a sibling is not an escape.
 describe('regression: sibling path through a parent release', function () {
     const v: FakePackage = { releases: { '1.0.0': {} } }
-    const target = { name: 'v', affected: [{ ranges: '<=1.0.0', exact: [], complete: true }] }
+    const target = { name: 'v', affected: [versionSetFromSemverRange('<=1.0.0')] }
     const g = graph({ roots: [['p@1.0.0', 'prod']], edges: ['p@1.0.0 > a@1.0.0', 'a@1.0.0 > v@1.0.0'] })
     const base: Record<string, FakePackage> = {
         v,
@@ -146,7 +146,7 @@ describe('regression: sibling path through a parent release', function () {
 
 describe('the walk, level by level', function () {
     const v: FakePackage = { releases: { '1.0.0': {} } }
-    const target = { name: 'v', affected: [{ ranges: '<=1.0.0', exact: [], complete: true }] }
+    const target = { name: 'v', affected: [versionSetFromSemverRange('<=1.0.0')] }
     const g = graph({ roots: [['p@1.0.0', 'prod']], edges: ['p@1.0.0 > a@1.0.0', 'a@1.0.0 > v@1.0.0'] })
 
     async function walk(table: Record<string, FakePackage>, chainGraph: NodeGraph = g) {

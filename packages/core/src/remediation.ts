@@ -101,6 +101,9 @@ export type Remediation = {
 
 export const MAX_REMEDIATION_CHAINS = 5
 
+// The reason of the one `unknown` verdict an ecosystem with no computed way out gets (EcosystemDefinition.wayOut).
+export const WAY_OUT_NPM_ONLY = 'way out is computed for npm only'
+
 export function daysSince(at: number | null, now: number): number | null {
     if (at === null) return null
     return Math.max(0, Math.floor((now - at) / DAY_MS))
@@ -253,7 +256,7 @@ export function describeVerdict(v: ChainVerdict, target: string, style: FixTextS
             ' admits it (' + latest + 'requires ' + style.code(v.blockedRange) + ')'
     }
     if (v.kind === 'noEscape') return 'no released ' + listOr(v.packages.map(style.code)) + ' drops ' + target
-    if (v.kind === 'unknown') return 'unknown — not enough registry evidence at ' + style.code(v.at) + ' (' + v.reason + ')'
+    if (v.kind === 'unknown') return v.reason === WAY_OUT_NPM_ONLY ? 'unknown — ' + v.reason : 'unknown — not enough registry evidence at ' + style.code(v.at) + ' (' + v.reason + ')'
     return target + ' is a direct dependency — the only way out is to replace it'
 }
 

@@ -1,3 +1,4 @@
+import { getEcosystem } from './ecosystems'
 import { reasonCodeLabel } from './reason-code-labels'
 import { parseRemediation, type Remediation } from './remediation'
 import { notRecheckedBecause, type FindingScanContext, type NotRecheckedBecause } from './scan-state'
@@ -120,6 +121,8 @@ export function readFixFields(
 }
 
 export type FixFacts = Pick<FixFields, 'fixStatus' | 'fixVersion' | 'fixAvailable' | 'fixCheck'> & {
+    // Whose registry the fix was checked against (EcosystemId).
+    ecosystem: string
     packageName: string
     notRecheckedBecause?: NotRecheckedBecause | null
 }
@@ -140,13 +143,13 @@ function isoDate(at: number): string {
     return new Date(at).toISOString().slice(0, 10)
 }
 
-function unverifiedReason(check: FixCheck): string {
+function unverifiedReason(check: FixCheck, ecosystem: string): string {
     if (check.unevaluable === 'affected_incomplete') return ' (affected range could not be evaluated)'
     if (check.unevaluable === 'installed_unknown') return ' (installed version could not be read)'
     if (check.unevaluable === 'patched_unparseable') return ' (patched range could not be evaluated)'
     if (check.unevaluable === 'no_evidence') return ' (no source evidence to check)'
     if (check.registry === 'error') return ' (registry not reachable)'
-    if (check.registry === 'not_found') return ' (not on the npm registry)'
+    if (check.registry === 'not_found') return ' (not on ' + (getEcosystem(ecosystem)?.registryName ?? 'the registry') + ')'
     if (check.registry === 'offline') return ' (offline)'
     return ''
 }
@@ -157,9 +160,12 @@ function staleSuffix(check: FixCheck): string {
 }
 
 // Why a retained row was not re-checked, in the words every surface uses: "not re-checked — the project
-// cannot be scanned: No lockfile (last scanned successfully 2026-10-01)".
+// cannot be scanned: No lockfile (last scanned successfully 2026-10-01)". Kept copies of a row the latest scan
+// saw elsewhere name their manifests and no date, since no per-copy history is kept: "copies in ios/Gemfile
+// not re-checked — the project cannot be fully scanned: No lockfile".
 export function describeNotRechecked(reason: NotRecheckedBecause): string {
     const project = reason.projectState === 'cannot_scan' ? 'the project cannot be scanned' : 'the project cannot be fully scanned'
+    if (reason.manifests !== null) return 'copies in ' + reason.manifests.join(', ') + ' not re-checked — ' + project + ': ' + reasonCodeLabel(reason.reasonCode)
     const when = reason.lastOkScanAt === null ? 'never scanned successfully' : 'last scanned successfully ' + isoDate(reason.lastOkScanAt)
     return 'not re-checked — ' + project + ': ' + reasonCodeLabel(reason.reasonCode) + ' (' + when + ')'
 }
@@ -188,7 +194,7 @@ function describeSettledFix(f: FixFacts, style: FixTextStyle): string {
         return style.strong('No fixed version released') + ' — no published version of ' + style.code(f.packageName) +
             ' is outside the vulnerable range (registry checked ' + isoDate(check.checkedAt) + ')' + staleSuffix(check)
     }
-    const tail = ' · not checked against the registry' + unverifiedReason(check) + staleSuffix(check)
+    const tail = ' · not checked against the registry' + unverifiedReason(check, f.ecosystem) + staleSuffix(check)
     if (f.fixVersion) return 'advisory names ' + style.code(f.fixVersion) + ' as the fix' + tail
     if (f.fixAvailable) return 'npm reports ' + style.code('npm audit fix') + ' resolves it (no version of this package stated)' + tail
     return 'no fix stated by the advisory' + tail

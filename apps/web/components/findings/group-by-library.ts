@@ -1,5 +1,5 @@
 import type { CurrentFindingRow } from '@sentinello/db'
-import { compareSeverity, maxSeverity, type Severity } from '@sentinello/core'
+import { compareSeverity, maxSeverity, requireComparator, type Severity } from '@sentinello/core'
 import { highestVersion } from '@sentinello/versions'
 
 export type LibraryGroup = {
@@ -60,7 +60,7 @@ export function groupByLibrary(findings: CurrentFindingRow[]): LibraryGroup[] {
             severities,
             advisoryCount: rows.length,
             fixedCount,
-            recommendedUpgrade: highestVersion(fixVersions),
+            recommendedUpgrade: highestVersion(fixVersions, requireComparator(ecosystem)),
             partial,
             noFixReleased,
             allMuted,

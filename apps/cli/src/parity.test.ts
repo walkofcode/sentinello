@@ -3,11 +3,11 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { OSV_NORMALIZER_VERSION, type Remediation } from '@sentinello/core'
+import { osvNormalizerVersion, type Remediation } from '@sentinello/core'
 import { createOsvScanner, discoverProjectsInTree, type OsvAdvisory } from '@sentinello/scanners'
 import { createNpmRegistryClient } from '@sentinello/fixes'
 import { startStubRegistry, type StubRegistry } from '../../../tests/fixtures/registry-stub'
-import { closeWorkerTestDb, openWorkerTestDb, seedProject, seedRoot, type WorkerTestDb } from '../../worker/src/worker-test-db.fixture'
+import { closeWorkerTestDb, enableSourceCell, openWorkerTestDb, seedProject, seedRoot, type WorkerTestDb } from '../../worker/src/worker-test-db.fixture'
 import { runProjectScanners } from '../../worker/src/runner'
 import { loadCacheForPackages } from './cache/lookup'
 import { advisoryFilePath, readCacheMeta, writeCacheMeta } from './cache/meta'
@@ -73,6 +73,8 @@ async function scanWithWorker(): Promise<Map<string, Settled>> {
         }
     })
     seedRoot(worker.db, PROJECTS)
+    // The worker runs a source only for the cells the operator enabled.
+    enableSourceCell(worker.db, 'osv', 'npm')
     const project = seedProject(worker.db, { relPath: PROJECT, name: PROJECT })
     const outcomes = await runProjectScanners({ db: worker.db, scanners: [osv], project, notify: async function quiet() {} })
     const out = new Map<string, Settled>()
@@ -91,19 +93,19 @@ async function scanWithCli(): Promise<Map<string, Settled>> {
     const writer = createRowWriter(advisoryFilePath(cacheDir, 'osv', 'npm'))
     await writer.write(await advisoryRows() as never)
     const count = await writer.commit()
-    await writeCacheMeta(cacheDir, { schemaVersion: 1, sources: { osv: { npm: { normalizerVersion: OSV_NORMALIZER_VERSION, recordCount: count, refreshedAt: Date.now() } }, gemnasium: {} } })
+    await writeCacheMeta(cacheDir, { schemaVersion: 1, sources: { osv: { npm: { normalizerVersion: osvNormalizerVersion('npm'), recordCount: count, refreshedAt: Date.now() } }, gemnasium: {} } })
     const discovered = discoverProjectsInTree({ rootPath: join(PROJECTS, PROJECT), maxDepth: 0, excludes: [] })
     const resolved = await resolveProjects(discovered)
+    const cells: ScanSetup['cells'] = [{ source: 'osv', ecosystem: 'npm' }]
     const setup: ScanSetup = {
         cacheDir,
-        sources: ['osv'],
-        ecosystem: 'npm',
+        cells,
         includeNpmAudit: false,
-        seeded: { osv: true, gemnasium: false },
+        seeded: cells,
         settledAt: Date.now(),
-        registry: createNpmRegistryClient(await loadRegistryStore(cacheDir))
+        registry: { npm: createNpmRegistryClient(await loadRegistryStore(cacheDir, 'npm')) }
     }
-    const scanners = buildScanners(setup, await loadCacheForPackages(cacheDir, 'npm', collectPackageNames(resolved), ['osv'], await readCacheMeta(cacheDir)))
+    const scanners = buildScanners(setup, await loadCacheForPackages(cacheDir, collectPackageNames(resolved), cells, await readCacheMeta(cacheDir)))
     const out = new Map<string, Settled>()
     for (const entry of resolved) {
         const result = await scanProject(setup, entry, scanners)

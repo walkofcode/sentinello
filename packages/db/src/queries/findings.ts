@@ -1,6 +1,7 @@
 import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import { ulid } from 'ulid'
-import { escalatedSeverity, parseFindingCorroborations, parseRemediation, readFixFields, type FixCheck, type FixFields, type FixStatus, type Finding, type FindingCorroboration, type FindingScanContext, type Remediation } from '@sentinello/core'
+import { escalatedSeverity, installedThrough, parseFindingCorroborations, parseFindingInstallations, parseRemediation, readFixFields, requireComparator, type EcosystemId, type FixCheck, type FixFields, type FixStatus, type Finding, type FindingCorroboration, type FindingInstallation, type FindingScanContext, type Remediation } from '@sentinello/core'
+import { compareVersions } from '@sentinello/versions'
 import type { DrizzleDb } from '../client'
 import { findings } from '../schema'
 import { sumCount } from './count'
@@ -15,14 +16,17 @@ type FindingInsert = typeof findings.$inferInsert
 export type IncomingFinding = {
     projectId: string
     scanner: string
-    // Persisted source identity (SourceId; === scanner for today's sources) + the package's EcosystemId.
+    // Persisted source identity (SourceId; === scanner for today's sources) + the package's EcosystemId,
+    // always explicit: a finding identity never falls back to npm.
     source: string
-    ecosystem: string
+    ecosystem: EcosystemId
     advisoryId: string
     advisoryTitle: string | null
     advisoryUrl: string | null
     packageName: string
+    // The lowest affected installed version; every (manifest, version) is in `installations`.
     installedVersion: string
+    installations: FindingInstallation[]
     vulnerableRange: string
     severity: Finding['severity']
     // The fix the source STATES. Written unsettled (fix_status NULL) and settled by applyFixSettlement
@@ -36,13 +40,22 @@ export type IncomingFinding = {
 
 export type MergeFindingsInput = {
     projectId: string
-    // The scanner this scan belongs to. The merge is scoped to (projectId, scanner): it only ever
-    // refreshes / resolves episodes whose scanner matches, so running multiple scanners against the
-    // same project is independent — an 'osv' scan never resolves 'npm-audit' findings, and vice versa.
+    // The cell this scan belongs to. The merge is scoped to (projectId, scanner, ecosystem): it only ever
+    // refreshes / resolves episodes of that cell, so the cells scanning one project are independent — an
+    // 'osv' scan never resolves 'npm-audit' findings, and OSV's Ruby scan never resolves OSV's Python
+    // findings (SENTINEL-122): an empty Ruby result says nothing about Python.
     scanner: string
+    ecosystem: EcosystemId
     scanId: string
     scanFinishedAt: number
     incoming: IncomingFinding[]
+    // The cell's manifests this scan could not read (resolved `unauditable`: missing, unparseable, unreadable,
+    // or a bare manifest whose lockfile is gone), as ProjectManifest paths. The scan's ok status speaks only for
+    // the manifests it read: a copy installed through one of these — through its directory, whatever manifest
+    // the directory held when the copy was seen (installedThrough) — was not re-checked, so the merge neither
+    // resolves its finding nor drops it from a finding it saw elsewhere (SENTINEL-138, decision #51). Empty or
+    // absent when every manifest was read.
+    unreadManifests?: readonly string[]
 }
 
 export type MergeFindingsResult = {
@@ -59,7 +72,9 @@ export type MergeFindingsResult = {
 // Behaviour (only invoke for status='ok' scans):
 //   - identity present in DB (open)  + present in scan  -> UPDATE last_seen_at + mutable fields
 //   - identity NOT present (or only resolved rows) + present in scan -> INSERT new open episode
-//   - identity present in DB (open)  + absent from scan -> UPDATE resolved_at = scan.finishedAt
+//   - identity present in DB (open)  + absent from scan -> UPDATE resolved_at = scan.finishedAt, unless a copy
+//     was installed through a manifest the scan could not read (or its row predates installations and some
+//     manifest went unread): then it is kept open, untouched, because nothing re-checked it
 //
 // Duplicate self-heal: an identity should have at most one open row, but historical inserts could
 // leave several. We bucket ALL open rows per identity (never overwrite): on a match we keep the
@@ -77,6 +92,7 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             and(
                 eq(findings.projectId, input.projectId),
                 eq(findings.scanner, input.scanner),
+                eq(findings.ecosystem, input.ecosystem),
                 isNull(findings.resolvedAt)
             )
         )
@@ -92,10 +108,14 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
         if (bucket) bucket.push(row)
         else openByIdentity.set(key, [row])
     }
+    const unread = input.unreadManifests ?? []
     const active: Finding[] = []
     const resolved: Finding[] = []
     const seenIdentityKeys = new Set<string>()
     for (const inc of input.incoming) {
+        // A finding of another cell would be merged against episodes this merge never read, and resolve
+        // nothing it should: a defect in the caller, not something to persist quietly.
+        if (inc.ecosystem !== input.ecosystem) throw new Error('mergeFindingsForScan: a ' + inc.ecosystem + ' finding in the ' + input.ecosystem + ' cell\'s merge')
         const key = identityKey(inc.source, inc.ecosystem, inc.advisoryId, inc.packageName)
         seenIdentityKeys.add(key)
         const bucket = openByIdentity.get(key)
@@ -103,11 +123,13 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             // Keep the earliest-detected row as the continuing episode; resolve any duplicates so a
             // stranded orphan is closed by the same scan that refreshes the real one.
             const canonical = pickOldestRow(bucket)
+            const { installedVersion, installations, depPath, isProd, isDev } = withRetainedCopies(inc, canonical, unread)
             db.update(findings)
                 .set({
                     advisoryTitle: inc.advisoryTitle,
                     advisoryUrl: inc.advisoryUrl,
-                    installedVersion: inc.installedVersion,
+                    installedVersion,
+                    installationsJson: JSON.stringify(installations),
                     vulnerableRange: inc.vulnerableRange,
                     severity: inc.severity,
                     fixAvailable: inc.fixAvailable,
@@ -117,9 +139,9 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
                     fixStatus: null,
                     fixCheckJson: null,
                     remediationJson: null,
-                    depPathJson: JSON.stringify(inc.depPath),
-                    isProd: inc.isProd,
-                    isDev: inc.isDev,
+                    depPathJson: JSON.stringify(depPath),
+                    isProd,
+                    isDev,
                     lastSeenAt: input.scanFinishedAt
                 })
                 .where(eq(findings.id, canonical.id))
@@ -128,7 +150,8 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
                 ...canonical,
                 advisoryTitle: inc.advisoryTitle,
                 advisoryUrl: inc.advisoryUrl,
-                installedVersion: inc.installedVersion,
+                installedVersion,
+                installationsJson: JSON.stringify(installations),
                 vulnerableRange: inc.vulnerableRange,
                 severity: inc.severity,
                 fixAvailable: inc.fixAvailable,
@@ -136,9 +159,9 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
                 fixStatus: null,
                 fixCheckJson: null,
                 remediationJson: null,
-                depPathJson: JSON.stringify(inc.depPath),
-                isProd: inc.isProd,
-                isDev: inc.isDev,
+                depPathJson: JSON.stringify(depPath),
+                isProd,
+                isDev,
                 lastSeenAt: input.scanFinishedAt
             }))
             for (const dup of bucket) {
@@ -160,6 +183,7 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             advisoryUrl: inc.advisoryUrl,
             packageName: inc.packageName,
             installedVersion: inc.installedVersion,
+            installationsJson: JSON.stringify(inc.installations),
             vulnerableRange: inc.vulnerableRange,
             severity: inc.severity,
             // Left empty here and rewritten by applyFindingCorroborations at the end of the project
@@ -191,6 +215,7 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             advisoryUrl: inc.advisoryUrl,
             packageName: inc.packageName,
             installedVersion: inc.installedVersion,
+            installations: inc.installations,
             vulnerableRange: inc.vulnerableRange,
             severity: inc.severity,
             corroborations: [],
@@ -207,12 +232,46 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
     }
     for (const [key, bucket] of openByIdentity.entries()) {
         if (seenIdentityKeys.has(key)) continue
-        // Whole identity is gone from the scan: resolve every open row for it, duplicates included.
+        // Whole identity is gone from the scan: resolve every open row for it, duplicates included — except a
+        // row the scan could not have seen, which stays open as it was.
         for (const row of bucket) {
+            if (installedThroughUnread(parseFindingInstallations(row.installationsJson), unread)) continue
             resolved.push(resolveFindingRow(db, row, input.scanFinishedAt, input.scanId))
         }
     }
     return { active, resolved }
+}
+
+// Whether an open row may hide behind a manifest the scan did not read: one of its copies was installed
+// through one, or the row predates installations (written before 3.8), so where it lives is unknown.
+function installedThroughUnread(installations: readonly FindingInstallation[], unread: readonly string[]): boolean {
+    if (unread.length === 0) return false
+    if (installations.length === 0) return true
+    return installations.some(function inUnread(i) { return installedThrough(i, unread) })
+}
+
+type ContinuingFacts = Pick<IncomingFinding, 'installedVersion' | 'installations' | 'depPath' | 'isProd' | 'isDev'>
+
+// A continuing finding's copies: the ones this scan saw, plus the row's earlier ones behind manifests it could
+// not read, which are still there as far as anyone knows (decision #51). `installedVersion` stays the lowest
+// affected installed version (by the ecosystem's comparator) across all of them. While such a copy is kept,
+// what the row said about it is kept too (SENTINEL-145): the evidence that omitted its manifest cannot clear
+// production scope or a dependency chain it may be the one to carry, so scope and chains are the row's
+// united with this scan's, as decision #42 folds copies. A scan that reads that manifest again writes them
+// from what it sees.
+function withRetainedCopies(inc: IncomingFinding, row: FindingRow, unread: readonly string[]): ContinuingFacts {
+    const seen: ContinuingFacts = { installedVersion: inc.installedVersion, installations: inc.installations, depPath: inc.depPath, isProd: inc.isProd, isDev: inc.isDev }
+    if (unread.length === 0) return seen
+    // A manifest the scan could not read contributed nothing to it, so no incoming copy is from one.
+    const retained = parseFindingInstallations(row.installationsJson).filter(function behindUnread(prior) { return installedThrough(prior, unread) })
+    if (retained.length === 0) return seen
+    const comparator = requireComparator(inc.ecosystem)
+    let installedVersion = inc.installedVersion
+    for (const prior of retained) {
+        if (compareVersions(prior.version, installedVersion, comparator) < 0) installedVersion = prior.version
+    }
+    const depPath = inc.depPath.concat(parseDepPath(row.depPathJson).filter(function unseen(step) { return !inc.depPath.includes(step) }))
+    return { installedVersion, installations: inc.installations.concat(retained), depPath, isProd: inc.isProd || row.isProd, isDev: inc.isDev || row.isDev }
 }
 
 // Resolve a single open row against this scan and return the closed Finding. Shared by the
@@ -273,6 +332,29 @@ export function listFindingsResolvedInScan(db: DrizzleDb, scanId: string): Findi
     return rows.map(rowToFinding)
 }
 
+// The ecosystems a project still has open findings in, whatever source found them. The runner runs these
+// cells whatever the project's inventory says now: a cell whose manifests are all gone must still run once
+// more to resolve what it found, and keeps running until it has (SENTINEL-144).
+export function listOpenFindingEcosystems(db: DrizzleDb, projectId: string): string[] {
+    const rows = db
+        .selectDistinct({ ecosystem: findings.ecosystem })
+        .from(findings)
+        .where(and(eq(findings.projectId, projectId), isNull(findings.resolvedAt)))
+        .all()
+    return rows.map(function ecosystem(r) { return r.ecosystem })
+}
+
+// The ecosystems an identity without one could mean: every ecosystem with an open finding of this source,
+// advisory and package — on one project, or on any when projectId is null. A mute names one ecosystem's
+// package; MCP's mute_finding infers it from here when the caller leaves it out, and refuses when there
+// are several. Sorted, so the candidates read the same every time.
+export function listFindingIdentityEcosystems(db: DrizzleDb, identity: { projectId: string | null; source: string; advisoryId: string; packageName: string }): string[] {
+    const conditions = [isNull(findings.resolvedAt), eq(findings.source, identity.source), eq(findings.advisoryId, identity.advisoryId), eq(findings.packageName, identity.packageName)]
+    if (identity.projectId !== null) conditions.push(eq(findings.projectId, identity.projectId))
+    const rows = db.selectDistinct({ ecosystem: findings.ecosystem }).from(findings).where(and(...conditions)).all()
+    return rows.map(function ecosystem(r) { return r.ecosystem }).sort()
+}
+
 export function listFindingsForProject(db: DrizzleDb, projectId: string): Finding[] {
     const rows = db.select().from(findings).where(eq(findings.projectId, projectId)).all()
     return rows.map(rowToFinding)
@@ -315,22 +397,23 @@ export function listResolvedFindingsForLibrary(
     limit = 50,
     ecosystem?: string
 ): ResolvedLibraryFinding[] {
-    // Scope to the (ecosystem, packageName) cell when the caller knows the ecosystem; COALESCE keeps
-    // un-backfilled legacy rows reachable under 'npm'.
-    const ecosystemFilter = ecosystem ? sql`AND COALESCE(f.ecosystem, 'npm') = ${ecosystem}` : sql``
+    // Scope to the (ecosystem, packageName) cell when the caller knows the ecosystem. findings.ecosystem is
+    // NOT NULL and written explicitly, so no legacy fallback is needed.
+    const ecosystemFilter = ecosystem ? sql`AND f.ecosystem = ${ecosystem}` : sql``
     const rows = db.all<{
         id: string
         scan_id: string
         project_id: string
         scanner: string
         source: string | null
-        // Not nullable — see schema.ts:150. Only source is.
+        // Not nullable (schema.ts findings.ecosystem). Only source is.
         ecosystem: string
         advisory_id: string
         advisory_title: string | null
         advisory_url: string | null
         package_name: string
         installed_version: string
+        installations_json: string
         vulnerable_range: string
         severity: string
         corroborations_json: string
@@ -369,6 +452,7 @@ export function listResolvedFindingsForLibrary(
             advisoryUrl: row.advisory_url,
             packageName: row.package_name,
             installedVersion: row.installed_version,
+            installations: parseFindingInstallations(row.installations_json),
             vulnerableRange: row.vulnerable_range,
             severity: row.severity as Finding['severity'],
             corroborations: parseFindingCorroborations(row.corroborations_json),
@@ -410,7 +494,11 @@ export function findFindingByIdentity(
         )
         .get()
     if (!row) return null
-    return rowToFindingInContext(row, scanContext(row.projectId, row.source ?? row.scanner))
+    return rowToFindingInContext(row, scanContext(row.projectId, row.source ?? row.scanner, row.ecosystem, {
+        lastSeenAt: row.lastSeenAt,
+        resolvedAt: row.resolvedAt,
+        installations: parseFindingInstallations(row.installationsJson)
+    }))
 }
 
 // In-memory dedup key for the lifecycle merge. First component is the persisted source identity, not
@@ -431,8 +519,7 @@ function rowToFindingInContext(row: FindingRow, scanContext: FindingScanContext 
         projectId: row.projectId,
         scanner: row.scanner,
         // source falls back for the brief pre-backfill window on legacy rows, where source === scanner.
-        // ecosystem needs no such fallback: the column is NOT NULL DEFAULT 'npm' (schema.ts:150), so the
-        // migration already backfilled every pre-polyglot row.
+        // ecosystem needs no such fallback: the column is NOT NULL and every writer names it.
         source: row.source ?? row.scanner,
         ecosystem: row.ecosystem,
         advisoryId: row.advisoryId,
@@ -440,6 +527,7 @@ function rowToFindingInContext(row: FindingRow, scanContext: FindingScanContext 
         advisoryUrl: row.advisoryUrl,
         packageName: row.packageName,
         installedVersion: row.installedVersion,
+        installations: parseFindingInstallations(row.installationsJson),
         vulnerableRange: row.vulnerableRange,
         severity: row.severity,
         corroborations: parseFindingCorroborations(row.corroborationsJson),
@@ -459,7 +547,7 @@ function rowToFindingInContext(row: FindingRow, scanContext: FindingScanContext 
 // write, a hand-edited database, or a future writer with a different shape — is worth showing without
 // its dep path. Letting JSON.parse escape would instead take down every findings query that touched
 // the row, and with it the whole page listing that project.
-function parseDepPath(json: string): string[] {
+export function parseDepPath(json: string): string[] {
     let parsed: unknown
     try {
         parsed = JSON.parse(json)

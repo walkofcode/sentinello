@@ -1,8 +1,9 @@
 import {
     buildAdvisoryMarkdown,
     labelScanState,
+    requireEcosystemId,
     resolveExportPrompt,
-    DEFAULT_ECOSYSTEM,
+    CAPABILITIES,
     type ExportFinding,
     type Finding,
     type LabelledScanState,
@@ -25,7 +26,9 @@ import {
     getRootById,
     getConfigValue,
     getProjectScanState,
+    getScanEcosystem,
     findingScanContexts,
+    pendingBaselineCapabilities,
     type DispatchablePair,
     type FindingScanContextLookup,
     type DrizzleDb
@@ -35,12 +38,13 @@ import {
     redactTarget,
     renderBatchedFindings,
     renderScanFailure,
-    senderFor,
+    type NotificationSender,
     type RenderedMessage,
     type WebhookPayloadContext
 } from '@sentinello/notifications'
 import { CONFIG_KEYS } from './config-loader'
 import type { ProjectScanOutcome } from './runner'
+import { sendByKind } from './transport'
 
 // The notifier orchestrates the ledger UPSERT + per-(event, target) dispatch flow described by
 // the notification_deliveries lifecycle rules. It does NOT decide WHAT to
@@ -51,18 +55,28 @@ export type NotifyForCompletedScanInput = {
     db: DrizzleDb
     outcome: ProjectScanOutcome
     dryRun: boolean
+    // The transport every message goes out through. Defaults to each target's real sender; the live-copy
+    // verification passes a recording one (SENTINEL-123).
+    send?: NotificationSender
 }
 
 export async function notifyForCompletedScan(input: NotifyForCompletedScanInput): Promise<void> {
     const at = Date.now()
     const project = getProjectById(input.db, input.outcome.project.id)
     if (!project) return
-    // Step 1: UPSERT discovery rows for current findings + (if not ok) a scan-failure row.
+    // Step 1: UPSERT discovery rows for current findings + (if not ok) a scan-failure row. While a
+    // capability's baseline is pending, a new finding event in one of its ecosystems is recorded silently
+    // (baseline_of): it is told in that capability's one summary when the sweep completes, never by itself.
+    // npm events and scan failures are never held back.
+    const silentBaselines = pendingBaselineCapabilities(input.db, CAPABILITIES)
     for (const finding of input.outcome.findings) {
+        const ecosystem = requireEcosystemId(finding.ecosystem)
+        const baseline = silentBaselines.find(function covers(c) { return c.ecosystems.includes(ecosystem) })
         upsertFindingEvent(input.db, {
             projectId: finding.projectId,
             source: finding.source,
-            ecosystem: finding.ecosystem,
+            ecosystem,
+            baselineOf: baseline ? baseline.id : null,
             advisoryId: finding.advisoryId,
             packageName: finding.packageName,
             severity: finding.severity,
@@ -113,6 +127,7 @@ export async function notifyForCompletedScan(input: NotifyForCompletedScanInput)
             scanContext,
             scanErrorText: input.outcome.scan.errorText,
             dryRun: input.dryRun,
+            send: input.send ?? sendByKind,
             at
         })
     }
@@ -139,6 +154,7 @@ type DispatchGroupInput = {
     scanContext: FindingScanContextLookup
     scanErrorText: string | null
     dryRun: boolean
+    send: NotificationSender
     at: number
 }
 
@@ -203,6 +219,7 @@ async function dispatchGroup(input: DispatchGroupInput): Promise<void> {
             events: matchedEvents,
             message,
             dryRun: input.dryRun,
+            send: input.send,
             at: input.at
         })
     }
@@ -214,6 +231,7 @@ async function dispatchGroup(input: DispatchGroupInput): Promise<void> {
             event: failureEvent,
             errorText: input.scanErrorText,
             portalBaseUrl: input.portalBaseUrl,
+            ecosystem: getScanEcosystem(input.db, failureEvent.firstScanId),
             locale: input.notificationLocale
         })
         if (input.group.target.kind === 'webhook') {
@@ -234,6 +252,7 @@ async function dispatchGroup(input: DispatchGroupInput): Promise<void> {
             events: [failureEvent],
             message,
             dryRun: input.dryRun,
+            send: input.send,
             at: input.at
         })
     }
@@ -245,6 +264,7 @@ type PostAndRecordInput = {
     events: NotificationEvent[]
     message: ReturnType<typeof renderBatchedFindings>
     dryRun: boolean
+    send: NotificationSender
     at: number
 }
 
@@ -258,8 +278,7 @@ async function postAndRecord(input: PostAndRecordInput): Promise<void> {
     for (const event of input.events) {
         recordAttempt(input.db, event.id, input.target.id, input.at)
     }
-    const sender = senderFor(input.target)
-    const result = await sender(input.target, input.message)
+    const result = await input.send(input.target, input.message)
     if (result.ok) {
         const successAt = Date.now()
         for (const event of input.events) {
@@ -323,14 +342,12 @@ function matchEventsToFindings(
 ): MatchedEvent[] {
     const out: MatchedEvent[] = []
     for (const event of events) {
-        if (event.advisoryId === null || event.packageName === null) continue
-        // event.scanner carries the persisted source identity for finding events (matches finding.source).
-        // A legacy event with no ecosystem resolves to npm, the same COALESCE the dispatch query applies
-        // (notification-deliveries.ts) and the same fallback every findings read path uses — everything was
-        // npm before the polyglot migration, so that is what those rows are. This used to fall back to ''
-        // instead, which cannot equal any real ecosystem: the event passed the dispatch filter as npm and
-        // then failed to match as '', leaving it selected on every scan and describable on none.
-        const key = identityTupleKey(event.projectId, event.scanner, event.ecosystem ?? DEFAULT_ECOSYSTEM, event.advisoryId, event.packageName)
+        // event.scanner carries the persisted source identity for finding events (matches finding.source). A
+        // finding event always has its ecosystem: written explicitly since 3.8, and filled for every legacy
+        // row by the boot backfill before the scheduler runs. One without is not describable, like one
+        // without an advisory or package.
+        if (event.advisoryId === null || event.packageName === null || event.ecosystem === null) continue
+        const key = identityTupleKey(event.projectId, event.scanner, event.ecosystem, event.advisoryId, event.packageName)
         const fromThisScan = findingsByKey.get(key)
         if (fromThisScan) {
             out.push({ event, finding: fromThisScan })
@@ -339,7 +356,7 @@ function matchEventsToFindings(
         const persisted = findFindingByIdentity(db, {
             projectId: event.projectId,
             source: event.scanner,
-            ecosystem: event.ecosystem ?? DEFAULT_ECOSYSTEM,
+            ecosystem: event.ecosystem,
             advisoryId: event.advisoryId,
             packageName: event.packageName
         }, scanContext)
@@ -362,15 +379,19 @@ function webhookProject(project: NonNullable<ReturnType<typeof getProjectById>>)
         id: project.id,
         name: project.name,
         relPath: project.relPath,
-        packageManager: project.packageManager
+        packageManager: project.packageManager,
+        ecosystems: [...project.ecosystems],
+        manifests: [...project.manifests]
     }
 }
 
 // Exported for the scratch tools' recording notifier, which renders exactly what this one would send.
 export function toExportFinding(f: Finding): ExportFinding {
     return {
+        ecosystem: f.ecosystem,
         packageName: f.packageName,
         installedVersion: f.installedVersion,
+        installations: f.installations,
         fixAvailable: f.fixAvailable,
         fixVersion: f.fixVersion,
         fixStatus: f.fixStatus,

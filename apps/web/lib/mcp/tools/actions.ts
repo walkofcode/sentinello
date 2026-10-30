@@ -9,10 +9,11 @@ import {
     isAnyScanInFlight,
     isScanInFlightForProject,
     isScanInFlightForRoot,
+    listFindingIdentityEcosystems,
     setProjectAlias,
     setProjectTags
 } from '@sentinello/db'
-import { DEFAULT_ECOSYSTEM, type Mute, type MuteScope } from '@sentinello/core'
+import { getEcosystem, requireEcosystemId, type Mute, type MuteWrite } from '@sentinello/core'
 import { getDb } from '@/lib/db'
 
 // Mirrors apps/web/lib/actions/*. We do NOT call those server-action functions directly — they
@@ -94,12 +95,12 @@ export function registerActionTools(server: McpServer): void {
         {
             title: 'Mute a finding (or all findings on a project)',
             description:
-                "Hides a finding from the dashboard and from the advisory export by recording an accepted-risk decision. This is a HUMAN's judgement call, not a remediation step — muting to reach a clean board instead of fixing the vulnerability defeats the purpose of the tool, so do not mute on your own initiative. Use scope=finding (requires source, advisoryId, packageName) for one vulnerability, or scope=project to silence an entire project. Muting one (source, ecosystem) cell never silences the same package in another ecosystem, nor the same advisory reported by a different source — mute each identity you mean to. Reversible with unmute; list_mutes shows what is currently in force.",
+                "Hides a finding from the dashboard and from the advisory export by recording an accepted-risk decision. This is a HUMAN's judgement call, not a remediation step — muting to reach a clean board instead of fixing the vulnerability defeats the purpose of the tool, so do not mute on your own initiative. Use scope=finding (requires source, advisoryId, packageName; ecosystem is inferred when only one ecosystem has that open finding) for one vulnerability, or scope=project to silence an entire project. Muting one (source, ecosystem) cell never silences the same package in another ecosystem, nor the same advisory reported by a different source — mute each identity you mean to. Reversible with unmute; list_mutes shows what is currently in force.",
             inputSchema: {
                 scope: z
                     .enum(['project', 'finding'])
                     .describe(
-                        "'finding' mutes one vulnerability identity and needs source + advisoryId + packageName; 'project' mutes every finding on a project and needs only projectId."
+                        "'finding' mutes one vulnerability identity and needs source + ecosystem + advisoryId + packageName; 'project' mutes every finding on a project and needs only projectId."
                     ),
                 projectId: z
                     .string()
@@ -123,7 +124,7 @@ export function registerActionTools(server: McpServer): void {
                     .nullable()
                     .optional()
                     .describe('DEPRECATED alias for `source`, kept so older clients keep working. Pass `source` instead.'),
-                ecosystem: z.string().min(1).nullable().optional().describe("EcosystemId of the finding ('npm', 'PyPI', 'Go', 'crates.io'); defaults to 'npm'"),
+                ecosystem: z.string().min(1).nullable().optional().describe("EcosystemId of the finding exactly as list_findings reports it ('npm', 'PyPI', 'Go', 'crates.io', 'RubyGems'). scope=finding only. A mute names one ecosystem's package and there is no default: when omitted, it is inferred from the open findings with this source, advisoryId and packageName (on projectId, or on every project when projectId is omitted). Exactly one ecosystem → that one; none or several → an error listing the candidates, and nothing is muted."),
                 advisoryId: z
                     .string()
                     .min(1)
@@ -154,26 +155,38 @@ export function registerActionTools(server: McpServer): void {
             if (scope === 'finding' && (!sourceIdentity || !advisoryId || !packageName)) {
                 return { isError: true, content: [{ type: 'text', text: 'scope=finding requires source, advisoryId, and packageName' }] }
             }
-            const db = getDb()
-            const mute: Mute = {
-                id: ulid(),
-                scope: scope as MuteScope,
-                projectId: projectId || null,
-                scanner: scope === 'project' ? null : sourceIdentity,
-                // Target the requested (source, ecosystem) cell; default to npm when the caller omits it.
-                ecosystem: scope === 'project' ? null : (ecosystem || DEFAULT_ECOSYSTEM),
-                // No `|| null` on these two: the zod enum admits only project|finding, so reaching the
-                // alternate arm means scope === 'finding', and the guard above already rejected a
-                // finding-scoped mute missing either one. TypeScript cannot carry a narrowing out of
-                // that compound condition, which is the only reason an assertion is needed here.
-                advisoryId: scope === 'project' ? null : advisoryId!,
-                packageName: scope === 'project' ? null : packageName!,
-                reason: reason.trim(),
-                author: process.env.ME_NAME || 'mcp',
-                createdAt: Date.now(),
-                expiresAt: expiresAt || null
+            if (scope === 'project' && !projectId) {
+                return { isError: true, content: [{ type: 'text', text: 'scope=project requires projectId' }] }
             }
-            insertMute(db, mute)
+            const db = getDb()
+            if (scope === 'finding' && !ecosystem) {
+                const candidates = listFindingIdentityEcosystems(db, { projectId: projectId || null, source: sourceIdentity as string, advisoryId: advisoryId as string, packageName: packageName as string })
+                if (candidates.length === 0) {
+                    return { isError: true, content: [{ type: 'text', text: 'ecosystem not given and cannot be inferred: no open finding has this source, advisoryId and packageName; pass the finding\'s ecosystem as list_findings reports it' }] }
+                }
+                if (candidates.length > 1) {
+                    return { isError: true, content: [{ type: 'text', text: 'ecosystem not given and ambiguous: open findings in ' + candidates.join(', ') + ' have this source, advisoryId and packageName; pass ecosystem as one of ' + candidates.map(function quoted(c) { return JSON.stringify(c) }).join(', ') }] }
+                }
+                ecosystem = candidates[0]
+            }
+            if (scope === 'finding' && getEcosystem(ecosystem as string) === null) {
+                return { isError: true, content: [{ type: 'text', text: 'unknown ecosystem ' + JSON.stringify(ecosystem) + '; pass the finding\'s ecosystem as list_findings reports it' }] }
+            }
+            const common = { id: ulid(), reason: reason.trim(), author: process.env.ME_NAME || 'mcp', createdAt: Date.now(), expiresAt: expiresAt || null }
+            // The assertions restate the guards above, which TypeScript cannot carry out of a compound condition.
+            const write: MuteWrite = scope === 'project'
+                ? { ...common, scope: 'project', projectId: projectId as string }
+                : { ...common, scope: 'finding', projectId: projectId || null, scanner: sourceIdentity as string, ecosystem: requireEcosystemId(ecosystem as string), advisoryId: advisoryId as string, packageName: packageName as string }
+            insertMute(db, write)
+            // Reported in the stored row's shape: a project mute's identity fields are null.
+            const mute: Mute = {
+                ...write,
+                projectId: write.projectId,
+                scanner: write.scanner ?? null,
+                ecosystem: write.ecosystem ?? null,
+                advisoryId: write.advisoryId ?? null,
+                packageName: write.packageName ?? null
+            }
             return {
                 content: [{ type: 'text', text: 'Created mute ' + mute.id }],
                 structuredContent: { mute }

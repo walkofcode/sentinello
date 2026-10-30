@@ -13,6 +13,9 @@ export type AdvisoryNoteInput = {
     mutedExcludedCount: number
     projectId: string
     depType: string
+    // The severity floor the page was filtered by, carried into the next call so it continues the same list.
+    // Null when the request set none.
+    minSeverity: string | null
 }
 
 // Muting is a human's recorded accepted-risk decision, so the document says what was left out rather
@@ -40,8 +43,9 @@ function continuationNote(input: AdvisoryNoteInput): string {
         '\n> **This document is incomplete.** Showing advisories ' + (page.offset + 1) + '–' +
         (page.offset + page.rendered) + ' of ' + page.total + '; ' + remaining +
         ' did not fit in one response. Do not treat the list above as the full set. Retrieve the rest with:\n' +
-        '> `get_project_advisory({ projectId: "' + input.projectId + '", depType: "' + input.depType +
-        '", offset: ' + page.nextOffset + ', includePrompt: false })`\n'
+        '> `get_project_advisory({ projectId: "' + input.projectId + '", depType: "' + input.depType + '"' +
+        (input.minSeverity === null ? '' : ', minSeverity: "' + input.minSeverity + '"') +
+        ', offset: ' + page.nextOffset + ', includePrompt: false })`\n'
     )
 }
 

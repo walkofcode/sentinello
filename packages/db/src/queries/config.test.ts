@@ -183,6 +183,7 @@ describe('deleteRoot', function () {
             nvmrcVersion: null,
             gitBranch: null,
             ecosystems: ['npm'],
+            manifests: [],
             muted: false,
             tags: [],
             createdAt: T0,

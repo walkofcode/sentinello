@@ -1,5 +1,6 @@
-import { describeFix, describeScanReasons, PLAIN_FIX_STYLE, scanStateHeadline, reasonSide, summarizeRemediation, reasonCodeLabel, REASON_CODE_VALUES, SCAN_STATE_SIDE_SHORT, type Finding, type LabelledScanState, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
-import type { RenderedMessage } from './types'
+import { CHAIN_UNKNOWN_TEXT, describeFix, describeScanReasons, getEcosystem, type Capability, PLAIN_FIX_STYLE, scanStateHeadline, reasonSide, summarizeRemediation, reasonCodeLabel, REASON_CODE_VALUES, SCAN_STATE_SIDE_SHORT, type Finding, type LabelledScanState, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
+import type { CapabilitySummaryWebhook, RenderedMessage } from './types'
+import { CAPABILITY_SUMMARY_COPY } from './capability-copy'
 
 const REASON_CODE_SET = new Set<string>(REASON_CODE_VALUES)
 
@@ -51,6 +52,9 @@ export type RenderScanFailureInput = {
     event: NotificationEvent
     errorText: string | null
     portalBaseUrl: string | null
+    // The ecosystem of the scan that failed (the event's first scan): one source scans each ecosystem of a
+    // project separately, so "OSV failed" alone does not say for which language. Null when unknown.
+    ecosystem?: string | null
     locale?: Locale
 }
 
@@ -89,9 +93,11 @@ export function renderSingleFinding(input: RenderFindingInput): RenderedMessage 
     lines.push(input.isBaseline && '*Baseline finding* — first scan' || '*New finding*')
     lines.push('*Project:* ' + input.projectName)
     pushBranchLine(lines, input.gitBranch)
-    lines.push('*Package:* ' + input.finding.packageName + '@' + input.finding.installedVersion)
+    lines.push('*Package:* ' + input.finding.packageName + '@' + input.finding.installedVersion + ' (' + ecosystemLabel(input.finding.ecosystem) + ')')
+    if (input.finding.installations.length > 0) lines.push('*Installed through:* ' + installationsText(input.finding))
     lines.push('*Vulnerable range:* ' + input.finding.vulnerableRange)
     lines.push('*Severity:* ' + sev + fix)
+    lines.push('*Dependency path:* ' + chainText(input.finding))
     if (input.finding.fixStatus === 'none_released' && input.finding.remediation) {
         lines.push('*Way out:* ' + summarizeRemediation(input.finding.remediation, PLAIN_FIX_STYLE))
     }
@@ -147,12 +153,13 @@ export function renderScanFailure(input: RenderScanFailureInput): RenderedMessag
     const sig = humaniseFailureSignature(rawSig, input.locale || 'en')
     const code = signatureReasonCode(rawSig)
     const projectSide = code !== null && reasonSide(code) === 'project'
-    const title = (projectSide ? '[CANNOT BE SCANNED] ' : '[SCAN FAILED] ') + input.projectName + ' — ' + sig
+    const ecosystem = input.ecosystem ? ' (' + ecosystemLabel(input.ecosystem) + ')' : ''
+    const title = (projectSide ? '[CANNOT BE SCANNED] ' : '[SCAN FAILED] ') + input.projectName + ecosystem + ' — ' + sig
     const portalLink = buildProjectUrl(input.portalBaseUrl, input.projectId)
     const lines: string[] = []
     lines.push(projectSide ? '*Cannot be scanned:* *' + input.projectName + '*' : '*Scan failed* for *' + input.projectName + '*')
     pushBranchLine(lines, input.gitBranch)
-    lines.push('*Scanner:* ' + input.event.scanner)
+    lines.push('*Scanner:* ' + input.event.scanner + ecosystem)
     lines.push((projectSide ? '*Reason:* ' : '*Failure:* ') + sig)
     if (code !== null) lines.push('*Whose fix:* ' + SCAN_STATE_SIDE_SHORT[reasonSide(code)])
     if (input.errorText) {
@@ -180,9 +187,30 @@ function pushScanStateLine(lines: string[], scanState: LabelledScanState | null,
 
 function formatLine(finding: Finding): string {
     const sev = severityLabel(finding.severity)
-    const line = '• [' + sev + '] ' + finding.packageName + '@' + finding.installedVersion + ' (' + finding.advisoryId + ') — ' + describeFix(finding, PLAIN_FIX_STYLE)
+    let line = '• [' + sev + '] ' + finding.packageName + '@' + finding.installedVersion + ' (' + ecosystemLabel(finding.ecosystem) + ', ' + finding.advisoryId + ') — ' + describeFix(finding, PLAIN_FIX_STYLE)
+    // Every manifest the library is installed through, so the fix reaches each copy.
+    if (finding.installations.length > 0) line += '\n    In: ' + installationsText(finding)
+    line += '\n    Path: ' + chainText(finding)
     if (finding.fixStatus !== 'none_released' || !finding.remediation) return line
     return line + '\n    Way out: ' + summarizeRemediation(finding.remediation, PLAIN_FIX_STYLE)
+}
+
+// "rails › actionpack › rack", whatever the fix status: the chain is a fact of the lockfile, and the way out
+// (npm only) is a separate one. A lockfile with no graph (requirements.txt, go.mod) leaves the chain unknown,
+// which is said rather than left out, as in the advisory export.
+function chainText(finding: Finding): string {
+    return finding.depPath.length > 0 ? finding.depPath.join(' › ') : CHAIN_UNKNOWN_TEXT
+}
+
+// "ios/Gemfile.lock 2.0.8, android/Gemfile.lock 2.1.0".
+function installationsText(finding: Finding): string {
+    return finding.installations.map(function copy(i) { return i.manifestPath + ' ' + i.version }).join(', ')
+}
+
+// The ecosystem as a reader names it: its language ("Python"), or the id itself for one the registry does not
+// know.
+function ecosystemLabel(ecosystem: string): string {
+    return getEcosystem(ecosystem)?.displayName ?? ecosystem
 }
 
 function buildProjectUrl(baseUrl: string | null, projectId: string): string | null {
@@ -193,4 +221,36 @@ function buildProjectUrl(baseUrl: string | null, projectId: string): string | nu
 
 function stripMarkdown(input: string): string {
     return input.replace(/\*/g, '')
+}
+
+export type RenderCapabilitySummaryInput = {
+    capability: Capability
+    findings: number
+    projects: number
+    critical: number
+    sourceDisabledProjects: number
+    portalBaseUrl: string | null
+    locale?: Locale
+}
+
+// The one message a silent baseline sends each target in place of a message per finding: what the new
+// capability found across the target's scope, and how many projects it could not check because no source
+// is enabled for their language. On a default install (OSV and gemnasium opt-in) the findings are zero and
+// it says so plainly rather than staying silent. A webhook gets it as structured JSON (`webhook`).
+export function renderCapabilitySummary(input: RenderCapabilitySummaryInput): RenderedMessage {
+    const copy = CAPABILITY_SUMMARY_COPY[input.locale ?? 'en']
+    const languages = input.capability.ecosystems.map(ecosystemLabel).join('/')
+    const title = copy.title(input.capability.since.replace(/\.0$/, ''), languages)
+    const lines: string[] = []
+    lines.push('*' + title + ':* ' + copy.counts(input.findings, input.projects, input.critical))
+    if (input.sourceDisabledProjects > 0) lines.push(copy.sourceDisabled(input.sourceDisabledProjects))
+    const portalUrl = input.portalBaseUrl ? input.portalBaseUrl.replace(/\/+$/, '') + '/settings/sources' : null
+    if (portalUrl) lines.push('*Portal:* ' + portalUrl)
+    const markdown = lines.join('\n')
+    const webhook: CapabilitySummaryWebhook = {
+        event: 'capability_summary',
+        capability: { id: input.capability.id, since: input.capability.since, ecosystems: [...input.capability.ecosystems] },
+        counts: { findings: input.findings, projects: input.projects, critical: input.critical, sourceDisabledProjects: input.sourceDisabledProjects }
+    }
+    return { title, text: stripMarkdown(markdown), markdown, portalUrl, webhook }
 }

@@ -44,6 +44,7 @@ import { getDb } from '@/lib/db'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { getFilterDefaults, parseDepTypeParam } from '@/lib/filter-defaults'
 import { mergeFindings } from '@/lib/merge-findings'
+import { nodeRuntimeLabel, packageManagersLabel } from '@/lib/project-toolchain'
 
 type PageProps = {
     params: Promise<{ id: string }>
@@ -73,6 +74,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     const t = await getTranslations('Detail')
     const tTime = await getTranslations('Time')
     const tTriage = await getTranslations('Triage')
+    const tHome = await getTranslations('Home')
     const locale = (await getLocale()) as Locale
     const db = getDb()
     // eslint-disable-next-line react-hooks/purity -- async Server Component: renders once, never re-renders
@@ -168,6 +170,11 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     const showAllDepsHref = depParamHref(project.id, resolvedSearchParams, 'all', defaults.depType)
     const rootLabel = root?.label || root?.path || t('project.unknownRoot')
     const fullPath = project.relPath === '.' ? rootLabel : rootLabel + '/' + project.relPath
+    // The same PM and Runtime the projects list shows. A project with no Node dependencies has no Node
+    // version worth a segment in this line, so it is left out rather than shown as a dash.
+    const toolchain = [fullPath, packageManagersLabel(project.manifests, project.packageManager)]
+    const runtime = nodeRuntimeLabel(project.manifests, project.packageManager, project.nvmrcVersion, tHome('nodeAmbient'))
+    if (runtime !== null) toolchain.push(runtime)
     const latestScan = getLatestScanForProject(db, project.id)
     const lastScanAt = latestScan ? latestScan.finishedAt : null
     const scanning = isScanInFlightForProject(db, project.id, project.rootId, now)
@@ -188,7 +195,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                         </div>
                         <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
                             <span>
-                                {fullPath} · {project.packageManager} · Node {project.nvmrcVersion || 'ambient'}
+                                {toolchain.join(' · ')}
                             </span>
                             {project.gitBranch ? (
                                 <>

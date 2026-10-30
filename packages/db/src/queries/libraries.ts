@@ -1,7 +1,8 @@
 import { sql } from 'drizzle-orm'
-import { readFixFields, type DepTypeFilter, type FixCheck, type FixStatus, type NotRecheckedBecause, type Remediation } from '@sentinello/core'
+import { parseFindingInstallations, readFixFields, type DepTypeFilter, type FindingInstallation, type FixCheck, type FixStatus, type NotRecheckedBecause, type Remediation } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { depTypeClause } from './dep-type'
+import { parseDepPath } from './findings'
 import { findingScanContexts } from './scan-state'
 import { activeSourceCellClause } from './sources'
 import { advisoryIdentitySql } from './advisory-identity'
@@ -33,6 +34,10 @@ export type LibraryProjectUsage = {
     source: string
     ecosystem: string
     installedVersion: string
+    // Every (manifest, version) the row was installed through (empty before 3.8), and its dependency chain(s)
+    // (empty when the lockfile records no graph: chain unknown).
+    installations: FindingInstallation[]
+    depPath: string[]
     vulnerableRange: string
     advisoryId: string
     advisoryTitle: string | null
@@ -58,7 +63,7 @@ export function listLibraries(db: DrizzleDb, at: number, depType: DepTypeFilter 
     const sourceFilter = activeSourceCellClause(db)
     const rows = db
         .all<{
-            // The SELECT below already COALESCEs this, so the mapper needs no second fallback.
+            // NOT NULL and written explicitly, so the mapper needs no fallback.
             ecosystem: string
             package_name: string
             distinct_advisories: number
@@ -67,7 +72,7 @@ export function listLibraries(db: DrizzleDb, at: number, depType: DepTypeFilter 
         }>(
             sql`
             SELECT
-                COALESCE(f.ecosystem, 'npm') AS ecosystem,
+                f.ecosystem AS ecosystem,
                 f.package_name AS package_name,
                 COUNT(DISTINCT ${advisoryIdentitySql('f')}) AS distinct_advisories,
                 COUNT(DISTINCT f.project_id) AS distinct_projects,
@@ -119,19 +124,21 @@ export function listLibraryUsage(
     const depFilter = depTypeClause(depType)
     const sourceFilter = activeSourceCellClause(db)
     // A library is (ecosystem, packageName); when the detail page passes the ecosystem we scope to that
-    // cell so a same-named package in another ecosystem never bleeds into this view. COALESCE keeps
-    // un-backfilled legacy rows (ecosystem NULL) reachable under 'npm'.
-    const ecosystemFilter = ecosystem ? sql`AND COALESCE(f.ecosystem, 'npm') = ${ecosystem}` : sql``
+    // cell so a same-named package in another ecosystem never bleeds into this view. findings.ecosystem is
+    // NOT NULL and every writer names it, so the column is compared as it is.
+    const ecosystemFilter = ecosystem ? sql`AND f.ecosystem = ${ecosystem}` : sql``
     const rows = db.all<{
         project_id: string
         project_name: string
         scanner: string
-        // Both COALESCEd in the SELECT below (COALESCE(f.source, f.scanner), COALESCE(f.ecosystem,
-        // 'npm')), so SQLite has already substituted by the time the mapper runs. This is the one place
-        // where source is non-null despite the column being nullable — the query, not the schema, is why.
+        // COALESCE(f.source, f.scanner) in the SELECT below: source is nullable on an un-backfilled legacy
+        // row, whose scanner names it, so SQLite has already substituted by the time the mapper runs — the
+        // query, not the schema, is why it is non-null here. ecosystem needs no fallback: the column is
+        // NOT NULL.
         source: string
         ecosystem: string
         installed_version: string
+        installations_json: string
         vulnerable_range: string
         advisory_id: string
         advisory_title: string | null
@@ -142,6 +149,7 @@ export function listLibraryUsage(
         fix_version: string | null
         fix_check_json: string | null
         remediation_json: string | null
+        dep_path_json: string
         is_prod: number
         is_dev: number
         first_detected_at: number | null
@@ -152,8 +160,9 @@ export function listLibraryUsage(
             p.name AS project_name,
             f.scanner AS scanner,
             COALESCE(f.source, f.scanner) AS source,
-            COALESCE(f.ecosystem, 'npm') AS ecosystem,
+            f.ecosystem AS ecosystem,
             f.installed_version AS installed_version,
+            f.installations_json AS installations_json,
             f.vulnerable_range AS vulnerable_range,
             f.advisory_id AS advisory_id,
             f.advisory_title AS advisory_title,
@@ -164,6 +173,7 @@ export function listLibraryUsage(
             f.fix_version AS fix_version,
             f.fix_check_json AS fix_check_json,
             f.remediation_json AS remediation_json,
+            f.dep_path_json AS dep_path_json,
             f.is_prod AS is_prod,
             f.is_dev AS is_dev,
             f.first_detected_at AS first_detected_at,
@@ -194,6 +204,7 @@ export function listLibraryUsage(
     `)
     const scanContext = findingScanContexts(db, Array.from(new Set(rows.map(function projectOf(row) { return row.project_id }))))
     return rows.map(function toUsage(row) {
+        const installations = parseFindingInstallations(row.installations_json)
         return {
             projectId: row.project_id,
             projectName: row.project_name,
@@ -201,6 +212,8 @@ export function listLibraryUsage(
             source: row.source,
             ecosystem: row.ecosystem,
             installedVersion: row.installed_version,
+            installations,
+            depPath: parseDepPath(row.dep_path_json),
             vulnerableRange: row.vulnerable_range,
             advisoryId: row.advisory_id,
             advisoryTitle: row.advisory_title,
@@ -208,7 +221,8 @@ export function listLibraryUsage(
             severity: row.severity,
             ...readFixFields(
                 { fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json, remediationJson: row.remediation_json },
-                scanContext(row.project_id, row.source)
+                // Every row here is open (resolved_at IS NULL above).
+                scanContext(row.project_id, row.source, row.ecosystem, { lastSeenAt: row.last_seen_at, resolvedAt: null, installations })
             ),
             isProd: row.is_prod === 1,
             isDev: row.is_dev === 1,

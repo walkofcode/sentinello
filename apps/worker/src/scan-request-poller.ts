@@ -24,6 +24,7 @@ import { scannersForBatch, type OsvController } from './osv-runtime'
 import { type GemnasiumController } from './gemnasium-runtime'
 import { discoverProjects } from './discovery'
 import { runBatch } from './runner'
+import { onCompletedSweep } from './capability-baseline'
 import type { WorkerRuntime } from './runtime'
 import type { SchedulerHandles } from './scheduler'
 
@@ -130,10 +131,11 @@ async function runFullSweep(input: StartPollerInput, requestId: string): Promise
     console.log('[scan-request-poller] full sweep started (request=' + requestId + ', ' + projects.length + ' project' + (projects.length === 1 ? '' : 's') + ')')
     if (projects.length === 0) {
         console.log('[scan-request-poller] full sweep finished (request=' + requestId + ', 0 projects, ' + formatDurationMs(Date.now() - startedAt) + ')')
+        await onCompletedSweep(input.db)
         return
     }
     const parallelism = (getConfigValue<number>(input.db, CONFIG_KEYS.parallelism)) || DEFAULT_PARALLELISM
-    await runBatch({
+    const batch = await runBatch({
         db: input.db,
         sqlite: input.sqlite,
         scanners: await scannersForBatch(input),
@@ -142,6 +144,8 @@ async function runFullSweep(input: StartPollerInput, requestId: string): Promise
         abortSignal: input.runtime.abortController.signal
     })
     console.log('[scan-request-poller] full sweep finished (request=' + requestId + ', ' + projects.length + ' project' + (projects.length === 1 ? '' : 's') + ', ' + formatDurationMs(Date.now() - startedAt) + ')')
+    // A requested full sweep is a sweep like the scheduled one: a completed one completes the baselines.
+    if (batch.completed) await onCompletedSweep(input.db)
 }
 
 async function runRootSweep(input: StartPollerInput, rootId: string, requestId: string): Promise<void> {

@@ -54,6 +54,7 @@ function seedFindings(specs: { severity: string; advisoryId: string }[]): void {
     mergeFindingsForScan(db, {
         projectId: PROJECT_ID,
         scanner: 'npm-audit',
+        ecosystem: 'npm',
         scanId,
         scanFinishedAt: T0,
         incoming: specs.map(function toIncoming(spec) {
@@ -67,6 +68,7 @@ function seedFindings(specs: { severity: string; advisoryId: string }[]): void {
                 advisoryUrl: null,
                 packageName: 'pkg-' + spec.advisoryId,
                 installedVersion: '1.0.0',
+                installations: [],
                 vulnerableRange: '<2.0.0',
                 severity: spec.severity as 'high',
                 fixAvailable: false,
@@ -113,6 +115,7 @@ beforeEach(async function setup() {
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems: ['npm'],
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,

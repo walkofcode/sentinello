@@ -1,7 +1,7 @@
 {
     "Meta": {
         "title": "Sentinello — 面向整个项目组合的 CVE 早期预警监控",
-        "description": "面向 Node.js 项目的自托管、开源依赖漏洞监控。把它指向你的仓库，即可在一个分诊队列中查看所有项目的已知 CVE。",
+        "description": "面向 Node.js、Python、Go、Rust 和 Ruby 项目的自托管、开源依赖漏洞监控。把它指向你的仓库，即可在一个分诊队列中查看所有项目的已知 CVE。",
         "tagline": "面向整个项目组合的 CVE 早期预警",
         "tabTitle": "Sentinello — 多语言 CVE 监控"
     },
@@ -38,7 +38,7 @@
     },
     "Hero": {
         "title": "为那些你不再盯着看的依赖，提供一套早期预警系统。",
-        "subtitle": "在 AI 时代，你发布的项目多过你能维护的数量。Sentinello 会盯住其中的每一个，揭示其 Node.js 依赖中已知的 CVE —— 让被遗忘的项目永远不会演变成事故。",
+        "subtitle": "在 AI 时代，你发布的项目多过你能维护的数量。Sentinello 会盯住其中的每一个，揭示其依赖（Node.js、Python、Go、Rust 和 Ruby）中已知的 CVE —— 让被遗忘的项目永远不会演变成事故。",
         "commandCaption": "一条命令即可运行：",
         "ctaPrimary": "阅读快速开始",
         "ctaSecondary": "在 GitHub 上加星",
@@ -86,7 +86,7 @@
         "title": "功能",
         "subtitle": "尽在一个自托管门户 —— 没有外部服务，数据不会离开你的网络。",
         "queueTitle": "单一分诊队列",
-        "queueBody": "在一个地方查看并分诊整个组合的 CVE —— 而不是散落在十几个检出目录里的 npm audit。",
+        "queueBody": "在一个地方查看并分诊整个组合中所有语言的 CVE —— 而不是散落在十几个检出目录里的审计输出。",
         "browseTitle": "按项目或库浏览",
         "browseBody": "深入任意仓库，查看它的发现、修复版本和历史 —— 或切换到某个易受攻击的包，看它影响的每一个项目，并一次性在所有项目中将其静音。",
         "exportTitle": "公告导出",
@@ -94,7 +94,9 @@
         "scanningTitle": "持续扫描",
         "scanningBody": "后台工作进程按计划重新扫描，新的公告会自动出现，无需你记得去检查。",
         "sourcesTitle": "多种来源",
-        "sourcesBody": "不止 npm audit：同时与 OSV 和 GitLab gemnasium 匹配，获得更广的 CVE 覆盖并检测已知恶意软件包。",
+        "sourcesBody": "Node.js 使用 npm audit，所有语言都可使用 OSV 和 GitLab gemnasium：获得更广的 CVE 覆盖并检测已知恶意软件包。",
+        "ecosystemsTitle": "Python · Go · Rust · Ruby",
+        "ecosystemsBody": "除 Node.js 外，还能根据锁文件（requirements.txt、poetry.lock、uv.lock、go.mod、Cargo.lock、Gemfile.lock）扫描 Python、Go、Rust 和 Ruby 项目，离线解析，不运行 pip、go、cargo 或 bundler。",
         "notificationsTitle": "通知与 Webhook",
         "notificationsBody": "通过 Slack、Telegram 或一个普通 Webhook 接收失败与发现的告警 —— 可按 root 或项目划分范围，并使用你选择的语言。JSON 或纯文本负载，可直接交给自动修复代理。",
         "selfContainedTitle": "一个镜像，一个文件",
@@ -166,6 +168,9 @@
         "row_scope": "范围",
         "npm_scope": "你当前所在的那一个项目。",
         "ours_scope": "一个文件夹下的所有项目，一次执行、一份报告。",
+        "row_languages": "语言",
+        "npm_languages": "仅限 npm 项目。",
+        "ours_languages": "支持 Node.js、Python、Go、Rust 和 Ruby 的锁文件。Python、Go、Rust 和 Ruby 的锁文件离线读取，不安装或运行任何包管理器；Node.js 还会运行 npm audit。",
         "row_sources": "公告来源",
         "npm_sources": "你所用注册表的公告源。",
         "ours_sources": "在此基础上再加 OSV 与 GitLab gemnasium。重复项会被抑制，因此每增加一个来源只会带来新增的发现。",

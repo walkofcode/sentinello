@@ -2,15 +2,17 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
     enqueueScanRequest,
     getProjectById,
-    insertMute,
+    insertMute, muteWriteOf,
     listActiveMutes,
     listRecentScanRequests
 } from '@sentinello/db'
 import type { Mute, ScanRequest } from '@sentinello/core'
 import {
     closePortalTestDb,
+    finding,
     openPortalTestDb,
     ROOT_ID,
+    scanProject,
     seedProject,
     seedRoot,
     T0,
@@ -158,6 +160,7 @@ describe('mute_finding', function () {
         scope: 'finding',
         projectId: 'project-1',
         source: 'npm-audit',
+        ecosystem: 'npm',
         advisoryId: 'CVE-2024-1',
         packageName: 'lodash',
         reason: 'accepted risk'
@@ -202,6 +205,43 @@ describe('mute_finding', function () {
         }
     )
 
+    // No npm default: an omitted ecosystem is read from the open findings with that identity, and only when
+    // exactly one ecosystem has one (Phase 4 step 1).
+    describe('an omitted ecosystem', function () {
+        it('is inferred when one ecosystem has that open finding', async function () {
+            scanProject(handle.db, 'project-1', [finding({ ecosystem: 'PyPI', packageName: 'lodash' })], { ecosystem: 'PyPI' })
+            await mcp.call('mute_finding', { ...findingArgs, ecosystem: undefined })
+
+            expect(firstMute()).toMatchObject({ ecosystem: 'PyPI', packageName: 'lodash', projectId: 'project-1' })
+        })
+
+        it('is inferred across every project for an estate-wide mute', async function () {
+            seedProject(handle.db, 'project-2')
+            scanProject(handle.db, 'project-2', [finding({ ecosystem: 'RubyGems' })], { ecosystem: 'RubyGems' })
+            await mcp.call('mute_finding', { ...findingArgs, projectId: undefined, ecosystem: undefined })
+
+            expect(firstMute()).toMatchObject({ ecosystem: 'RubyGems', projectId: null })
+        })
+
+        it('lists the candidates and mutes nothing when several ecosystems have it', async function () {
+            scanProject(handle.db, 'project-1', [finding()])
+            scanProject(handle.db, 'project-1', [finding({ ecosystem: 'PyPI' })], { ecosystem: 'PyPI' })
+            const result = await mcp.call('mute_finding', { ...findingArgs, ecosystem: undefined })
+
+            expect(result.isError).toBe(true)
+            expect(textOf(result)).toBe('ecosystem not given and ambiguous: open findings in PyPI, npm have this source, advisoryId and packageName; pass ecosystem as one of "PyPI", "npm"')
+            expect(activeMutes()).toEqual([])
+        })
+
+        it('says so and mutes nothing when no open finding has it', async function () {
+            const result = await mcp.call('mute_finding', { ...findingArgs, ecosystem: undefined })
+
+            expect(result.isError).toBe(true)
+            expect(textOf(result)).toBe('ecosystem not given and cannot be inferred: no open finding has this source, advisoryId and packageName; pass the finding\'s ecosystem as list_findings reports it')
+            expect(activeMutes()).toEqual([])
+        })
+    })
+
     it('nulls every identity column on a project-scope mute', async function () {
         await mcp.call('mute_finding', { ...findingArgs, scope: 'project' })
 
@@ -233,11 +273,20 @@ describe('mute_finding', function () {
     })
 
     // A mute on npm lodash must never silence a same-named PyPI package, so the ecosystem is part of
-    // the identity and defaults rather than being left open.
-    it('defaults a missing ecosystem to npm', async function () {
-        await mcp.call('mute_finding', findingArgs)
+    // the identity, required, and never guessed (SENTINEL-121).
+    it('reports an error for an ecosystem the registry does not know', async function () {
+        const result = await mcp.call('mute_finding', { ...findingArgs, ecosystem: 'Maven' })
 
-        expect(firstMute().ecosystem).toBe('npm')
+        expect(result.isError).toBe(true)
+        expect(textOf(result)).toBe('unknown ecosystem "Maven"; pass the finding\'s ecosystem as list_findings reports it')
+        expect(activeMutes()).toEqual([])
+    })
+
+    it('reports an error for a project-scope mute with no project', async function () {
+        const result = await mcp.call('mute_finding', { ...findingArgs, scope: 'project', projectId: undefined })
+
+        expect(result.isError).toBe(true)
+        expect(textOf(result)).toBe('scope=project requires projectId')
     })
 
     it('honours an explicit ecosystem', async function () {
@@ -303,7 +352,7 @@ describe('mute_finding', function () {
 
 describe('unmute', function () {
     function seedMute(id: string): void {
-        insertMute(handle.db, {
+        insertMute(handle.db, muteWriteOf({
             id,
             scope: 'finding',
             projectId: 'project-1',
@@ -315,7 +364,7 @@ describe('unmute', function () {
             author: 'betty',
             createdAt: T0,
             expiresAt: null
-        } as Mute)
+        } as Mute))
     }
 
     it('deletes the mute', async function () {

@@ -13,14 +13,16 @@ export {
     mergeResolvedGraphs,
     graphForEcosystem
 } from './resolver'
+export { isWithin } from './resolver/paths'
 export type { DepScope, DetectedManifest, LockEdge, LockEdgeKind, LockNode, LockRoot, LockRootKind, NodeGraph, ResolvedGraph, ResolvedPackage, ResolverResult } from './resolver'
 export {
-    detectEcosystems,
     detectPackageManager,
     discoverProjectsInTree,
-    readGitBranch
+    readGitBranch,
+    rediscoverProject,
+    withUnreadManifests
 } from './discovery'
-export type { DiscoveredProject, DiscoveryOptions, DiscoverySkip, DiscoverySkipSource } from './discovery'
+export type { DiscoveredProject, DiscoveryError, DiscoveryOptions, DiscoverySkip, DiscoverySkipSource, ProjectRediscovery, ProjectRediscoveryOptions } from './discovery'
 export { createOsvScanner, matchPackages, OSV_SCANNER_NAME } from './osv'
 export type { OsvAdvisory, OsvLookup, OsvRange, OsvScannerDeps } from './osv'
 export { createGemnasiumScanner, GEMNASIUM_SCANNER_NAME } from './gemnasium'
@@ -29,7 +31,7 @@ export { stampWithdrawn, stampWithdrawnByPackage } from './withdrawn'
 export { matchAdvisories } from './engine/matcher'
 export { normalizeOneVulnerability, type DepClassifier, type Vulnerability } from './npm-audit-parse'
 // Version semantics live in @sentinello/versions; re-exported here so existing consumers keep one import.
-export { semverComparator, pep440Comparator } from '@sentinello/versions'
+export { semverComparator, pep440Comparator, goComparator, rubygemsComparator } from '@sentinello/versions'
 export { reconcileAgainstReported, findingIdentityKeys, escalatedSeverity } from './engine/reconcile'
 export {
     pickStatedFix,
@@ -37,11 +39,15 @@ export {
     evaluableAffected,
     evaluableContains,
     isNoPatchedSentinel,
-    parseRangeSafely,
+    versionSetFromSemverRange,
+    patchedVersionSet,
+    splitInstalled,
     NO_PATCHED_VERSION_SENTINEL,
     type AffectedSet,
     type EvaluableAffected,
-    type FixEvidence
+    type EvaluableSet,
+    type FixEvidence,
+    type VersionSet
 } from './version-fix'
 export type { CorroborationEvent, ReconcileResult, ReportedAdvisory } from './engine/reconcile'
 export type { CanonicalAdvisory, VersionRange, VersionComparator } from './engine/types'

@@ -14,16 +14,16 @@ import { cn } from '@/lib/cn'
 import { VersionChain } from './version-chain'
 import { WayOut } from './way-out'
 import { DepPathPopover } from './dep-path-popover'
+import { installationsText, installationsWorthShowing } from '@/lib/installations'
 import { SourceTags } from './source-tags'
 import { SourceGradesPopover } from './source-grades-popover'
 import { EcosystemBadge } from './ecosystem-badge'
 
 // The merged finding's ecosystem. A merged row is keyed by (ecosystem, package, advisory) (issue-019),
-// so the row carries one ecosystem directly. Shown as a badge only for non-npm packages so npm-only
-// projects stay uncluttered while a same-named package from another ecosystem is always distinguishable.
+// so the row carries one ecosystem directly. Shown as a badge for every ecosystem, npm included: once a
+// project can mix languages, an unbadged row would read as "no ecosystem" rather than as npm.
 function findingEcosystem(f: MergedFinding): string | null {
-    if (!f.ecosystem || f.ecosystem === 'npm') return null
-    return f.ecosystem
+    return f.ecosystem || null
 }
 
 type Props = {
@@ -65,7 +65,8 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                                         vulnerableRange={f.vulnerableRange}
                                         fix={f}
                                     />
-                                    {f.fixStatus === 'none_released' && f.remediation ? <WayOut remediation={f.remediation} notRecheckedBecause={f.notRecheckedBecause} /> : null}
+                                    {installationsWorthShowing(f.installations) ? <p data-testid="installations" className="mt-0.5 break-all font-mono text-[0.625rem] text-muted-foreground">{t('installedThrough', { manifests: installationsText(f.installations) })}</p> : null}
+                                    {f.fixStatus === 'none_released' && f.remediation ? <WayOut ecosystem={f.ecosystem} remediation={f.remediation} notRecheckedBecause={f.notRecheckedBecause} /> : null}
                                 </dd>
                                 <dt className="uppercase tracking-wide text-muted-foreground">{t('columns.advisory')}</dt>
                                 <dd className="min-w-0 break-words">
@@ -132,7 +133,8 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                                             vulnerableRange={f.vulnerableRange}
                                             fix={f}
                                         />
-                                        {f.fixStatus === 'none_released' && f.remediation ? <WayOut remediation={f.remediation} notRecheckedBecause={f.notRecheckedBecause} /> : null}
+                                        {installationsWorthShowing(f.installations) ? <p data-testid="installations" className="mt-0.5 break-all font-mono text-[0.625rem] text-muted-foreground">{t('installedThrough', { manifests: installationsText(f.installations) })}</p> : null}
+                                    {f.fixStatus === 'none_released' && f.remediation ? <WayOut ecosystem={f.ecosystem} remediation={f.remediation} notRecheckedBecause={f.notRecheckedBecause} /> : null}
                                     </TableCell>
                                     <TableCell className="text-xs">
                                         {f.advisoryUrl ? (

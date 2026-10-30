@@ -11,6 +11,7 @@ import {
     backfillForNewTarget,
     deleteNotificationTarget,
     deleteRoot,
+    enqueueScanRequest,
     enqueueWorkerSignal,
     getRunnableSourceCells,
     getNotificationTargetById,
@@ -20,13 +21,15 @@ import {
     listProjects,
     listRoots,
     rootId,
+    selectInFlightScanRequests,
     setConfigValue,
     setNotificationTargetEnabled,
     setTargetProjects,
     setTargetRoots,
     updateNotificationTarget,
     updateRootLabel,
-    upsertRoot
+    upsertRoot,
+    type DrizzleDb
 } from '@sentinello/db'
 import type {
     DepTypeFilter,
@@ -419,50 +422,87 @@ export async function updateSourceCellAction(input: { source: string; ecosystem:
             ecosystem: z.string().min(1),
             enabled: z.boolean()
         }).parse(input)
-        const source = parsed.source as SourceId
-        const ecosystem = parsed.ecosystem as EcosystemId
-        // Neither of these is reachable from the UI, which builds its cells from the ECOSYSTEMS ×
-        // SOURCES matrix. They stay thrown so they surface as bugs rather than as advice.
-        if (!getEcosystem(ecosystem)) {
-            throw new Error('Unknown ecosystem: ' + parsed.ecosystem)
-        }
-        if (!sourceSupportsEcosystem(source, ecosystem)) {
-            throw new Error('Source ' + parsed.source + ' does not answer for ecosystem ' + parsed.ecosystem)
-        }
-        const db = getDb()
-        // The built-in source is not something an operator turns off — it is what Sentinello scans with,
-        // it needs no provisioning, and every other source is additive to it. Enforced here and not only
-        // by the disabled switch, because the switch is a hint and this is the rule.
-        //
-        // `defaultEnabled` is the definition rather than a hardcoded 'npm-audit': whichever source ships
-        // on out of the box is the one this protects.
-        if (!parsed.enabled) {
-            const def = getSource(source)
-            if (def && def.defaultEnabled) {
-                throw new UserFacingError(def.displayName + ' is the built-in source and cannot be turned off.')
-            }
-        }
-        // Enforce the invariant before writing: disabling the last active cell is rejected. It reflects the
-        // persisted state with per-cell defaults + legacy fallbacks, so the count is accurate even for cells
-        // that have never been written.
-        //
-        // getRunnableSourceCells, NOT getActiveSourceCells: the latter deliberately keeps preview-ecosystem
-        // cells so their historical findings stay visible, and a leftover sources.osv.PyPI.enabled=true would
-        // otherwise satisfy "a source is still on" while being unable to scan anything.
-        if (!parsed.enabled) {
-            const remaining = getRunnableSourceCells(db).filter(function notThisCell(cell) {
-                return !(cell.source === source && cell.ecosystem === ecosystem)
-            })
-            if (remaining.length === 0) {
-                // UserFacingError, not Error: this is the one message on the page an operator MUST be
-                // able to read. Thrown, it would reach them as Next.js's production redaction notice.
-                throw new UserFacingError('At least one vulnerability source must stay enabled — Sentinello cannot run with zero sources.')
-            }
-        }
-        setConfigValue(db, sourceEnabledKey(source, ecosystem), parsed.enabled)
-        enqueueWorkerSignal(db, 'reload-sources', Date.now())
+        writeSourceCell(getDb(), parsed.source, parsed.ecosystem, parsed.enabled)
         revalidatePath('/settings/sources')
     })
+}
+
+// "Turn on OSV for Python" — the one click that takes a language with detected projects but no enabled
+// source to being scanned. The same write as switching the cell on, plus the two things the switch leaves
+// to the clock:
+//   - the advisory export. 'reload-sources' starts a source's runtime when it is not running, and a fresh
+//     runtime syncs every enabled ecosystem; but an OSV runtime already running for another language would
+//     wait for the 03:17 cron to download this one. 'refresh-osv' runs that sync now (the worker joins a
+//     sync already in flight for the ecosystem), and the worker enqueues its own full re-scan the moment
+//     the cache becomes matchable. gemnasium's cache is one download covering every language, so turning a
+//     language on there needs no new sync.
+//   - the scan. A cache that was already matchable (OSV kept for gemnasium's withdrawal evidence, a cell
+//     switched off and back on) never "becomes" matchable, so nothing would re-scan the projects until the
+//     next schedule. A full sweep is queued, unless one is already waiting: a pending sweep is claimed
+//     after the worker drains these signals, so it already scans with the cell on.
+export async function turnOnSourceForEcosystemAction(input: { source: string; ecosystem: string }): Promise<ActionResult> {
+    return await run(function body() {
+        const parsed = z.object({
+            source: z.string().min(1),
+            ecosystem: z.string().min(1)
+        }).parse(input)
+        const db = getDb()
+        writeSourceCell(db, parsed.source, parsed.ecosystem, true)
+        const at = Date.now()
+        if (parsed.source === 'osv') enqueueWorkerSignal(db, 'refresh-osv', at)
+        const sweepWaiting = selectInFlightScanRequests(db, at).some(function pendingSweep(request) {
+            return request.status === 'pending' && request.projectId === null && request.rootId === null
+        })
+        if (!sweepWaiting) enqueueScanRequest(db, {}, at)
+        revalidatePath('/settings/sources')
+        revalidatePath('/')
+    })
+}
+
+// The one write path for a (source, ecosystem) cell: validated, guarded by the "always a source on"
+// invariant, persisted, and signalled to the worker with 'reload-sources'.
+function writeSourceCell(db: DrizzleDb, rawSource: string, rawEcosystem: string, enabled: boolean): void {
+    const source = rawSource as SourceId
+    const ecosystem = rawEcosystem as EcosystemId
+    // Neither of these is reachable from the UI, which builds its cells from the ECOSYSTEMS ×
+    // SOURCES matrix. They stay thrown so they surface as bugs rather than as advice.
+    if (!getEcosystem(ecosystem)) {
+        throw new Error('Unknown ecosystem: ' + rawEcosystem)
+    }
+    if (!sourceSupportsEcosystem(source, ecosystem)) {
+        throw new Error('Source ' + rawSource + ' does not answer for ecosystem ' + rawEcosystem)
+    }
+    // The built-in source is not something an operator turns off — it is what Sentinello scans with,
+    // it needs no provisioning, and every other source is additive to it. Enforced here and not only
+    // by the disabled switch, because the switch is a hint and this is the rule.
+    //
+    // `defaultEnabled` is the definition rather than a hardcoded 'npm-audit': whichever source ships
+    // on out of the box is the one this protects.
+    if (!enabled) {
+        const def = getSource(source)
+        if (def && def.defaultEnabled) {
+            throw new UserFacingError(def.displayName + ' is the built-in source and cannot be turned off.')
+        }
+    }
+    // Enforce the invariant before writing: disabling the last active cell is rejected. It reflects the
+    // persisted state with per-cell defaults + legacy fallbacks, so the count is accurate even for cells
+    // that have never been written.
+    //
+    // getRunnableSourceCells, NOT getActiveSourceCells: the latter deliberately keeps preview-ecosystem
+    // cells so their historical findings stay visible, and a leftover config key for a withdrawn
+    // ecosystem would otherwise satisfy "a source is still on" while being unable to scan anything.
+    if (!enabled) {
+        const remaining = getRunnableSourceCells(db).filter(function notThisCell(cell) {
+            return !(cell.source === source && cell.ecosystem === ecosystem)
+        })
+        if (remaining.length === 0) {
+            // UserFacingError, not Error: this is the one message on the page an operator MUST be
+            // able to read. Thrown, it would reach them as Next.js's production redaction notice.
+            throw new UserFacingError('At least one vulnerability source must stay enabled — Sentinello cannot run with zero sources.')
+        }
+    }
+    setConfigValue(db, sourceEnabledKey(source, ecosystem), enabled)
+    enqueueWorkerSignal(db, 'reload-sources', Date.now())
 }
 
 // "Refresh now" — asks the worker to re-sync a cache-backed source (OSV or gemnasium) immediately rather

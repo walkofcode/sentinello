@@ -108,15 +108,15 @@ function skip(path: string, source: DiscoverySkip['source'] = 'gitignore'): Disc
 }
 
 function planItem(overrides: Partial<SyncPlanItem> = {}): SyncPlanItem {
-    return { source: 'osv', ecosystem: 'npm', kind: 'seed', downloadBytes: 1024 * 1024, downloadBytesEstimated: false, ...overrides } as SyncPlanItem
+    return { source: 'osv', ecosystems: ['npm'], kind: 'seed', downloadBytes: 1024 * 1024, downloadBytesEstimated: false, ...overrides } as SyncPlanItem
 }
 
 function outcome(overrides: Partial<SyncOutcome> = {}): SyncOutcome {
-    return { source: 'osv', ecosystem: 'npm', status: 'unchanged', rowCount: 1234, message: null, ...overrides } as SyncOutcome
+    return { source: 'osv', ecosystems: ['npm'], status: 'unchanged', rowCount: 1234, message: null, ...overrides } as SyncOutcome
 }
 
 function scanResult(overrides: Partial<ProjectScanResult> = {}): ProjectScanResult {
-    return { project: project(), findings: [], outcomes: [], fixes: new Map(), remediations: new Map(), wayOutError: null, scanState: { state: 'scanned', reasons: [] }, ...overrides } as ProjectScanResult
+    return { project: project(), findings: [], outcomes: [], fixes: new Map(), remediations: new Map(), installations: new Map(), wayOutError: null, scanState: { state: 'scanned', reasons: [] }, ...overrides } as ProjectScanResult
 }
 
 function projectSummary(overrides: Partial<RunSummary['projects'][number]> = {}): RunSummary['projects'][number] {
@@ -211,7 +211,7 @@ describe('summary — a lost source is not a clean scan', function () {
         return summary({
             projects: [projectSummary({
                 relPath: '.',
-                unauditable: [{ scanner: 'osv', reasonCode, errorText: 'OSV database has not been downloaded yet' }]
+                unauditable: [{ scanner: 'osv', ecosystem: 'npm', reasonCode, errorText: 'OSV database has not been downloaded yet' }]
             })]
         })
     }
@@ -241,18 +241,32 @@ describe('summary — a lost source is not a clean scan', function () {
     it('falls back to the reason code when the scanner gave no message', function () {
         ui().summary(summary({
             projects: [projectSummary({
-                unauditable: [{ scanner: 'gemnasium', reasonCode: 'gemnasium_db_unavailable', errorText: null }]
+                unauditable: [{ scanner: 'gemnasium', ecosystem: 'npm', reasonCode: 'gemnasium_db_unavailable', errorText: null }]
             })]
         }), null)
         expect(out()).toContain('gemnasium_db_unavailable')
     })
 
     // The same source failing across twenty projects is one problem, not twenty lines.
+    // One source can be lost for one ecosystem and fine for another: each is its own line.
+    it('names a source lost for two ecosystems once per ecosystem', function () {
+        ui().summary(summary({
+            projects: [projectSummary({
+                unauditable: [
+                    { scanner: 'osv', ecosystem: 'npm', reasonCode: 'osv_db_not_seeded', errorText: 'npm export missing' },
+                    { scanner: 'osv', ecosystem: 'PyPI', reasonCode: 'osv_db_not_seeded', errorText: 'PyPI export missing' }
+                ]
+            })]
+        }), null)
+        expect(out()).toContain('OSV (npm)  npm export missing')
+        expect(out()).toContain('OSV (PyPI)  PyPI export missing')
+    })
+
     it('names each lost source once, however many projects lost it', function () {
         ui().summary(summary({
             projects: [
-                projectSummary({ relPath: 'web', unauditable: [{ scanner: 'osv', reasonCode: 'osv_db_not_seeded', errorText: 'not downloaded' }] }),
-                projectSummary({ relPath: 'api', unauditable: [{ scanner: 'osv', reasonCode: 'osv_db_not_seeded', errorText: 'not downloaded' }] })
+                projectSummary({ relPath: 'web', unauditable: [{ scanner: 'osv', ecosystem: 'npm', reasonCode: 'osv_db_not_seeded', errorText: 'not downloaded' }] }),
+                projectSummary({ relPath: 'api', unauditable: [{ scanner: 'osv', ecosystem: 'npm', reasonCode: 'osv_db_not_seeded', errorText: 'not downloaded' }] })
             ]
         }), null)
         expect(out().match(/not downloaded/g)?.length).toBe(1)
@@ -436,7 +450,7 @@ describe('confirmSeed', function () {
 
     it('lists only the seeds and their transfer size', async function () {
         await ui().confirmSeed(plan())
-        expect(out()).toContain('First run — the advisory databases need downloading.')
+        expect(out()).toContain('These advisory databases need downloading first.')
         expect(out()).toContain('OSV')
         expect(out()).toContain('1.0 MB')
         // The refresh item is not a download the user is being asked to approve.
@@ -500,10 +514,17 @@ describe('confirmSeed', function () {
 
 // Said out loud because a switched-off source is dropped from the run silently otherwise — a typo in
 // SENTINELLO_OSV_FEED_URL would just quietly narrow what gets audited.
+describe('withdrawalsUnchecked', function () {
+    it('names the ecosystems whose gemnasium advisories go unstamped', function () {
+        ui().withdrawalsUnchecked(['npm', 'RubyGems'])
+        expect(out()).toContain('OSV withdrawal data is not downloaded for npm, RubyGems — GitLab gemnasium may list advisories GitHub has withdrawn')
+    })
+})
+
 describe('sourcesSwitchedOff', function () {
-    it('names each source it dropped', function () {
-        ui().sourcesSwitchedOff(['osv', 'gemnasium'])
-        expect(out()).toContain('OSV, GitLab gemnasium')
+    it('names each source it dropped, with the ecosystem it was dropped for', function () {
+        ui().sourcesSwitchedOff([{ source: 'osv', ecosystem: 'PyPI' }, { source: 'osv', ecosystem: 'Go' }, { source: 'gemnasium', ecosystem: 'npm' }])
+        expect(out()).toContain('OSV (PyPI, Go), GitLab gemnasium (npm)')
         expect(out()).toContain('switched off and never seeded')
     })
 })
@@ -517,16 +538,16 @@ describe('confirmRetry', function () {
 
     it('names the source that failed and what continuing would cost', async function () {
         await ui().confirmRetry(failed())
-        expect(out()).toContain('GitLab gemnasium could not be downloaded.')
+        expect(out()).toContain('GitLab gemnasium (npm) could not be downloaded.')
         expect(out()).toContain('will be missing from the report.')
     })
 
     it('names every failed source, not just the first', async function () {
         await ui().confirmRetry([
-            outcome({ source: 'osv', status: 'error' }),
-            outcome({ source: 'gemnasium', status: 'error' })
+            outcome({ source: 'osv', ecosystems: ['PyPI'], status: 'error' }),
+            outcome({ source: 'gemnasium', ecosystems: ['npm', 'PyPI'], status: 'error' })
         ])
-        expect(out()).toContain('OSV, GitLab gemnasium')
+        expect(out()).toContain('OSV (PyPI), GitLab gemnasium (npm, PyPI)')
     })
 
     it.each([
@@ -777,7 +798,7 @@ describe('scan progress', function () {
     // says so, with the reasons labelled and whose side they are on, never raw codes.
     it('says a project cannot be scanned, and why, in place of raw reason codes', function () {
         ui().scanProjectDone(scanResult({
-            outcomes: [{ scanner: 'npm-audit', status: 'unauditable', reasonCode: 'no_lockfile', errorText: null, durationMs: 5 }],
+            outcomes: [{ scanner: 'npm-audit', ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile', errorText: null, durationMs: 5 }],
             scanState: { state: 'cannot_scan', reasons: [{ source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project' }, { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project' }] }
         }))
         expect(out()).toContain('✗ web  cannot be scanned — No lockfile (the project)')
@@ -803,9 +824,9 @@ describe('scan progress', function () {
         expect(out()).toContain('way out not computed: registry exploded')
     })
 
-    it('says when the npm registry cache could not be saved', function () {
+    it('says when the registry cache could not be saved', function () {
         ui().registryCacheNotSaved('another sentinello run holds the cache lock')
-        expect(out()).toContain('npm registry cache not saved (another sentinello run holds the cache lock); the next run fetches again')
+        expect(out()).toContain('registry cache not saved (another sentinello run holds the cache lock); the next run fetches again')
     })
 })
 

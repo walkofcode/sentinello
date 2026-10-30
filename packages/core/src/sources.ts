@@ -10,7 +10,7 @@
 // download a sizable advisory dump). The "always a source on" invariant (validated on every toggle
 // write) is what lets npm-audit's cell be disabled without ever leaving the system source-blind.
 
-import { GEMNASIUM_NORMALIZER_VERSION, OSV_NORMALIZER_VERSION } from './advisory-rows'
+import { GEMNASIUM_NORMALIZER_VERSION, osvNormalizerVersion } from './advisory-rows'
 import type { EcosystemId, SourceCell, SourceId } from './ecosystems'
 
 export function sourceEnabledKey(source: SourceId, ecosystem: EcosystemId): string {
@@ -19,6 +19,17 @@ export function sourceEnabledKey(source: SourceId, ecosystem: EcosystemId): stri
 
 export function sourceStatusKey(source: SourceId, ecosystem: EcosystemId): string {
     return 'sources.' + source + '.' + ecosystem + '.status'
+}
+
+// Gemnasium's cache is ONE download for every ecosystem, with one seed, record count and refresh time, so it
+// has one sync status. It lives under a fixed slot, the npm cell's key, where it lived before cells had
+// ecosystems; the worker writes it there and every gemnasium cell reads it from there.
+export const GEMNASIUM_STATUS_KEY = sourceStatusKey('gemnasium', 'npm')
+
+// Where a cell's sync status is read from. OSV downloads each ecosystem separately and keeps a status per
+// cell; a gemnasium cell, whatever its ecosystem, reads gemnasium's one status.
+export function sourceCellStatusKey(source: SourceId, ecosystem: EcosystemId): string {
+    return source === 'gemnasium' ? GEMNASIUM_STATUS_KEY : sourceStatusKey(source, ecosystem)
 }
 
 // Pre-Phase-2 flat keys. Kept ONLY so the per-cell readers can fall back to them and the worker boot can
@@ -68,8 +79,8 @@ export type SourceStatus = {
 // source that keeps no cache and therefore has no snapshot to compare (npm-audit runs live). Lives
 // here rather than in the Settings component so every reader of a mirrored SourceStatus compares
 // against one table instead of restating the mapping.
-export function sourceNormalizerVersion(source: SourceId): number | null {
-    if (source === 'osv') return OSV_NORMALIZER_VERSION
+export function sourceNormalizerVersion(source: SourceId, ecosystem: EcosystemId): number | null {
+    if (source === 'osv') return osvNormalizerVersion(ecosystem)
     if (source === 'gemnasium') return GEMNASIUM_NORMALIZER_VERSION
     return null
 }

@@ -6,7 +6,7 @@ import type { CliOptions } from './options'
 import type { ProjectScanResult, ScannerOutcome } from './scan'
 import { settleFix } from '@sentinello/fixes'
 import type { Remediation, ScanState } from '@sentinello/core'
-import type { RawFinding } from '@sentinello/scanners'
+import { versionSetFromSemverRange, type RawFinding } from '@sentinello/scanners'
 import type { DiscoveredProject } from '@sentinello/scanners'
 
 // A fixed instant so every rendered document is byte-stable: 2026-03-04T05:06:07.000Z.
@@ -26,7 +26,8 @@ function project(name: string, relPath: string): DiscoveredProject {
         packageManager: 'npm',
         nvmrcVersion: null,
         gitBranch: null,
-        ecosystems: ['npm']
+        ecosystems: ['npm'],
+        manifests: [{ path: 'package-lock.json', ecosystem: 'npm', kind: 'package-lock.json' }]
     }
 }
 
@@ -44,8 +45,9 @@ function finding(overrides: Partial<RawFinding> = {}): RawFinding {
         fixInputs: {
             source: 'osv',
             installed: ['4.17.11'],
-            affected: { ranges: '>=4.0.0 <4.17.21', exact: [], complete: true },
+            affected: versionSetFromSemverRange('>=4.0.0 <4.17.21'),
             patched: null,
+            patchedSet: null,
             statedFix: '4.17.21',
             fixViaParent: false
         },
@@ -57,7 +59,7 @@ function finding(overrides: Partial<RawFinding> = {}): RawFinding {
 }
 
 function outcome(overrides: Partial<ScannerOutcome> = {}): ScannerOutcome {
-    return { scanner: 'osv', status: 'ok', reasonCode: 'ok', errorText: null, durationMs: 1, ...overrides }
+    return { scanner: 'osv', ecosystem: 'npm', status: 'ok', reasonCode: 'ok', errorText: null, durationMs: 1, ...overrides }
 }
 
 const SCANNED: ScanState = { state: 'scanned', reasons: [] }
@@ -70,9 +72,10 @@ function result(
     scanState: ScanState = SCANNED
 ): ProjectScanResult {
     const fixes = new Map(findings.map(function settle(f) {
-        return [f, settleFix({ evidence: [f.fixInputs], registry: { status: 'offline' }, checkedAt: 0 })] as const
+        return [f, settleFix({ ecosystem: 'npm', evidence: [f.fixInputs], registry: { status: 'offline' }, checkedAt: 0 })] as const
     }))
-    return { project: proj, findings, outcomes, fixes, remediations: new Map(), wayOutError: null, scanState }
+    const installations = new Map(findings.map(function installed(f) { return [f, f.installations ?? []] as const }))
+    return { project: proj, findings, outcomes, fixes, remediations: new Map(), installations, wayOutError: null, scanState }
 }
 
 describe('summarize — counting', function () {
@@ -112,7 +115,7 @@ describe('summarize — counting', function () {
         )
 
         expect(summary.projects[0]?.unauditable).toEqual([
-            { scanner: 'npm-audit', reasonCode: 'unsupported_lockfile', errorText: 'yarn' }
+            { scanner: 'npm-audit', ecosystem: 'npm', reasonCode: 'unsupported_lockfile', errorText: 'yarn' }
         ])
     })
 })
@@ -210,7 +213,7 @@ describe('summarize — fix status', function () {
     it('carries a none_released finding\'s way out into the JSON and the markdown', function () {
         const braces = finding({ packageName: 'braces', advisoryId: 'GHSA-vfj7-8cjw-p6xm', fixAvailable: false, fixVersion: null })
         const scanned = result(project('a', 'a'), [braces])
-        scanned.fixes.set(braces, settleFix({ evidence: [{ ...braces.fixInputs, statedFix: null, affected: { ranges: '<=3.0.3', exact: [], complete: true } }], registry: { status: 'ok', published: [{ version: '3.0.3', deprecated: false }], dataAsOf: 0 }, checkedAt: 0 }))
+        scanned.fixes.set(braces, settleFix({ ecosystem: 'npm', evidence: [{ ...braces.fixInputs, statedFix: null, affected: versionSetFromSemverRange('<=3.0.3') }], registry: { status: 'ok', published: [{ version: '3.0.3', deprecated: false }], dataAsOf: 0 }, checkedAt: 0 }))
         const wayOut: Remediation = {
             v: 1, package: 'braces', checkedAt: 0,
             health: { name: 'braces', latest: '3.0.3', lastPublishAt: null, maintainers: 1, weeklyDownloads: null, deprecated: null, daysSinceLastPublish: null, unmaintained: false },
@@ -227,6 +230,34 @@ describe('summarize — fix status', function () {
     })
 })
 
+// Every finding names its ecosystem and every manifest it is installed through, so an agent reaches for that
+// ecosystem's tools and fixes every copy. A finding from a lockfile with no dependency graph says its chain
+// is unknown, never that there is no way out.
+describe('summarize — ecosystem, installations and chain', function () {
+    it('reads an npm-audit finding, which carries no ecosystem, as npm', function () {
+        const summary = summarize([result(project('a', 'a'), [finding()])], optionsWith([]))
+        expect(summary.findings[0]).toMatchObject({ ecosystem: 'npm', installations: [] })
+    })
+
+    it('carries the finding\'s own ecosystem and installations into the JSON', function () {
+        const installations = [{ manifestPath: 'ios/Gemfile.lock', version: '2.0.0' }, { manifestPath: 'android/Gemfile.lock', version: '2.1.0' }]
+        const rack = finding({ ecosystem: 'RubyGems', packageName: 'rack', installedVersion: '2.0.0', installations, depPath: ['fake-app@1.0.0', 'rack@2.0.0'] })
+        const json = JSON.parse(renderJson(summarize([result(project('a', 'a'), [rack])], optionsWith([])), optionsWith([]), 0))
+        expect(json.findings[0]).toMatchObject({ ecosystem: 'RubyGems', installations })
+        const md = renderMarkdown(summarize([result(project('a', 'a'), [rack])], optionsWith([])), optionsWith([]), '', 0)
+        expect(md).toContain('- **Ecosystem:** `RubyGems` (Ruby)')
+        expect(md).toContain('- **Installed through:** `ios/Gemfile.lock` (2.0.0), `android/Gemfile.lock` (2.1.0)')
+        expect(md).toContain('`fake-app@1.0.0 › rack@2.0.0`')
+    })
+
+    it('says "chain unknown" for a finding read from requirements.txt, and never "no way out"', function () {
+        const pinned = finding({ ecosystem: 'PyPI', packageName: 'fake-py-lib', installedVersion: '2.0.0', installations: [{ manifestPath: 'requirements.txt', version: '2.0.0' }], depPath: [] })
+        const md = renderMarkdown(summarize([result(project('a', 'a'), [pinned])], optionsWith([])), optionsWith([]), '', 0)
+        expect(md).toContain('- **Dependency path:** chain unknown (the lockfile records no dependency graph)')
+        expect(md.toLowerCase()).not.toContain('no way out')
+    })
+})
+
 describe('hasUnavailableSource — "we could not look", not "we found nothing"', function () {
     function summaryWithReasons(...reasonCodes: string[]) {
         return {
@@ -237,7 +268,7 @@ describe('hasUnavailableSource — "we could not look", not "we found nothing"',
                 counts: { critical: 0, high: 0, moderate: 0, low: 0, info: 0 },
                 scanState: SCANNED,
                 unauditable: reasonCodes.map(function entry(reasonCode) {
-                    return { scanner: 'osv', reasonCode, errorText: null }
+                    return { scanner: 'osv', ecosystem: 'npm', reasonCode, errorText: null }
                 })
             }],
             totalFindings: 0,
@@ -283,7 +314,7 @@ describe('hasUnavailableSource — "we could not look", not "we found nothing"',
             findingCount: 0,
             counts: { critical: 0, high: 0, moderate: 0, low: 0, info: 0 },
             scanState: SCANNED,
-            unauditable: [{ scanner: 'osv', reasonCode: 'osv_db_not_seeded', errorText: null }]
+            unauditable: [{ scanner: 'osv', ecosystem: 'npm', reasonCode: 'osv_db_not_seeded', errorText: null }]
         })
         expect(hasUnavailableSource(summary)).toBe(true)
     })

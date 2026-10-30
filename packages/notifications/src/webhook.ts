@@ -48,6 +48,10 @@ function buildBody(flavor: 'json' | 'text', message: RenderedMessage): unknown {
             portalUrl: message.portalUrl
         }
     }
+    if (ctx.event === 'capability_summary') {
+        if (flavor === 'text') return { text: message.text }
+        return { ...ctx, title: message.title, text: message.text, portalUrl: message.portalUrl }
+    }
     if (flavor === 'text') {
         return { text: ctx.advisoryText }
     }
@@ -73,8 +77,14 @@ function buildJsonBody(ctx: WebhookPayloadContext, portalUrl: string | null): un
 // would have been posted without posting it.
 export function toWebhookVulnerability(f: Finding): Record<string, unknown> {
     return {
+        // The package's ecosystem (EcosystemId: 'npm', 'PyPI', 'Go', 'crates.io', 'RubyGems'). Additive.
+        ecosystem: f.ecosystem,
         library: f.packageName,
+        // The lowest affected version across `installations`.
         version: f.installedVersion,
+        // Every { manifestPath, version } the library is installed through: one finding for a library in two
+        // Gemfile.locks lists both. Empty on a finding recorded before 3.8. Additive.
+        installations: f.installations,
         // Only ever a published version: a fix a source merely states is not a recommendation.
         recommendedVersion: f.fixStatus === 'released' ? f.fixVersion : null,
         fixAvailable: f.fixAvailable,
@@ -84,8 +94,9 @@ export function toWebhookVulnerability(f: Finding): Record<string, unknown> {
         // Additive.
         remediation: f.fixStatus === 'none_released' ? f.remediation : null,
         // Set when the finding's source last failed to scan the project, so an earlier scan left this row and
-        // nothing re-checked it: { reasonCode, side, projectState, lastOkScanAt } (NotRecheckedBecause in
-        // @sentinello/core). The fix fields above are then as of that earlier scan. Null otherwise. Additive.
+        // nothing re-checked it, or an ok scan could not read a manifest some of its copies are installed through:
+        // { reasonCode, side, projectState, lastOkScanAt, manifests } (NotRecheckedBecause in @sentinello/core).
+        // The fix fields above are then as of that earlier scan. Null otherwise. Additive.
         notRecheckedBecause: f.notRecheckedBecause ?? null,
         severity: f.severity,
         advisory: {

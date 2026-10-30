@@ -1,0 +1,1 @@
+{"advisoryId":"GO-FIXTURE-0001","ecosystem":"Go","packageName":"example.invalid/fakemod","aliases":[],"ranges":[{"type":"SEMVER","introduced":"0","fixed":"1.3.0","lastAffected":null}],"versions":[],"severity":"HIGH","summary":"Fixture: fakemod fixed in v1.3.0","url":"https://example.invalid/GO-FIXTURE-0001","malicious":false,"withdrawn":null}

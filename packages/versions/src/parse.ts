@@ -25,10 +25,11 @@ function toVersionRange(entry: unknown): VersionRange | null {
     const raw = entry as Record<string, unknown>
     const introduced = raw.introduced
     if (typeof introduced !== 'string') return null
-    // Both upper bounds are always present as `string | null`; only the two genuinely-optional fields stay
+    // Both upper bounds are always present as `string | null`; only the genuinely-optional fields stay
     // absent when unset, so a range round-trips to the same shape it was written as. `type` is absent for
-    // gemnasium (which has no such concept) and `introducedExclusive` is a sparse flag — an absent one and
-    // an explicit `false` mean the same thing, so only `true` is ever stored.
+    // gemnasium (which has no such concept), `introducedExclusive` is a sparse flag — an absent one and an
+    // explicit `false` mean the same thing, so only `true` is ever stored — and `refused` exists only on a
+    // part of the affected set the parser could not read.
     const range: VersionRange = {
         introduced,
         fixed: typeof raw.fixed === 'string' ? raw.fixed : null,
@@ -36,5 +37,6 @@ function toVersionRange(entry: unknown): VersionRange | null {
     }
     if (typeof raw.type === 'string') range.type = raw.type
     if (raw.introducedExclusive === true) range.introducedExclusive = true
+    if (typeof raw.refused === 'string') range.refused = raw.refused
     return range
 }

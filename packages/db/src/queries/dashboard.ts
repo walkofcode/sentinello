@@ -1,7 +1,8 @@
 import { sql } from 'drizzle-orm'
-import { parseFindingCorroborations, readFixFields, SCAN_HEARTBEAT_STALE_MS, type DepTypeFilter, type NotRecheckedBecause, type ScanState, type FindingCorroboration, type FixCheck, type FixStatus, type Remediation } from '@sentinello/core'
+import { parseFindingCorroborations, parseFindingInstallations, readFixFields, SCAN_HEARTBEAT_STALE_MS, type DepTypeFilter, type FindingInstallation, type NotRecheckedBecause, type ProjectManifest, type ScanState, type FindingCorroboration, type FixCheck, type FixStatus, type Remediation } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { depTypeClause } from './dep-type'
+import { parseManifests } from './projects'
 import { activeScanRows, findingScanContexts, listLatestSourceScans, listProjectScanStates, type LatestSourceScanRow } from './scan-state'
 import { activeSourceCellClause } from './sources'
 import { advisoryIdentitySql, severityRankSql, findingMuteExclusionSql } from './advisory-identity'
@@ -170,10 +171,11 @@ export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeF
     }
 }
 
-// One entry per advisory source that has scanned this project and whose (source, ecosystem) cell is
-// still enabled, carrying that source's OWN latest verdict. Two sources that disagree produce two
-// entries; the single lastScan* fields this replaced reported whichever source happened to finish
-// last — in practice OSV every time, because it finishes milliseconds after npm audit.
+// One entry per (source, ecosystem) cell that has scanned this project and is still enabled, carrying
+// that cell's OWN latest verdict. Two sources that disagree produce two entries, and so does one source
+// answering differently for two languages (OSV ok for Ruby, failing for Python); the single lastScan*
+// fields this replaced reported whichever source happened to finish last — in practice OSV every time,
+// because it finishes milliseconds after npm audit.
 //
 // An empty array means nothing has ever scanned the project, which is NOT the same as clean — it is
 // why the dashboard's isHealthy checks the length before it checks the statuses.
@@ -181,6 +183,9 @@ export type ProjectScanState = {
     // COALESCE(source, scanner), typed as string rather than SourceId to match CurrentFindingRow.source:
     // the column is free text and a legacy row can carry a plugin name the registry never knew.
     source: string
+    // The ecosystem id the source scanned in this cell ('npm', 'PyPI', …): with source, what tells the
+    // entries of one polyglot project apart.
+    ecosystem: string
     finishedAt: number
     status: string
     reasonCode: string | null
@@ -198,6 +203,9 @@ export type ProjectCatalogRow = {
     rootLabel: string | null
     rootPath: string
     packageManager: string
+    // Every manifest discovery found for the project (Project.manifests): what the PM and Runtime columns
+    // read. Empty for a row discovered before 3.8, which falls back to packageManager.
+    manifests: ProjectManifest[]
     nvmrcVersion: string | null
     gitBranch: string | null
     muted: boolean
@@ -207,19 +215,20 @@ export type ProjectCatalogRow = {
     tagsJson: string
     scanStates: ProjectScanState[]
     // The project's scan state over its expected sources (projectScanState): what the State column and
-    // MCP say, where scanStates above is each source's own last word.
+    // MCP say, where scanStates above is each cell's own last word.
     scanState: ScanState
     severityCounts: SeverityCounts
 }
 
-// Latest scan per (project, source), for every source cell that is currently active
-// (listLatestSourceScans says why one row per source, and why an absent source means "has not run").
+// Latest scan per (project, source, ecosystem), for every source cell that is currently active
+// (listLatestSourceScans says why one row per cell, and why an absent cell means "has not run").
 function listLatestScanStates(db: DrizzleDb, latest: readonly LatestSourceScanRow[]): Map<string, ProjectScanState[]> {
     const byProject = new Map<string, ProjectScanState[]>()
     for (const row of activeScanRows(db, latest)) {
         const states = byProject.get(row.projectId) ?? []
         states.push({
             source: row.source,
+            ecosystem: row.ecosystem,
             finishedAt: row.finishedAt,
             status: row.status,
             reasonCode: row.reasonCode,
@@ -244,6 +253,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
         root_label: string | null
         root_path: string
         package_manager: string
+        manifests_json: string
         nvmrc_version: string | null
         git_branch: string | null
         muted: number
@@ -282,6 +292,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             r.label AS root_label,
             r.path AS root_path,
             p.package_manager AS package_manager,
+            p.manifests_json AS manifests_json,
             p.nvmrc_version AS nvmrc_version,
             p.git_branch AS git_branch,
             -- Compute project-scope muted state from the mutes table (with expiry semantics) so the
@@ -318,6 +329,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             rootLabel: row.root_label,
             rootPath: row.root_path,
             packageManager: row.package_manager,
+            manifests: parseManifests(row.manifests_json),
             nvmrcVersion: row.nvmrc_version,
             gitBranch: row.git_branch,
             muteId: row.mute_id,
@@ -368,7 +380,10 @@ export type CurrentFindingRow = {
     advisoryTitle: string | null
     advisoryUrl: string | null
     packageName: string
+    // The lowest affected installed version; every (manifest, version) it was matched through is listed in
+    // installations (empty on a row written before 3.8).
     installedVersion: string
+    installations: FindingInstallation[]
     vulnerableRange: string
     severity: string
     // Read through readFixFields: a row no settlement has written reads as `unverified` with its fix
@@ -417,6 +432,7 @@ export function listCurrentFindingsForProject(
         advisory_url: string | null
         package_name: string
         installed_version: string
+        installations_json: string
         vulnerable_range: string
         severity: string
         fix_available: number
@@ -434,7 +450,7 @@ export function listCurrentFindingsForProject(
     }>(sql`
         SELECT
             f.id, f.scan_id, f.project_id, f.scanner, f.source, f.ecosystem, f.advisory_id, f.advisory_title, f.advisory_url,
-            f.package_name, f.installed_version, f.vulnerable_range, f.severity, f.fix_available,
+            f.package_name, f.installed_version, f.installations_json, f.vulnerable_range, f.severity, f.fix_available,
             f.fix_version, f.fix_status, f.fix_check_json, f.remediation_json, f.dep_path_json, f.corroborations_json, f.is_prod, f.is_dev,
             f.first_detected_at, f.last_seen_at,
             (SELECT 1 FROM mutes m
@@ -462,6 +478,7 @@ export function listCurrentFindingsForProject(
             f.package_name ASC
     `)
     return rows.map(function toRow(row): CurrentFindingRow {
+        const installations = parseFindingInstallations(row.installations_json)
         return {
             id: row.id,
             scanId: row.scan_id,
@@ -474,11 +491,13 @@ export function listCurrentFindingsForProject(
             advisoryUrl: row.advisory_url,
             packageName: row.package_name,
             installedVersion: row.installed_version,
+            installations,
             vulnerableRange: row.vulnerable_range,
             severity: row.severity,
             ...readFixFields(
                 { fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json, remediationJson: row.remediation_json },
-                scanContext(row.project_id, row.source ?? row.scanner)
+                // Every row here is open (resolved_at IS NULL above).
+                scanContext(row.project_id, row.source ?? row.scanner, row.ecosystem, { lastSeenAt: row.last_seen_at, resolvedAt: null, installations })
             ),
             depPathJson: row.dep_path_json,
             corroborations: parseFindingCorroborations(row.corroborations_json),

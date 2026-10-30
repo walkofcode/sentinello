@@ -52,6 +52,7 @@ function addProject(id: string, ecosystems: EcosystemId[] = ['npm']): void {
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems,
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,
@@ -59,8 +60,8 @@ function addProject(id: string, ecosystems: EcosystemId[] = ['npm']): void {
     })
 }
 
-function enable(source: 'npm-audit' | 'osv' | 'gemnasium', on = true): void {
-    setConfigValue(db, sourceEnabledKey(source, 'npm'), on)
+function enable(source: 'npm-audit' | 'osv' | 'gemnasium', on = true, ecosystem: EcosystemId = 'npm'): void {
+    setConfigValue(db, sourceEnabledKey(source, ecosystem), on)
 }
 
 // ULID-shaped ids that sort in insertion order, so a finished_at tie still has a defined winner.
@@ -95,17 +96,20 @@ function ok(source: string, at: number, overrides: Partial<Scan> & { coverage?: 
 }
 
 // A finding row exactly as a scan left it: settled (fix_status + fix_check_json) or legacy (neither).
-function finding(id: string, scanId: string, settled: boolean, overrides: { source?: string; projectId?: string } = {}): void {
+// `lastSeenAt` defaults to T0: an ok scan of the row's cell after that one must pass the time it re-saw the
+// row, as the lifecycle merge would have written it — an open row older than its cell's latest ok scan is
+// one that scan kept without seeing.
+function finding(id: string, scanId: string, settled: boolean, overrides: { source?: string; projectId?: string; ecosystem?: EcosystemId; lastSeenAt?: number; installationsJson?: string } = {}): void {
     const source = overrides.source ?? 'npm-audit'
     const check = JSON.stringify({ v: 1, checkedAt: T0, registry: 'ok', packageDataAsOf: T0, unevaluable: null, sources: [] })
     sqlite
         .prepare(
             'INSERT INTO findings (id, scan_id, project_id, scanner, source, ecosystem, advisory_id, package_name,' +
                 ' installed_version, vulnerable_range, severity, fix_available, fix_version, fix_status, fix_check_json,' +
-                ' first_detected_at, last_seen_at)' +
-                " VALUES (?, ?, ?, ?, ?, 'npm', ?, 'lodash', '4.17.11', '<4.17.21', 'high', 1, '4.17.21', ?, ?, ?, ?)"
+                ' first_detected_at, last_seen_at, installations_json)' +
+                " VALUES (?, ?, ?, ?, ?, ?, ?, 'lodash', '4.17.11', '<4.17.21', 'high', 1, '4.17.21', ?, ?, ?, ?, ?)"
         )
-        .run(id, scanId, overrides.projectId ?? PROJECT_ID, source, source, 'GHSA-' + id, settled ? 'released' : null, settled ? check : null, T0, T0)
+        .run(id, scanId, overrides.projectId ?? PROJECT_ID, source, source, overrides.ecosystem ?? 'npm', 'GHSA-' + id, settled ? 'released' : null, settled ? check : null, T0, overrides.lastSeenAt ?? T0, overrides.installationsJson ?? '[]')
 }
 
 beforeEach(async function setup() {
@@ -165,7 +169,7 @@ describe('scan state — listLatestSourceScans', function () {
     })
 
     it('reads a legacy row by its scanner name', function () {
-        sqlite.prepare("INSERT INTO scans (id, project_id, started_at, finished_at, scanner, source, status, reason_code, duration_ms, raw_json) VALUES ('legacy', ?, ?, ?, 'npm-audit', NULL, 'ok', 'ok', 0, '')").run(PROJECT_ID, T0, T0)
+        sqlite.prepare("INSERT INTO scans (id, project_id, started_at, finished_at, scanner, source, ecosystem, status, reason_code, duration_ms, raw_json) VALUES ('legacy', ?, ?, ?, 'npm-audit', NULL, 'npm', 'ok', 'ok', 0, '')").run(PROJECT_ID, T0, T0)
         expect(listLatestSourceScans(db, [PROJECT_ID])[0]?.source).toBe('npm-audit')
     })
 
@@ -218,19 +222,19 @@ describe('scan state — getProjectEcosystemCoverage', function () {
 
     it('reads coverage out of the latest scan', function () {
         ok('npm-audit', T0, { coverage: [{ ecosystem: 'npm', status: 'ok' }] })
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([{ ecosystem: 'npm', status: 'ok', reasonCode: null, details: [] }])
+        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([{ ecosystem: 'npm', manifestPath: null, status: 'ok', reasonCode: null, details: [] }])
     })
 
     it('carries the reason and details for a degraded ecosystem', function () {
         failed('npm-audit', T0, 'no_lockfile', { rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile', details: ['no lockfile'] }] }) })
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile', details: ['no lockfile'] }])
+        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([{ ecosystem: 'npm', manifestPath: null, status: 'unauditable', reasonCode: 'no_lockfile', details: ['no lockfile'] }])
     })
 
     // The lockfile-loss case: the newer scan's unauditable coverage wins, and the older "ok" is gone.
     it('stops showing an older ok once the latest scan says otherwise', function () {
         ok('npm-audit', T0, { coverage: [{ ecosystem: 'npm', status: 'ok' }] })
         failed('npm-audit', T0 + HOUR, 'no_lockfile', { rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile' }] }) })
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile', details: [] }])
+        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([{ ecosystem: 'npm', manifestPath: null, status: 'unauditable', reasonCode: 'no_lockfile', details: [] }])
     })
 
     // Never merged across scans: an ecosystem the latest scan did not record is not borrowed from an older one.
@@ -252,7 +256,7 @@ describe('scan state — getProjectEcosystemCoverage', function () {
     it('reads coverage kept beside a raw diagnostic', function () {
         ok('osv', T0, { coverage: [{ ecosystem: 'npm', status: 'ok' }] })
         failed('npm-audit', T0 + HOUR, 'audit_parse_error', { rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'unsupported_lockfile' }], raw: 'raw audit text' }) })
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'unsupported_lockfile', details: [] }])
+        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([{ ecosystem: 'npm', manifestPath: null, status: 'unauditable', reasonCode: 'unsupported_lockfile', details: [] }])
     })
 
     it('reads a latest scan whose coverage is not an array, or whose summary is not an object, as unknown', function () {
@@ -272,9 +276,25 @@ describe('scan state — getProjectEcosystemCoverage', function () {
         expect(getProjectEcosystemCoverage(db, PROJECT_ID)[0]?.status).toBe('unauditable')
     })
 
-    it('skips entries with no ecosystem name, and a repeated ecosystem', function () {
-        ok('npm-audit', T0, { coverage: [{ status: 'ok' }, null, { ecosystem: 'npm', status: 'ok' }, { ecosystem: 'npm', status: 'partial' }] })
-        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([{ ecosystem: 'npm', status: 'ok', reasonCode: null, details: [] }])
+    it('skips entries with no ecosystem name', function () {
+        ok('npm-audit', T0, { coverage: [{ status: 'ok' }, null, { ecosystem: 'npm', status: 'ok' }] })
+        expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([{ ecosystem: 'npm', manifestPath: null, status: 'ok', reasonCode: null, details: [] }])
+    })
+
+    // SENTINEL-137: one entry per manifest. Keeping the first entry of an ecosystem read a project with a
+    // readable Gemfile.lock and a bare ios/Gemfile as fully covered.
+    it.each([
+        ['readable first', ['Gemfile.lock', 'ios/Gemfile']],
+        ['lockless first', ['ios/Gemfile', 'Gemfile.lock']]
+    ])('keeps every manifest of an ecosystem, in order, %s', function (_label, order) {
+        const entries: Record<string, unknown> = {
+            'Gemfile.lock': { ecosystem: 'RubyGems', manifestPath: 'Gemfile.lock', status: 'ok' },
+            'ios/Gemfile': { ecosystem: 'RubyGems', manifestPath: 'ios/Gemfile', status: 'unauditable', reasonCode: 'no_lockfile', details: ['ios/Gemfile has no lockfile covering it (Gemfile.lock)'] }
+        }
+        ok('osv', T0, { coverage: order.map(function entry(path) { return entries[path] }) })
+        expect(getProjectEcosystemCoverage(db, PROJECT_ID).map(function c(row) { return [row.manifestPath, row.status, row.reasonCode] })).toEqual(order.map(function expected(path) {
+            return path === 'Gemfile.lock' ? ['Gemfile.lock', 'ok', null] : ['ios/Gemfile', 'unauditable', 'no_lockfile']
+        }))
     })
 
     it('normalises an unrecognised status to ok', function () {
@@ -298,21 +318,53 @@ describe('scan state — getProjectEcosystemCoverage', function () {
     })
 })
 
-describe('scan state — expected sources', function () {
-    it('expects the runnable sources of the project ecosystems, in source order', function () {
+describe('scan state — expected cells', function () {
+    it('expects the runnable cells of the project ecosystems, in source order', function () {
         enable('gemnasium')
         enable('osv')
-        expect(expectedScanInputs(db, [PROJECT_ID]).get(PROJECT_ID)?.expectedSources).toEqual(['npm-audit', 'osv', 'gemnasium'])
+        expect(expectedScanInputs(db, [PROJECT_ID]).get(PROJECT_ID)?.expectedCells).toEqual([
+            { source: 'npm-audit', ecosystem: 'npm' },
+            { source: 'osv', ecosystem: 'npm' },
+            { source: 'gemnasium', ecosystem: 'npm' }
+        ])
+    })
+
+    it('expects one cell per ecosystem of a polyglot project', function () {
+        addProject('poly', ['npm', 'RubyGems'])
+        enable('osv', true, 'RubyGems')
+        enable('osv', true, 'PyPI')
+        expect(expectedScanInputs(db, ['poly']).get('poly')).toMatchObject({
+            expectedCells: [{ source: 'npm-audit', ecosystem: 'npm' }, { source: 'osv', ecosystem: 'RubyGems' }],
+            sourceDisabled: []
+        })
     })
 
     it('expects nothing from a source enabled only for an ecosystem the project does not have', function () {
         addProject('py-only', ['PyPI'])
-        expect(expectedScanInputs(db, ['py-only']).get('py-only')?.expectedSources).toEqual([])
+        expect(expectedScanInputs(db, ['py-only']).get('py-only')?.expectedCells).toEqual([])
     })
 
     it('reads a project with no recorded ecosystems as npm', function () {
         addProject('legacy', [])
-        expect(expectedScanInputs(db, ['legacy']).get('legacy')?.expectedSources).toEqual(['npm-audit'])
+        expect(expectedScanInputs(db, ['legacy']).get('legacy')?.expectedCells).toEqual([{ source: 'npm-audit', ecosystem: 'npm' }])
+    })
+
+    // The default install: OSV and gemnasium are opt-in, so nothing answers for Python.
+    it('marks a detected ecosystem no runnable cell answers for, and reads a PyPI-only project as cannot scan', function () {
+        addProject('py-only', ['PyPI'])
+        expect(expectedScanInputs(db, ['py-only']).get('py-only')?.sourceDisabled).toEqual([{ kind: 'ecosystem', id: 'PyPI' }])
+        expect(getProjectScanState(db, 'py-only')).toEqual({
+            state: 'cannot_scan',
+            reasons: [{ source: null, ecosystem: 'PyPI', reasonCode: 'ecosystem_source_disabled', side: 'environment' }]
+        })
+        enable('osv', true, 'PyPI')
+        expect(expectedScanInputs(db, ['py-only']).get('py-only')?.sourceDisabled).toEqual([])
+        expect(getProjectScanState(db, 'py-only')).toEqual({ state: 'not_scanned_yet', reasons: [] })
+    })
+
+    it('never marks an ecosystem the registry does not offer', function () {
+        sqlite.prepare("UPDATE projects SET ecosystems_json = '[\"npm\",\"Maven\"]' WHERE id = ?").run(PROJECT_ID)
+        expect(expectedScanInputs(db, [PROJECT_ID]).get(PROJECT_ID)?.sourceDisabled).toEqual([])
     })
 
     it('normalizes every project when none is named', function () {
@@ -371,10 +423,24 @@ describe('scan state — expected sources', function () {
 
     it('reads an ecosystem detected since the latest scan as not yet run', function () {
         addProject('polyglot', ['npm', 'PyPI'])
+        enable('osv', true, 'PyPI')
         ok('npm-audit', T0, { projectId: 'polyglot', coverage: [{ ecosystem: 'npm', status: 'ok' }] })
         expect(getProjectScanState(db, 'polyglot')).toEqual({
             state: 'partial',
-            reasons: [{ source: null, ecosystem: 'PyPI', reasonCode: 'not_yet_run', side: null }]
+            reasons: [
+                { source: 'osv', ecosystem: null, reasonCode: 'not_yet_run', side: null },
+                { source: null, ecosystem: 'PyPI', reasonCode: 'not_yet_run', side: null }
+            ]
+        })
+    })
+
+    // OSV and gemnasium are opt-in: on a default install nothing answers for the Python half of a project.
+    it('reads a detected ecosystem with no enabled source as source-disabled, never as not yet run', function () {
+        addProject('polyglot', ['npm', 'PyPI'])
+        ok('npm-audit', T0, { projectId: 'polyglot', coverage: [{ ecosystem: 'npm', status: 'ok' }, { ecosystem: 'PyPI', status: 'ok' }] })
+        expect(getProjectScanState(db, 'polyglot')).toEqual({
+            state: 'partial',
+            reasons: [{ source: null, ecosystem: 'PyPI', reasonCode: 'ecosystem_source_disabled', side: 'environment' }]
         })
     })
 
@@ -416,7 +482,7 @@ describe('scan state — project cannot be scanned in the catalog and the dashbo
         failed('npm-audit', T0, 'no_lockfile', { rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile' }] }) })
         ok('npm-audit', T0, { projectId: 'partial-project', coverage: [{ ecosystem: 'npm', status: 'ok' }] })
         failed('npm-audit', T0, 'no_lockfile', { projectId: 'muted-project' })
-        insertMute(db, { id: 'mute-1', scope: 'project', projectId: 'muted-project', scanner: null, ecosystem: null, advisoryId: null, packageName: null, reason: 'retired', author: 'betty', createdAt: T0, expiresAt: null })
+        insertMute(db, { id: 'mute-1', scope: 'project', projectId: 'muted-project', reason: 'retired', author: 'betty', createdAt: T0, expiresAt: null })
         const summary = getDashboardSummary(db, T0)
         expect(summary.projectsCannotBeScanned).toBe(1)
         expect(summary.projectsCannotBeFullyScanned).toBe(1)
@@ -427,8 +493,8 @@ describe('scan state — project cannot be scanned in the catalog and the dashbo
 
 describe('scan state — not re-checked findings', function () {
     it('has no context for a source that never scanned the project', function () {
-        expect(findingScanContexts(db, [PROJECT_ID])(PROJECT_ID, 'npm-audit')).toBeNull()
-        expect(findingScanContexts(db, [PROJECT_ID])('nope', 'npm-audit')).toBeNull()
+        expect(findingScanContexts(db, [PROJECT_ID])(PROJECT_ID, 'npm-audit', 'npm')).toBeNull()
+        expect(findingScanContexts(db, [PROJECT_ID])('nope', 'npm-audit', 'npm')).toBeNull()
     })
 
     it('gives the source latest scan, its last ok scan and the project state', function () {
@@ -436,9 +502,9 @@ describe('scan state — not re-checked findings', function () {
         failed('npm-audit', T0 + HOUR)
         const lookup = findingScanContexts(db, [PROJECT_ID])
         const expected = { latestStatus: 'unauditable', latestReasonCode: 'no_lockfile', lastOkScanAt: T0, projectState: 'cannot_scan' }
-        expect(lookup(PROJECT_ID, 'npm-audit')).toEqual(expected)
+        expect(lookup(PROJECT_ID, 'npm-audit', 'npm')).toEqual(expected)
         // The project state is computed once and reused for the project's other rows.
-        expect(lookup(PROJECT_ID, 'npm-audit')).toEqual(expected)
+        expect(lookup(PROJECT_ID, 'npm-audit', 'npm')).toEqual(expected)
     })
 
     it('marks both a settled and a legacy row retained after a failed scan', function () {
@@ -448,14 +514,14 @@ describe('scan state — not re-checked findings', function () {
         failed('npm-audit', T0 + HOUR)
         const rows = listCurrentFindingsForProject(db, PROJECT_ID, T0 + 2 * HOUR)
         const byId = new Map(rows.map(function r(row) { return [row.id, row] }))
-        const annotation = { reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: T0 }
+        const annotation = { reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: T0, manifests: null }
         expect(byId.get('settled')).toMatchObject({ fixStatus: 'released', fixVersion: '4.17.21', notRecheckedBecause: annotation })
         expect(byId.get('legacy')).toMatchObject({ fixStatus: 'unverified', fixCheck: null, notRecheckedBecause: annotation })
     })
 
     it('marks nothing once the source scans successfully again', function () {
         const first = ok('npm-audit', T0)
-        finding('settled', first.id, true)
+        finding('settled', first.id, true, { lastSeenAt: T0 + 2 * HOUR })
         failed('npm-audit', T0 + HOUR)
         ok('npm-audit', T0 + 2 * HOUR)
         expect(listCurrentFindingsForProject(db, PROJECT_ID, T0 + 3 * HOUR)[0]?.notRecheckedBecause).toBeNull()
@@ -480,6 +546,52 @@ describe('scan state — not re-checked findings', function () {
     })
 })
 
+// SENTINEL-117: one source, two ecosystems, one failing. Each cell is read, retained and annotated on its own,
+// whichever finished last.
+describe('scan state — a source failing for one ecosystem and answering for another', function () {
+    it.each([
+        ['Python written first', ['PyPI', 'RubyGems'] as const],
+        ['Ruby written first', ['RubyGems', 'PyPI'] as const]
+    ])('reads Python failed and not re-checked and Ruby ok, after retention, %s', function (_label, order) {
+        addProject('poly', ['PyPI', 'RubyGems'])
+        enable('osv', true, 'PyPI')
+        enable('osv', true, 'RubyGems')
+        const coverage = [{ ecosystem: 'PyPI', status: 'ok' }, { ecosystem: 'RubyGems', status: 'ok' }]
+        const first = new Map<string, Scan>()
+        for (const ecosystem of order) first.set(ecosystem, ok('osv', T0, { projectId: 'poly', ecosystem, coverage }))
+        finding('py-row', (first.get('PyPI') as Scan).id, true, { source: 'osv', projectId: 'poly', ecosystem: 'PyPI' })
+        // Ruby's ok scan an hour later re-saw its row.
+        finding('rb-row', (first.get('RubyGems') as Scan).id, true, { source: 'osv', projectId: 'poly', ecosystem: 'RubyGems', lastSeenAt: T0 + HOUR })
+        for (const ecosystem of order) {
+            if (ecosystem === 'PyPI') failed('osv', T0 + HOUR, 'osv_db_unavailable', { projectId: 'poly', ecosystem, status: 'error', rawJson: JSON.stringify({ coverage }) })
+            else ok('osv', T0 + HOUR, { projectId: 'poly', ecosystem, coverage })
+        }
+        const at = T0 + 2 * HOUR
+        function read(): unknown {
+            const lookup = findingScanContexts(db, ['poly'])
+            const rows = new Map(listCurrentFindingsForProject(db, 'poly', at).map(function r(row) { return [row.id, row] }))
+            return {
+                state: getProjectScanState(db, 'poly'),
+                python: lookup('poly', 'osv', 'PyPI'),
+                ruby: lookup('poly', 'osv', 'RubyGems'),
+                pythonRow: rows.get('py-row')?.notRecheckedBecause,
+                rubyRow: rows.get('rb-row')?.notRecheckedBecause
+            }
+        }
+        const before = read()
+        expect(before).toEqual({
+            state: { state: 'partial', reasons: [{ source: 'osv', ecosystem: null, reasonCode: 'osv_db_unavailable', side: 'environment' }] },
+            python: { latestStatus: 'error', latestReasonCode: 'osv_db_unavailable', lastOkScanAt: T0, projectState: 'partial' },
+            ruby: { latestStatus: 'ok', latestReasonCode: 'ok', lastOkScanAt: T0 + HOUR, projectState: 'partial' },
+            pythonRow: { reasonCode: 'osv_db_unavailable', side: 'environment', projectState: 'partial', lastOkScanAt: T0, manifests: null },
+            rubyRow: null
+        })
+        // Each cell keeps its latest and its latest ok scan: nothing here is prunable, whatever its age.
+        expect(listPrunableScanIds(db, at, 0, 1000)).toEqual([])
+        expect(read()).toEqual(before)
+    })
+})
+
 // Retention keeps the newest 100 scans per project. A source switched off for a while is out-scanned by the
 // others; its latest failure must survive anyway, or the state would read its older ok as current.
 describe('scan state — retention', function () {
@@ -494,7 +606,7 @@ describe('scan state — retention', function () {
         function read(): unknown {
             return {
                 state: getProjectScanState(db, PROJECT_ID),
-                context: findingScanContexts(db, [PROJECT_ID])(PROJECT_ID, 'osv'),
+                context: findingScanContexts(db, [PROJECT_ID])(PROJECT_ID, 'osv', 'npm'),
                 annotation: listCurrentFindingsForProject(db, PROJECT_ID, at).find(function osv(row) { return row.id === 'osv-row' })?.notRecheckedBecause
             }
         }
@@ -502,7 +614,7 @@ describe('scan state — retention', function () {
         expect(before).toEqual({
             state: { state: 'partial', reasons: [{ source: 'osv', ecosystem: null, reasonCode: 'osv_db_unavailable', side: 'environment' }] },
             context: { latestStatus: 'error', latestReasonCode: 'osv_db_unavailable', lastOkScanAt: T0, projectState: 'partial' },
-            annotation: { reasonCode: 'osv_db_unavailable', side: 'environment', projectState: 'partial', lastOkScanAt: T0 }
+            annotation: { reasonCode: 'osv_db_unavailable', side: 'environment', projectState: 'partial', lastOkScanAt: T0, manifests: null }
         })
         const prunable = listPrunableScanIds(db, at, 100, 1000)
         // Only the oldest npm-audit scan falls outside the newest 100; the OSV failure is OSV's latest scan.
@@ -510,5 +622,154 @@ describe('scan state — retention', function () {
         expect(prunable).not.toContain(osvFailed.id)
         deleteScansByIds(db, prunable)
         expect(read()).toEqual(before)
+    })
+})
+
+// SENTINEL-137: two manifests of one ecosystem, one readable and one not. The scan of the readable one is ok,
+// so only the second coverage entry says the project was not fully read; it must reach the state in either
+// order.
+describe('scan state — a readable manifest beside an unreadable one of the same ecosystem', function () {
+    it.each([
+        ['readable first', ['Gemfile.lock', 'ios/Gemfile']],
+        ['lockless first', ['ios/Gemfile', 'Gemfile.lock']]
+    ])('reads partial, naming the lockless manifest, %s', function (_label, order) {
+        addProject('ruby', ['RubyGems'])
+        enable('osv', true, 'RubyGems')
+        const entries: Record<string, unknown> = {
+            'Gemfile.lock': { ecosystem: 'RubyGems', manifestPath: 'Gemfile.lock', status: 'ok' },
+            'ios/Gemfile': { ecosystem: 'RubyGems', manifestPath: 'ios/Gemfile', status: 'unauditable', reasonCode: 'no_lockfile' }
+        }
+        ok('osv', T0, { projectId: 'ruby', ecosystem: 'RubyGems', coverage: order.map(function entry(path) { return entries[path] }) })
+        expect(getProjectScanState(db, 'ruby')).toEqual({
+            state: 'partial',
+            reasons: [{ source: null, ecosystem: 'RubyGems', reasonCode: 'no_lockfile', side: 'project' }]
+        })
+    })
+})
+
+// SENTINEL-138, read side: an ok scan that could not read a manifest keeps the rows found there open without
+// seeing them. Their last_seen_at stays at the last scan that did; they must read as not re-checked, with the
+// unread manifest's reason, while a row the scan did see reads as current.
+describe('scan state — a row an ok scan kept because its manifest went unread', function () {
+    const coverage = [
+        { ecosystem: 'RubyGems', manifestPath: 'android/Gemfile.lock', status: 'ok' },
+        { ecosystem: 'RubyGems', manifestPath: 'ios/Gemfile.lock', status: 'unauditable', reasonCode: 'unsupported_lockfile' }
+    ]
+
+    function setUp(): void {
+        addProject('ruby', ['RubyGems'])
+        enable('osv', true, 'RubyGems')
+        const first = ok('osv', T0, { projectId: 'ruby', ecosystem: 'RubyGems' })
+        finding('ios-row', first.id, true, { source: 'osv', projectId: 'ruby', ecosystem: 'RubyGems', installationsJson: JSON.stringify([{ manifestPath: 'ios/Gemfile.lock', version: '2.0.8' }]) })
+        finding('android-row', first.id, true, { source: 'osv', projectId: 'ruby', ecosystem: 'RubyGems', lastSeenAt: T0 + HOUR, installationsJson: JSON.stringify([{ manifestPath: 'android/Gemfile.lock', version: '2.0.8' }]) })
+        ok('osv', T0 + HOUR, { projectId: 'ruby', ecosystem: 'RubyGems', coverage })
+    }
+
+    it('reads the kept row as not re-checked, as of the last scan that saw it', function () {
+        setUp()
+        const rows = new Map(listCurrentFindingsForProject(db, 'ruby', T0 + 2 * HOUR).map(function r(row) { return [row.id, row] }))
+        expect(rows.get('ios-row')?.notRecheckedBecause).toEqual({ reasonCode: 'unsupported_lockfile', side: 'project', projectState: 'partial', lastOkScanAt: T0, manifests: null })
+        expect(rows.get('android-row')?.notRecheckedBecause).toBeNull()
+    })
+
+    it('reads the same on a library page', function () {
+        setUp()
+        const usage = listLibraryUsage(db, 'lodash', T0 + 2 * HOUR)
+        expect(usage.map(function u(row) { return row.notRecheckedBecause?.reasonCode ?? null }).sort()).toEqual(['unsupported_lockfile', null].sort())
+    })
+
+    it('names the first unread manifest of the ecosystem for a row that records no installation, and a partial graph with none', function () {
+        addProject('ruby', ['RubyGems'])
+        enable('osv', true, 'RubyGems')
+        const first = ok('osv', T0, { projectId: 'ruby', ecosystem: 'RubyGems' })
+        finding('legacy-row', first.id, true, { source: 'osv', projectId: 'ruby', ecosystem: 'RubyGems' })
+        ok('osv', T0 + HOUR, { projectId: 'ruby', ecosystem: 'RubyGems', coverage })
+        const lookup = findingScanContexts(db, ['ruby'])
+        expect(lookup('ruby', 'osv', 'RubyGems', { lastSeenAt: T0, resolvedAt: null, installations: [] })?.unreadReasonCode).toBe('unsupported_lockfile')
+        ok('osv', T0 + 2 * HOUR, { projectId: 'ruby', ecosystem: 'RubyGems', coverage: [coverage[0]] })
+        const after = findingScanContexts(db, ['ruby'])
+        expect(after('ruby', 'osv', 'RubyGems', { lastSeenAt: T0, resolvedAt: null, installations: [] })?.unreadReasonCode).toBe('partial_dependency_graph')
+        // A latest scan that recorded no coverage at all says nothing about which manifest went unread.
+        ok('osv', T0 + 3 * HOUR, { projectId: 'ruby', ecosystem: 'RubyGems' })
+        const bare = findingScanContexts(db, ['ruby'])
+        expect(bare('ruby', 'osv', 'RubyGems', { lastSeenAt: T0, resolvedAt: null, installations: [] })?.unreadReasonCode).toBe('partial_dependency_graph')
+    })
+
+    // SENTINEL-146: t0 saw the row, t1 kept it unseen, t2 failed outright. The row was last checked at t0, not
+    // at t1, the cell's last ok scan; the failure's own reason stands.
+    it('keeps the last scan that saw the row through a later failed scan, on every read path', function () {
+        setUp()
+        failed('osv', T0 + 2 * HOUR, 'osv_db_unavailable', { projectId: 'ruby', ecosystem: 'RubyGems' })
+        const rows = new Map(listCurrentFindingsForProject(db, 'ruby', T0 + 3 * HOUR).map(function r(row) { return [row.id, row] }))
+        expect(rows.get('ios-row')?.notRecheckedBecause).toEqual({ reasonCode: 'osv_db_unavailable', side: 'environment', projectState: 'cannot_scan', lastOkScanAt: T0, manifests: null })
+        // The row the t1 scan saw was last checked then.
+        expect(rows.get('android-row')?.notRecheckedBecause).toMatchObject({ reasonCode: 'osv_db_unavailable', lastOkScanAt: T0 + HOUR })
+        const usage = new Map(listLibraryUsage(db, 'lodash', T0 + 3 * HOUR).map(function u(row) { return [row.lastSeenAt, row.notRecheckedBecause?.lastOkScanAt] }))
+        expect(usage).toEqual(new Map([[T0, T0], [T0 + HOUR, T0 + HOUR]]))
+        const lookup = findingScanContexts(db, ['ruby'])
+        expect(lookup('ruby', 'osv', 'RubyGems', { lastSeenAt: T0, resolvedAt: null, installations: [] })?.lastOkScanAt).toBe(T0)
+        // Without the row's facts, or for a resolved row, the cell's last ok scan.
+        expect(lookup('ruby', 'osv', 'RubyGems')?.lastOkScanAt).toBe(T0 + HOUR)
+        expect(lookup('ruby', 'osv', 'RubyGems', { lastSeenAt: T0, resolvedAt: T0 + HOUR, installations: [] })?.lastOkScanAt).toBe(T0 + HOUR)
+    })
+
+    // SENTINEL-138: ios/Gemfile.lock is gone and ios/Gemfile is what the directory holds now. The row installed
+    // through the lockfile reads that manifest's reason, not the first unread one of the ecosystem.
+    it('names the reason of the manifest the copy\'s directory holds now', function () {
+        addProject('ruby', ['RubyGems'])
+        enable('osv', true, 'RubyGems')
+        const first = ok('osv', T0, { projectId: 'ruby', ecosystem: 'RubyGems' })
+        finding('ios-row', first.id, true, { source: 'osv', projectId: 'ruby', ecosystem: 'RubyGems', installationsJson: JSON.stringify([{ manifestPath: 'ios/Gemfile.lock', version: '2.0.8' }]) })
+        ok('osv', T0 + HOUR, {
+            projectId: 'ruby',
+            ecosystem: 'RubyGems',
+            coverage: [
+                { ecosystem: 'RubyGems', manifestPath: 'android/Gemfile.lock', status: 'ok' },
+                { ecosystem: 'RubyGems', manifestPath: 'Gemfile.lock', status: 'unauditable', reasonCode: 'unsupported_lockfile' },
+                { ecosystem: 'RubyGems', manifestPath: 'ios/Gemfile', status: 'unauditable', reasonCode: 'no_lockfile' }
+            ]
+        })
+        expect(listCurrentFindingsForProject(db, 'ruby', T0 + 2 * HOUR)[0]?.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'partial', lastOkScanAt: T0, manifests: null })
+    })
+
+    // SENTINEL-145: the t1 scan saw the row through android/ and kept its macos/ and ios/ copies unread, so the
+    // row's last_seen_at is t1's and only the coverage can say those copies were not re-checked.
+    it('names the kept copies of a row the latest scan saw through its other manifests', function () {
+        addProject('ruby', ['RubyGems', 'PyPI'])
+        enable('osv', true, 'RubyGems')
+        const first = ok('osv', T0, { projectId: 'ruby', ecosystem: 'RubyGems' })
+        const installations = [{ manifestPath: 'android/Gemfile.lock', version: '1.0.0' }, { manifestPath: 'macos/Gemfile.lock', version: '1.1.0' }, { manifestPath: 'ios/Gemfile.lock', version: '2.0.0' }]
+        finding('mixed-row', first.id, true, { source: 'osv', projectId: 'ruby', ecosystem: 'RubyGems', lastSeenAt: T0 + HOUR, installationsJson: JSON.stringify(installations) })
+        ok('osv', T0 + HOUR, {
+            projectId: 'ruby',
+            ecosystem: 'RubyGems',
+            coverage: [
+                { ecosystem: 'RubyGems', manifestPath: 'android/Gemfile.lock', status: 'ok' },
+                // A gap with no reason recorded reads as a partial graph.
+                { ecosystem: 'RubyGems', manifestPath: 'macos/Gemfile.lock', status: 'unauditable' },
+                { ecosystem: 'RubyGems', manifestPath: 'ios/Gemfile.lock', status: 'unauditable', reasonCode: 'unsupported_lockfile' },
+                // Another ecosystem's gap in the same directory, and a pre-3.8 entry naming no manifest, hold no copy.
+                { ecosystem: 'PyPI', manifestPath: 'ios/requirements.txt', status: 'unauditable', reasonCode: 'no_lockfile' },
+                { ecosystem: 'RubyGems', status: 'unauditable', reasonCode: 'no_lockfile' }
+            ]
+        })
+        expect(listCurrentFindingsForProject(db, 'ruby', T0 + 2 * HOUR)[0]?.notRecheckedBecause)
+            .toEqual({ reasonCode: 'partial_dependency_graph', side: 'project', projectState: 'partial', lastOkScanAt: null, manifests: ['macos/Gemfile.lock', 'ios/Gemfile.lock'] })
+        expect(listLibraryUsage(db, 'lodash', T0 + 2 * HOUR)[0]?.notRecheckedBecause?.manifests).toEqual(['macos/Gemfile.lock', 'ios/Gemfile.lock'])
+        // A later failed scan: the whole row was not re-checked, as of t1, the last scan that saw it.
+        failed('osv', T0 + 2 * HOUR, 'osv_db_unavailable', { projectId: 'ruby', ecosystem: 'RubyGems' })
+        expect(listCurrentFindingsForProject(db, 'ruby', T0 + 3 * HOUR)[0]?.notRecheckedBecause).toMatchObject({ reasonCode: 'osv_db_unavailable', lastOkScanAt: T0 + HOUR, manifests: null })
+        // A later ok scan that recorded no coverage says nothing about kept copies.
+        ok('osv', T0 + 3 * HOUR, { projectId: 'ruby', ecosystem: 'RubyGems' })
+        const lookup = findingScanContexts(db, ['ruby'])
+        expect(lookup('ruby', 'osv', 'RubyGems', { lastSeenAt: T0 + 3 * HOUR, resolvedAt: null, installations })?.unreadManifests).toBeUndefined()
+    })
+
+    it('leaves a resolved row, a row with no last-seen time and a lookup without row facts alone', function () {
+        setUp()
+        const lookup = findingScanContexts(db, ['ruby'])
+        expect(lookup('ruby', 'osv', 'RubyGems', { lastSeenAt: T0, resolvedAt: T0 + HOUR, installations: [] })?.unreadReasonCode).toBeUndefined()
+        expect(lookup('ruby', 'osv', 'RubyGems', { lastSeenAt: null, resolvedAt: null, installations: [] })?.unreadReasonCode).toBeUndefined()
+        expect(lookup('ruby', 'osv', 'RubyGems')?.unreadReasonCode).toBeUndefined()
     })
 })

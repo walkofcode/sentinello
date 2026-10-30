@@ -24,11 +24,11 @@ point it at, surfaces known CVEs in their dependencies, and gives you **one tria
 queue across every project** — instead of `npm audit` output scattered across a
 dozen checkouts, or finding out about a CVE from a headline days too late.
 
-It scans **Node.js** projects — `package-lock.json`, `pnpm-lock.yaml` and
-`yarn.lock` — against up to three advisory sources you pick in **Settings →
-Sources**. Python, Go and Rust are built but **not offered yet**: their version
-handling is not right, and a source that answers "no vulnerabilities" for the
-wrong reason is worse than one that isn't offered at all.
+It scans **Node.js**, **Python**, **Go**, **Rust** and **Ruby** projects from
+their lockfiles against up to three advisory sources you pick per language in
+**Settings → Sources**. npm audit answers for Node.js and is on by default; OSV
+and GitLab gemnasium answer for every language and are opt-in — see
+[Vulnerability sources](#vulnerability-sources).
 
 "Why not just use Snyk or Dependabot?" Those live inside the CI pipeline you wired
 up — and the long tail never got one. Sentinello is for everything else: point it at
@@ -98,7 +98,14 @@ The image is mirrored on Docker Hub, so swap `ghcr.io/walkofcode/sentinello` for
 `walkofcode/sentinello` if you prefer pulling from there.
 
 Only mount code roots you trust. Sentinello runs package-manager audit commands
-inside mounted projects, so treat roots like code you would run locally.
+inside mounted Node.js projects, so treat roots like code you would run locally.
+
+Every language is discovered from the first scan. **Node.js** projects are checked
+with `npm audit` straight away. **Python**, **Go**, **Rust** and **Ruby** projects
+read **No source enabled for Python** (or Go, Rust, Ruby) until you turn on OSV
+or GitLab gemnasium for that language — one click on the notice, or in
+**Settings → Sources**. Their lockfiles are parsed, never installed: the image ships no pip,
+go, bundle or cargo.
 
 ## How it works
 
@@ -121,12 +128,34 @@ Three steps — no agents to install in your projects, no accounts to create:
 
 ### What counts as a project
 
-Any directory holding a recognised manifest (`package.json`, and the `package-lock.json` /
-`pnpm-lock.yaml` / `yarn.lock` that pins it). Discovery walks only the ecosystems actually offered, so
-a Python or Rust manifest is not detected at all — detecting one and then not auditing it would stamp a
-coverage row that reads as "found and handled". Discovery stops descending as soon as it finds a
-manifest, so a monorepo root is **one** project rather than one per workspace package — the same view
-`pnpm audit` takes.
+Discovery walks each root and decides where a project begins with four rules:
+
+1. **npm detection is unchanged.** A directory with a `package.json` is a project, and no project nests
+   under it, so a monorepo root is **one** project rather than one per workspace package — the same
+   view `pnpm audit` takes.
+2. **Other manifests join the nearest project.** Below any project, a Python, Go, Rust or Ruby manifest
+   at any depth belongs to the nearest enclosing project: an app's `ios/Gemfile.lock` or
+   `scripts/requirements.txt` is part of that app, not a project of its own. Installed dependencies,
+   virtualenvs and build output (`node_modules`, `vendor`, `.venv`, `venv`, `target`, `Pods`, `build`,
+   `dist`) are never searched for them.
+3. **An orphan manifest anchors its own project.** A directory with a non-npm manifest and no enclosing
+   project (a pure Cargo repo, a Go service) is a project anchored there.
+4. **The walk keeps descending below non-npm projects.** Under a repo-root `requirements.txt`, every
+   `package.json` directory is still its own project owning its own subtree, so a non-npm manifest never
+   swallows the npm projects beside it: they keep their ids and their history.
+
+The files each language is read from:
+
+| Language | Lockfiles (resolved exactly) | Manifests reported as `no_lockfile` when nothing pins them |
+|---|---|---|
+| Node.js | `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` | `package.json` |
+| Python | `poetry.lock`, `Pipfile.lock`, `requirements.txt`, `uv.lock` | `pyproject.toml`, `Pipfile` |
+| Go | `go.mod`, `go.sum` | — (`go.mod` is its own build list) |
+| Rust | `Cargo.lock` | `Cargo.toml` |
+| Ruby | `Gemfile.lock` | `Gemfile` |
+
+A manifest without a lockfile is never read for versions and never reported clean: it shows as
+`no_lockfile` for its language.
 
 Three things are never scanned:
 
@@ -196,12 +225,16 @@ A ready-to-use `docker-compose.yml` ships in the repo root.
 | `SENTINELLO_VERSION`         | `dev`                         | Version label in the footer / `/api/version`; baked into the image at build time |
 | `SENTINELLO_UPDATE_FEED_URL` | GitHub Releases API           | Update-check feed; set to `off` to disable update checks |
 | `SENTINELLO_WEBHOOK_STRICT`  | _(unset)_                     | Set to `true` to reject webhook targets aimed at private (RFC-1918) / loopback addresses and require `https`. Link-local / cloud-metadata targets are always rejected regardless |
-| `SENTINELLO_OSV_FEED_URL`    | OSV GCS bucket                | OSV advisory export base URL (only used when an **OSV** cell is enabled); set to `off` to disable all OSV network access. Per-ecosystem exports are fetched from `<base>/<ecosystem>/all.zip` (`npm`, `PyPI`, `Go`, `crates.io`) |
+| `SENTINELLO_OSV_FEED_URL`    | OSV GCS bucket                | OSV advisory export base URL (only used when an **OSV** cell is enabled); set to `off` to disable all OSV network access. Per-ecosystem exports are fetched from `<base>/<ecosystem>/all.zip` (`npm`, `PyPI`, `Go`, `crates.io`, `RubyGems`), each only for a language OSV is enabled for |
 | `SENTINELLO_OSV_DB_PATH`     | `<data dir>/osv.db`           | Location of the rebuildable OSV advisory cache (defaults next to the main DB) |
 | `SENTINELLO_GEMNASIUM_FEED_URL` | GitLab gemnasium-db archive | gemnasium advisory archive URL (only used when a **GitLab gemnasium** cell is enabled); set to `off` to disable all gemnasium network access |
 | `SENTINELLO_GEMNASIUM_API_URL` | GitLab API for gemnasium-db | GitLab project API base used to read the advisory repository's HEAD commit and fetch only the files that changed, so a routine sync transfers a few KB instead of re-downloading the whole archive. Point it at a mirror's API if you host one |
 | `SENTINELLO_NPM_REGISTRY_URL` | `https://registry.npmjs.org` | npm registry the worker checks fix versions against after each scan, and reads package metadata from for the way out when no fix is released — packages with findings and their dependency chains, plus the candidate releases and alternatives the way out weighs, with their dependency trees. A successful answer is reused for 24 hours; after that it is asked again with the ETag it came with, so an unchanged package costs a `304` with no body. A failed request is not stored, so it can be retried sooner. Point it at a mirror if you use one. When it cannot be reached, the worker reuses package metadata it fetched earlier if that data is still usable, and marks the answer with the date it was fetched — current findings are evaluated against that cached metadata, so a finding's earlier answer is not frozen; without usable cached metadata, the fix shows as not checked against the registry. An outage on its own never produces "no fix" |
 | `SENTINELLO_NPM_DOWNLOADS_URL` | `https://api.npmjs.org` | npm download-count API, read for the weekly downloads shown beside a way out's packages and alternatives. When it cannot be reached, the last known count is shown, or unknown when there is none |
+| `SENTINELLO_PYPI_URL`        | `https://pypi.org`            | PyPI that fix versions of Python findings are checked against after each scan: published, and not yanked. Runs only while a source is enabled for Python. A successful answer is reused for 24 hours; a failed request is not stored. Point it at a mirror if you use one. When it cannot be reached, an earlier answer is reused with the date it was fetched; without one, the fix shows as not checked against the registry |
+| `SENTINELLO_GOPROXY_URL`     | `https://proxy.golang.org`    | Go module proxy (the GOPROXY protocol) that fix versions of Go findings are checked against after each scan: the module's version list, plus the version itself when an advisory names one the list omits. Runs only while a source is enabled for Go. Same caching and outage behaviour as PyPI. Point it at another proxy if you use one |
+| `SENTINELLO_CRATES_INDEX_URL` | `https://index.crates.io`    | crates.io sparse index (the files cargo itself reads) that fix versions of Rust findings are checked against after each scan: published, and not yanked. Runs only while a source is enabled for Rust. Same caching and outage behaviour as PyPI. Point it at a mirror if you use one |
+| `SENTINELLO_RUBYGEMS_URL`    | `https://rubygems.org`        | RubyGems that fix versions of Ruby findings are checked against after each scan: published, and not yanked. Runs only while a source is enabled for Ruby. Same caching and outage behaviour as PyPI. Point it at a mirror if you use one |
 | `SENTINELLO_USER_AGENT`      | `sentinello (+https://sentinello.org)` | User-Agent sent with every advisory-feed request. Override only if a proxy filters on agent strings |
 | `SENTINELLO_GEMNASIUM_DB_PATH`  | `<data dir>/gemnasium.db`   | Location of the rebuildable gemnasium advisory cache (defaults next to the main DB) |
 
@@ -245,21 +278,31 @@ knobs make that posture safe — here's the whole picture in one place.
 
 ## Vulnerability sources
 
-**Settings → Sources** lists the advisory sources that answer for **Node.js**, each with its own
-switch, and explains what every one of them adds, downloads and when it runs in a reference table
-below the switches. An **"always a source on" invariant** stops you disabling the last one that can
-actually run, so the system is never left source-blind.
+**Settings → Sources** lists, for each language, the advisory sources that can answer for it, each
+with its own switch, and explains what every one of them adds, downloads and when it runs in a
+reference table below the switches. An **"always a source on" invariant** stops you disabling the last
+one that can actually run, so the system is never left source-blind.
 
-- **npm audit** is on by default (and toggleable).
-- **OSV** and **GitLab gemnasium** are optional and off by default — each downloads an advisory
-  cache, so enabling one costs disk.
+| Language | npm audit | OSV | GitLab gemnasium | OSV export (zipped) |
+|---|---|---|---|---|
+| Node.js | on by default | opt-in | opt-in | ~204 MB |
+| Python | — | opt-in | opt-in | 37.5 MB |
+| Go | — | opt-in | opt-in | 12.7 MB |
+| Rust | — | opt-in | opt-in | 3.7 MB |
+| Ruby | — | opt-in | opt-in | 5.2 MB |
 
-Python, Go and Rust are implemented but **not offered**. Gemnasium's PEP 440 comma intersections are
-now parsed correctly, but fix derivation remains semver-only (an OSV Django advisory recommended
-"upgrade to 3.2.23" against an installed 4.2), and OSV's PyPI names are not PEP 503-canonicalized so
-they never join the resolver's. Promoting one is a single field in the ecosystem registry once those
-two remaining blockers are fixed; until then they are absent from the product surface entirely — no
-switch, no discovery, no download.
+- **npm audit** answers for Node.js only. It is on by default (and toggleable).
+- **OSV** and **GitLab gemnasium** answer for every language and are off by default — each downloads
+  an advisory cache, so enabling one costs disk. OSV downloads one export per language you enable it
+  for; gemnasium's archive (~52 MB) is a single download covering every language.
+
+So a fresh install scans Node.js at once, while a Python, Go, Rust or Ruby project reads **No source
+enabled for Python** (or Go, Rust, Ruby) on the project, the dashboard and Settings → Sources until
+you turn a source on for it — never "0 vulnerabilities". One click on that notice turns the source on.
+Each language's versions are compared by its own rules (semver for npm and crates.io, PEP 440 for
+Python, Go module versions, RubyGems versions), and every fix is checked against that language's own
+registry. Nothing is spawned for Python, Go, Rust or Ruby: their lockfiles are parsed, and the image
+ships no pip, go, bundle or cargo.
 
 **npm audit** runs the package manager's own audit (npm / pnpm / yarn audit against each project's
 lockfile) — the GitHub Advisory feed those tools carry. It needs no provisioning.
@@ -283,10 +326,8 @@ gemnasium hit that npm audit already reported) are suppressed, so enabling an ex
 
 ### Scan reason codes
 
-Alongside the npm/OSV reason codes, scans surface these operator-visible states (localized in the UI
-and in failure notifications). The graph-shape codes stay implemented and reachable — a Node.js
-project can be missing a lockfile, and the code that reports partial resolution is the same code that
-will report it for other ecosystems when they are promoted:
+Alongside the npm/OSV reason codes, scans surface these operator-visible states, for every language
+(localized in the UI and in failure notifications):
 
 - **`partial_dependency_graph`** — some dependencies resolved to exact versions and others could not,
   so coverage is reported as partial rather than implying a full resolution.
@@ -325,8 +366,9 @@ lost its lockfile does not look clean. They read **not re-checked — the projec
 lockfile (last scanned successfully …)**, after their historical fix if one was settled, instead of
 "rescan pending". The annotation goes away on the first successful rescan.
 
-**Provisioning.** Enabling **OSV** downloads the npm advisory export (**~204 MB**, needing ~600 MB
-free) into the data volume on first sync, then pulls ~daily incremental updates around 03:17. An
+**Provisioning.** Enabling **OSV** for a language downloads that language's export into the data
+volume on first sync (the sizes are in the table above; npm's is the largest at **~204 MB**, needing
+~600 MB free), then pulls ~daily incremental updates around 03:17. An
 incremental update applies only when every changed advisory could be re-read; if one keeps failing, the
 last complete snapshot stays in use, Settings → Sources names the advisory, and after 48 hours of failed
 updates the export is re-downloaded in full. Enabling **GitLab gemnasium** downloads its advisory archive from
@@ -352,9 +394,11 @@ no scan you have to remember to run.
 
 For a fully air-gapped install, leave these
 sources off (or set `SENTINELLO_OSV_FEED_URL=off` / `SENTINELLO_GEMNASIUM_FEED_URL=off`) and Sentinello
-makes no OSV/gemnasium network calls at all. Fix versions are checked against the npm registry
-(`SENTINELLO_NPM_REGISTRY_URL`) after each scan; without one, findings still appear, with their fixes
-marked as not checked against the registry.
+makes no OSV/gemnasium network calls at all. Fix versions are checked after each scan against each
+language's own registry (`SENTINELLO_NPM_REGISTRY_URL`, `SENTINELLO_PYPI_URL`,
+`SENTINELLO_GOPROXY_URL`, `SENTINELLO_CRATES_INDEX_URL`, `SENTINELLO_RUBYGEMS_URL`), only for a
+language with an enabled source; without one, findings still appear, with their fixes marked as not
+checked against the registry.
 
 The npm check has **no lookup cap**: every package a fix or a way out needs is read, so a way out is
 never left partial. Lookups run 16 at a time, a cached answer is reused for 24 hours and then

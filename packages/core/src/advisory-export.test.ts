@@ -10,7 +10,7 @@ import {
     type ExportScope
 } from './advisory-export'
 import type { FixCheck } from './fix-status'
-import type { Remediation } from './remediation'
+import { WAY_OUT_NPM_ONLY, type Remediation } from './remediation'
 
 // The advisory export is handed straight to an LLM as a remediation work list, so two properties
 // matter: the prompt that frames the work must survive intact, and no finding may be silently dropped
@@ -24,8 +24,10 @@ function check(overrides: Partial<FixCheck> = {}): FixCheck {
 
 function exportFinding(overrides: Partial<ExportFinding> = {}): ExportFinding {
     return {
+        ecosystem: 'npm',
         packageName: 'lodash',
         installedVersion: '4.17.20',
+        installations: [],
         fixAvailable: false,
         fixVersion: null,
         fixStatus: 'unverified',
@@ -241,8 +243,22 @@ describe('buildAdvisoryMarkdown finding rendering', function () {
         expect(md).toContain('- **Dependency path:** `app › express › lodash`')
     })
 
-    it('omits the dependency path line when empty', function () {
-        expect(build(PROJECT_SCOPE, [exportFinding()])).not.toContain('**Dependency path:**')
+    // A finding read from a lockfile with no dependency graph (requirements.txt, go.mod) has no chain to show:
+    // the document says it is unknown, never that there is no way out.
+    it('says the chain is unknown when there is no dependency path', function () {
+        expect(build(PROJECT_SCOPE, [exportFinding()])).toContain('- **Dependency path:** chain unknown (the lockfile records no dependency graph)')
+    })
+
+    it('names the ecosystem, by its registry id and language, and an unknown one by its id alone', function () {
+        expect(build(PROJECT_SCOPE, [exportFinding()])).toContain('### 1. `lodash@4.17.20` — high\n\n- **Ecosystem:** `npm` (Node.js)\n')
+        expect(build(PROJECT_SCOPE, [exportFinding({ ecosystem: 'Hex' })])).toContain('- **Ecosystem:** `Hex`\n')
+    })
+
+    it('lists every manifest the finding is installed through, with its version', function () {
+        const md = build(PROJECT_SCOPE, [exportFinding({ ecosystem: 'RubyGems', packageName: 'rack', installedVersion: '2.0.8', installations: [{ manifestPath: 'ios/Gemfile.lock', version: '2.0.8' }, { manifestPath: 'android/Gemfile.lock', version: '2.1.0' }] })])
+        expect(md).toContain('- **Ecosystem:** `RubyGems` (Ruby)')
+        expect(md).toContain('- **Installed through:** `ios/Gemfile.lock` (2.0.8), `android/Gemfile.lock` (2.1.0)')
+        expect(build(PROJECT_SCOPE, [exportFinding()])).not.toContain('**Installed through:**')
     })
 
     // Only library and workspace exports span projects, so attribution must survive there.
@@ -485,6 +501,31 @@ describe('the way out of a none_released finding', function () {
         expect(md).not.toMatch(/budget|Partial/)
     })
 
+    // Phase 3 step 4: a chain and a way-out verdict are separate facts. npm has both; a Ruby finding from a
+    // Gemfile.lock has its real chain beside an unknown verdict; a requirements.txt finding has neither, and the
+    // document says chain unknown. No combination says there is no way out.
+    it('renders the three chain and verdict combinations', function () {
+        const npmOnly: Remediation = { v: 1, checkedAt: CHECKED_AT, package: 'rack', health: { name: 'rack', latest: null, lastPublishAt: null, maintainers: 0, weeklyDownloads: null, deprecated: null, daysSinceLastPublish: null, unmaintained: false }, chains: [{ importer: null, rootKind: null, path: [], verdict: { kind: 'unknown', at: 'rack', reason: WAY_OUT_NPM_ONLY } }], moreChains: 0, moreChainsAtLeast: false, alternatives: [], devOnly: null }
+        const npm = buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [exportFinding({ packageName: 'braces', installedVersion: '3.0.3', fixStatus: 'none_released', fixCheck: check(), remediation, depPath: ['nodemon@3.1.14 › chokidar@3.6.0 › braces@3.0.3'] })] })
+        expect(npm).toContain('- **Dependency path:** `nodemon@3.1.14 › chokidar@3.6.0 › braces@3.0.3`')
+        expect(npm).toContain('drops `braces`, but no released `nodemon` admits it')
+        const ruby = buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [exportFinding({ ecosystem: 'RubyGems', packageName: 'rack', installedVersion: '2.0.8', fixStatus: 'none_released', fixCheck: check(), remediation: npmOnly, depPath: ['rails@7.0.0 › rack@2.0.8'] })] })
+        expect(ruby).toContain('- **Way out:**\n    - unknown — way out is computed for npm only\n')
+        expect(ruby).toContain('- **Dependency path:** `rails@7.0.0 › rack@2.0.8`')
+        expect(ruby).not.toContain('**Health:**')
+        expect(ruby).not.toContain('maintainers')
+        const pypi = buildAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', generatedAt: CHECKED_AT, findings: [exportFinding({ ecosystem: 'PyPI', packageName: 'django', installedVersion: '3.2.0', fixStatus: 'none_released', fixCheck: check(), remediation: { ...npmOnly, package: 'django' }, depPath: [] })] })
+        expect(pypi).toContain('- **Way out:**\n    - unknown — way out is computed for npm only\n')
+        expect(pypi).toContain('- **Dependency path:** chain unknown (the lockfile records no dependency graph)')
+        for (const md of [npm, ruby, pypi]) expect(md).not.toMatch(/no way out/i)
+    })
+
+    it('tells the reader, in the default prompt, to use each ecosystem\'s own tools in every manifest', function () {
+        expect(DEFAULT_EXPORT_PROMPT).toContain('## Use each ecosystem\'s own tools')
+        for (const tool of ['uv lock --upgrade-package', 'go get <module>@<version>', 'cargo update -p <crate> --precise', 'bundle update --conservative']) expect(DEFAULT_EXPORT_PROMPT).toContain(tool)
+        expect(DEFAULT_EXPORT_PROMPT).toContain('every manifest listed under **Installed through**')
+    })
+
     it('tells the reader, in the default prompt, not to chase a version that is not released', function () {
         expect(DEFAULT_EXPORT_PROMPT).toContain('## When no fixed version is released')
         // Issue 019: the prohibition covers a fix of the vulnerable package itself, never the registry-checked
@@ -518,7 +559,7 @@ describe('projects that cannot be scanned, and findings not re-checked', functio
     }
     const fine: ExportScanState = { projectName: 'web', projectPath: null, scanState: { state: 'scanned', reasons: [] } }
     const never: ExportScanState = { projectName: 'new', projectPath: null, scanState: { state: 'not_scanned_yet', reasons: [] } }
-    const retained = { reasonCode: 'no_lockfile' as const, side: 'project' as const, projectState: 'cannot_scan' as const, lastOkScanAt: Date.UTC(2026, 9, 1) }
+    const retained = { reasonCode: 'no_lockfile' as const, side: 'project' as const, projectState: 'cannot_scan' as const, lastOkScanAt: Date.UTC(2026, 9, 1), manifests: null }
 
     it('lists each project that cannot be (fully) scanned with its reasons and their side, before the findings', function () {
         const md = buildAdvisoryMarkdown({ scope: WORKSPACE_SCOPE, prompt: 'PROMPT', generatedAt: CHECKED_AT, findings: [exportFinding()], scanStates: [cannot, partial, fine, never] })

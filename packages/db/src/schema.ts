@@ -26,9 +26,12 @@ export const projects = sqliteTable(
         // `upsertProject`'s onConflictDoUpdate excludes this column so re-discovery preserves the
         // value across sweeps.
         alias: text('alias'),
-        // npm-specific package-manager detail (kept for the JS/npm-audit path). A project spans
-        // ecosystems, so the set of detected ecosystems is recorded separately in ecosystemsJson.
-        packageManager: text('package_manager', { enum: ['npm', 'yarn', 'pnpm', 'unknown'] }).notNull(),
+        // The project's package manager (PackageManager): the JavaScript one for a project with an npm
+        // manifest (it drives the npm-audit command), otherwise the manager of its anchor manifest. Every
+        // manifest's own manager is derived from manifestsJson. A TS-only enum: SQLite text has no CHECK.
+        packageManager: text('package_manager', {
+            enum: ['npm', 'yarn', 'pnpm', 'pip', 'poetry', 'uv', 'pipenv', 'go', 'cargo', 'bundler', 'unknown']
+        }).notNull(),
         nvmrcVersion: text('nvmrc_version'),
         // Checked-out branch, refreshed by discovery sweeps and again at scan start so the portal
         // shows the branch the findings actually came from. Null for non-git directories.
@@ -39,6 +42,11 @@ export const projects = sqliteTable(
         // ecosystems). Empty until a polyglot-aware discovery sweep populates it; the npm path doesn't
         // depend on it, so existing rows default to '[]'.
         ecosystemsJson: text('ecosystems_json').notNull().default('[]'),
+        // JSON ProjectManifest[] ({ path, ecosystem, kind }): every manifest discovery attached to this
+        // project, its own directory's and every sub-manifest no nested project owns (ios/Gemfile.lock).
+        // The runner resolves exactly these. '[]' on a row discovered before 3.8, read as "the project's
+        // own directory" until the next sweep records them.
+        manifestsJson: text('manifests_json').notNull().default('[]'),
         createdAt: integer('created_at').notNull(),
         updatedAt: integer('updated_at').notNull()
     },
@@ -62,10 +70,11 @@ export const scans = sqliteTable(
         finishedAt: integer('finished_at').notNull(),
         // `scanner` = scanner plugin name (merge scoping). `source` = persisted source identity (SourceId;
         // === scanner for today's sources, nullable only for pre-migration rows, backfilled = scanner).
-        // `ecosystem` = the EcosystemId this scan ran against; existing rows default to 'npm'.
+        // `ecosystem` = the EcosystemId this scan ran against: a feed source writes one scan per
+        // (source, ecosystem) cell it ran. Always written explicitly; there is no default to fall back on.
         scanner: text('scanner').notNull(),
         source: text('source'),
-        ecosystem: text('ecosystem').notNull().default('npm'),
+        ecosystem: text('ecosystem').notNull(),
         status: text('status', { enum: ['ok', 'unauditable', 'error', 'timeout'] }).notNull(),
         // Structured failure category, nullable for historical rows (before this column existed).
         // New scans always set this — see packages/core/src/types.ts ReasonCode.
@@ -127,9 +136,12 @@ export const scans = sqliteTable(
             // expression containing one is emitted as two broken quoted column names. SQLite only uses an
             // expression index for a query that repeats the expression, so the query must spell it this
             // same way (scanSourceSql in queries/scan-state.ts).
+            //
+            // Keyed per (source, ecosystem) cell since 3.8, when a feed source began writing one scan per cell.
             latestSourceIdx: index('scans_latest_source_idx').on(
                 table.projectId,
                 sql`(CASE WHEN "source" IS NULL THEN "scanner" ELSE "source" END)`,
+                table.ecosystem,
                 table.finishedAt,
                 table.id,
                 table.status
@@ -162,16 +174,21 @@ export const findings = sqliteTable(
         // `scanner` = scanner plugin name (used for per-scanner merge scoping + provenance display).
         // `source` = persisted source identity (SourceId; === scanner for today's sources, nullable only
         // for pre-migration rows, backfilled = scanner). `ecosystem` = the package's EcosystemId; the
-        // identity tuple is (projectId, source, ecosystem, advisoryId, packageName). Existing rows default
-        // ecosystem to 'npm'.
+        // identity tuple is (projectId, source, ecosystem, advisoryId, packageName). Always written
+        // explicitly; there is no default to fall back on.
         scanner: text('scanner').notNull(),
         source: text('source'),
-        ecosystem: text('ecosystem').notNull().default('npm'),
+        ecosystem: text('ecosystem').notNull(),
         advisoryId: text('advisory_id').notNull(),
         advisoryTitle: text('advisory_title'),
         advisoryUrl: text('advisory_url'),
         packageName: text('package_name').notNull(),
+        // The lowest affected installed version across installationsJson.
         installedVersion: text('installed_version').notNull(),
+        // JSON FindingInstallation[] ({ manifestPath, version }): every manifest the finding was matched
+        // through. Not part of the identity — one library across several Gemfile.locks is one finding.
+        // '[]' on a row written before 3.8.
+        installationsJson: text('installations_json').notNull().default('[]'),
         vulnerableRange: text('vulnerable_range').notNull(),
         // The severity this finding is REPORTED at, which is the worst grade any source gave it — not
         // necessarily the grade the surviving source assigned. Sources disagree (gemnasium computes from
@@ -258,7 +275,9 @@ export const mutes = sqliteTable(
         // required for scope=finding (matches identity tuple); null for scope=project (applies across all scanners)
         scanner: text('scanner'),
         // EcosystemId for scope=finding (part of the identity tuple so an npm mute never silences a
-        // PyPI package of the same name); null for scope=project. Existing finding-scope rows default 'npm'.
+        // PyPI package of the same name); NULL for scope=project, which applies across every cell. Stays
+        // nullable for that reason: the writer types require it for a finding mute (FindingMuteWrite), and
+        // the boot backfill converts the legacy finding-scope NULLs.
         ecosystem: text('ecosystem'),
         advisoryId: text('advisory_id'),
         packageName: text('package_name'),
@@ -463,10 +482,11 @@ export const notificationEvents = sqliteTable(
                 return projects.id
             }),
         scanner: text('scanner').notNull(),
-        // EcosystemId for finding events (part of the dedupe identity); null for scan_failure events.
-        // Existing finding rows default 'npm'. The hashed identity_key is recomputed for legacy finding
-        // rows by a boot backfill so it includes ecosystem (the hash changed shape when ecosystem joined
-        // the tuple — a column backfill alone would diverge the stored key from freshly-computed ones).
+        // EcosystemId for finding events (part of the dedupe identity); NULL for scan_failure events, which
+        // stay one per source (the failing cell is read from first_scan_id). The boot backfill fills legacy
+        // finding rows and recomputes their hashed identity_key so it includes ecosystem (the hash changed
+        // shape when ecosystem joined the tuple — a column backfill alone would diverge the stored key from
+        // freshly-computed ones).
         ecosystem: text('ecosystem'),
         advisoryId: text('advisory_id'),
         packageName: text('package_name'),
@@ -483,7 +503,12 @@ export const notificationEvents = sqliteTable(
         // Denormalized UI/legacy convenience: timestamp of first successful delivery to ANY target.
         // Dispatch logic NEVER reads this — it reads notification_deliveries.
         firstNotifiedAt: integer('first_notified_at'),
-        lastSeenAt: integer('last_seen_at').notNull()
+        lastSeenAt: integer('last_seen_at').notNull(),
+        // The capability (CAPABILITIES id) whose silent baseline recorded this finding event: it was found
+        // by the first completed sweep after the upgrade that added its ecosystem, and is told to every
+        // target in that capability's one summary instead of one message of its own. Dispatch never selects
+        // it. NULL for every other event, npm and scan-failure events always.
+        baselineOf: text('baseline_of')
     },
     function notificationEventsIndexes(table) {
         return {
@@ -556,6 +581,59 @@ export const notificationDeliveries = sqliteTable(
             pairIdx: uniqueIndex('notification_deliveries_pair_uidx').on(table.eventId, table.targetId),
             eventIdx: index('notification_deliveries_event_id_idx').on(table.eventId),
             targetIdx: index('notification_deliveries_target_id_idx').on(table.targetId)
+        }
+    }
+)
+
+// One row per CAPABILITIES entry this install has seen (packages/core/src/capabilities.ts). 'pending' until
+// the first completed sweep after the upgrade that added it: new finding events in its ecosystems are
+// recorded silently (notification_events.baseline_of). 'swept' once that sweep claimed completion and wrote
+// one summary delivery row per enabled target; nothing is stamped any more. 'done' once every delivery row
+// is closed (succeeded, dry-run, suppressed or given up). A fresh install inserts 'done' straight away.
+export const capabilityBaselines = sqliteTable('capability_baselines', {
+    capabilityId: text('capability_id').primaryKey(),
+    state: text('state', { enum: ['pending', 'swept', 'done'] }).notNull(),
+    createdAt: integer('created_at').notNull(),
+    sweptAt: integer('swept_at'),
+    doneAt: integer('done_at')
+})
+
+// The baseline summary ledger: one row per (capability, target), written when the sweep completed. Its
+// own table because notification_deliveries needs a notification_events parent, which needs a project and
+// a scan, and a summary has neither. `counts_json` is what the summary says (frozen at completion, counted
+// under the target's own scope, filters and mutes) and `policy_fingerprint` the target policy it was
+// counted under; every attempt rechecks both against the target's current policy before sending. A row is
+// open until one of first_succeeded_at, dry_run_at, gave_up_at or suppressed_at is set. A deleted target
+// needs no retry, so its rows go with it.
+export const capabilitySummaryDeliveries = sqliteTable(
+    'capability_summary_deliveries',
+    {
+        capabilityId: text('capability_id')
+            .notNull()
+            .references(function ref() {
+                return capabilityBaselines.capabilityId
+            }),
+        targetId: text('target_id')
+            .notNull()
+            .references(function ref() {
+                return notificationTargets.id
+            }, { onDelete: 'cascade' }),
+        countsJson: text('counts_json').notNull(),
+        policyFingerprint: text('policy_fingerprint').notNull(),
+        firstAttemptedAt: integer('first_attempted_at'),
+        lastAttemptedAt: integer('last_attempted_at'),
+        attempts: integer('attempts').notNull().default(0),
+        firstSucceededAt: integer('first_succeeded_at'),
+        dryRunAt: integer('dry_run_at'),
+        gaveUpAt: integer('gave_up_at'),
+        suppressedAt: integer('suppressed_at'),
+        suppressedReason: text('suppressed_reason', { enum: ['target_disabled', 'policy_changed', 'eligibility_changed'] }),
+        // Redacted like notification_deliveries.last_error_text.
+        lastErrorText: text('last_error_text')
+    },
+    function capabilitySummaryDeliveriesKeys(table) {
+        return {
+            pk: primaryKey({ columns: [table.capabilityId, table.targetId] })
         }
     }
 )

@@ -1,6 +1,8 @@
-import { basename, dirname, relative, resolve } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
 import { existsSync } from 'node:fs'
 import chokidar from 'chokidar'
+import { STABLE_ECOSYSTEMS } from '@sentinello/core'
+import { isWithin } from '@sentinello/scanners'
 import {
     enqueueScanRequest,
     listProjects,
@@ -10,19 +12,18 @@ import {
 } from '@sentinello/db'
 
 // Optional lockfile watcher.
-// On any modification of package-lock.json / pnpm-lock.yaml / yarn.lock under a watched root,
-// debounce per-file and INSERT a scan_request row. The existing scan-request poller picks it up.
+// On any modification of a lockfile of an offered ecosystem — package-lock.json, pnpm-lock.yaml,
+// yarn.lock, and since 3.8 Gemfile.lock, Cargo.lock, poetry.lock, uv.lock, go.mod and the rest — under a
+// watched root, debounce per-file and INSERT a scan_request row. The existing scan-request poller picks it up.
 // The watcher MUST NOT call the runner directly — that would bypass the database-as-contract.
 
 // chokidar watches the root directories recursively (chokidar.add(rootPath)). We do NOT pass glob
 // patterns to chokidar.watch — globs combined with directory-add behave inconsistently across the
 // chokidar v5 dual-strategy implementation and miss legitimate lockfile events. Instead, every add
 // and change event is filtered through isLockfilePath() so non-lockfile edits never trigger a scan.
-const LOCKFILE_BASENAMES: ReadonlySet<string> = new Set([
-    'package-lock.json',
-    'pnpm-lock.yaml',
-    'yarn.lock'
-])
+// Every resolver kind of every offered ecosystem, read from the registry so a promoted ecosystem is watched
+// without an edit here: a Gemfile.lock bump is a dependency change like a package-lock.json one.
+const LOCKFILE_BASENAMES: ReadonlySet<string> = new Set(STABLE_ECOSYSTEMS.flatMap(function kinds(eco) { return eco.resolverKinds }))
 const DEFAULT_DEBOUNCE_MS = 5_000
 
 export type WatcherHandle = {
@@ -132,23 +133,19 @@ function enqueueForFile(db: DrizzleDb, roots: Root[], filePath: string): void {
     console.log('[watcher] enqueued scan for ' + match.name)
 }
 
+// The NEAREST known project enclosing the directory — the project itself, or the one a sub-manifest
+// (ios/Gemfile.lock) belongs to. Nearest, not first: a repo-root requirements.txt project encloses
+// apps/web, and apps/web's own lockfile belongs to apps/web.
 function findProjectForDir(db: DrizzleDb, roots: Root[], absoluteDir: string): { projectId: string; name: string } | null {
-    const projects = listProjects(db)
-    for (const project of projects) {
+    let best: { projectId: string; name: string; depth: number } | null = null
+    for (const project of listProjects(db)) {
         const root = roots.find(function id(r): boolean {
             return r.id === project.rootId
         })
         if (!root) continue
         const expected = resolve(root.path, project.relPath)
-        if (expected === absoluteDir) {
-            return { projectId: project.id, name: project.name }
-        }
-        // Also accept lockfiles sitting in a subdirectory we have not yet promoted to a project;
-        // walk up from absoluteDir to see if it's under a known project.
-        const rel = relative(expected, absoluteDir)
-        if (rel === '' || (rel.length > 0 && !rel.startsWith('..'))) {
-            return { projectId: project.id, name: project.name }
-        }
+        if (!isWithin(expected, absoluteDir)) continue
+        if (best === null || expected.length > best.depth) best = { projectId: project.id, name: project.name, depth: expected.length }
     }
-    return null
+    return best === null ? null : { projectId: best.projectId, name: best.name }
 }

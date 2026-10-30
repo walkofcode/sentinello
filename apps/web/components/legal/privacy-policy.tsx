@@ -3,7 +3,7 @@ import './legal.css'
 
 const productName = 'Sentinello'
 const productDomain = 'https://sentinello.org'
-const lastUpdated = 'May 20, 2026'
+const lastUpdated = 'October 30, 2026'
 
 export default async function PrivacyPolicy() {
     const t = await getTranslations('Legal')
@@ -78,18 +78,57 @@ export default async function PrivacyPolicy() {
             <p>
                 Sentinello runs entirely on your own infrastructure and collects no personal
                 data. It does not read the source code of your projects; it discovers projects
-                solely by locating <code>package.json</code> files to build a list of npm
-                projects, and runs the standard <code>npm audit</code> against them. Your code
-                is never uploaded anywhere, and no large language model or other artificial
-                intelligence is involved in any part of the process.
+                solely by locating the dependency manifests and lockfiles of the ecosystems it
+                supports (Node.js, Python, Go, Rust and Ruby), runs the standard{' '}
+                <code>npm audit</code> against Node.js projects, and matches every project's
+                locked versions against advisory data cached on your machine. Your code is never
+                uploaded anywhere, and no large language model or other artificial intelligence is
+                involved in any part of the process.
             </p>
             <p>
                 The only network requests Sentinello makes are the ones listed in the
                 &quot;What Sentinello sends out&quot; section of the{' '}
-                <a href="/about">About page</a>: advisory lookups to the npm registry during a
-                scan, and an optional update check against the GitHub Releases API (which can be
-                disabled). No telemetry, analytics, or usage data leaves your machine.
+                <a href="/about">About page</a>:
             </p>
+            <ul>
+                <li>
+                    <p>
+                        advisory lookups to the npm registry (<code>registry.npmjs.org</code>)
+                        during a scan of a Node.js project, when npm audit is enabled;
+                    </p>
+                </li>
+                <li>
+                    <p>
+                        downloads of the public OSV advisory exports
+                        (<code>osv-vulnerabilities.storage.googleapis.com</code>) and the GitLab
+                        gemnasium advisory archive (<code>gitlab.com</code>), only when you enable
+                        those sources;
+                    </p>
+                </li>
+                <li>
+                    <p>
+                        after a scan, checks that a fix version was published, against the
+                        registry of the package's own ecosystem: <code>registry.npmjs.org</code>,{' '}
+                        <code>pypi.org</code>, <code>proxy.golang.org</code>,{' '}
+                        <code>index.crates.io</code> or <code>rubygems.org</code>, plus weekly
+                        download counts from <code>api.npmjs.org</code> for npm packages with no
+                        fix released. Only package names and versions are sent, never your code;
+                    </p>
+                </li>
+                <li>
+                    <p>
+                        the notifications you configure (Slack, Telegram or a webhook), sent to the
+                        destinations you choose;
+                    </p>
+                </li>
+                <li>
+                    <p>
+                        an optional update check against the GitHub Releases API
+                        (<code>api.github.com</code>), which can be disabled.
+                    </p>
+                </li>
+            </ul>
+            <p>No telemetry, analytics, or usage data leaves your machine.</p>
             <h2 className="text-2xl font-bold">Children's Privacy</h2>
             <p>
                 Our Service does not address anyone under the age of 13. We do not knowingly collect

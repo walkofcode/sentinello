@@ -29,6 +29,7 @@ function row(overrides: Partial<CurrentFindingRow> = {}): CurrentFindingRow {
         advisoryUrl: null,
         packageName: 'lodash',
         installedVersion: '4.17.20',
+        installations: [],
         vulnerableRange: '<4.17.21',
         severity: 'high',
         fixAvailable: false,
@@ -310,6 +311,25 @@ describe('mergeFindings ordering', function () {
     })
 })
 
+// A library installed through two Gemfile.locks: every (manifest, version) any merged row names, each once,
+// by manifest path.
+describe('mergeFindings — installations', function () {
+    it('unions every row\'s installations, each once, by manifest path', function () {
+        const merged = mergeFindings([
+            row({ id: 'a', ecosystem: 'RubyGems', packageName: 'rack', scanner: 'osv', source: 'osv', installedVersion: '2.0.8', installations: [{ manifestPath: 'ios/Gemfile.lock', version: '2.0.8' }, { manifestPath: 'android/Gemfile.lock', version: '2.1.0' }] }),
+            row({ id: 'b', ecosystem: 'RubyGems', packageName: 'rack', scanner: 'gemnasium', source: 'gemnasium', installedVersion: '2.0.8', installations: [{ manifestPath: 'ios/Gemfile.lock', version: '2.0.8' }] })
+        ])
+        expect(merged).toHaveLength(1)
+        expect(merged[0]?.installations).toEqual([{ manifestPath: 'android/Gemfile.lock', version: '2.1.0' }, { manifestPath: 'ios/Gemfile.lock', version: '2.0.8' }])
+        expect(mergeFindings([row()])[0]?.installations).toEqual([])
+    })
+
+    it('orders two versions behind one manifest by version', function () {
+        const merged = mergeFindings([row({ installations: [{ manifestPath: 'package-lock.json', version: '4.17.20' }, { manifestPath: 'package-lock.json', version: '4.17.11' }] })])
+        expect(merged[0]?.installations.map(function v(i) { return i.version })).toEqual(['4.17.11', '4.17.20'])
+    })
+})
+
 describe('mergeFindings — the installed-version union', function () {
     // npm-audit joins hoisted copies into one comma-separated string while OSV emits one concrete
     // version per row. The merged row has to show every affected version exactly once regardless of
@@ -564,7 +584,7 @@ describe('mergeFindings — picking the fix status', function () {
 })
 
 describe('mergeFindings — not re-checked', function () {
-    const RETAINED = { reasonCode: 'no_lockfile' as const, side: 'project' as const, projectState: 'cannot_scan' as const, lastOkScanAt: 1 }
+    const RETAINED = { reasonCode: 'no_lockfile' as const, side: 'project' as const, projectState: 'cannot_scan' as const, lastOkScanAt: 1, manifests: null }
 
     // The annotation belongs to the fix it qualifies: it travels with the row that gave the merged fix.
     it('carries the not re-checked context of the row whose fix it shows', function () {

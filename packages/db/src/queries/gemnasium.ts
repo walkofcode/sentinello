@@ -57,26 +57,41 @@ function fromSelectRow(row: SelectRow): GemnasiumAdvisoryRow {
 export function upsertGemnasiumAdvisories(db: GemnasiumDrizzleDb, rows: GemnasiumAdvisoryRow[]): void {
     if (rows.length === 0) return
     db.transaction(function txn(tx) {
-        for (const row of rows) {
-            const values = toInsertRow(row)
-            tx.insert(gemnasiumAdvisories)
-                .values(values)
-                .onConflictDoUpdate({
-                    target: gemnasiumAdvisories.rowKey,
-                    set: {
-                        aliasesJson: values.aliasesJson,
-                        rangesJson: values.rangesJson,
-                        versionsJson: values.versionsJson,
-                        severity: values.severity,
-                        summary: values.summary,
-                        url: values.url,
-                        malicious: values.malicious,
-                        withdrawn: values.withdrawn
-                    }
-                })
-                .run()
-        }
+        upsertRows(tx, rows)
     })
+}
+
+// The writes the helpers below share, on the database or inside a caller's transaction.
+type GemnasiumWriter = Pick<GemnasiumDrizzleDb, 'insert' | 'delete'>
+
+function upsertRows(writer: GemnasiumWriter, rows: readonly GemnasiumAdvisoryRow[]): void {
+    for (const row of rows) {
+        const values = toInsertRow(row)
+        writer.insert(gemnasiumAdvisories)
+            .values(values)
+            .onConflictDoUpdate({
+                target: gemnasiumAdvisories.rowKey,
+                set: {
+                    aliasesJson: values.aliasesJson,
+                    rangesJson: values.rangesJson,
+                    versionsJson: values.versionsJson,
+                    severity: values.severity,
+                    summary: values.summary,
+                    url: values.url,
+                    malicious: values.malicious,
+                    withdrawn: values.withdrawn
+                }
+            })
+            .run()
+    }
+}
+
+function setMeta(writer: GemnasiumWriter, key: string, value: unknown): void {
+    const valueJson = JSON.stringify(value)
+    writer.insert(gemnasiumMeta)
+        .values({ key, valueJson })
+        .onConflictDoUpdate({ target: gemnasiumMeta.key, set: { valueJson } })
+        .run()
 }
 
 // gemnasium-db ships no per-advisory delta feed, so each sync re-downloads the whole archive and
@@ -102,22 +117,39 @@ export function deleteGemnasiumAdvisoriesExcept(db: GemnasiumDrizzleDb, keepRowK
     return stale.length
 }
 
-// Removes every row belonging to the given advisory ids, across all ecosystems. Used by the incremental
-// sync: an advisory file that changed upstream has its rows cleared and rewritten from the new content, so
-// a package dropped from the advisory's affected set does not linger. One advisory maps to 0..N rows (one
-// per affected package), which is why this deletes by advisoryId rather than by rowKey.
-export function deleteGemnasiumAdvisories(db: GemnasiumDrizzleDb, advisoryIds: string[]): number {
-    if (advisoryIds.length === 0) return 0
+export type GemnasiumRowIdentity = { advisoryId: string; ecosystem: string; packageName: string }
+
+export type GemnasiumIncrement = {
+    // The (advisory, ecosystem, package) row each changed or deleted file held (gemnasiumPathIdentity).
+    drop: readonly GemnasiumRowIdentity[]
+    // Every row the changed files yield now, fetched in full before this is called.
+    upsert: readonly GemnasiumAdvisoryRow[]
+    headSha: string
+    refreshedAt: number
+}
+
+// Publishes one incremental catch-up: the touched files' rows are cleared, their replacements written and
+// the cursor advanced in one transaction. A scan therefore never reads the cache between the delete and the
+// rewrite, and a catch-up whose fetches failed never gets here, so the previous snapshot stays whole.
+// Rows are dropped by (advisory, ecosystem, package), never by advisory id alone: one CVE has files under
+// several packages and ecosystems, and an npm file changing must not delete the PyPI rows of the same CVE.
+export function applyGemnasiumIncrement(db: GemnasiumDrizzleDb, increment: GemnasiumIncrement): { deleted: number; recordCount: number } {
+    const keys = increment.drop.map(function key(r) { return gemnasiumRowKeyFor(r.advisoryId, r.ecosystem, r.packageName) })
     const CHUNK = 500
-    let deleted = 0
-    db.transaction(function txn(tx) {
-        for (let i = 0; i < advisoryIds.length; i += CHUNK) {
-            const slice = advisoryIds.slice(i, i + CHUNK)
-            const result = tx.delete(gemnasiumAdvisories).where(inArray(gemnasiumAdvisories.advisoryId, slice)).run()
-            deleted += result.changes
+    return db.transaction(function txn(tx) {
+        let deleted = 0
+        for (let i = 0; i < keys.length; i += CHUNK) {
+            const slice = keys.slice(i, i + CHUNK)
+            deleted += tx.delete(gemnasiumAdvisories).where(inArray(gemnasiumAdvisories.rowKey, slice)).run().changes
         }
+        upsertRows(tx, increment.upsert)
+        const recordCount = sumCount(tx.select({ count: sql<number>`count(*)` }).from(gemnasiumAdvisories).all())
+        setMeta(tx, GEMNASIUM_META_KEYS.headSha, increment.headSha)
+        setMeta(tx, GEMNASIUM_META_KEYS.recordCount, recordCount)
+        setMeta(tx, GEMNASIUM_META_KEYS.refreshedAt, increment.refreshedAt)
+        setMeta(tx, GEMNASIUM_META_KEYS.lastError, null)
+        return { deleted, recordCount }
     })
-    return deleted
 }
 
 // Look up all advisories affecting any of the given package names in one ecosystem. Returns a Map
@@ -171,11 +203,7 @@ export function getGemnasiumMeta<T = unknown>(db: GemnasiumDrizzleDb, key: strin
 }
 
 export function setGemnasiumMeta(db: GemnasiumDrizzleDb, key: string, value: unknown): void {
-    const valueJson = JSON.stringify(value)
-    db.insert(gemnasiumMeta)
-        .values({ key, valueJson })
-        .onConflictDoUpdate({ target: gemnasiumMeta.key, set: { valueJson } })
-        .run()
+    setMeta(db, key, value)
 }
 
 export const GEMNASIUM_META_KEYS = {

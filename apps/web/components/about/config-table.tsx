@@ -23,7 +23,11 @@ const ROWS: Row[] = [
     { variable: 'SENTINELLO_GEMNASIUM_FEED_URL', def: 'gemnasium archive', purposeKey: 'configRows.gemnasiumFeedUrl' },
     { variable: 'SENTINELLO_GEMNASIUM_DB_PATH', def: '<data dir>/gemnasium.db', purposeKey: 'configRows.gemnasiumDbPath' },
     { variable: 'SENTINELLO_NPM_REGISTRY_URL', def: 'registry.npmjs.org', purposeKey: 'configRows.npmRegistryUrl' },
-    { variable: 'SENTINELLO_NPM_DOWNLOADS_URL', def: 'api.npmjs.org', purposeKey: 'configRows.npmDownloadsUrl' }
+    { variable: 'SENTINELLO_NPM_DOWNLOADS_URL', def: 'api.npmjs.org', purposeKey: 'configRows.npmDownloadsUrl' },
+    { variable: 'SENTINELLO_PYPI_URL', def: 'pypi.org', purposeKey: 'configRows.pypiUrl' },
+    { variable: 'SENTINELLO_GOPROXY_URL', def: 'proxy.golang.org', purposeKey: 'configRows.goproxyUrl' },
+    { variable: 'SENTINELLO_CRATES_INDEX_URL', def: 'index.crates.io', purposeKey: 'configRows.cratesIndexUrl' },
+    { variable: 'SENTINELLO_RUBYGEMS_URL', def: 'rubygems.org', purposeKey: 'configRows.rubygemsUrl' }
 ]
 
 export async function ConfigTable() {

@@ -1,5 +1,5 @@
-import { getEcosystem, type GemnasiumAdvisoryRow, type GemnasiumRange } from '@sentinello/core'
-import { canMatchSomething, canonicaliseRange, compareVersions, highestVersion } from '@sentinello/versions'
+import { canonicalPackageName, comparatorForEcosystem, type GemnasiumAdvisoryRow, type GemnasiumRange } from '@sentinello/core'
+import { canMatchSomething, canonicaliseRange, highestVersion, normalizeBound, refusedRange, type VersionComparator } from '@sentinello/versions'
 import { severityFromCvss } from './cvss'
 
 // Parses a single gemnasium-db advisory (one *.yml file, already YAML-parsed to an object) into the
@@ -35,9 +35,9 @@ export function normalizeGemnasiumRecord(record: unknown, ecosystem: string, slu
     if (rawName.length === 0) return []
     // An advisory upstream has retracted contributes nothing, whatever versions it still names.
     if (isRetractedUpstream(r)) return []
-    // PyPI advisories must key on the PEP 503 canonical name (lower-case, runs of -_. collapsed) so they
-    // match the resolver's normalized names; other ecosystems use the slug name as-is.
-    const packageName = ecosystem === 'PyPI' ? normalizePyName(rawName) : rawName
+    // PyPI advisories must key on the PEP 503 canonical name so they match the resolver's; other
+    // ecosystems use the slug name as-is.
+    const packageName = canonicalPackageName(ecosystem, rawName)
 
     const identifiers = stringArray(r.identifiers)
     // Primary id: the explicit `identifier` (CVE preferred, else GMS), falling back to the first listed
@@ -48,6 +48,9 @@ export function normalizeGemnasiumRecord(record: unknown, ecosystem: string, slu
     if (!advisoryId) return []
 
     const fixedVersions = stringArray(r.fixed_versions)
+    // A package type the registry maps to an ecosystem always has a comparator; one that somehow does not
+    // cannot be read at all, which is no row rather than a row read under the wrong ordering.
+    if (comparatorForEcosystem(ecosystem) === null) return []
     const parsed = parseAffectedRange(typeof r.affected_range === 'string' ? r.affected_range : '', fixedVersions, ecosystem)
     // `affected_range` is the authoritative statement of what this advisory affects, and a record whose
     // range matches nothing affects nothing. That is not a gap to be filled from somewhere else: for npm it
@@ -177,41 +180,56 @@ type ParsedRange = {
 // retires whitespace, partial versions, `v` prefixes, and the caret/tilde/x-range/hyphen forms in one call.
 // An optional parameter would have preserved exactly the ambiguity that caused the bug.
 export function parseAffectedRange(affectedRange: string, fixedVersions: string[], ecosystem: string): ParsedRange {
+    const comparator = comparatorForEcosystem(ecosystem)
+    if (comparator === null) return { ranges: [], versions: [] }
     const ranges: BuiltRange[] = []
     const versions: string[] = []
+    // The source's own text of every disjunct this parser refused, in order.
+    const refused: string[] = []
     const trimmed = affectedRange.trim()
     // Split FIRST, canonicalise each disjunct SECOND. Handing node-semver the whole string lets one
     // unconstrained disjunct swallow the rest: `>=1 <2 || ` is `A || (any)` to npm, which is `*`, so a
     // stray trailing separator would widen a two-major range into every version ever published. The
     // disjunction is this parser's own structure to manage; node-semver's job is one comparator set.
-    const disjuncts = (trimmed.length > 0 ? trimmed.split('||').map(trimToken).filter(nonEmpty) : [])
-        .map(function canonical(disjunct) {
-            return canonicaliseRange(disjunct, ecosystem)
-        })
-        .filter(isNotNull)
-        .map(trimToken)
-        .filter(nonEmpty)
-
-    for (const disjunct of disjuncts) {
-        const interval = parseDisjunct(disjunct, ecosystem)
-        if (!interval) continue
-        if (interval.exact !== null) {
-            versions.push(interval.exact)
-        } else {
-            ranges.push(toRange(interval.introduced, interval.introducedExclusive, interval.fixed, interval.lastAffected))
+    //
+    // The canonical form is split on `||` once more, because an operator dialect may itself answer with a
+    // disjunction: a `!=` exclusion is the two intervals either side of the excluded version.
+    //
+    // A disjunct refused at either step — a syntax the dialect does not implement, a bound the comparator
+    // cannot read — is REMEMBERED, not skipped. Skipping it left the surviving disjuncts looking like the
+    // whole affected set, which turned "this record also says something we cannot read" into proof that
+    // every version outside the survivors is safe: `<1.0 || ~=2.0` cached as `<1.0` let the fix picker
+    // name 2.0. An empty interval (`<0`) is not a refusal: it was read, and it selects nothing.
+    for (const disjunct of trimmed.length > 0 ? trimmed.split('||').map(trimToken).filter(nonEmpty) : []) {
+        const canonical = canonicaliseRange(disjunct, ecosystem)
+        let readAll = canonical !== null
+        for (const part of canonical === null ? [] : canonical.split('||').map(trimToken).filter(nonEmpty)) {
+            const interval = parseDisjunct(part, comparator)
+            if (!interval) {
+                readAll = false
+            } else if (interval.exact !== null) {
+                versions.push(interval.exact)
+            } else {
+                ranges.push(toRange(interval.introduced, interval.introducedExclusive, interval.fixed, interval.lastAffected))
+            }
         }
+        if (!readAll) refused.push(disjunct)
     }
 
     // Every parsed interval selects no version (`<0`, or any other degenerate bound), or there was no
     // range at all. Either way the record states no affected set, so return nothing and let the caller
     // drop it rather than reporting an interval the advisory never claimed.
-    if (versions.length === 0 && !ranges.some(canMatchSomething)) return { ranges: [], versions: [] }
+    if (versions.length === 0 && !ranges.some(function live(range) { return canMatchSomething(range, comparator) })) {
+        return { ranges: [], versions: [] }
+    }
 
     // Single range + exactly one known fixed version: trust the authoritative fixed boundary over the
     // parsed upper bound. See rule 2 above for why the count check is load-bearing.
     const only = ranges[0]
     const authoritativeFixed = fixedVersions[0]
-    if (ranges.length === 1 && versions.length === 0 && only && fixedVersions.length === 1 && authoritativeFixed !== undefined
+    // A refused sibling disqualifies it too: the record then had more than one disjunct, and the one fix
+    // may belong to the branch nobody could read.
+    if (ranges.length === 1 && versions.length === 0 && refused.length === 0 && only && fixedVersions.length === 1 && authoritativeFixed !== undefined
         // …but only when it is actually ABOVE the interval's lower bound. A fix at or below it describes a
         // different branch, and substituting it builds an interval that selects nothing — the identical
         // reasoning to the highest-fix bounding below, which has always carried this check while the
@@ -221,7 +239,11 @@ export function parseAffectedRange(affectedRange: string, fixedVersions: string[
         // lists `fixed_versions: ["103.0.0-nightly.20211203"]` — a PRERELEASE of its own lower bound. The
         // override turned that into `[103.0.0, 103.0.0-nightly.20211203)`, an inverted interval matching
         // nothing, so a record that used to report 103.0.0 would have reported no version at all.
-        && compareVersions(authoritativeFixed, only.introduced) > 0) {
+        //
+        // Both the readability of the fix and its place above the lower bound are the ECOSYSTEM'S
+        // comparator's answer. They used to be semver's for every ecosystem, which ordered a PEP 440 or Go
+        // pseudo-version fix wherever coercion happened to put it.
+        && boundsAbove(authoritativeFixed, only, comparator)) {
         // A known fix version supersedes the parsed upper bound, inclusive or not — `fixed` IS the
         // remediation target. The lower bound and its inclusivity are the advisory's own and are kept.
         ranges[0] = toRange(only.introduced, only.introducedExclusive === true, authoritativeFixed, null)
@@ -241,18 +263,33 @@ export function parseAffectedRange(affectedRange: string, fixedVersions: string[
     // `not_impacted` ("All versions up to 1.2.8") and `solution` ("Downgrade to version 1.2.8") also carry a
     // real boundary, and are still not read: gemnasium's field reference calls the parallel
     // `affected_versions` display text, and prose has no grammar to parse against.
-    const highestFixed = highestVersion(fixedVersions)
+    const highestFixed = highestVersion(fixedVersions, comparator)
     const bounded: BuiltRange[] = []
     for (const range of ranges) {
         const openEnded = range.fixed === null && range.lastAffected === null
         // A fix at or below the lower bound describes a different branch than this interval, and pairing
         // them would build an empty range that matches nothing. Leave it open rather than silently mute it.
-        bounded.push(highestFixed !== null && openEnded && compareVersions(highestFixed, range.introduced) > 0
+        bounded.push(highestFixed !== null && openEnded && boundsAbove(highestFixed, range, comparator)
             ? toRange(range.introduced, range.introducedExclusive === true, highestFixed, null)
             : range)
     }
 
-    return { ranges: bounded, versions }
+    // An interval that selects nothing is dropped even when a sibling is live: cached, it would sit in the
+    // row looking like an affected range and could never report — `[1.1.5.post1, 1.1.5)` under PEP 440, or
+    // npm's `[4.0.0-beta1, 4.0.0-beta.11)`, where `beta1` sorts above `beta.11`.
+    //
+    // Refused disjuncts follow the live ones as refused parts (see VersionRange.refused): they match
+    // nothing, and they keep the record's affected set incomplete wherever it is read. They are only kept
+    // beside something that was read — a record refused whole was already returned empty above.
+    const live = bounded.filter(function live(range) { return canMatchSomething(range, comparator) })
+    return { ranges: [...live, ...refused.map(function marker(text) { return refusedRange(text) })], versions }
+}
+
+// Whether `fix` is a readable version above the range's lower bound, so `[lower, fix)` selects something.
+// An unreadable fix is never substituted: the matcher could not enter the interval it would build.
+function boundsAbove(fix: string, range: BuiltRange, comparator: VersionComparator): boolean {
+    if (comparator.normalize(fix) === null) return false
+    return canMatchSomething({ introduced: range.introduced, introducedExclusive: range.introducedExclusive, fixed: fix, lastAffected: null }, comparator)
 }
 
 // Both upper bounds are optional on the shared range type (OSV-shaped sources may omit them), but every
@@ -280,10 +317,10 @@ type Disjunct = {
     exact: string | null
 }
 
-function parseDisjunct(disjunct: string, ecosystem: string): Disjunct | null {
+function parseDisjunct(disjunct: string, comparator: VersionComparator): Disjunct | null {
     const first = disjunct[0]
     if (first === '(' || first === '[') return parseIntervalNotation(disjunct)
-    return parseComparatorForm(disjunct, ecosystem)
+    return parseComparatorForm(disjunct, comparator)
 }
 
 // Maven-style interval notation: "(" / "[" open, "," separates lower,upper, ")" / "]" close. Bracket
@@ -296,21 +333,17 @@ function parseIntervalNotation(disjunct: string): Disjunct | null {
     if (close !== ')' && close !== ']') return null
     const inner = disjunct.slice(1, -1)
     const comma = inner.indexOf(',')
+    // Every disjunct that reaches here names a version: canonicaliseRange refuses one without a digit, in
+    // every dialect. So "[]", "[,]", "(,)" and the other spellings of "no boundary at all" never arrive —
+    // building the interval from one produced `[0, …)` with no upper bound, every version affected forever
+    // out of a record that stated none — and an interval here always has a bound on at least one side.
     if (comma < 0) {
         // "[1.2.3]" — a single exact version.
-        const exact = inner.trim()
-        return exact.length > 0
-            ? { introduced: '0', introducedExclusive: false, fixed: null, lastAffected: null, exact }
-            : null
+        return { introduced: '0', introducedExclusive: false, fixed: null, lastAffected: null, exact: inner.trim() }
     }
     const lo = inner.slice(0, comma).trim()
     const hi = inner.slice(comma + 1).trim()
     const hasUpper = hi.length > 0
-    // Neither bound given — "[,]", "(,)", "(,]", "[,)". The notation names no boundary at all, and building
-    // the interval anyway produced `[0, …)` with no upper bound: every version of the package affected,
-    // forever, with no fix, out of a record that stated no version. Refuse it, exactly as an unterminated
-    // interval is refused above.
-    if (lo.length === 0 && !hasUpper) return null
     return {
         introduced: lo.length > 0 ? lo : '0',
         // An open "(" excludes the lower bound — but only when one was actually given; "(,2.0.0)" has no
@@ -338,15 +371,19 @@ function parseIntervalNotation(disjunct: string): Disjunct | null {
 // semver-only fix derivation and OSV's non-canonicalized PyPI names are still open, so they stay there.
 //
 // An operator is bound to the version that follows it before any of that: see `bindOperators`.
-function parseComparatorForm(disjunct: string, ecosystem: string): Disjunct | null {
+//
+// A conjunction states its bounds as an INTERSECTION, so a second bound of the same side narrows the first
+// rather than replacing it: `>=1.0 <2.0 <1.5` ends at 1.5 and `<1.5 <2.0` does too. Which is narrower is
+// the comparator's answer, and a conjunction whose competing bounds it cannot order is refused — picking
+// either one would be a guess. This is also what lets an operator dialect expand an exclusion into
+// `... <X || ... >X` without ordering versions itself.
+function parseComparatorForm(disjunct: string, comparator: VersionComparator): Disjunct | null {
     const tokens = bindOperators(disjunct.split(/[\s,]+/).filter(nonEmpty))
     if (!tokens || tokens.length === 0) return null
-    let introduced = '0'
-    let introducedExclusive = false
-    let fixed: string | null = null
-    let lastAffected: string | null = null
+    let lower: { version: string; exclusive: boolean } | null = null
+    let upper: { version: string; inclusive: boolean } | null = null
     for (const token of tokens) {
-        const op = readOperator(token, ecosystem)
+        const op = readOperator(token, comparator)
         if (!op) return null
         if (op.operator === '=') {
             // A single pinned version: surface as an exact version rather than a range.
@@ -364,19 +401,34 @@ function parseComparatorForm(disjunct: string, ecosystem: string): Disjunct | nu
             return { introduced: '0', introducedExclusive: false, fixed: null, lastAffected: null, exact: op.version }
         }
         if (op.operator === '>=' || op.operator === '>') {
-            introduced = op.version
-            introducedExclusive = op.operator === '>'
-        } else if (op.operator === '<') {
-            fixed = op.version
-            lastAffected = null
+            const candidate = { version: op.version, exclusive: op.operator === '>' }
+            const order = lower === null ? 1 : orderBounds(candidate.version, lower.version, comparator)
+            if (order === null) return null
+            if (order > 0 || (order === 0 && candidate.exclusive)) lower = candidate
         } else {
             // "<=X" says X ITSELF is affected. That is an inclusive upper bound, which the range type now
             // carries directly — no successor version needed, and nothing to under-include.
-            lastAffected = op.version
-            fixed = null
+            const candidate = { version: op.version, inclusive: op.operator === '<=' }
+            const order = upper === null ? -1 : orderBounds(candidate.version, upper.version, comparator)
+            if (order === null) return null
+            if (order < 0 || (order === 0 && !candidate.inclusive)) upper = candidate
         }
     }
-    return { introduced, introducedExclusive, fixed, lastAffected, exact: null }
+    return {
+        introduced: lower === null ? '0' : lower.version,
+        introducedExclusive: lower !== null && lower.exclusive,
+        fixed: upper !== null && !upper.inclusive ? upper.version : null,
+        lastAffected: upper !== null && upper.inclusive ? upper.version : null,
+        exact: null
+    }
+}
+
+// Order two bounds of the same side, or null when either is one the comparator cannot read.
+function orderBounds(a: string, b: string, comparator: VersionComparator): number | null {
+    const left = comparator.normalize(a)
+    const right = comparator.normalize(b)
+    if (left === null || right === null) return null
+    return comparator.compare(left, right)
 }
 
 // A token that is an operator and nothing else. The version it constrains is the next token along.
@@ -427,38 +479,53 @@ type Operator = { operator: '>=' | '>' | '<=' | '<' | '='; version: string }
 // implement.
 const BARE_VERSION = /^[0-9]+(\.[0-9]+)*([-+][0-9A-Za-z.-]*)?$/
 
-function readOperator(token: string, ecosystem: string): Operator | null {
-    if (token.startsWith('>=')) return buildOperator('>=', token.slice(2), ecosystem)
-    if (token.startsWith('<=')) return buildOperator('<=', token.slice(2), ecosystem)
-    if (token.startsWith('>')) return buildOperator('>', token.slice(1), ecosystem)
-    if (token.startsWith('<')) return buildOperator('<', token.slice(1), ecosystem)
-    if (token.startsWith('=')) return buildOperator('=', token.slice(1), ecosystem)
+// Longest operator first: `>=` before `>`, and `==` read as what it is rather than as `=` followed by a
+// version that starts with `=`. That last reading is how gemnasium's 192 PyPI `==X` pins were cached as the
+// "version" `=X`, which no install ever equals — every one of them silently matched nothing. The PyPI
+// dialect now rewrites `==X` to `=X` before the parser sees it, so a `==` reaching here is one no dialect
+// defines, and it is refused like every other operator this parser does not read.
+const OPERATOR_TOKEN = /^(==|>=|<=|>|<|=)(.*)$/
+
+function readOperator(token: string, comparator: VersionComparator): Operator | null {
+    const match = OPERATOR_TOKEN.exec(token)
+    if (match) {
+        const operator = match[1] as string
+        if (operator === '==') return null
+        return buildOperator(operator as Operator['operator'], match[2] as string, comparator)
+    }
     // Bare version → exact pin, but ONLY if it really is a version. The old fallthrough pinned any
     // unrecognised token verbatim, so "^1.0.0", "~1.0.0" and "!=1.0.0" each became an "exact version" that
     // no installed version can ever equal — a row cached as a live advisory that matches nothing, ever.
     // Refusing the token drops the record instead, which is the honest outcome for syntax we cannot read.
     const bare = stripV(token)
-    return BARE_VERSION.test(bare) ? { operator: '=', version: bare } : null
+    return isVersionToken(bare, comparator) ? { operator: '=', version: bare } : null
 }
 
-function buildOperator(operator: Operator['operator'], rawVersion: string, ecosystem: string): Operator | null {
+function buildOperator(operator: Operator['operator'], rawVersion: string, comparator: VersionComparator): Operator | null {
     const version = stripV(rawVersion)
-    // npm's source-specific numeric spellings include dates and leading-zero segments that node-semver
-    // refuses, but every real one still starts with a numeric version. Rejecting a non-version token here
-    // stops `>=1.0.0 <banana` from installing an unreadable upper bound that silences the valid lower half.
-    if (getEcosystem(ecosystem)?.comparator === 'semver' && !BARE_VERSION.test(version)) return null
+    // Every real version starts with a digit, in every ecosystem. Rejecting anything else here stops
+    // `>=1.0.0 <banana` from installing an unreadable upper bound that silences the valid lower half.
+    if (!/^[0-9]/.test(version)) return null
+    if (!isVersionToken(version, comparator)) return null
     return { operator, version }
+}
+
+// Whether a token is a version this parser may build a bound or a pin from. For every comparator but
+// semver that is exactly "a version the comparator reads": PEP 440's `1.0a1` and `1!2.0`, Gem's
+// `1.0.0.pre`, Go's pseudo-versions are read, and a spelling it cannot read (`4.2-20.el8_6` in a PyPI
+// record, a date in a Go one) is refused here — counted by the refusal ratchet — instead of being cached as
+// a bound that can never match. semver is the exception because its `normalize` deliberately coerces
+// (`1.0.0banana` reads as 1.0.0), so for npm and crates.io the shape test alone decides, exactly as it
+// always has: npm's source-specific numeric spellings (dates, leading-zero segments) pass it and are handed
+// to the matcher as written.
+function isVersionToken(version: string, comparator: VersionComparator): boolean {
+    if (comparator.id === 'semver') return BARE_VERSION.test(version)
+    return normalizeBound(version, comparator) !== null
 }
 
 function stripV(raw: string): string {
     const t = raw.trim()
     return t.startsWith('v') || t.startsWith('V') ? t.slice(1) : t
-}
-
-// PEP 503 name normalization (lower-case, runs of -_. collapsed to a single -). Mirrors the Python
-// resolver so a gemnasium PyPI advisory keys on the same name the resolved package does.
-function normalizePyName(name: string): string {
-    return name.trim().toLowerCase().replace(/[-_.]+/g, '-')
 }
 
 function stringArray(value: unknown): string[] {
@@ -477,8 +544,4 @@ function trimToken(s: string): string {
 
 function nonEmpty(s: string): boolean {
     return s.length > 0
-}
-
-function isNotNull(value: string | null): value is string {
-    return value !== null
 }

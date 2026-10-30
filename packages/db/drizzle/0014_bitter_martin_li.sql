@@ -1,0 +1,2 @@
+ALTER TABLE `findings` ADD `installations_json` text DEFAULT '[]' NOT NULL;--> statement-breakpoint
+CREATE INDEX `scans_latest_source_idx` ON `scans` (`project_id`,(CASE WHEN "source" IS NULL THEN "scanner" ELSE "source" END),`ecosystem`,`finished_at`,`id`,`status`);

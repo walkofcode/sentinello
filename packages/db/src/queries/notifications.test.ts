@@ -26,7 +26,8 @@ import {
     listEventsForProject,
     setFirstNotifiedAt,
     upsertFindingEvent,
-    upsertScanFailureEvent
+    upsertScanFailureEvent,
+    type UpsertFindingEventInput
 } from './notification-events'
 import { listRootIdsForTargets, listTargetRootIds, setTargetRoots } from './notification-target-roots'
 import {
@@ -69,11 +70,12 @@ function target(overrides: Partial<NotificationTarget> = {}): NotificationTarget
     }
 }
 
-function findingEvent(overrides: Record<string, unknown> = {}) {
+function findingEvent(overrides: Partial<UpsertFindingEventInput> = {}): UpsertFindingEventInput {
     return {
         projectId: PROJECT_ID,
         source: 'osv',
         ecosystem: 'npm',
+        baselineOf: null,
         advisoryId: 'GHSA-1',
         packageName: 'lodash',
         severity: 'high' as const,
@@ -106,6 +108,7 @@ function addProject(id: string, rootId: string, relPath: string): void {
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems: ['npm'],
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,

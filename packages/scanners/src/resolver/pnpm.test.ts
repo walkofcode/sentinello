@@ -49,21 +49,21 @@ snapshots:
 
 describe('parsePnpmLock failure handling', function () {
     it('returns null when the lockfile does not exist', async function () {
-        expect(await parsePnpmLock(join(dir, 'nope.yaml'))).toBeNull()
+        expect(await parsePnpmLock(join(dir, 'nope.yaml'), 'pnpm-lock.yaml')).toBeNull()
     })
 
     it('returns null on malformed yaml', async function () {
-        expect(await parsePnpmLock(await write('a:\n  - b\n : : :\n'))).toBeNull()
+        expect(await parsePnpmLock(await write('a:\n  - b\n : : :\n'), 'pnpm-lock.yaml')).toBeNull()
     })
 
     it.each(['null', '"a string"', '42'])('returns null for the non-object document %s', async function (raw) {
-        expect(await parsePnpmLock(await write(raw))).toBeNull()
+        expect(await parsePnpmLock(await write(raw), 'pnpm-lock.yaml')).toBeNull()
     })
 })
 
 describe('parsePnpmLock v9', function () {
     it('enumerates every package in the snapshots map', async function () {
-        const graph = await parsePnpmLock(await write(V9))
+        const graph = await parsePnpmLock(await write(V9), 'pnpm-lock.yaml')
         expect(graph?.packages.map(function name(p) { return p.name }).sort()).toEqual([
             'chai',
             'cookie',
@@ -73,23 +73,23 @@ describe('parsePnpmLock v9', function () {
     })
 
     it('marks a direct production dependency prod', async function () {
-        const graph = await parsePnpmLock(await write(V9))
+        const graph = await parsePnpmLock(await write(V9), 'pnpm-lock.yaml')
         expect(graph?.classify('express', '4.18.0')).toMatchObject({ isProd: true, isDev: false })
     })
 
     // The reachability walk is the whole point of the v9 path: cookie is only reachable through express.
     it('marks a transitive production dependency prod', async function () {
-        const graph = await parsePnpmLock(await write(V9))
+        const graph = await parsePnpmLock(await write(V9), 'pnpm-lock.yaml')
         expect(graph?.classify('cookie', '0.5.0')).toMatchObject({ isProd: true, isDev: false })
     })
 
     it('marks a direct dev dependency dev', async function () {
-        const graph = await parsePnpmLock(await write(V9))
+        const graph = await parsePnpmLock(await write(V9), 'pnpm-lock.yaml')
         expect(graph?.classify('vitest', '1.0.0')).toMatchObject({ isProd: false, isDev: true })
     })
 
     it('marks a transitive dev dependency dev', async function () {
-        const graph = await parsePnpmLock(await write(V9))
+        const graph = await parsePnpmLock(await write(V9), 'pnpm-lock.yaml')
         expect(graph?.classify('chai', '4.0.0')).toMatchObject({ isProd: false, isDev: true })
     })
 
@@ -115,7 +115,7 @@ snapshots:
       shared: 1.0.0
   shared@1.0.0: {}
 `
-        const graph = await parsePnpmLock(await write(text))
+        const graph = await parsePnpmLock(await write(text), 'pnpm-lock.yaml')
         expect(graph?.classify('shared', '1.0.0')).toMatchObject({ isProd: true, isDev: true })
     })
 
@@ -131,7 +131,7 @@ importers:
 snapshots:
   fsevents@2.3.0: {}
 `
-        const graph = await parsePnpmLock(await write(text))
+        const graph = await parsePnpmLock(await write(text), 'pnpm-lock.yaml')
         expect(graph?.classify('fsevents', '2.3.0')).toMatchObject({ isProd: true })
     })
 
@@ -148,7 +148,7 @@ snapshots:
   a@1.0.0:
     optional: true
 `
-        const graph = await parsePnpmLock(await write(text))
+        const graph = await parsePnpmLock(await write(text), 'pnpm-lock.yaml')
         expect(graph?.byName('a')[0]?.scope.isOptional).toBe(true)
     })
 
@@ -168,7 +168,7 @@ importers:
 snapshots:
   a@1.0.0: {}
 `
-        const graph = await parsePnpmLock(await write(text))
+        const graph = await parsePnpmLock(await write(text), 'pnpm-lock.yaml')
         expect(graph?.packages.map(function name(p) { return p.name })).toEqual(['a'])
     })
 
@@ -186,7 +186,7 @@ snapshots:
   a@1.0.0: {}
   a@1.0.0(react@18.0.0): {}
 `
-        const graph = await parsePnpmLock(await write(text))
+        const graph = await parsePnpmLock(await write(text), 'pnpm-lock.yaml')
         expect(graph?.byName('a')).toHaveLength(1)
         expect(graph?.byName('a')[0]?.depPaths).toHaveLength(2)
     })
@@ -208,7 +208,7 @@ snapshots:
   a@1.0.0(react@18.0.0):
     optional: true
 `
-        const graph = await parsePnpmLock(await write(text))
+        const graph = await parsePnpmLock(await write(text), 'pnpm-lock.yaml')
         expect(graph?.byName('a')).toHaveLength(1)
         expect(graph?.byName('a')[0]?.scope.isOptional).toBe(false)
     })
@@ -228,7 +228,7 @@ snapshots:
   'a@': {}
   a@1.0.0: {}
 `
-        const graph = await parsePnpmLock(await write(text))
+        const graph = await parsePnpmLock(await write(text), 'pnpm-lock.yaml')
         expect(graph?.packages).toHaveLength(1)
         expect(graph?.packages[0]?.version).toBe('1.0.0')
     })
@@ -241,7 +241,7 @@ snapshots:
 snapshots:
   a@1.0.0: {}
 `
-        const graph = await parsePnpmLock(await write(text))
+        const graph = await parsePnpmLock(await write(text), 'pnpm-lock.yaml')
         expect(graph?.byName('a')).toHaveLength(1)
         expect(graph?.byName('a')[0]?.scope).toMatchObject({ isProd: false, isDev: false })
     })
@@ -258,7 +258,7 @@ importers:
 snapshots:
   '@babel/core@7.0.0': {}
 `
-        const graph = await parsePnpmLock(await write(text))
+        const graph = await parsePnpmLock(await write(text), 'pnpm-lock.yaml')
         expect(graph?.packages[0]?.name).toBe('@babel/core')
         expect(graph?.packages[0]?.version).toBe('7.0.0')
     })
@@ -280,7 +280,7 @@ snapshots:
   x@1.0.0: {}
   y@1.0.0: {}
 `
-        const graph = await parsePnpmLock(await write(text))
+        const graph = await parsePnpmLock(await write(text), 'pnpm-lock.yaml')
         expect(graph?.classify('x', '1.0.0')).toMatchObject({ isProd: true })
         expect(graph?.classify('y', '1.0.0')).toMatchObject({ isDev: true })
     })
@@ -296,7 +296,7 @@ importers:
 snapshots:
   orphan@1.0.0: {}
 `
-        const graph = await parsePnpmLock(await write(text))
+        const graph = await parsePnpmLock(await write(text), 'pnpm-lock.yaml')
         expect(graph?.packages.map(function name(p) { return p.name })).toEqual(['orphan'])
         expect(graph?.classify('orphan', '1.0.0')).toMatchObject({ isProd: true })
     })
@@ -317,7 +317,7 @@ packages:
 `
 
     it('reads packages keyed by /name@version', async function () {
-        const graph = await parsePnpmLock(await write(LEGACY))
+        const graph = await parsePnpmLock(await write(LEGACY), 'pnpm-lock.yaml')
         expect(graph?.packages.map(function name(p) { return p.name }).sort()).toEqual([
             'express',
             'fsevents',
@@ -326,30 +326,30 @@ packages:
     })
 
     it('trusts the per-package dev flag', async function () {
-        const graph = await parsePnpmLock(await write(LEGACY))
+        const graph = await parsePnpmLock(await write(LEGACY), 'pnpm-lock.yaml')
         expect(graph?.classify('vitest', '1.0.0')).toMatchObject({ isProd: false, isDev: true })
         expect(graph?.classify('express', '4.18.0')).toMatchObject({ isProd: true, isDev: false })
     })
 
     it('trusts the per-package optional flag', async function () {
-        const graph = await parsePnpmLock(await write(LEGACY))
+        const graph = await parsePnpmLock(await write(LEGACY), 'pnpm-lock.yaml')
         expect(graph?.byName('fsevents')[0]?.scope.isOptional).toBe(true)
     })
 
     it('prefers an explicit version field over the key', async function () {
         const text = 'packages:\n  /a@1.0.0:\n    version: 2.0.0\n'
-        const graph = await parsePnpmLock(await write(text))
+        const graph = await parsePnpmLock(await write(text), 'pnpm-lock.yaml')
         expect(graph?.packages[0]?.version).toBe('2.0.0')
     })
 
     it('skips an unparseable key', async function () {
         const text = 'packages:\n  bogus:\n    dev: false\n  /a@1.0.0:\n    dev: false\n'
-        const graph = await parsePnpmLock(await write(text))
+        const graph = await parsePnpmLock(await write(text), 'pnpm-lock.yaml')
         expect(graph?.packages.map(function name(p) { return p.name })).toEqual(['a'])
     })
 
     it('returns an empty graph when there are no packages', async function () {
-        const graph = await parsePnpmLock(await write('lockfileVersion: 5.4\n'))
+        const graph = await parsePnpmLock(await write('lockfileVersion: 5.4\n'), 'pnpm-lock.yaml')
         expect(graph?.packages).toEqual([])
     })
 })
@@ -370,7 +370,7 @@ importers:
 
 snapshots:
   fsevents@2.3.3: {}
-`))
+`), 'pnpm-lock.yaml')
         expect(graph?.classify('fsevents', '2.3.3')).toMatchObject({ isProd: true, isDev: false })
     })
 
@@ -395,7 +395,7 @@ importers:
 snapshots:
   express@4.18.0: {}
   lodash@4.17.21: {}
-`))
+`), 'pnpm-lock.yaml')
         // Both are prod, but lodash gets there via its own importer, not via the link.
         expect(graph?.classify('express', '4.18.0')).toMatchObject({ isProd: true })
         expect(graph?.classify('lodash', '4.17.21')).toMatchObject({ isProd: true })
@@ -415,7 +415,7 @@ snapshots:
     optionalDependencies:
       opt-child: 2.0.0
   opt-child@2.0.0: {}
-`))
+`), 'pnpm-lock.yaml')
         expect(graph?.classify('opt-child', '2.0.0')).toMatchObject({ isProd: true })
     })
 
@@ -431,7 +431,7 @@ importers:
 snapshots:
   fsevents@2.3.3:
     optional: true
-`))
+`), 'pnpm-lock.yaml')
         expect(graph?.classify('fsevents', '2.3.3')).toMatchObject({ isOptional: true })
     })
 
@@ -460,7 +460,7 @@ snapshots:
       shared: 3.0.0(react@19.0.0)
   shared@3.0.0(react@18.0.0): {}
   shared@3.0.0(react@19.0.0): {}
-`))
+`), 'pnpm-lock.yaml')
         const scope = graph?.classify('shared', '3.0.0')
         expect(scope).toMatchObject({ isProd: true, isDev: true })
         expect(graph?.packages.filter(function s(p) { return p.name === 'shared' })).toHaveLength(1)
@@ -488,7 +488,7 @@ snapshots:
   shared@3.0.0(react@18.0.0):
     optional: true
   shared@3.0.0(react@19.0.0): {}
-`))
+`), 'pnpm-lock.yaml')
         expect(graph?.classify('shared', '3.0.0')).toMatchObject({ isOptional: false })
     })
 
@@ -511,7 +511,7 @@ snapshots:
       shared: 3.0.0(react@19.0.0)
   shared@3.0.0(react@18.0.0): {}
   shared@3.0.0(react@19.0.0): {}
-`))
+`), 'pnpm-lock.yaml')
         const shared = graph?.packages.find(function s(p) { return p.name === 'shared' })
         expect(shared?.depPaths).toHaveLength(2)
     })
@@ -534,7 +534,7 @@ importers:
 snapshots:
   express@4.18.0: {}
   orphan@9.9.9: {}
-`))
+`), 'pnpm-lock.yaml')
         const orphan = graph?.packages.find(function o(p) { return p.name === 'orphan' })
         expect(orphan?.scope).toMatchObject({ isProd: false, isDev: false })
         // Fail-open at the classify() layer, not at the resolver's.
@@ -552,7 +552,7 @@ snapshots:
 ${importers}
 snapshots:
   express@4.18.0: {}
-`))
+`), 'pnpm-lock.yaml')
         // The lockfile still parses and still enumerates its packages — a malformed importer costs
         // reachability for that importer, not the whole graph.
         expect(graph).not.toBeNull()
@@ -573,7 +573,7 @@ importers:
       express:
         version: 4.18.0
 
-${snapshots}`))
+${snapshots}`), 'pnpm-lock.yaml')
         expect(graph?.classify('express', '4.18.0')).toMatchObject({ isProd: true })
     })
 
@@ -591,7 +591,7 @@ importers:
 packages:
   express@4.18.0:
     resolution: {integrity: sha512-abc}
-`))
+`), 'pnpm-lock.yaml')
         expect(graph?.packages.map(function n(p) { return p.name })).toContain('express')
     })
 
@@ -607,7 +607,7 @@ importers:
 snapshots:
   express@4.18.0: {}
   'not-a-valid-key': {}
-`))
+`), 'pnpm-lock.yaml')
         expect(graph?.packages.map(function n(p) { return p.name })).toEqual(['express'])
     })
 })
@@ -617,7 +617,7 @@ describe('parsePnpmLock legacy — the per-entry flags', function () {
     // the failure mode is different: the flags are read directly and a misread mis-scopes exactly one
     // package rather than a whole subtree.
     async function legacy(packages: string): Promise<Awaited<ReturnType<typeof parsePnpmLock>>> {
-        return parsePnpmLock(await write(`lockfileVersion: 6.0\n\npackages:\n${packages}`))
+        return parsePnpmLock(await write(`lockfileVersion: 6.0\n\npackages:\n${packages}`), 'pnpm-lock.yaml')
     }
 
     it('treats an entry with no dev flag as production', async function () {
@@ -690,7 +690,7 @@ snapshots:
   opt@1.0.0: {}
   tool@2.0.0: {}
   fsevents@2.3.3: {}
-`))
+`), 'pnpm-lock.yaml')
         const nodeGraph = graph?.nodeGraph
         expect(nodeGraph?.nodes.map(function id(n) { return n.id }).sort()).toEqual([
             'app-lib@1.0.0(react@18.0.0)', 'app-lib@1.0.0(react@19.0.0)', 'fsevents@2.3.3', 'opt@1.0.0', 'react@18.0.0', 'react@19.0.0', 'strip-ansi@6.0.1', 'tool@2.0.0'
@@ -719,7 +719,7 @@ snapshots:
 packages:
   /a/1.0.0:
     dev: false
-`))
+`), 'pnpm-lock.yaml')
         expect(graph?.nodeGraph).toBeNull()
     })
 })

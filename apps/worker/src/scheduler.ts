@@ -18,7 +18,10 @@ import { scannersForBatch, type OsvController } from './osv-runtime'
 import { type GemnasiumController } from './gemnasium-runtime'
 import { discoverProjects } from './discovery'
 import { runBatch } from './runner'
+import { onCompletedSweep } from './capability-baseline'
 import type { WorkerRuntime } from './runtime'
+import type { NotificationSender } from '@sentinello/notifications'
+import type { ScannerPlugin } from '@sentinello/scanners'
 
 export type SchedulerHandles = {
     reload(): void
@@ -33,6 +36,9 @@ export type StartSchedulerInput = {
     // a source in Settings takes effect on the next scan. Absent in contexts that never run them (e.g. tests).
     osvController?: OsvController | null
     gemnasiumController?: GemnasiumController | null
+    // The transport notifications and baseline summaries go out through; each target's real sender when
+    // absent. The live-copy verification passes a recording one (SENTINEL-123).
+    send?: NotificationSender
 }
 
 export function startScheduler(input: StartSchedulerInput): SchedulerHandles {
@@ -75,6 +81,15 @@ export function startScheduler(input: StartSchedulerInput): SchedulerHandles {
 }
 
 export async function sweepActiveProjects(input: StartSchedulerInput): Promise<void> {
+    await sweepProjects(input, function batchScanners() { return scannersForBatch(input) })
+}
+
+export type SweepInput = Pick<StartSchedulerInput, 'db' | 'sqlite' | 'runtime' | 'send'>
+
+// The sweep itself: discovery, one batch over every project, and the silent baseline's completion. Only the
+// scanners are the caller's: the scheduler reads them from its live source controllers; the live-copy
+// verification passes ones bound to copies of the feed databases, and runs this same path.
+export async function sweepProjects(input: SweepInput, scanners: () => Promise<ScannerPlugin[]>): Promise<void> {
     const startedAt = Date.now()
     const at = startedAt
     const roots = listRoots(input.db)
@@ -84,18 +99,23 @@ export async function sweepActiveProjects(input: StartSchedulerInput): Promise<v
     console.log('[scheduler] active sweep started (' + projects.length + ' project' + (projects.length === 1 ? '' : 's') + ')')
     if (projects.length === 0) {
         console.log('[scheduler] active sweep finished (0 projects, ' + formatDurationMs(Date.now() - startedAt) + ')')
+        // Nothing to scan is a completed sweep: a baseline must not wait for projects that may never come.
+        await onCompletedSweep(input.db, { send: input.send })
         return
     }
     const parallelism = (getConfigValue<number>(input.db, CONFIG_KEYS.parallelism)) || DEFAULT_PARALLELISM
-    await runBatch({
+    const batch = await runBatch({
         db: input.db,
         sqlite: input.sqlite,
-        scanners: await scannersForBatch(input),
+        scanners: await scanners(),
         projects,
         parallelism,
-        abortSignal: input.runtime.abortController.signal
+        abortSignal: input.runtime.abortController.signal,
+        send: input.send
     })
     console.log('[scheduler] active sweep finished (' + projects.length + ' project' + (projects.length === 1 ? '' : 's') + ', ' + formatDurationMs(Date.now() - startedAt) + ')')
+    // Resolution of runBatch is not proof the sweep completed: an abort returns early with projects left.
+    if (batch.completed) await onCompletedSweep(input.db, { send: input.send })
 }
 
 function logSweepError(kind: string, err: unknown): void {

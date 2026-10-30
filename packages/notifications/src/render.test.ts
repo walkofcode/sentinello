@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { reasonCodeLabel, type Finding, type FixCheck, type Locale, type NotificationEvent, type Remediation } from '@sentinello/core'
-import { renderBatchedFindings, renderScanFailure, renderSingleFinding, type RenderBatchedFindingsInput } from './render'
+import { CHAIN_UNKNOWN_TEXT, reasonCodeLabel, WAY_OUT_NPM_ONLY, type Capability, type Finding, type FixCheck, type Locale, type NotificationEvent, type Remediation } from '@sentinello/core'
+import { renderBatchedFindings, renderCapabilitySummary, renderScanFailure, renderSingleFinding, type RenderBatchedFindingsInput } from './render'
 
 // Notification bodies are the part of Sentinello a recipient sees without opening the portal, so the
 // interesting assertions are about what is INCLUDED and what is OMITTED — a missing branch line, a
@@ -21,6 +21,7 @@ function finding(overrides: Partial<Finding> = {}): Finding {
         advisoryUrl: null,
         packageName: 'lodash',
         installedVersion: '4.17.20',
+        installations: [],
         vulnerableRange: '<4.17.21',
         severity: 'high',
         fixStatus: 'none_released',
@@ -266,7 +267,21 @@ describe('renderBatchedFindings', function () {
             isBaseline: false,
             portalBaseUrl: null
         })
-        expect(out.markdown).toContain('• [CRITICAL] lodash@4.17.20 (GHSA-1) — No fixed version released')
+        expect(out.markdown).toContain('• [CRITICAL] lodash@4.17.20 (Node.js, GHSA-1) — No fixed version released')
+        expect(out.markdown).not.toContain('In:')
+    })
+
+    // One finding for a library installed through two Gemfile.locks: the line names its language and every
+    // manifest with its version, so the fix reaches each copy. An ecosystem the registry does not know is named
+    // by its id.
+    it('names the ecosystem and every manifest the library is installed through', function () {
+        const rack = finding({ ecosystem: 'RubyGems', packageName: 'rack', installedVersion: '2.0.8', installations: [{ manifestPath: 'ios/Gemfile.lock', version: '2.0.8' }, { manifestPath: 'android/Gemfile.lock', version: '2.1.0' }] })
+        const out = renderBatchedFindings({ projectName: 'app', projectId: 'project-1', gitBranch: null, findings: [rack, finding({ ecosystem: 'Hex' })], isBaseline: false, portalBaseUrl: null })
+        expect(out.markdown).toContain('• [HIGH] rack@2.0.8 (Ruby, GHSA-1) — No fixed version released')
+        expect(out.markdown).toContain('\n    In: ios/Gemfile.lock 2.0.8, android/Gemfile.lock 2.1.0')
+        expect(out.markdown).toContain('lodash@4.17.20 (Hex, GHSA-1)')
+        const single = renderSingleFinding({ projectName: 'app', gitBranch: null, finding: rack, isBaseline: false, portalBaseUrl: null })
+        expect(single.markdown).toContain('*Package:* rack@2.0.8 (Ruby)\n*Installed through:* ios/Gemfile.lock 2.0.8, android/Gemfile.lock 2.1.0')
     })
 
     it('includes the branch line when set', function () {
@@ -335,6 +350,15 @@ describe('renderBatchedFindings', function () {
 })
 
 describe('renderScanFailure', function () {
+    // One source scans each ecosystem apart, so the message names the language of the scan that failed.
+    it('names the ecosystem of the scan that failed', function () {
+        const out = renderScanFailure({ projectName: 'api', projectId: 'project-1', gitBranch: null, event: scanFailureEvent({ failureSignature: 'error:osv_db_unavailable' }), errorText: null, portalBaseUrl: null, ecosystem: 'PyPI' })
+        expect(out.title.startsWith('[SCAN FAILED] api (Python) — ')).toBe(true)
+        expect(out.markdown).toContain('*Scanner:* ' + scanFailureEvent().scanner + ' (Python)')
+        const unknown = renderScanFailure({ projectName: 'api', projectId: 'project-1', gitBranch: null, event: scanFailureEvent({ failureSignature: 'error:osv_db_unavailable' }), errorText: null, portalBaseUrl: null, ecosystem: null })
+        expect(unknown.title.startsWith('[SCAN FAILED] api — ')).toBe(true)
+    })
+
     // Structured "status:reason_code" signatures are humanised; anything else passes through verbatim
     // so a legacy scrubbed error string is still readable.
     it('humanises a structured failure signature', function () {
@@ -493,5 +517,109 @@ describe('the way out in a notification', function () {
         const out = renderBatchedFindings({ projectName: 'api', projectId: 'project-1', gitBranch: null, findings: [finding({ packageName: 'braces', remediation }), finding({ id: 'f2' })], isBaseline: false, portalBaseUrl: null })
         expect(out.markdown).toContain('\n    Way out: ' + expected)
         expect(out.markdown.match(/Way out/g)).toHaveLength(1)
+    })
+})
+
+// The chain and the way-out verdict are separate facts (decision #6): a Gemfile.lock records the real chain
+// even though the way out is computed for npm only, and a requirements.txt records no chain at all, which is
+// said whatever the fix status.
+describe('the dependency chain in a notification', function () {
+    const npmOnly: Remediation = {
+        v: 1, checkedAt: Date.UTC(2026, 9, 3), package: 'rack',
+        health: { name: 'rack', latest: null, lastPublishAt: null, maintainers: 0, weeklyDownloads: null, deprecated: null, daysSinceLastPublish: null, unmaintained: false },
+        chains: [{ importer: null, rootKind: null, path: [], verdict: { kind: 'unknown', at: 'rack', reason: WAY_OUT_NPM_ONLY } }],
+        moreChains: 0, moreChainsAtLeast: false, alternatives: [], devOnly: null
+    }
+    const npmVerdict: Remediation = {
+        v: 1, checkedAt: Date.UTC(2026, 9, 3), package: 'braces',
+        health: { name: 'braces', latest: '3.0.3', lastPublishAt: Date.UTC(2024, 4, 21), maintainers: 2, weeklyDownloads: 1, deprecated: null, daysSinceLastPublish: 30, unmaintained: false },
+        chains: [{ importer: '.', rootKind: 'prod', path: ['nodemon@3.1.14', 'chokidar@3.6.0', 'braces@3.0.3'], verdict: { kind: 'blocked', escapePackage: 'chokidar', escapeVersion: '4.0.0', blockedBy: 'nodemon', blockedByLatest: '3.1.14', blockedRange: '^3.5.2', proof: { release: 'chokidar@4.0.0', closureSize: 2 } } }],
+        moreChains: 0, moreChainsAtLeast: false, alternatives: [], devOnly: false
+    }
+    const npm = finding({ packageName: 'braces', installedVersion: '3.0.3', depPath: ['nodemon', 'chokidar', 'braces'], remediation: npmVerdict })
+    const ruby = finding({ ecosystem: 'RubyGems', packageName: 'rack', installedVersion: '2.0.8', depPath: ['rails', 'actionpack', 'rack'], remediation: npmOnly })
+    const python = finding({ ecosystem: 'PyPI', packageName: 'django', installedVersion: '4.2.0', depPath: [], fixStatus: 'released', fixAvailable: true, fixVersion: '4.2.1' })
+
+    function single(f: Finding): string {
+        return renderSingleFinding({ projectName: 'app', gitBranch: null, finding: f, isBaseline: false, portalBaseUrl: null }).markdown
+    }
+
+    it('shows an npm finding\'s chain beside its computed verdict', function () {
+        expect(single(npm)).toContain('*Dependency path:* nodemon › chokidar › braces')
+        expect(single(npm)).toContain('*Way out:* chokidar ≥ 4.0.0 drops braces')
+    })
+
+    it('shows a Ruby finding\'s real chain, and says its way out is not computed', function () {
+        expect(single(ruby)).toContain('*Dependency path:* rails › actionpack › rack')
+        expect(single(ruby)).toContain('*Way out:* unknown — ' + WAY_OUT_NPM_ONLY)
+        expect(single(ruby)).not.toContain(CHAIN_UNKNOWN_TEXT)
+    })
+
+    // A released fix has no way-out line, so the qualification must not hang off it.
+    it('says a requirements.txt finding\'s chain is unknown, even with a released fix', function () {
+        expect(single(python)).toContain('*Dependency path:* ' + CHAIN_UNKNOWN_TEXT)
+        expect(single(python)).not.toContain('Way out')
+    })
+
+    it('carries each chain under its line in a batch', function () {
+        const out = renderBatchedFindings({ projectName: 'app', projectId: 'project-1', gitBranch: null, findings: [npm, ruby, python], isBaseline: false, portalBaseUrl: null })
+        expect(out.markdown).toContain('(registry checked 2026-10-03)\n    Path: nodemon › chokidar › braces\n    Way out: chokidar ≥ 4.0.0')
+        expect(out.markdown).toContain('(registry checked 2026-10-03)\n    Path: rails › actionpack › rack\n    Way out: unknown — ' + WAY_OUT_NPM_ONLY)
+        expect(out.markdown).toContain('django@4.2.0 (Python, GHSA-1) — upgrade to 4.2.1\n    Path: ' + CHAIN_UNKNOWN_TEXT)
+    })
+})
+
+describe('renderCapabilitySummary', function () {
+    const capability = { id: 'languages-3.8', since: '3.8.0', ecosystems: ['PyPI', 'Go', 'crates.io', 'RubyGems'] as Capability['ecosystems'] }
+
+    it('says what the new languages found and where to turn a source on', function () {
+        const message = renderCapabilitySummary({ capability, findings: 12, projects: 3, critical: 2, sourceDisabledProjects: 4, portalBaseUrl: 'https://sentinello.example/' })
+        expect(message.title).toBe('Sentinello 3.8 now checks Python/Go/Rust/Ruby')
+        expect(message.text).toBe([
+            'Sentinello 3.8 now checks Python/Go/Rust/Ruby: 12 findings across 3 projects, 2 critical',
+            '4 projects have no enabled source, turn one on in Settings → Sources',
+            'Portal: https://sentinello.example/settings/sources'
+        ].join('\n'))
+        expect(message.portalUrl).toBe('https://sentinello.example/settings/sources')
+    })
+
+    // The default install: OSV and gemnasium are opt-in, so nothing was checked — and the summary says so.
+    it('reports zero findings honestly, in the singular where it applies', function () {
+        const message = renderCapabilitySummary({ capability, findings: 0, projects: 0, critical: 0, sourceDisabledProjects: 1, portalBaseUrl: null })
+        expect(message.text).toBe('Sentinello 3.8 now checks Python/Go/Rust/Ruby: 0 findings across 0 projects, 0 critical\n1 project has no enabled source, turn one on in Settings → Sources')
+        expect(message.portalUrl).toBeNull()
+        expect(renderCapabilitySummary({ capability, findings: 1, projects: 1, critical: 1, sourceDisabledProjects: 0, portalBaseUrl: null }).text)
+            .toBe('Sentinello 3.8 now checks Python/Go/Rust/Ruby: 1 finding across 1 project, 1 critical')
+    })
+
+    it('carries the capability and its counts for a webhook', function () {
+        expect(renderCapabilitySummary({ capability, findings: 12, projects: 3, critical: 2, sourceDisabledProjects: 4, portalBaseUrl: null }).webhook).toEqual({
+            event: 'capability_summary',
+            capability: { id: 'languages-3.8', since: '3.8.0', ecosystems: ['PyPI', 'Go', 'crates.io', 'RubyGems'] },
+            counts: { findings: 12, projects: 3, critical: 2, sourceDisabledProjects: 4 }
+        })
+    })
+
+    // Every locale words its own plurals; printed per locale so a misfiled translation is visible.
+    it.each([
+        ['es', 'Sentinello 3.8 ahora revisa Python/Go/Rust/Ruby: 1 hallazgo en 1 proyecto, 1 crítico', '1 proyecto no tiene ninguna fuente activada, activa una en Configuración → Fuentes', '2 hallazgos en 3 proyectos, 0 críticos', '2 proyectos no tienen'],
+        ['fr', 'Sentinello 3.8 vérifie désormais Python/Go/Rust/Ruby: 1 vulnérabilité dans 1 projet, dont 1 critique', '1 projet n’a aucune source activée, activez-en une dans Paramètres → Sources', '2 vulnérabilités dans 3 projets, dont 0 critique', '2 projets n’ont'],
+        ['de', 'Sentinello 3.8 prüft jetzt Python/Go/Rust/Ruby: 1 Befund in 1 Projekt, 1 kritisch', '1 Projekt hat keine aktivierte Quelle, aktivieren Sie eine unter Einstellungen → Quellen', '2 Befunde in 3 Projekten, 0 kritisch', '2 Projekte haben'],
+        ['pt-BR', 'Sentinello 3.8 agora verifica Python/Go/Rust/Ruby: 1 achado em 1 projeto, 1 crítico', '1 projeto não tem nenhuma fonte ativada, ative uma em Configurações → Fontes', '2 achados em 3 projetos, 0 críticos', '2 projetos não têm'],
+        ['it', 'Sentinello 3.8 ora controlla Python/Go/Rust/Ruby: 1 vulnerabilità trovata in 1 progetto, 1 critica', '1 progetto non ha alcuna fonte attivata, attivane una in Impostazioni → Fonti', '2 vulnerabilità trovate in 3 progetti, 0 critiche', '2 progetti non hanno'],
+        ['ja', 'Sentinello 3.8 は Python/Go/Rust/Ruby もチェックするようになりました: 1 件のプロジェクトで 1 件の検出、うち重大 1 件', '1 件のプロジェクトで有効なソースがありません。設定 → ソースで有効にしてください', '3 件のプロジェクトで 2 件の検出、うち重大 0 件', '2 件のプロジェクト'],
+        ['zh-CN', 'Sentinello 3.8 现已检查 Python/Go/Rust/Ruby: 1 个项目中有 1 个发现，其中 1 个严重', '1 个项目没有已启用的来源，请在 设置 → 来源 中启用一个', '3 个项目中有 2 个发现，其中 0 个严重', '2 个项目'],
+        ['ko', 'Sentinello 3.8부터 Python/Go/Rust/Ruby도 검사합니다: 프로젝트 1개에서 발견 항목 1개, 그중 심각 1개', '프로젝트 1개에 활성화된 소스가 없습니다. 설정 → 소스에서 하나를 켜세요', '프로젝트 3개에서 발견 항목 2개, 그중 심각 0개', '프로젝트 2개'],
+        ['ru', 'Sentinello 3.8 теперь проверяет Python/Go/Rust/Ruby: 1 находка в 1 проекте, 1 критическая', 'В 1 проекте нет включённого источника, включите его в Настройки → Источники', '2 находки в 3 проектах, 0 критических', 'В 2 проектах']
+    ] as const)('words the summary in %s', function (locale, one, disabledOne, many, disabledMany) {
+        const first = renderCapabilitySummary({ capability, findings: 1, projects: 1, critical: 1, sourceDisabledProjects: 1, portalBaseUrl: null, locale })
+        expect(first.text).toBe(one + '\n' + disabledOne)
+        const second = renderCapabilitySummary({ capability, findings: 2, projects: 3, critical: 0, sourceDisabledProjects: 2, portalBaseUrl: null, locale })
+        expect(second.text).toContain(many)
+        expect(second.text).toContain(disabledMany)
+    })
+
+    it('reads Russian plurals by their last digits', function () {
+        expect(renderCapabilitySummary({ capability, findings: 5, projects: 21, critical: 22, sourceDisabledProjects: 0, portalBaseUrl: null, locale: 'ru' }).text).toContain('5 находок в 21 проекте, 22 критических')
     })
 })

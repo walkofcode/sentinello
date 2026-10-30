@@ -2,8 +2,10 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { ECOSYSTEMS } from '@sentinello/core'
 import {
     detectManifests,
+    detectManifestsIn,
     graphForEcosystem,
     mergeResolvedGraphs,
     resolveManifest,
@@ -39,7 +41,8 @@ function pkg(name: string, version: string, ecosystem: string): ResolvedPackage 
         name,
         version,
         scope: { isProd: true, isDev: false, isOptional: false },
-        depPaths: []
+        depPaths: [],
+        manifestPath: 'lockfile'
     }
 }
 
@@ -97,15 +100,14 @@ describe('detectManifests', function () {
         expect(await detectManifests(dir)).toEqual([])
     })
 
-    // One manifest per OFFERED ecosystem. A preview ecosystem's manifest is passed over entirely, so no
-    // graph, no coverage row and no scan is ever attributed to it.
-    it('detects one manifest per offered ecosystem and skips previews', async function () {
+    // One manifest per offered ecosystem — since 3.8, all five.
+    it('detects one manifest per offered ecosystem', async function () {
         await write('package-lock.json', NPM_LOCK)
         await write('requirements.txt', 'a==1.0.0\n')
         await write('go.mod', 'require github.com/a/b v1.0.0\n')
         await write('Cargo.lock', CARGO_LOCK)
         const found = await detectManifests(dir)
-        expect(found.map(function eco(m) { return m.ecosystem })).toEqual(['npm'])
+        expect(found.map(function eco(m) { return m.ecosystem })).toEqual(['npm', 'PyPI', 'Go', 'crates.io'])
     })
 
     // Only the first match per ecosystem, in registry preference order — a repo carrying both a
@@ -281,5 +283,80 @@ describe('graphForEcosystem', function () {
 
     it('returns null when that ecosystem is absent', function () {
         expect(graphForEcosystem([okResult('npm', [])], 'PyPI')).toBeNull()
+    })
+})
+
+// Decision SENTINEL-118: a manifest with no lockfile covering it is reported `no_lockfile` for its
+// ecosystem, never silently omitted. Only Cargo's lock can sit above the manifest it covers — one per
+// workspace — and only up to the owning project's directory.
+describe('detectManifestsIn — manifests without a lockfile', function () {
+    const PREVIEW = ECOSYSTEMS.filter(function nonNpm(eco) { return eco.id !== 'npm' })
+
+    async function detect(sub: string, files: Record<string, string>, projectPath = dir): Promise<string[]> {
+        for (const [path, text] of Object.entries(files)) {
+            await mkdir(join(dir, path, '..'), { recursive: true })
+            await writeFile(join(dir, path), text, 'utf8')
+        }
+        const found = await detectManifestsIn(join(dir, sub), projectPath, PREVIEW)
+        return found.map(function kind(m) { return m.ecosystem + ':' + m.kind })
+    }
+
+    it('detects each lockless manifest kind', async function () {
+        expect(await detect('.', { Gemfile: '', 'Cargo.toml': '', 'pyproject.toml': '' })).toEqual(['PyPI:pyproject.toml', 'crates.io:Cargo.toml', 'RubyGems:Gemfile'])
+        expect(await detect('other', { 'other/Pipfile': '' })).toEqual(['PyPI:Pipfile'])
+    })
+
+    // A supported lockfile beside the manifest covers it; the lockfile is what is detected.
+    it('prefers the lockfile beside a manifest', async function () {
+        expect(await detect('.', { Gemfile: '', 'Gemfile.lock': '', 'pyproject.toml': '', 'requirements.txt': '', 'Cargo.toml': '', 'Cargo.lock': '' }))
+            .toEqual(['PyPI:requirements.txt', 'crates.io:Cargo.lock', 'RubyGems:Gemfile.lock'])
+    })
+
+    // A Cargo workspace locks every member at its root.
+    it('treats a workspace member under the project lock as covered', async function () {
+        expect(await detect('crates/core', { 'Cargo.lock': '', 'Cargo.toml': '', 'crates/core/Cargo.toml': '' })).toEqual([])
+    })
+
+    // …but a lock outside the project belongs to another project.
+    it('does not look above the owning project for a Cargo lock', async function () {
+        const found = await detect('app/member', { 'Cargo.lock': '', 'app/member/Cargo.toml': '' }, join(dir, 'app'))
+        expect(found).toEqual(['crates.io:Cargo.toml'])
+    })
+
+    // Bundler and the Python tools lock beside the manifest, so a lock elsewhere covers nothing.
+    it('does not let a Gemfile.lock elsewhere cover a Gemfile', async function () {
+        expect(await detect('android', { 'ios/Gemfile.lock': '', 'android/Gemfile': '' })).toEqual(['RubyGems:Gemfile'])
+    })
+
+    it('resolves a lockless manifest to no_lockfile, naming the lockfiles that would cover it', async function () {
+        await mkdir(join(dir, 'android'), { recursive: true })
+        await writeFile(join(dir, 'android', 'Gemfile'), '', 'utf8')
+        const result = await resolveManifest(dir, { kind: 'Gemfile', ecosystem: 'RubyGems', absolutePath: join(dir, 'android', 'Gemfile') })
+        expect(result).toEqual({ status: 'unauditable', ecosystem: 'RubyGems', reasonCode: 'no_lockfile', details: ['android/Gemfile has no lockfile covering it (Gemfile.lock)'] })
+    })
+
+    // A project with one readable Gemfile.lock and one bare Gemfile: the readable one resolves and the
+    // bare one says why it could not, so the readable lock never hides the gap.
+    it('keeps a readable lock and a lockless sibling apart', async function () {
+        await mkdir(join(dir, 'ios'), { recursive: true })
+        await mkdir(join(dir, 'android'), { recursive: true })
+        await writeFile(join(dir, 'ios', 'Gemfile.lock'), 'GEM\n  remote: https://rubygems.org/\n  specs:\n    fastlane (2.220.0)\n\nDEPENDENCIES\n  fastlane\n', 'utf8')
+        await writeFile(join(dir, 'android', 'Gemfile'), 'gem "fastlane"\n', 'utf8')
+        const manifests = [
+            ...await detectManifestsIn(join(dir, 'ios'), dir, PREVIEW),
+            ...await detectManifestsIn(join(dir, 'android'), dir, PREVIEW)
+        ]
+        const results = await resolveProjectGraphs(dir, manifests)
+        expect(results.map(function status(r) { return r.status + (r.status === 'unauditable' ? ':' + r.reasonCode : '') })).toEqual(['ok', 'unauditable:no_lockfile'])
+        expect(results[0]?.status === 'ok' && results[0].graph.packages[0]?.manifestPath).toBe('ios/Gemfile.lock')
+    })
+})
+
+describe('resolveManifest — RubyGems', function () {
+    it('routes a Gemfile.lock to the Ruby resolver', async function () {
+        const path = await write('Gemfile.lock', 'GEM\n  remote: https://rubygems.org/\n  specs:\n    rack (2.2.8)\n\nDEPENDENCIES\n  rack\n')
+        const result = await resolveManifest(dir, { kind: 'Gemfile.lock', ecosystem: 'RubyGems', absolutePath: path })
+        expect(result.status).toBe('ok')
+        expect(result.status === 'ok' && result.graph.packages.map(function nv(p) { return p.name + '@' + p.version })).toEqual(['rack@2.2.8'])
     })
 })

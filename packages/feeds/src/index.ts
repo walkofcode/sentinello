@@ -25,6 +25,7 @@ export { normalizeOsvRecord } from './osv/normalize'
 export {
     GEMNASIUM_COMPARE_MAX_FILES,
     advisoryIdFromPath,
+    gemnasiumPathIdentity,
     fetchGemnasiumChangedPaths,
     fetchGemnasiumFileRows,
     fetchGemnasiumHeadSha,
@@ -64,3 +65,14 @@ export {
     summarizePackument
 } from './registry/npm'
 export type { FetchNpmPackageOptions, FetchNpmPackumentOptions, NpmDownloadsResult, NpmEdges, NpmPackageResult, NpmPackageSummary, NpmVersionSummary } from './registry/npm'
+
+// The other registries settlement checks a fix against, each reduced to the same published summary.
+export { REGISTRY_TIMEOUT_MS } from './registry/request'
+export type { RegistryFetchOptions, RegistryResult } from './registry/request'
+export type { PublishedRelease, PublishedResult, PublishedSummary } from './registry/published'
+export { DEFAULT_PYPI_URL, fetchPypiPackage, pypiPackageUrl, pypiUrl, summarizePypiProject } from './registry/pypi'
+export { DEFAULT_CRATES_INDEX_URL, cratesIndexPath, cratesIndexUrl, fetchCratesPackage, summarizeCratesIndex } from './registry/crates'
+export { DEFAULT_RUBYGEMS_URL, fetchRubyGemsPackage, rubygemsUrl, rubygemsVersionsUrl, summarizeRubyGemsVersions } from './registry/rubygems'
+export { DEFAULT_GOPROXY_URL, escapeGoPath, fetchGoModuleList, fetchGoVersionInfo, goproxyUrl, summarizeGoList } from './registry/goproxy'
+export type { GoVersionInfoResult } from './registry/goproxy'
+

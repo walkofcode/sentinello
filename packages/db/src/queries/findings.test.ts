@@ -17,6 +17,7 @@ import {
     listFindingsForProject,
     listFindingsForScan,
     listFindingsResolvedInScan,
+    listOpenFindingEcosystems,
     listResolvedFindingsForLibrary,
     listResolvedFindingsForProject,
     mergeFindingsForScan,
@@ -24,7 +25,7 @@ import {
     applyFixSettlement
 } from './findings'
 import { findings as findingsTable } from '../schema'
-import type { FixCheck, Remediation } from '@sentinello/core'
+import type { EcosystemId, FixCheck, Remediation } from '@sentinello/core'
 import type { IncomingFinding } from './findings'
 
 // Runs against a real SQLite file rather than ':memory:'. The client applies WAL pragmas and the
@@ -62,6 +63,7 @@ beforeEach(async function setup() {
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems: ['npm'],
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,
@@ -102,6 +104,7 @@ function incoming(advisoryId: string, overrides: Partial<IncomingFinding> = {}):
         advisoryUrl: null,
         packageName: 'lodash',
         installedVersion: '4.17.11',
+        installations: [],
         vulnerableRange: '<4.17.21',
         severity: 'high',
         fixAvailable: true,
@@ -113,16 +116,160 @@ function incoming(advisoryId: string, overrides: Partial<IncomingFinding> = {}):
     }
 }
 
-function merge(scanId: string, finishedAt: number, findings: IncomingFinding[], scanner = 'osv') {
+function merge(scanId: string, finishedAt: number, findings: IncomingFinding[], scanner = 'osv', ecosystem: EcosystemId = findings[0]?.ecosystem ?? 'npm', unreadManifests?: string[]) {
     scan(scanId, finishedAt, scanner)
     return mergeFindingsForScan(db, {
         projectId: PROJECT_ID,
         scanner,
+        ecosystem,
         scanId,
         scanFinishedAt: finishedAt,
-        incoming: findings
+        incoming: findings,
+        unreadManifests
     })
 }
+
+// SENTINEL-138: a cell's ok scan speaks only for the manifests it read. What was installed through one it
+// could not read is neither resolved nor stripped of that copy.
+describe('mergeFindingsForScan — manifests the scan could not read', function () {
+    const IOS = { manifestPath: 'ios/Gemfile.lock', version: '2.0.8' }
+    const ANDROID = { manifestPath: 'android/Gemfile.lock', version: '2.1.0' }
+
+    function rack(installations: { manifestPath: string; version: string }[], installedVersion = installations[0]?.version ?? '2.0.8'): IncomingFinding {
+        return incoming('GHSA-rack-1', { ecosystem: 'RubyGems', packageName: 'rack', installedVersion, installations })
+    }
+
+    it('keeps a finding open whose only copy is in an unread manifest, and resolves it once that manifest is read', function () {
+        const opened = merge('s1', T0, [rack([IOS])]).active[0]!
+        const kept = merge('s2', T0 + HOUR, [], 'osv', 'RubyGems', ['ios/Gemfile.lock'])
+        expect(kept.resolved).toEqual([])
+        expect(listFindingsForProject(db, PROJECT_ID).find(function f(r) { return r.id === opened.id })).toMatchObject({ resolvedAt: null, lastSeenAt: T0 })
+        expect(merge('s3', T0 + 2 * HOUR, [], 'osv', 'RubyGems', []).resolved.map(function id(r) { return r.id })).toEqual([opened.id])
+    })
+
+    it('resolves a finding whose copies were all in manifests the scan read', function () {
+        merge('s1', T0, [rack([ANDROID])])
+        expect(merge('s2', T0 + HOUR, [], 'osv', 'RubyGems', ['ios/Gemfile.lock']).resolved).toHaveLength(1)
+    })
+
+    it('keeps a row that records no installation while any manifest of the cell went unread', function () {
+        merge('s1', T0, [rack([])])
+        expect(merge('s2', T0 + HOUR, [], 'osv', 'RubyGems', ['ios/Gemfile.lock']).resolved).toEqual([])
+    })
+
+    it('adds the unread copies back to a finding seen elsewhere, at the lowest installed version', function () {
+        merge('s1', T0, [rack([ANDROID, IOS], '2.0.8')])
+        const seen = merge('s2', T0 + HOUR, [rack([ANDROID], '2.1.0')], 'osv', 'RubyGems', ['ios/Gemfile.lock']).active[0]!
+        expect(seen).toMatchObject({ installedVersion: '2.0.8', installations: [ANDROID, IOS], lastSeenAt: T0 + HOUR })
+        expect(listFindingsForProject(db, PROJECT_ID)[0]).toMatchObject({ installedVersion: '2.0.8', installations: [ANDROID, IOS] })
+    })
+
+    it('keeps the seen version when the unread copy is higher, and drops a copy from a manifest it read', function () {
+        merge('s1', T0, [rack([{ manifestPath: 'ios/Gemfile.lock', version: '2.2.0' }, { manifestPath: 'web/Gemfile.lock', version: '2.0.1' }], '2.0.1')])
+        const seen = merge('s2', T0 + HOUR, [rack([ANDROID], '2.1.0')], 'osv', 'RubyGems', ['ios/Gemfile.lock']).active[0]!
+        expect(seen).toMatchObject({ installedVersion: '2.1.0', installations: [ANDROID, { manifestPath: 'ios/Gemfile.lock', version: '2.2.0' }] })
+    })
+
+    // SENTINEL-138: the lockfile is gone and its bare manifest is what ios/ holds now; the copy lives behind it.
+    it('keeps a copy behind the manifest its directory holds now, and lets it go once the directory holds none', function () {
+        const opened = merge('s1', T0, [rack([IOS])]).active[0]!
+        expect(merge('s2', T0 + HOUR, [], 'osv', 'RubyGems', ['ios/Gemfile']).resolved).toEqual([])
+        expect(listFindingsForProject(db, PROJECT_ID)[0]).toMatchObject({ id: opened.id, resolvedAt: null, installations: [IOS] })
+        expect(merge('s3', T0 + 2 * HOUR, [], 'osv', 'RubyGems', ['web/Gemfile']).resolved.map(function id(r) { return r.id })).toEqual([opened.id])
+    })
+
+    it('adds a copy behind the manifest its directory holds now back to a finding seen elsewhere', function () {
+        merge('s1', T0, [rack([ANDROID, IOS], '2.0.8')])
+        const seen = merge('s2', T0 + HOUR, [rack([ANDROID], '2.1.0')], 'osv', 'RubyGems', ['ios/Gemfile']).active[0]!
+        expect(seen).toMatchObject({ installedVersion: '2.0.8', installations: [ANDROID, IOS] })
+    })
+
+    // SENTINEL-145: the evidence that omitted a manifest cannot clear what the row said about the copy there.
+    it('keeps the scope and chains of the row while it keeps a copy, and takes this scan\'s once nothing is kept', function () {
+        const PROD = { manifestPath: 'prod/uv.lock', version: '3.2.0' }
+        const TOOLS = { manifestPath: 'tools/uv.lock', version: '3.2.0' }
+        function django(installations: typeof PROD[], scope: { isProd: boolean; isDev: boolean }, depPath: string[]): IncomingFinding {
+            return incoming('GHSA-django-1', { ecosystem: 'PyPI', packageName: 'django', installedVersion: '3.2.0', installations, depPath, ...scope })
+        }
+        merge('s1', T0, [django([PROD, TOOLS], { isProd: true, isDev: true }, ['app > django', 'tools > django'])])
+        const kept = merge('s2', T0 + HOUR, [django([TOOLS], { isProd: false, isDev: true }, ['tools > django', 'tools > lint > django'])], 'osv', 'PyPI', ['prod/uv.lock']).active[0]!
+        expect(kept).toMatchObject({ installations: [TOOLS, PROD], isProd: true, isDev: true, depPath: ['tools > django', 'tools > lint > django', 'app > django'] })
+        expect(listFindingsForProject(db, PROJECT_ID)[0]).toMatchObject({ isProd: true, isDev: true, depPath: ['tools > django', 'tools > lint > django', 'app > django'] })
+        // Every manifest read again: what this scan saw is the whole truth.
+        const read = merge('s3', T0 + 2 * HOUR, [django([TOOLS], { isProd: false, isDev: true }, ['tools > django'])], 'osv', 'PyPI', []).active[0]!
+        expect(read).toMatchObject({ installations: [TOOLS], isProd: false, isDev: true, depPath: ['tools > django'] })
+    })
+
+    it('takes this scan\'s scope when a manifest went unread but the row had no copy behind it', function () {
+        merge('s1', T0, [rack([ANDROID])])
+        const seen = merge('s2', T0 + HOUR, [{ ...rack([ANDROID], '2.1.0'), isProd: false, isDev: true, depPath: ['dev > rack'] }], 'osv', 'RubyGems', ['ios/Gemfile.lock']).active[0]!
+        expect(seen).toMatchObject({ isProd: false, isDev: true, depPath: ['dev > rack'] })
+    })
+})
+
+describe('listOpenFindingEcosystems', function () {
+    it('lists each ecosystem with an open finding once, whatever its source, and none only resolved', function () {
+        merge('s1', T0, [incoming('GHSA-a', { ecosystem: 'RubyGems', packageName: 'rack' }), incoming('GHSA-b', { ecosystem: 'RubyGems', packageName: 'rails' })])
+        merge('s2', T0, [incoming('GHSA-c', { ecosystem: 'PyPI', packageName: 'django', scanner: 'gemnasium', source: 'gemnasium' })], 'gemnasium')
+        merge('s3', T0, [incoming('GHSA-d', { ecosystem: 'Go', packageName: 'x' })])
+        merge('s4', T0 + HOUR, [], 'osv', 'Go')
+        expect(listOpenFindingEcosystems(db, PROJECT_ID).sort()).toEqual(['PyPI', 'RubyGems'])
+        expect(listOpenFindingEcosystems(db, 'no-such-project')).toEqual([])
+    })
+})
+
+// SENTINEL-122: a feed source scans once per ecosystem, and each cell's merge reads and resolves only that
+// cell's open episodes. An empty Ruby result says nothing about Python.
+describe('mergeFindingsForScan — one (source, ecosystem) cell at a time', function () {
+    function open(): string[] {
+        return listFindingsForProject(db, PROJECT_ID)
+            .filter(function isOpen(f) { return f.resolvedAt === null })
+            .map(function key(f) { return f.ecosystem + ':' + f.advisoryId })
+            .sort()
+    }
+
+    it.each([
+        ['Python first', ['PyPI', 'RubyGems'] as const],
+        ['Ruby first', ['RubyGems', 'PyPI'] as const]
+    ])('keeps two ecosystems of one source apart, %s', function (_label, order) {
+        const findingOf = { PyPI: incoming('GHSA-py', { ecosystem: 'PyPI', packageName: 'django' }), RubyGems: incoming('GHSA-rb', { ecosystem: 'RubyGems', packageName: 'rack' }) }
+        const ids = new Map<string, string>()
+        for (const ecosystem of order) {
+            const result = merge('scan-1-' + ecosystem, T0, [findingOf[ecosystem]])
+            ids.set(ecosystem, result.active[0]?.id as string)
+        }
+        expect(open()).toEqual(['PyPI:GHSA-py', 'RubyGems:GHSA-rb'])
+        // A second sweep in the same order: both continue, neither resolves the other, ids are unchanged.
+        for (const ecosystem of order) {
+            const result = merge('scan-2-' + ecosystem, T0 + HOUR, [findingOf[ecosystem]])
+            expect(result.resolved).toEqual([])
+            expect(result.active[0]?.id).toBe(ids.get(ecosystem))
+        }
+        expect(open()).toEqual(['PyPI:GHSA-py', 'RubyGems:GHSA-rb'])
+    })
+
+    it('leaves an open Python finding open when a successful Ruby scan finds nothing', function () {
+        merge('scan-1', T0, [incoming('GHSA-py', { ecosystem: 'PyPI', packageName: 'django' })])
+        const ruby = merge('scan-2', T0 + HOUR, [], 'osv', 'RubyGems')
+        expect(ruby.resolved).toEqual([])
+        expect(open()).toEqual(['PyPI:GHSA-py'])
+        // Its own cell's empty scan does resolve it.
+        expect(merge('scan-3', T0 + 2 * HOUR, [], 'osv', 'PyPI').resolved.map(function id(f) { return f.advisoryId })).toEqual(['GHSA-py'])
+    })
+
+    it('refuses a finding of another cell instead of merging it against episodes it never read', function () {
+        expect(function mixed() { merge('scan-1', T0, [incoming('GHSA-py', { ecosystem: 'PyPI' })], 'osv', 'RubyGems') })
+            .toThrow("mergeFindingsForScan: a PyPI finding in the RubyGems cell's merge")
+    })
+
+    it('records every installation of the finding', function () {
+        const installations = [{ manifestPath: 'ios/Gemfile.lock', version: '2.0.1' }, { manifestPath: 'android/Gemfile.lock', version: '2.2.0' }]
+        merge('scan-1', T0, [incoming('GHSA-rb', { ecosystem: 'RubyGems', packageName: 'rack', installedVersion: '2.0.1', installations })])
+        expect(listFindingsForProject(db, PROJECT_ID)[0]?.installations).toEqual(installations)
+        merge('scan-2', T0 + HOUR, [incoming('GHSA-rb', { ecosystem: 'RubyGems', packageName: 'rack', installedVersion: '2.2.0', installations: installations.slice(1) })])
+        expect(listFindingsForProject(db, PROJECT_ID)[0]?.installations).toEqual(installations.slice(1))
+    })
+})
 
 describe('mergeFindingsForScan — opening an episode', function () {
     it('inserts a new finding and reports it active', function () {
@@ -437,7 +584,7 @@ describe('legacy row fallbacks', function () {
             return { latestStatus: 'unauditable', latestReasonCode: 'no_lockfile', lastOkScanAt: T0, projectState: 'cannot_scan' }
         })
         expect(asked).toEqual([PROJECT_ID + '|npm-audit'])
-        expect(found?.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: T0 })
+        expect(found?.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: T0, manifests: null })
     })
 })
 
@@ -571,11 +718,10 @@ describe('listResolvedFindingsForLibrary', function () {
     // The ecosystem filter is an optional SQL fragment: supplied it scopes to the cell, omitted it
     // matches every ecosystem. Both arms are real query text, so both are worth executing.
     it('scopes to an ecosystem when one is given', function () {
-        merge('scan-1', T0, [
-            incoming('GHSA-1'),
-            incoming('GHSA-py', { ecosystem: 'PyPI', packageName: 'lodash' })
-        ])
+        merge('scan-1', T0, [incoming('GHSA-1')])
+        merge('scan-1-py', T0, [incoming('GHSA-py', { ecosystem: 'PyPI', packageName: 'lodash' })])
         merge('scan-2', T0 + HOUR, [])
+        merge('scan-2-py', T0 + HOUR, [], 'osv', 'PyPI')
 
         expect(listResolvedFindingsForLibrary(db, 'lodash', 50, 'npm').map(function id(f) { return f.advisoryId }))
             .toEqual(['GHSA-1'])

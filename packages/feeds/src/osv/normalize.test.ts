@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { refusedRange } from '@sentinello/versions'
 import { normalizeOsvRecord } from './normalize'
 
 function record(overrides: Record<string, unknown> = {}) {
@@ -302,11 +303,22 @@ describe('normalizeOsvRecord — range extraction', function () {
         expect(rows[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '1.0.0', fixed: null, lastAffected: '1.5.0' }])
     })
 
+    // Refused, and remembered as refused: the interval it opened is lost, so the row's affected set must not
+    // read as complete without it (SENTINEL-132).
     it('refuses an unreadable SEMVER lower bound without inventing one', function () {
-        const ranges = [{ type: 'SEMVER', events: [{ introduced: 'not-a-version' }] }]
+        const ranges = [{ type: 'SEMVER', events: [{ introduced: 'not-a-version' }, { fixed: '2.0.0' }] }]
         const rows = normalizeOsvRecord(record({ affected: affected({ ranges }) }), 'npm')
-        expect(rows[0]?.ranges).toEqual([])
+        expect(rows[0]?.ranges).toEqual([refusedRange('>=not-a-version', 'SEMVER')])
         expect(rows[0]?.versions).toEqual(['1.0.0'])
+    })
+
+    // A row with nothing but refused parts has nothing to match on, and is skipped like an empty one.
+    it('skips a row whose every range was refused', function () {
+        const ranges = [{ type: 'SEMVER', events: [{ introduced: 'not-a-version' }] }]
+        expect(normalizeOsvRecord(record({ affected: [{ package: { name: 'lodash', ecosystem: 'npm' }, ranges }] }), 'npm')).toEqual([])
+        // Malware is kept: the matcher reads a row with no readable range as "versions unknown".
+        const malware = normalizeOsvRecord(record({ id: 'MAL-1', affected: [{ package: { name: 'lodash', ecosystem: 'npm' }, ranges }] }), 'npm')
+        expect(malware[0]?.ranges).toEqual([refusedRange('>=not-a-version', 'SEMVER')])
     })
 
     it.each([
@@ -315,13 +327,23 @@ describe('normalizeOsvRecord — range extraction', function () {
     ])('keeps an interval open when its SEMVER upper event is unreadable', function (...events) {
         const ranges = [{ type: 'SEMVER', events }]
         const rows = normalizeOsvRecord(record({ affected: affected({ ranges }) }), 'npm')
-        expect(rows[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '1.0.0', fixed: null, lastAffected: null }])
+        const text = 'fixed' in (events[1] as object) ? '<not-a-version' : '<=not-a-version'
+        expect(rows[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '1.0.0', fixed: null, lastAffected: null }, refusedRange(text, 'SEMVER')])
     })
 
     it('uses semver validation for an ECOSYSTEM range in a semver ecosystem', function () {
         const ranges = [{ type: 'ECOSYSTEM', events: [{ introduced: '1.0.0' }, { fixed: 'not-a-version' }] }]
         const rows = normalizeOsvRecord(record({ affected: affected({ ranges }) }), 'npm')
-        expect(rows[0]?.ranges).toEqual([{ type: 'ECOSYSTEM', introduced: '1.0.0', fixed: null, lastAffected: null }])
+        expect(rows[0]?.ranges).toEqual([{ type: 'ECOSYSTEM', introduced: '1.0.0', fixed: null, lastAffected: null }, refusedRange('<not-a-version', 'ECOSYSTEM')])
+    })
+
+    // The live-cache diff's shape (19 GHSA npm records): an ECOSYSTEM-typed CalVer fix with a leading zero
+    // that semver cannot read. v7 left the interval open with nothing to say a bound was lost, so a released
+    // fix read as none released; it is kept as a refused part, the affected set incomplete.
+    it('keeps a CalVer fix of an npm ECOSYSTEM range as a refused part', function () {
+        const ranges = [{ type: 'ECOSYSTEM', events: [{ introduced: '0' }, { fixed: '2026.03.28' }] }]
+        const rows = normalizeOsvRecord(record({ affected: affected({ ranges }) }), 'npm')
+        expect(rows[0]?.ranges).toEqual([{ type: 'ECOSYSTEM', introduced: '0', fixed: null, lastAffected: null }, refusedRange('<2026.03.28', 'ECOSYSTEM')])
     })
 
     it('emits an open-ended range for a trailing introduced with no bound', function () {
@@ -654,5 +676,48 @@ describe('normalizeOsvRecord — last_known_affected_version_range', function ()
             'npm'
         )
         expect(emptyField[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '0', fixed: null, lastAffected: null }])
+    })
+})
+
+// OSV normalizer v8 (every ecosystem but npm): PEP 503 names, bounds read and intervals ordered by the
+// ecosystem's own comparator.
+describe('normalizeOsvRecord — each ecosystem in its own comparator', function () {
+    function rows(ecosystem: string, name: string, ranges: unknown[], versions: string[] = []) {
+        return normalizeOsvRecord({ id: 'X-1', affected: [{ package: { name, ecosystem }, ranges, versions }] }, ecosystem)
+    }
+
+    // OSV publishes PyPI names as the project spells them; the resolver keys them PEP 503-canonical.
+    it('keys a PyPI package by its PEP 503 name', function () {
+        const out = rows('PyPI', 'Django_REST.framework', [{ type: 'ECOSYSTEM', events: [{ introduced: '0' }, { fixed: '3.15.2' }] }])
+        expect(out[0]?.packageName).toBe('django-rest-framework')
+    })
+
+    it('keeps every other ecosystem\'s name exactly as written', function () {
+        expect(rows('RubyGems', 'Ruby_Gem', [{ type: 'ECOSYSTEM', events: [{ introduced: '0' }, { fixed: '1.0' }] }])[0]?.packageName).toBe('Ruby_Gem')
+    })
+
+    // A Go interval from the bottom to a pseudo-version is every commit before the fix, not an inverted
+    // interval: ordering "0" as the release 0.0.0 dropped it.
+    it('keeps a Go interval ending at a pseudo-version', function () {
+        const out = rows('Go', 'github.com/example/mod', [{ type: 'SEMVER', events: [{ introduced: '0' }, { fixed: '0.0.0-20210101000000-abcdefabcdef' }] }])
+        expect(out[0]?.ranges).toEqual([{ type: 'SEMVER', introduced: '0', fixed: '0.0.0-20210101000000-abcdefabcdef', lastAffected: null }])
+    })
+
+    // An inverted PEP 440 interval is dropped, and a valid one semver would have mis-ordered is kept.
+    it('orders a PyPI interval by PEP 440', function () {
+        expect(rows('PyPI', 'pkg', [{ type: 'ECOSYSTEM', events: [{ introduced: '2.0' }, { fixed: '1.0.post1' }] }], ['0.1'])[0]?.ranges).toEqual([])
+        expect(rows('PyPI', 'pkg', [{ type: 'ECOSYSTEM', events: [{ introduced: '1.0' }, { fixed: '1.0.post1' }] }])[0]?.ranges).toHaveLength(1)
+    })
+
+    // An unreadable bound is validated for every ecosystem now: an unreadable lower bound cannot open an
+    // interval, and an unreadable close leaves a valid interval open rather than unmatchable.
+    it('reads every bound with the ecosystem comparator', function () {
+        expect(rows('PyPI', 'pkg', [{ type: 'ECOSYSTEM', events: [{ introduced: 'garbage' }, { fixed: '2.0' }] }], ['0.1'])[0]?.ranges).toEqual([refusedRange('>=garbage', 'ECOSYSTEM')])
+        expect(rows('PyPI', 'pkg', [{ type: 'ECOSYSTEM', events: [{ introduced: '1.0' }, { fixed: '4.2-20.el8_6' }] }])[0]?.ranges).toEqual([{ type: 'ECOSYSTEM', introduced: '1.0', fixed: null, lastAffected: null }, refusedRange('<4.2-20.el8_6', 'ECOSYSTEM')])
+        expect(rows('PyPI', 'pkg', [{ type: 'ECOSYSTEM', events: [{ introduced: '1.0' }, { last_affected: 'not-a-version' }] }])[0]?.ranges).toEqual([{ type: 'ECOSYSTEM', introduced: '1.0', fixed: null, lastAffected: null }, refusedRange('<=not-a-version', 'ECOSYSTEM')])
+    })
+
+    it('reads nothing for an ecosystem the registry does not know', function () {
+        expect(normalizeOsvRecord({ id: 'X-1', affected: [{ package: { name: 'x', ecosystem: 'Maven' }, versions: ['1.0'] }] }, 'Maven')).toEqual([])
     })
 })

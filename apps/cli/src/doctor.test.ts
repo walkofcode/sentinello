@@ -1,9 +1,9 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { gzipSync } from 'node:zlib'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GEMNASIUM_NORMALIZER_VERSION, OSV_NORMALIZER_VERSION } from '@sentinello/core'
+import { GEMNASIUM_NORMALIZER_VERSION, osvNormalizerVersion, type OsvAdvisoryRow } from '@sentinello/core'
 import { advisoryFilePath, ensureCacheDir, readCacheMeta, setSourceState, writeCacheMeta, type SourceId, type SourceState } from './cache/meta'
 import { registryFilePath } from './cache/registry'
 import { createRowWriter } from './cache/store'
@@ -67,7 +67,7 @@ async function seedRows(source: SourceId, count: number): Promise<void> {
 async function seedState(source: SourceId, overrides: Partial<SourceState> = {}): Promise<void> {
     const meta = await readCacheMeta(cacheDir)
     setSourceState(meta, source, 'npm', {
-        normalizerVersion: source === 'osv' ? OSV_NORMALIZER_VERSION : GEMNASIUM_NORMALIZER_VERSION,
+        normalizerVersion: source === 'osv' ? osvNormalizerVersion('npm') : GEMNASIUM_NORMALIZER_VERSION,
         recordCount: 2,
         refreshedAt: T0,
         ...overrides
@@ -183,14 +183,60 @@ describe('runDoctor — advisory cache', function () {
     })
 
     // The contradiction this command exists to eliminate: rows present, metadata missing.
-    it('reports rows found on disk with no sync metadata, and how to use them', async function () {
+    it('reports rows found on disk with no sync metadata, and that a scan will not use them', async function () {
         await makeProject('.')
         await seedRows('osv', 3)
         await runDoctor(options(), cacheDir)
         const text = report()
         expect(text).toContain('3 advisories on disk, but no sync metadata')
         expect(text).toContain(advisoryFilePath(cacheDir, 'osv', 'npm'))
-        expect(text).toContain('usable with --offline; a normal run will re-download it')
+        expect(text).toContain('not used until it is synced again: a run without --offline re-downloads it')
+        expect(text).not.toContain('usable with --offline')
+    })
+
+    // Nothing says which normalizer wrote metadata-less rows, so the scan's seed gate refuses them, --offline
+    // included: an offline scan of that cache does not report the advisory a matching row holds, and a gated
+    // run fails rather than pass on no data. Doctor's advice above has to agree with this.
+    it('agrees with an offline scan of the same metadata-less cache', async function () {
+        await mkdir(rootPath, { recursive: true })
+        await writeFile(join(rootPath, 'package.json'), JSON.stringify({ name: 'app', version: '1.0.0', dependencies: { lodash: '^4.17.11' } }), 'utf8')
+        await writeFile(join(rootPath, 'package-lock.json'), JSON.stringify({
+            name: 'app',
+            lockfileVersion: 3,
+            packages: { '': { name: 'app', version: '1.0.0', dependencies: { lodash: '^4.17.11' } }, 'node_modules/lodash': { version: '4.17.11' } }
+        }), 'utf8')
+        await ensureCacheDir(cacheDir)
+        const writer = createRowWriter(advisoryFilePath(cacheDir, 'osv', 'npm'))
+        const lodash: OsvAdvisoryRow = {
+            advisoryId: 'GHSA-unsynced-lodash', ecosystem: 'npm', packageName: 'lodash', aliases: [],
+            ranges: [{ type: 'SEMVER', introduced: '0', fixed: '4.17.21', lastAffected: null }], versions: [],
+            severity: 'critical', summary: 'Prototype pollution', url: null, malicious: false, withdrawn: null
+        }
+        await writer.write([lodash])
+        await writer.commit()
+        await runDoctor(options({ sources: ['osv'] }), cacheDir)
+        expect(report()).toContain('1 advisories on disk, but no sync metadata')
+
+        stdout.length = 0
+        const { main } = await import('./run')
+        async function offlineScan(): Promise<number> {
+            const argv = process.argv
+            process.argv = [argv[0] ?? 'node', 'sentinello', rootPath, '--cache-dir', cacheDir, '--source', 'osv', '--offline', '--json', '--fail-on', 'critical']
+            try {
+                return await main()
+            } finally {
+                process.argv = argv
+            }
+        }
+        expect(await offlineScan()).toBe(1)
+        expect(report()).toContain('osv_db_not_seeded')
+        expect(report()).not.toContain('GHSA-unsynced-lodash')
+
+        // The control: the same file with its metadata is matched, so the refusal above is the gate's.
+        stdout.length = 0
+        await seedState('osv')
+        expect(await offlineScan()).toBe(2)
+        expect(report()).toContain('GHSA-unsynced-lodash')
     })
 
     it('reports the on-disk count and the cache path once synced', async function () {
@@ -216,9 +262,9 @@ describe('runDoctor — advisory cache', function () {
     it('warns that a normalizer bump will force a re-download', async function () {
         await makeProject('.')
         await seedRows('osv', 5)
-        await seedState('osv', { normalizerVersion: OSV_NORMALIZER_VERSION - 1 })
+        await seedState('osv', { normalizerVersion: osvNormalizerVersion('npm') - 1 })
         await runDoctor(options(), cacheDir)
-        expect(report()).toContain('normalizer v' + (OSV_NORMALIZER_VERSION - 1) + ' -> v' + OSV_NORMALIZER_VERSION + ', will re-download')
+        expect(report()).toContain('normalizer v' + (osvNormalizerVersion('npm') - 1) + ' -> v' + osvNormalizerVersion('npm') + ', will re-download')
     })
 
     it('says nothing about the normalizer when the cache is current', async function () {
@@ -270,26 +316,57 @@ describe('runDoctor — advisory cache', function () {
     })
 })
 
-describe('runDoctor — npm registry cache', function () {
+describe('runDoctor — registry cache', function () {
     it('says nothing is cached yet before the first run that reached the registry', async function () {
+        await makeProject('.')
         await runDoctor(options(), cacheDir)
-        expect(report()).toContain('npm registry nothing cached yet')
+        expect(report()).toContain('    registry    nothing cached yet')
     })
 
     it('counts the cached packages and dates the oldest answer', async function () {
         vi.useFakeTimers()
         vi.setSystemTime(T0 + 3 * 3_600_000)
+        await makeProject('.')
         await ensureCacheDir(cacheDir)
         const row = function row(name: string, checkedAt: number) {
             return JSON.stringify({ name, status: 'not_found', summaryJson: null, checkedAt, weeklyDownloads: null, downloadsCheckedAt: null }) + '\n'
         }
-        await writeFile(registryFilePath(cacheDir), gzipSync(row('a', T0) + row('b', T0 + 3_600_000)))
+        await writeFile(registryFilePath(cacheDir, 'npm'), gzipSync(row('a', T0) + row('b', T0 + 3_600_000)))
         await runDoctor(options(), cacheDir)
-        expect(report()).toContain('npm registry 2 packages, oldest answer 3h ago')
-        expect(report()).toContain(registryFilePath(cacheDir))
-        await writeFile(registryFilePath(cacheDir), gzipSync(row('a', T0)))
+        expect(report()).toContain('registry    2 packages, oldest answer 3h ago')
+        expect(report()).toContain(registryFilePath(cacheDir, 'npm'))
+        await writeFile(registryFilePath(cacheDir, 'npm'), gzipSync(row('a', T0)))
         await runDoctor(options(), cacheDir)
-        expect(report()).toContain('npm registry 1 package, oldest answer 3h ago')
+        expect(report()).toContain('registry    1 package, oldest answer 3h ago')
+    })
+})
+
+// One cache per ecosystem: doctor reports the ecosystems a run here would sync, and any other already cached.
+describe('runDoctor — one cache per ecosystem', function () {
+    it('reports a section for each ecosystem the projects hold', async function () {
+        const { mkdir } = await import('node:fs/promises')
+        await makeProject('web')
+        await mkdir(join(rootPath, 'tool'), { recursive: true })
+        await writeFile(join(rootPath, 'tool', 'requirements.txt'), 'fake-py-lib==1.0.0\n', 'utf8')
+        await runDoctor(options(), cacheDir)
+        const text = report()
+        expect(text).toContain('\n  npm\n    osv         not downloaded\n    gemnasium   not downloaded\n    registry    nothing cached yet\n')
+        expect(text).toContain('\n  PyPI\n    osv         not downloaded\n')
+        expect(text).not.toContain('\n  Go\n')
+    })
+
+    it('reports an ecosystem the cache holds even with no project of it here', async function () {
+        const { mkdir } = await import('node:fs/promises')
+        await mkdir(rootPath, { recursive: true })
+        await seedState('gemnasium', { headSha: 'abcdef0123456789' })
+        await runDoctor(options(), cacheDir)
+        expect(report()).toContain('\n  npm\n')
+        expect(report()).toContain('commit abcdef012345')
+    })
+
+    it('says so when no ecosystem is detected and nothing is cached', async function () {
+        await runDoctor(options(), cacheDir)
+        expect(report()).toContain('(no ecosystem detected and nothing cached)')
     })
 })
 

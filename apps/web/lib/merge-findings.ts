@@ -1,5 +1,5 @@
 import type { CurrentFindingRow } from '@sentinello/db'
-import { compareSeverity, severityWeight, type FixCheck, type FixStatus, type NotRecheckedBecause, type Remediation, type Severity } from '@sentinello/core'
+import { compareSeverity, requireComparator, severityWeight, type FindingInstallation, type FixCheck, type FixStatus, type NotRecheckedBecause, type Remediation, type Severity } from '@sentinello/core'
 import { compareVersions } from '@sentinello/versions'
 import { parseJsonArray } from '@/lib/format'
 
@@ -15,6 +15,9 @@ export type MergedFinding = {
     ecosystem: string
     packageName: string
     installedVersion: string
+    // Every (manifest, version) any merged row was installed through, each once, by manifest path: a library
+    // in two Gemfile.locks lists both. Empty when every row predates 3.8.
+    installations: FindingInstallation[]
     severity: Severity
     malicious: boolean
     scanners: string[]
@@ -35,7 +38,8 @@ export type MergedFinding = {
     notRecheckedBecause: NotRecheckedBecause | null
     // Non-empty by construction: a bucket always has at least one row, and every row carries a dep path.
     // Typed as a tuple so consumers reading depPaths[0] need no fallback for an empty case that the
-    // merge cannot produce.
+    // merge cannot produce. A row's path is empty when its lockfile records no dependency graph
+    // (requirements.txt, go.mod): the chain is unknown, and every surface says so.
     depPaths: [string[], ...string[][]]
     isProd: boolean
     isDev: boolean
@@ -72,7 +76,8 @@ function advisoryKey(row: CurrentFindingRow): string {
 // npm audit joins multiple hoisted copies into one comma-separated installedVersion ("4.17.21, 4.17.11")
 // while OSV emits one concrete version per row; union them across the bucket so the merged row shows every
 // affected version once, sorted, regardless of which source contributed it.
-function unionInstalledVersions(bucket: CurrentFindingRow[]): string {
+function unionInstalledVersions(bucket: [CurrentFindingRow, ...CurrentFindingRow[]]): string {
+    const comparator = requireComparator(bucket[0].ecosystem)
     const seen = new Set<string>()
     for (const r of bucket) {
         for (const part of r.installedVersion.split(',')) {
@@ -80,11 +85,13 @@ function unionInstalledVersions(bucket: CurrentFindingRow[]): string {
             if (v.length > 0) seen.add(v)
         }
     }
-    return [...seen].sort(compareVersions).join(', ')
+    return [...seen].sort(function byVersion(a, b) { return compareVersions(a, b, comparator) }).join(', ')
 }
 
 // The advisory text/link shown for a merged row: prefer a row that actually has a URL, and among those
-// the npm-audit one (its advisory tends to carry the remediation), so the link is the actionable one.
+// the npm-audit one (its advisory tends to carry the remediation), so the link is the actionable one. The
+// npm-audit preference only ever applies to npm rows: npm audit reports npm alone, and a bucket never mixes
+// ecosystems (the merge key starts with it), so a PyPI, Go, Rust or Ruby row is chosen on its URL alone.
 function preferAdvisory(candidate: CurrentFindingRow, current: CurrentFindingRow): boolean {
     const candidateHasUrl = Boolean(candidate.advisoryUrl)
     const currentHasUrl = Boolean(current.advisoryUrl)
@@ -113,7 +120,7 @@ function betterFix(candidate: CurrentFindingRow, current: CurrentFindingRow): bo
     const byVersion = Number(candidate.fixVersion !== null) - Number(current.fixVersion !== null)
     if (byVersion !== 0) return byVersion > 0
     // Equal on the line above, so both carry a version or neither does.
-    if (candidate.fixVersion !== null) return compareVersions(candidate.fixVersion, current.fixVersion as string) > 0
+    if (candidate.fixVersion !== null) return compareVersions(candidate.fixVersion, current.fixVersion as string, requireComparator(candidate.ecosystem)) > 0
     return candidate.fixAvailable && !current.fixAvailable
 }
 
@@ -138,7 +145,9 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
     // still visits `first` and the key check skips it, leaving the resulting order unchanged.
     const depPathKeys = new Set<string>([first.depPathJson])
     const depPaths: [string[], ...string[][]] = [parseJsonArray(first.depPathJson)]
+    const installations = new Map<string, FindingInstallation>()
     for (const r of bucket) {
+        for (const i of r.installations) installations.set(i.manifestPath + '\x00' + i.version, i)
         if (severityWeight(r.severity) > severityWeight(severity)) severity = r.severity
         if (r.advisoryId.startsWith('MAL-')) malicious = true
         if (r.isProd) isProd = true
@@ -188,6 +197,7 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
         ecosystem: first.ecosystem,
         packageName: first.packageName,
         installedVersion: unionInstalledVersions(bucket),
+        installations: [...installations.values()].sort(function byManifest(a, b) { return a.manifestPath.localeCompare(b.manifestPath) || a.version.localeCompare(b.version) }),
         severity: severity as Severity,
         malicious,
         scanners,

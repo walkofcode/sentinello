@@ -1,17 +1,46 @@
 import { describe, expect, it } from 'vitest'
-import { GEMNASIUM_NORMALIZER_VERSION, OSV_NORMALIZER_VERSION } from './advisory-rows'
-import { sourceNormalizerVersion } from './sources'
+import { GEMNASIUM_NORMALIZER_VERSION, OSV_NORMALIZER_VERSIONS, osvNormalizerVersion } from './advisory-rows'
+import { ECOSYSTEMS } from './ecosystems'
+import { GEMNASIUM_STATUS_KEY, sourceCellStatusKey, sourceNormalizerVersion, sourceStatusKey } from './sources'
 
 // The portal compares a mirrored SourceStatus.normalizerVersion against this to decide whether the
 // scanner will actually match against the cache. Pinned against the constants rather than literals so
 // a bump cannot make the mapping quietly disagree with what seedOsv/rebuildGemnasium stamp.
 describe('sourceNormalizerVersion', function () {
     it('answers with the version each cache-backed source stamps its rows with', function () {
-        expect(sourceNormalizerVersion('osv')).toBe(OSV_NORMALIZER_VERSION)
-        expect(sourceNormalizerVersion('gemnasium')).toBe(GEMNASIUM_NORMALIZER_VERSION)
+        for (const eco of ECOSYSTEMS) {
+            expect(sourceNormalizerVersion('osv', eco.id)).toBe(OSV_NORMALIZER_VERSIONS[eco.id])
+            expect(sourceNormalizerVersion('gemnasium', eco.id)).toBe(GEMNASIUM_NORMALIZER_VERSION)
+        }
     })
 
     it('answers null for a source that keeps no cache', function () {
-        expect(sourceNormalizerVersion('npm-audit')).toBeNull()
+        expect(sourceNormalizerVersion('npm-audit', 'npm')).toBeNull()
+    })
+})
+
+// Per ecosystem, so a change that re-derives only PyPI rows re-seeds PyPI alone and npm's 200 MB export is
+// never fetched again for it.
+describe('osvNormalizerVersion', function () {
+    // npm too since the live-cache diff: 19 ECOSYSTEM-typed npm records with CalVer fixes now keep a refused
+    // part, and cached v7 rows would never gain it.
+    it('answers per ecosystem, every one at 8 for 3.8', function () {
+        for (const id of ['npm', 'PyPI', 'Go', 'crates.io', 'RubyGems']) expect(osvNormalizerVersion(id)).toBe(8)
+    })
+
+    it('fails loudly for an ecosystem the registry does not know', function () {
+        expect(function unknown() { return osvNormalizerVersion('maven') }).toThrow('unknown ecosystem "maven"')
+    })
+})
+
+// SENTINEL-142: gemnasium writes ONE status; every gemnasium cell must read that one, and OSV keeps its own
+// per cell.
+describe('sourceCellStatusKey', function () {
+    it('reads every gemnasium cell from the one status gemnasium writes, and each OSV cell from its own', function () {
+        expect(GEMNASIUM_STATUS_KEY).toBe(sourceStatusKey('gemnasium', 'npm'))
+        for (const eco of ECOSYSTEMS) {
+            expect(sourceCellStatusKey('gemnasium', eco.id)).toBe(GEMNASIUM_STATUS_KEY)
+            expect(sourceCellStatusKey('osv', eco.id)).toBe(sourceStatusKey('osv', eco.id))
+        }
     })
 })

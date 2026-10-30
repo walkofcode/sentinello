@@ -1,12 +1,14 @@
 import { existsSync } from 'node:fs'
-import { type Project } from '@sentinello/core'
-import { discoverProjectsInTree, readGitBranch, type DiscoverySkip } from '@sentinello/scanners'
+import { resolve } from 'node:path'
+import { type Project, type ProjectManifest } from '@sentinello/core'
+import { discoverProjectsInTree, readGitBranch, rediscoverProject, withUnreadManifests, type DiscoveredProject, type DiscoveryError, type DiscoverySkip } from '@sentinello/scanners'
 import {
     type DrizzleDb,
     type Root,
     listProjects,
     deleteProject,
     upsertProject,
+    setProjectInventory,
     projectId as makeProjectId
 } from '@sentinello/db'
 
@@ -36,17 +38,35 @@ export function discoverProjects(input: DiscoveryInput): DiscoveryResult {
     // unmounted root against an empty walk and hard-delete every project under it; re-checking
     // existsSync further down would reintroduce that on a mount that drops mid-pass.
     const walkedRootIds = new Set<string>()
+    // Roots whose walk could not read some directory. Their result is incomplete, so a project missing from
+    // it may still be on disk: those roots get their discoveries recorded but nothing deleted, and a project
+    // found keeps its recorded manifests below the unreadable directories (withUnreadManifests).
+    const incompleteRootIds = new Set<string>()
+    const recordedById = new Map(listProjects(input.db).map(function pair(p): [string, Project] {
+        return [p.id, p]
+    }))
     for (const root of input.roots) {
         if (!existsSync(root.path)) continue
         walkedRootIds.add(root.id)
+        const errors: DiscoveryError[] = []
         const found = discoverProjectsInTree({
             rootPath: root.path,
             excludes: input.globalIgnore,
-            onSkip: logSkip
+            onSkip: logSkip,
+            onError: function record(error) {
+                errors.push(error)
+            }
         })
-        for (const project of found) {
+        if (errors.length > 0) {
+            incompleteRootIds.add(root.id)
+            logIncompleteWalk(root.path, errors)
+        }
+        for (const walked of found) {
+            const id = makeProjectId(root.id, walked.relPath)
+            const recorded = recordedById.get(id)
+            const project = recorded ? withUnreadManifests(walked, recorded.manifests, errors) : walked
             discoveredByPath.set(project.absolutePath, {
-                id: makeProjectId(root.id, project.relPath),
+                id,
                 rootId: root.id,
                 relPath: project.relPath,
                 name: project.name,
@@ -55,6 +75,7 @@ export function discoverProjects(input: DiscoveryInput): DiscoveryResult {
                 nvmrcVersion: project.nvmrcVersion,
                 gitBranch: project.gitBranch,
                 ecosystems: project.ecosystems,
+                manifests: project.manifests,
                 muted: false,
                 tags: [],
                 createdAt: input.at,
@@ -64,7 +85,7 @@ export function discoverProjects(input: DiscoveryInput): DiscoveryResult {
     }
     // Reconciliation is scoped to the roots we actually walked. Otherwise a per-root sweep would
     // mark every project under unrelated roots as "missing" just because we didn't visit them.
-    const existing = listProjects(input.db).filter(function inScope(p): boolean {
+    const existing = Array.from(recordedById.values()).filter(function inScope(p): boolean {
         return walkedRootIds.has(p.rootId)
     })
     const existingById = new Map(existing.map(function pair(p): [string, Project] {
@@ -95,6 +116,7 @@ export function discoverProjects(input: DiscoveryInput): DiscoveryResult {
     const deletedProjectIds: string[] = []
     for (const prior of existing) {
         if (discoveredIds.has(prior.id)) continue
+        if (incompleteRootIds.has(prior.rootId)) continue
         // The project's root was walked but the folder is gone, so the project is genuinely gone.
         // Sentinello keeps only what it currently sees: hard-delete the project and all of its
         // history (scans, findings, notification events/deliveries, mutes). An unmounted root never
@@ -103,6 +125,49 @@ export function discoverProjects(input: DiscoveryInput): DiscoveryResult {
         deletedProjectIds.push(prior.id)
     }
     return { discoveredProjects: discovered, newProjectIds, deletedProjectIds }
+}
+
+// Re-reads one project's directory at scan start (rediscoverProject) and records what changed since the last
+// sweep, so a single-project scan — the watcher's, a manual one — scans the manifests the project holds now:
+// a uv.lock added beside a bare pyproject.toml, an ios/Gemfile.lock added to an npm project. Mutates the
+// in-memory project the scan goes on to use. A directory that no longer anchors a project keeps its recorded
+// inventory: whether the project is gone is the next discovery pass's call, and its scan then says what it
+// could not read. Returns whether the inventory was read now — false for such a directory — which is what lets
+// the runner read an ecosystem with no manifest left as one with nothing installed (SENTINEL-144).
+export function refreshProjectInventory(db: DrizzleDb, project: Project, rootPath: string, globalIgnore: string[], at: number): boolean {
+    const projectPath = resolve(rootPath, project.relPath)
+    const rediscovery = rediscoverProject({ rootPath, projectPath, excludes: globalIgnore })
+    if (rediscovery.project === null) return false
+    for (const error of rediscovery.errors) console.log('[discovery] could not read ' + error.path + ': ' + error.message)
+    const now = withUnreadManifests(rediscovery.project, project.manifests, rediscovery.errors)
+    if (sameInventory(project, now)) return true
+    project.packageManager = now.packageManager
+    project.nvmrcVersion = now.nvmrcVersion
+    project.ecosystems = now.ecosystems
+    project.manifests = now.manifests
+    setProjectInventory(db, project.id, project, at)
+    return true
+}
+
+function sameInventory(project: Project, now: DiscoveredProject): boolean {
+    return project.packageManager === now.packageManager
+        && project.nvmrcVersion === now.nvmrcVersion
+        && project.ecosystems.join(',') === now.ecosystems.join(',')
+        && manifestKeys(project.manifests) === manifestKeys(now.manifests)
+}
+
+function manifestKeys(manifests: readonly ProjectManifest[]): string {
+    return manifests.map(function key(m) { return m.path + '|' + m.ecosystem + '|' + m.kind }).join(',')
+}
+
+// A directory that went unreadable mid-walk (a permissions change, a mount dropping under the walk) used to
+// read as empty, and every project below it was hard-deleted with its history. Saying why the deletes were
+// held back is what lets an operator tell a held-back sweep from a project that genuinely survived.
+function logIncompleteWalk(rootPath: string, errors: DiscoveryError[]): void {
+    for (const error of errors) {
+        console.log('[discovery] could not read ' + error.path + ': ' + error.message)
+    }
+    console.log('[discovery] not deleting any project under ' + rootPath + ' this pass: ' + errors.length + ' unreadable path(s) left the walk incomplete')
 }
 
 // Discovery now honours .gitignore, so a directory an operator expected to see can legitimately be

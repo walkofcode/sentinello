@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { Severity, ReasonCode } from '@sentinello/core'
 import type { DetectedLockfile, RawFinding, ScanResult } from './types'
-import { affectedSetFromRange, pickStatedFix, splitInstalled, type FixEvidence } from './version-fix'
+import { patchedVersionSet, pickStatedFix, splitInstalled, versionSetFromSemverRange, type FixEvidence } from './version-fix'
 
 // The pure half of the npm-audit scanner: every schema for the JSON shapes the three package
 // managers emit, plus the normalization and stderr-classification logic that turns those shapes into
@@ -379,8 +379,9 @@ function npmAuditFixInputs(installed: string, vulnerable: string, patched: strin
     return {
         source: NPM_AUDIT_SCANNER_NAME,
         installed: splitInstalled(installed),
-        affected: affectedSetFromRange(vulnerable),
+        affected: versionSetFromSemverRange(vulnerable),
         patched,
+        patchedSet: patchedVersionSet(patched),
         statedFix,
         fixViaParent
     }

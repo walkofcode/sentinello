@@ -25,7 +25,11 @@ export function DepPathPopover({ paths }: Props) {
         flipThreshold: FLIP_THRESHOLD
     })
 
-    if (real.length === 0) return null
+    // No chain at all: the lockfile records no dependency graph (requirements.txt, go.mod). Said, never left
+    // blank, and never read as "no way out".
+    if (real.length === 0) {
+        return <span data-testid="chain-unknown" title={t('chainUnknownHint')} className="shrink-0 text-[0.625rem] text-muted-foreground">{t('chainUnknown')}</span>
+    }
     const label = t('columns.depPath')
     return (
         <span className="inline-flex align-middle">

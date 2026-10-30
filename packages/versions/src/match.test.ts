@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pep440Comparator, semverComparator, versionInRange, type VersionRange } from './index'
+import { pep440Comparator, refusedRange, semverComparator, specifierCandidate, versionInRange, versionInSet, type VersionRange } from './index'
 
 // The one place bound inclusivity is decided. Every case here is a boundary case, because boundaries are
 // the only place `>` differs from `>=` and `<` from `<=` — and rounding those was producing both false
@@ -127,5 +127,55 @@ describe('versionInRange — PEP 440', function () {
         expect(versionInRange('1.5', r, pep440Comparator)).toBe(true)
         expect(versionInRange('2.0.0', r, pep440Comparator)).toBe(true)
         expect(versionInRange('2.0.1', r, pep440Comparator)).toBe(false)
+    })
+})
+
+describe('versionInRange — refused parts', function () {
+    // Even a refused part whose text a lenient comparator would coerce into a version.
+    it('selects no version', function () {
+        expect(versionInRange('2.0', refusedRange('~=2.0'), pep440Comparator)).toBe(false)
+        expect(versionInRange('1.0.0', refusedRange('1.0.0'), semverComparator)).toBe(false)
+    })
+})
+
+// The membership rule the matcher and registry settlement share.
+describe('versionInSet', function () {
+    const normalized = function exactOf(...versions: string[]): Set<string> {
+        return new Set(versions.map(function n(v) { return pep440Comparator.normalize(v) as string }))
+    }
+
+    // SENTINEL-127, the reviewer's reproduction: gemnasium `==2.2.0` and `<=2.2.0` against torch's CPU build.
+    // PEP 440: a public specifier ignores the candidate's local label.
+    it('selects a local build under PEP 440 specifier semantics', function () {
+        expect(versionInSet('2.2.0+cpu', [], normalized('2.2.0'), pep440Comparator, 'pep440')).toBe(true)
+        expect(versionInSet('2.2.0+cpu', [range({ lastAffected: '2.2.0' })], new Set(), pep440Comparator, 'pep440')).toBe(true)
+        // `>2.2.0` must not select a local build of 2.2.0; `<2.2.0` does not select it either.
+        expect(versionInSet('2.2.0+cpu', [range({ introduced: '2.2.0', introducedExclusive: true })], new Set(), pep440Comparator, 'pep440')).toBe(false)
+        expect(versionInSet('2.2.0+cpu', [range({ fixed: '2.2.0' })], new Set(), pep440Comparator, 'pep440')).toBe(false)
+        expect(versionInSet('2.1.9+cpu', [range({ fixed: '2.2.0' })], new Set(), pep440Comparator, 'pep440')).toBe(true)
+    })
+
+    // OSV's intervals are the ordering, under which the local build sorts above its public version.
+    it('orders a local build above its public version without specifier semantics', function () {
+        expect(versionInSet('2.2.0+cpu', [], normalized('2.2.0'), pep440Comparator, undefined)).toBe(false)
+        expect(versionInSet('2.2.0+cpu', [range({ lastAffected: '2.2.0' })], new Set(), pep440Comparator, undefined)).toBe(false)
+        expect(versionInSet('2.2.0+cpu', [range({ introduced: '2.2.0', introducedExclusive: true })], new Set(), pep440Comparator, undefined)).toBe(true)
+    })
+
+    // A pin that names a local label matches that build strictly, never the public version or another build.
+    it('matches a local pin strictly', function () {
+        expect(versionInSet('1.0.0+abc', [], normalized('1.0+abc'), pep440Comparator, 'pep440')).toBe(true)
+        expect(versionInSet('1.0', [], normalized('1.0+abc'), pep440Comparator, 'pep440')).toBe(false)
+        expect(versionInSet('1.0+abd', [], normalized('1.0+abc'), pep440Comparator, 'pep440')).toBe(false)
+    })
+
+    it('never matches a version the comparator cannot read', function () {
+        expect(versionInSet('not a version', [range({})], new Set(), pep440Comparator, 'pep440')).toBe(false)
+    })
+
+    it('projects only under specifier semantics', function () {
+        expect(specifierCandidate('2.2+cpu', 'pep440')).toBe('2.2')
+        expect(specifierCandidate('2.2', 'pep440')).toBe('2.2')
+        expect(specifierCandidate('1.0.0+build', undefined)).toBe('1.0.0+build')
     })
 })

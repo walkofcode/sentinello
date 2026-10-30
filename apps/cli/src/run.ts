@@ -1,19 +1,13 @@
 import { writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import {
-    DEFAULT_ECOSYSTEM,
-    DEFAULT_EXPORT_PROMPT,
-    GEMNASIUM_NORMALIZER_VERSION,
-    OSV_NORMALIZER_VERSION,
-    errText
-} from '@sentinello/core'
+import { DEFAULT_EXPORT_PROMPT, errText, type EcosystemId } from '@sentinello/core'
 import { discoverProjectsInTree, type DiscoverySkip } from '@sentinello/scanners'
 import { gemnasiumFeedDisabled, osvFeedDisabled } from '@sentinello/feeds'
-import { createNpmRegistryClient } from '@sentinello/fixes'
+import { createRegistryClients } from '@sentinello/fixes'
 import { isSeeded, readCacheMeta, resolveCacheDir, type CacheMeta, type SourceId } from './cache/meta'
-import { loadCacheForPackages } from './cache/lookup'
-import { loadRegistryStore, saveRegistryStore } from './cache/registry'
-import { planSync, runSync, type SyncOutcome, type SyncPlan, type SyncPlanItem } from './cache/sync'
+import { loadCacheForPackages, withdrawalsUnchecked, type FeedCell } from './cache/lookup'
+import { loadRegistryStores, saveRegistryStores, type FileRegistryStore } from './cache/registry'
+import { normalizerVersionOf, planSync, runSync, type SyncOutcome, type SyncPlan, type SyncPlanItem } from './cache/sync'
 import { applyConfigFile, explicitFlagNames, parseArgs, runsNpmAudit, type CliOptions } from './options'
 import {
     defaultOutputFilename,
@@ -24,7 +18,7 @@ import {
     shouldFail,
     summarize
 } from './report'
-import { buildScanners, collectPackageNames, resolveProjects, scanProject, type ProjectScanResult } from './scan'
+import { buildScanners, collectPackageNames, detectedEcosystems, resolveProjects, scanProject, type ProjectScanResult } from './scan'
 import { createUi, type Ui } from './ui'
 import { runDoctor } from './doctor'
 import { CLI_VERSION, HELP_TEXT } from './help'
@@ -103,20 +97,25 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
         return EXIT_OK
     }
 
+    // The ecosystems the tree holds decide what is synced and scanned: one cache per ecosystem, so a folder
+    // of npm projects never downloads the PyPI export.
+    const ecosystems = detectedEcosystems(projects)
+
     // A source the operator switched off and never seeded is not a source that failed, and the difference
-    // decides an exit code. Resolved once, here, so the sync, the cache read and the scanners all agree on
-    // one set — see enabledSources for why "off" alone is not enough to drop one.
-    const sources = enabledSources(options.sources, await readCacheMeta(cacheDir))
-    const switchedOff = options.sources.filter(function isOff(source): boolean {
-        return !sources.includes(source)
+    // decides an exit code. Resolved once, here, per ecosystem, so the sync, the cache read and the scanners
+    // all agree on one set of cells — see enabledCells for why "off" alone is not enough to drop one.
+    const cells = enabledCells(options.sources, ecosystems, await readCacheMeta(cacheDir))
+    const switchedOff = requestedCells(options.sources, ecosystems).filter(function isOff(cell): boolean {
+        return !cells.some(function kept(c) { return c.source === cell.source && c.ecosystem === cell.ecosystem })
     })
     if (switchedOff.length > 0) ui.sourcesSwitchedOff(switchedOff)
+    const sources = sourcesOf(cells)
 
     // 2. Refresh the advisory cache. There is no separate sync command: the freshness checks are cheap
     // enough (a 304 for OSV, a commit sha for gemnasium) to run every time, and only a first seed is
     // expensive — which is the one case that asks permission.
     if (!options.offline && (sources.length > 0)) {
-        const plan = await planSync({ cacheDir, sources, ecosystem: DEFAULT_ECOSYSTEM })
+        const plan = await planSync({ cacheDir, sources, ecosystems })
         if (plan.needsConsent && !options.assumeYes) {
             const approved = await ui.confirmSeed(plan)
             if (!approved) {
@@ -131,7 +130,7 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
         const syncOptions = {
             cacheDir,
             sources,
-            ecosystem: DEFAULT_ECOSYSTEM,
+            ecosystems,
             retryWaitMs: retryWaitMsFor(options.feedWaitSeconds),
             onProgress: ui.syncProgress,
             onRetry: ui.syncRetry,
@@ -160,29 +159,29 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
     // sync, so it describes the files as they now are.
     const meta = await readCacheMeta(cacheDir)
     const resolved = await resolveProjects(projects)
-    const packageNames = collectPackageNames(resolved)
-    const cache = await loadCacheForPackages(cacheDir, DEFAULT_ECOSYSTEM, packageNames, sources, meta)
+    const cache = await loadCacheForPackages(cacheDir, collectPackageNames(resolved), cells, meta)
     // A one-shot report over-reports rather than refusing the scan: without complete OSV evidence (a
     // failed or declined download, --offline before one, the OSV feed switched off) gemnasium is reported
     // unstamped, and the run says what that means.
-    if (sources.includes('gemnasium') && !cache.withdrawalsChecked) ui.withdrawalsUnchecked()
+    const unstamped = withdrawalsUnchecked(cache, cells)
+    if (unstamped.length > 0) ui.withdrawalsUnchecked(unstamped)
 
     // 4. Scan. Seeded state comes from the cache metadata, not from whether this project happened to match
     // any rows, so a dependency-free project is reported as scanned-and-clean rather than unauditable.
-    // Every fix is settled against the npm registry through one client for the whole run, over the
-    // registry cache; --offline makes no request at all, so it gets no client.
-    const registryStore = options.offline ? null : await loadRegistryStore(cacheDir)
+    // Every fix is settled against its own ecosystem's registry through one set of clients for the whole
+    // run, over the registry cache; --offline makes no request at all, so it gets no clients.
+    const registryStores = options.offline ? null : await loadRegistryStores(cacheDir)
     const setup = {
         cacheDir,
-        sources,
-        ecosystem: DEFAULT_ECOSYSTEM,
+        cells,
         includeNpmAudit: runsNpmAudit(options),
         settledAt: generatedAt,
-        registry: registryStore === null ? null : createNpmRegistryClient(registryStore),
-        seeded: {
-            osv: isSeeded(meta, 'osv', DEFAULT_ECOSYSTEM, OSV_NORMALIZER_VERSION),
-            gemnasium: isSeeded(meta, 'gemnasium', DEFAULT_ECOSYSTEM, GEMNASIUM_NORMALIZER_VERSION)
-        }
+        registry: registryStores === null ? null : createRegistryClients(function storeFor(ecosystem: EcosystemId) {
+            return registryStores.get(ecosystem) as FileRegistryStore
+        }),
+        seeded: cells.filter(function current(cell): boolean {
+            return isSeeded(meta, cell.source, cell.ecosystem, normalizerVersionOf(cell.source, cell.ecosystem))
+        })
     }
     const scanners = buildScanners(setup, cache)
     const results: ProjectScanResult[] = []
@@ -195,9 +194,9 @@ export async function runScan(options: CliOptions, cacheDir: string, ui: Ui): Pr
     }
     // Saved once, after the last project. A save that cannot happen costs the next run a refetch, never
     // this run's answers, so it is reported and the run goes on.
-    if (registryStore !== null) {
+    if (registryStores !== null) {
         try {
-            if (await saveRegistryStore(cacheDir, registryStore) === 'locked') {
+            if (await saveRegistryStores(cacheDir, registryStores) === 'locked') {
                 ui.registryCacheNotSaved('another sentinello run holds the cache lock')
             }
         } catch (err) {
@@ -241,29 +240,43 @@ function feedSwitchedOff(source: SourceId): boolean {
     return gemnasiumFeedDisabled()
 }
 
-function normalizerVersionFor(source: SourceId): number {
-    if (source === 'osv') return OSV_NORMALIZER_VERSION
-    return GEMNASIUM_NORMALIZER_VERSION
+// Each requested feed source for each ecosystem: the cells the run was asked to audit.
+export function requestedCells(sources: readonly SourceId[], ecosystems: readonly EcosystemId[]): FeedCell[] {
+    const out: FeedCell[] = []
+    for (const source of sources) {
+        for (const ecosystem of ecosystems) out.push({ source, ecosystem })
+    }
+    return out
 }
 
-// The requested sources, minus any the operator has switched off AND never seeded.
+// The requested cells, minus any whose feed the operator has switched off AND that was never seeded.
 //
 // Both halves matter. `SENTINELLO_*_FEED_URL=off` disables the FEED — the network sync — not the source:
 // a cache seeded earlier (or provisioned out of band, which is the whole air-gapped workflow) stays
 // perfectly valid, and dropping it would throw away real findings. So off-but-seeded is still a source.
 //
-// Off AND unseeded is different: that source can never contribute, by the operator's own choice. Leaving
-// it in makes every project report the cell unauditable, which under --fail-on refuses the run forever
-// for a configuration someone chose deliberately. A feed that is ON but unseeded is NOT dropped — that is
-// a genuine failure or a declined download, and refusing the gate there is the point.
+// Off AND unseeded is different: that cell can never contribute, by the operator's own choice. Leaving it
+// in makes every project of that ecosystem report the cell unauditable, which under --fail-on refuses the
+// run forever for a configuration someone chose deliberately. A feed that is ON but unseeded is NOT dropped
+// — that is a genuine failure or a declined download, and refusing the gate there is the point.
 //
-// Reads the feeds layer's own predicates rather than re-parsing the env vars, so "off" cannot come to
-// mean two different things in two places.
-export function enabledSources(sources: readonly SourceId[], meta: CacheMeta): SourceId[] {
-    return sources.filter(function isUsable(source): boolean {
-        if (!feedSwitchedOff(source)) return true
-        return isSeeded(meta, source, DEFAULT_ECOSYSTEM, normalizerVersionFor(source))
+// Judged per ecosystem, because each one's cache is seeded on its own: an air-gapped npm cache says nothing
+// about PyPI. Reads the feeds layer's own predicates rather than re-parsing the env vars, so "off" cannot
+// come to mean two different things in two places.
+export function enabledCells(sources: readonly SourceId[], ecosystems: readonly EcosystemId[], meta: CacheMeta): FeedCell[] {
+    return requestedCells(sources, ecosystems).filter(function isUsable(cell): boolean {
+        if (!feedSwitchedOff(cell.source)) return true
+        return isSeeded(meta, cell.source, cell.ecosystem, normalizerVersionOf(cell.source, cell.ecosystem))
     })
+}
+
+// The sources that answer for at least one cell, in the order they were requested.
+export function sourcesOf(cells: readonly FeedCell[]): SourceId[] {
+    const out: SourceId[] = []
+    for (const cell of cells) {
+        if (!out.includes(cell.source)) out.push(cell.source)
+    }
+    return out
 }
 
 export function isErrorOutcome(outcome: SyncOutcome): boolean {
@@ -280,7 +293,7 @@ export function failedItems(plan: SyncPlan, outcomes: readonly SyncOutcome[]): S
         return outcomes.some(function matches(outcome): boolean {
             return outcome.status === 'error' &&
                 outcome.source === item.source &&
-                outcome.ecosystem === item.ecosystem
+                outcome.ecosystems.join(',') === item.ecosystems.join(',')
         })
     })
 }

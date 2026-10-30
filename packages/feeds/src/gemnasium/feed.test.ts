@@ -21,6 +21,7 @@ import {
     fetchGemnasiumFileRows,
     fetchGemnasiumHeadSha,
     gemnasiumFeedDisabled,
+    gemnasiumPathIdentity,
     streamGemnasiumArchive
 } from './feed'
 
@@ -156,11 +157,13 @@ describe('fetchGemnasiumChangedPaths', function () {
     it('ignores paths under a package type with no resolver', async function () {
         fetchMock.mockResolvedValue(compare([
             { new_path: 'maven/org.example/CVE-2024-3.yml' },
-            { new_path: 'gem/rails/CVE-2024-4.yml' },
+            { new_path: 'packagist/laravel/framework/CVE-2024-4.yml' },
+            { new_path: 'gem/rails/CVE-2024-5.yml' },
             { new_path: 'npm/lodash/CVE-2024-1.yml' }
         ]))
         const result = await fetchGemnasiumChangedPaths('a', 'b')
-        expect(result.status === 'ok' && result.changed).toEqual(['npm/lodash/CVE-2024-1.yml'])
+        // `gem` is RubyGems now, so it is read; maven and packagist have no ecosystem here.
+        expect(result.status === 'ok' && result.changed).toEqual(['gem/rails/CVE-2024-5.yml', 'npm/lodash/CVE-2024-1.yml'])
     })
 
     it('ignores non-advisory paths and diffs with no new_path', async function () {
@@ -266,6 +269,21 @@ describe('fetchGemnasiumFileRows', function () {
     it('returns nothing when the YAML does not parse', async function () {
         fetchMock.mockResolvedValue(respond('key: [unclosed\n  bad: indent', { status: 200 }))
         expect(await fetchGemnasiumFileRows('npm/lodash/CVE-2024-1.yml', 'sha')).toEqual([])
+    })
+})
+
+describe('gemnasiumPathIdentity', function () {
+    it('reads the one (advisory, ecosystem, package) a file holds, keyed as the normalizer keys it', function () {
+        expect(gemnasiumPathIdentity('npm/@babel/cli/CVE-2024-1.yml')).toEqual({ advisoryId: 'CVE-2024-1', ecosystem: 'npm', packageName: '@babel/cli' })
+        expect(gemnasiumPathIdentity('pypi/Django_Rest/CVE-2024-2.yml')).toEqual({ advisoryId: 'CVE-2024-2', ecosystem: 'PyPI', packageName: 'django-rest' })
+        expect(gemnasiumPathIdentity('go/github.com/x/y/GMS-2024-3.yml')).toEqual({ advisoryId: 'GMS-2024-3', ecosystem: 'Go', packageName: 'github.com/x/y' })
+    })
+
+    it('is null for a directory entry, an unsupported type or a file with no package', function () {
+        expect(gemnasiumPathIdentity('npm/lodash/')).toBeNull()
+        expect(gemnasiumPathIdentity('maven/a/b/CVE-1.yml')).toBeNull()
+        expect(gemnasiumPathIdentity('npm/CVE-1.yml')).toBeNull()
+        expect(gemnasiumPathIdentity('npm//CVE-1.yml')).toBeNull()
     })
 })
 

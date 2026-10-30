@@ -21,6 +21,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { parseJsonArray, rootDisplayLabel } from '@/lib/format'
 import { rememberProjectsUrl } from '@/lib/home-url-memory'
 import { isProjectHealthy, scanStateBadge, scanStateReasonsText } from '@/lib/project-state'
+import { nodeRuntimeLabel, packageManagersLabel } from '@/lib/project-toolchain'
 import {
     buildProjectFiltersUrl,
     parseProjectFiltersFromSearch,
@@ -301,9 +302,9 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                                         <dt className="uppercase tracking-wide">{t('colRoot')}</dt>
                                         <dd className="min-w-0 break-words">{project.rootLabel || project.rootPath}</dd>
                                         <dt className="uppercase tracking-wide">{t('colPm')}</dt>
-                                        <dd className="uppercase tracking-wide">{project.packageManager}</dd>
-                                        <dt className="uppercase tracking-wide">{t('colNode')}</dt>
-                                        <dd>{project.nvmrcVersion || t('nodeAmbient')}</dd>
+                                        <dd className="uppercase tracking-wide">{packageManagersLabel(project.manifests, project.packageManager)}</dd>
+                                        <dt className="uppercase tracking-wide">{t('colRuntime')}</dt>
+                                        <dd>{nodeRuntimeLabel(project.manifests, project.packageManager, project.nvmrcVersion, t('nodeAmbient')) ?? '—'}</dd>
                                     </dl>
                                     <div className="mt-3 flex justify-end">
                                         <RowActions project={project} depType={depType} scanning={inFlightSet.has(project.id)} />
@@ -320,7 +321,7 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                                     <TableHead>{t('colBranch')}</TableHead>
                                     <TableHead>{t('colRoot')}</TableHead>
                                     <TableHead>{t('colPm')}</TableHead>
-                                    <TableHead>{t('colNode')}</TableHead>
+                                    <TableHead>{t('colRuntime')}</TableHead>
                                     <TableHead>{t('colSeverity')}</TableHead>
                                     <TableHead>{t('colState')}</TableHead>
                                     <TableHead className="w-px whitespace-nowrap text-right">{t('colActions')}</TableHead>
@@ -352,10 +353,10 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
                                                 {project.rootLabel || project.rootPath}
                                             </TableCell>
                                             <TableCell className="text-xs uppercase tracking-wide text-muted-foreground">
-                                                {project.packageManager}
+                                                {packageManagersLabel(project.manifests, project.packageManager)}
                                             </TableCell>
                                             <TableCell className="text-xs text-muted-foreground">
-                                                {project.nvmrcVersion || t('nodeAmbient')}
+                                                {nodeRuntimeLabel(project.manifests, project.packageManager, project.nvmrcVersion, t('nodeAmbient')) ?? '—'}
                                             </TableCell>
                                             <TableCell>
                                                 <SeverityCountsRow counts={project.severityCounts} />
@@ -630,14 +631,28 @@ function RowActions({ project, depType, scanning }: { project: ProjectCatalogRow
 }
 
 // The project's scan state as one badge — "Cannot be scanned", "Cannot be fully scanned" or "Not scanned
-// yet" — with every reason and whose side it is on in its tooltip. A fully scanned project shows nothing.
+// yet" — with every reason and whose side it is on in its tooltip. A fully scanned project shows nothing. A
+// project not scanned yet has reasons only for a language no source is enabled for, shown the same way.
 function ScanStateBadges({ row }: { row: ProjectCatalogRow }) {
     const t = useTranslations('Home')
     const locale = useLocale() as Locale
     const badge = scanStateBadge(row.scanState)
     if (badge === null) return null
-    const reasons = scanStateReasonsText(row.scanState, locale, { project: t('stateSideProject'), environment: t('stateSideEnvironment') })
-    if (badge === 'notScannedYet') return <Badge variant="muted">{t('stateNotScannedYet')}</Badge>
+    const reasons = scanStateReasonsText(
+        row.scanState,
+        locale,
+        { project: t('stateSideProject'), environment: t('stateSideEnvironment') },
+        function sourceDisabled(languages) { return t('stateSourceDisabled', { languages }) }
+    )
+    if (badge === 'notScannedYet') {
+        if (row.scanState.reasons.length === 0) return <Badge variant="muted">{t('stateNotScannedYet')}</Badge>
+        return (
+            <span className="flex flex-col items-start gap-0.5">
+                <Badge variant="muted" title={reasons}>{t('stateNotScannedYet')}</Badge>
+                <span className="text-[0.625rem] text-muted-foreground">{reasons}</span>
+            </span>
+        )
+    }
     return (
         <span className="flex flex-col items-start gap-0.5">
             <Badge variant={badge === 'cannotScan' ? 'high' : 'moderate'} title={reasons}>

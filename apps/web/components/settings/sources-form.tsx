@@ -2,13 +2,14 @@
 
 import { useState, useTransition } from 'react'
 import { useTranslations } from 'next-intl'
-import { RefreshCw } from 'lucide-react'
-import { ECOSYSTEMS, sourceNormalizerVersion, type EcosystemId, type EcosystemLanguage, type SourceId, type SourceStatus } from '@sentinello/core'
+import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { sourceNormalizerVersion, type EcosystemId, type EcosystemLanguage, type SourceId, type SourceStatus } from '@sentinello/core'
 import { Button } from '@/components/ui/button'
 import { ScanAutoRefresh } from '@/components/scan-auto-refresh'
 import { Switch } from '@/components/ui/switch'
 import { formatRelativeTime } from '@/lib/format'
-import { refreshSourceAction, updateSourceCellAction } from '@/lib/actions/settings'
+import { isRefreshPending, type RefreshBaseline } from '@/lib/source-refresh'
+import { refreshSourceAction, turnOnSourceForEcosystemAction, updateSourceCellAction } from '@/lib/actions/settings'
 
 export type SourceCellVM = {
     source: SourceId
@@ -27,17 +28,14 @@ export type LanguageRowVM = {
     language: EcosystemLanguage
     displayName: string
     cells: SourceCellVM[]
+    // Detected projects in this language that no enabled source answers for. Above zero, the block offers
+    // to turn a source on.
+    projectsWithoutSource: number
 }
 
 type Props = {
     rows: LanguageRowVM[]
 }
-
-// Read off the registry rather than named in the copy, so promoting an ecosystem retires the note
-// on its own instead of leaving a sentence that still calls a shipped language "in development".
-const PREVIEW_ECOSYSTEMS = ECOSYSTEMS.filter(function preview(eco) {
-    return eco.status === 'preview'
-})
 
 // The controls only. What each source IS — what it adds, what it downloads, when it acts — lives in
 // SourceReferenceTable below this on the page: that copy is per-source, while these switches are
@@ -58,6 +56,7 @@ export function SourcesForm({ rows }: Props) {
                 return (
                     <div key={row.ecosystem} className="space-y-2">
                         <h3 className="text-sm font-semibold">{row.displayName}</h3>
+                        {row.projectsWithoutSource > 0 ? <TurnOnSource row={row} /> : null}
                         <div className="divide-y rounded-(--radius-card) border bg-card px-5">
                             {row.cells.map(function cell(c) {
                                 return <SourceCell key={c.source + ':' + c.ecosystem} cell={c} label={c.displayName} />
@@ -66,17 +65,51 @@ export function SourcesForm({ rows }: Props) {
                     </div>
                 )
             })}
-            {PREVIEW_ECOSYSTEMS.length > 0 ? (
-                <p className="text-xs text-muted-foreground">
-                    {t('sources.previewNote', { names: PREVIEW_ECOSYSTEMS.map(ecosystemName).join(', ') })}
-                </p>
-            ) : null}
         </div>
     )
 }
 
-function ecosystemName(eco: { displayName: string }): string {
-    return eco.displayName
+// "No source enabled for Python", with one button per source that could answer for it: "Turn on OSV for
+// Python". A click enables that cell, has the worker download its advisories, and queues a re-scan
+// (turnOnSourceForEcosystemAction), so the projects behind the count are scanned without a second step.
+// Once the page re-renders with the cell on, no project lacks a source and this notice is gone.
+function TurnOnSource({ row }: { row: LanguageRowVM }) {
+    const t = useTranslations('Settings')
+    const [pending, startTransition] = useTransition()
+    const [error, setError] = useState<string | null>(null)
+    const offered = row.cells.filter(function off(c) { return !c.enabled })
+
+    function turnOn(cell: SourceCellVM) {
+        setError(null)
+        startTransition(async function persist() {
+            const result = await turnOnSourceForEcosystemAction({ source: cell.source, ecosystem: cell.ecosystem })
+            if (!result.ok) setError(result.errorText)
+        })
+    }
+
+    return (
+        <div data-testid={'turn-on-source-' + row.ecosystem} className="space-y-2 rounded-(--radius-card) border border-amber-500/30 bg-amber-500/5 p-4">
+            <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                <p className="text-sm font-medium">{t('sources.turnOnTitle', { language: row.displayName })}</p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+                {t('sources.turnOnBody', { count: row.projectsWithoutSource, language: row.displayName })}
+            </p>
+            <div className="flex flex-wrap gap-2">
+                {offered.map(function button(c) {
+                    return (
+                        <Button key={c.source} type="button" size="sm" disabled={pending} onClick={function click() { turnOn(c) }}>
+                            {t('sources.turnOn', { source: c.displayName, language: row.displayName })}
+                        </Button>
+                    )
+                })}
+            </div>
+            {error ? (
+                <p role="alert" className="text-xs text-[color:var(--color-sev-high)]">{error}</p>
+            ) : null}
+        </div>
+    )
 }
 
 type SourceCellProps = {
@@ -102,13 +135,22 @@ function SourceCell({ cell, label }: SourceCellProps) {
     const tc = useTranslations('Common')
     const tt = useTranslations('Time')
     const [enabled, setEnabled] = useState(cell.enabled)
+    // The persisted flag this cell last rendered with. A cell switched on from outside the switch — the
+    // "Turn on OSV for Python" action above — arrives as a new prop, and the switch has to follow it rather
+    // than keep the state it was mounted with. Adjusted during render, React's pattern for state derived
+    // from a prop; the switch's own optimistic flip lands on the same value, so it is left untouched.
+    const [persisted, setPersisted] = useState(cell.enabled)
+    if (persisted !== cell.enabled) {
+        setPersisted(cell.enabled)
+        setEnabled(cell.enabled)
+    }
     const [saved, setSaved] = useState(false)
     const [pending, startTransition] = useTransition()
     const [refreshing, startRefresh] = useTransition()
     // What this cell's status looked like when a refresh was asked for. The worker exposes no
     // "syncing" state — only the SourceStatus snapshot it writes when a sync ENDS — so "still
     // running" is derived by comparing against this baseline rather than stored anywhere.
-    const [refreshBaseline, setRefreshBaseline] = useState<{ refreshedAt: number | null; lastError: string | null } | null>(null)
+    const [refreshBaseline, setRefreshBaseline] = useState<RefreshBaseline | null>(null)
     const [error, setError] = useState<string | null>(null)
     const status = cell.status
 
@@ -152,7 +194,7 @@ function SourceCell({ cell, label }: SourceCellProps) {
     // running" — `undefined !== null` is true and would pin the row to "Rebuilding…" forever.
     const usable = status !== null
         && status.seedComplete
-        && (status.normalizerVersion ?? null) === sourceNormalizerVersion(cell.source)
+        && (status.normalizerVersion ?? null) === sourceNormalizerVersion(cell.source, cell.ecosystem)
     // Non-zero only once a sync has actually landed rows, so a first-ever download shows no count rather
     // than "0 advisories cached". recordCount is NOT recomputed during a rebuild, so this is the
     // pre-rebuild figure — which is the one worth showing.
@@ -162,19 +204,10 @@ function SourceCell({ cell, label }: SourceCellProps) {
     const failing = status !== null && status.lastError !== null
     // Derived during render, not tracked in an effect: `status` is a server prop, so once the worker
     // writes a newer snapshot (or a new error) the very next render flips this false and leaves it
-    // false. This used to be a useState nothing ever reset, so the label sat there until you navigated
-    // away — claiming a refresh was still running hours after it finished.
-    //
-    // Known limitation, accepted: the baseline is client memory, so reloading the page drops the label
-    // while the sync is genuinely still running. Fixing that properly means a syncStartedAt field on
-    // SourceStatus, stamped by the worker.
-    // The baseline now covers only the <=5s between clicking Refresh and the worker claiming the
+    // false. The baseline covers only the <=5s between clicking Refresh and the worker claiming the
     // refresh-* signal, before anything has stamped syncStartedAt. After that `syncing` is the truth,
     // and it survives a reload where the baseline never did.
-    const refreshPending = syncing
-        || (refreshBaseline !== null
-            && (status?.refreshedAt ?? null) === refreshBaseline.refreshedAt
-            && (status?.lastError ?? null) === refreshBaseline.lastError)
+    const refreshPending = isRefreshPending(status, refreshBaseline)
 
     return (
         <div className="py-3">

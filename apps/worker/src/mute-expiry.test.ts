@@ -7,6 +7,7 @@ import {
     insertMute,
     listActiveMutes,
     listExpiredMutes,
+    muteWriteOf,
     openDb,
     runMigrations,
     upsertProject,
@@ -14,7 +15,7 @@ import {
     type DrizzleDb,
     type SqliteDb
 } from '@sentinello/db'
-import type { Mute } from '@sentinello/core'
+import type { Mute, MuteWrite } from '@sentinello/core'
 import { createWorkerRuntime } from './runtime'
 
 // The cron double records every schedule() call so the sweep's tick can be fired by hand — a real
@@ -59,8 +60,9 @@ let db: DrizzleDb
 let sqlite: SqliteDb
 let dir: string
 
-function mute(overrides: Partial<Mute> = {}): Mute {
-    return {
+// A stored mute's shape, as the expiry sweep reads it back and hands it to the writers.
+function mute(overrides: Partial<Mute> = {}): MuteWrite {
+    return muteWriteOf({
         id: 'mute-1',
         scope: 'finding',
         projectId: PROJECT_ID,
@@ -73,7 +75,7 @@ function mute(overrides: Partial<Mute> = {}): Mute {
         createdAt: T0,
         expiresAt: null,
         ...overrides
-    } as Mute
+    })
 }
 
 beforeEach(async function setup() {
@@ -94,6 +96,7 @@ beforeEach(async function setup() {
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems: ['npm'],
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,

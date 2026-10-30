@@ -70,7 +70,9 @@ describe('exported tables', function () {
             'workerSignals',
             'notificationEvents',
             'muteLifts',
-            'notificationDeliveries'
+            'notificationDeliveries',
+            'capabilityBaselines',
+            'capabilitySummaryDeliveries'
         ])
     })
 
@@ -124,9 +126,9 @@ describe('foreign keys', function () {
         expect(referencesOf(table as SQLiteTable)).toEqual([])
     })
 
-    // The only non-default FK action in the schema, and it encodes a deliberate retention decision:
+    // One of the two non-default FK actions in the schema, and it encodes a deliberate retention decision:
     // deleting a notification target must not delete the audit trail of what was already sent to it.
-    // Every other FK relies on the default NO ACTION, which with foreign_keys=ON BLOCKS a parent
+    // Every other FK but the baseline ledger's relies on the default NO ACTION, which with foreign_keys=ON BLOCKS a parent
     // delete — that is what forces deleteNotificationTarget to clear its scope rows child-first.
     it('sets null on notification_deliveries.target_id so audit rows survive a target delete', function () {
         const fks = getTableConfig(schema.notificationDeliveries).foreignKeys
@@ -137,11 +139,23 @@ describe('foreign keys', function () {
         expect(byColumn.get('event_id')).toBeUndefined()
     })
 
+    // The other one: a baseline summary owed to a target that no longer exists is owed to nobody, so its
+    // ledger row goes with the target instead of being retried forever.
+    it('cascades capability_summary_deliveries.target_id so a deleted target leaves no retry', function () {
+        const fks = getTableConfig(schema.capabilitySummaryDeliveries).foreignKeys
+        const byColumn = new Map(fks.map(function pair(fk) {
+            return [fk.reference().columns[0]?.name, fk.onDelete]
+        }))
+        expect(byColumn.get('target_id')).toBe('cascade')
+        expect(byColumn.get('capability_id')).toBeUndefined()
+    })
+
     it('leaves every other foreign key on the default action', function () {
         for (const [, table] of TABLES) {
             for (const fk of getTableConfig(table).foreignKeys) {
                 const column = fk.reference().columns[0]?.name
                 if (getTableConfig(table).name === 'notification_deliveries' && column === 'target_id') continue
+                if (getTableConfig(table).name === 'capability_summary_deliveries' && column === 'target_id') continue
                 expect(fk.onDelete).toBeUndefined()
                 expect(fk.onUpdate).toBeUndefined()
             }
@@ -256,9 +270,9 @@ describe('column defaults that keep pre-migration rows readable', function () {
     // Each of these defaults exists so rows written before a column arrived stay usable rather than
     // reading as null. Removing one is silent until an old row is read.
     it.each([
-        ['scans.ecosystem', schema.scans, 'ecosystem', 'npm'],
-        ['findings.ecosystem', schema.findings, 'ecosystem', 'npm'],
         ['findings.dep_path_json', schema.findings, 'depPathJson', '[]'],
+        ['findings.installations_json', schema.findings, 'installationsJson', '[]'],
+        ['projects.manifests_json', schema.projects, 'manifestsJson', '[]'],
         ['projects.tags_json', schema.projects, 'tagsJson', '[]'],
         ['projects.ecosystems_json', schema.projects, 'ecosystemsJson', '[]'],
         ['notification_targets.env_filter', schema.notificationTargets, 'envFilter', 'all'],
@@ -269,13 +283,28 @@ describe('column defaults that keep pre-migration rows readable', function () {
         expect(column?.default).toBe(expected)
     })
 
-    // findings.ecosystem is NOT NULL with a default, which is why the `?? 'npm'` fallbacks and the
-    // SQL COALESCE(f.ecosystem, 'npm') elsewhere in the package are unreachable defensive code.
-    // `source` is the one that is genuinely nullable, for the pre-backfill window.
-    it('makes findings.ecosystem not-null but leaves source nullable', function () {
-        const columns = new Map(getTableConfig(schema.findings).columns.map(function pair(c) { return [c.name, c] }))
+    // scans.ecosystem and findings.ecosystem are NOT NULL with NO default since 3.8: every writer names
+    // the ecosystem, and a default would let a missing one read as npm. `source` is the one that is
+    // genuinely nullable, for the pre-backfill window.
+    it.each([
+        ['scans', schema.scans],
+        ['findings', schema.findings]
+    ])('makes %s.ecosystem not-null with no default but leaves source nullable', function (_label, table) {
+        const columns = new Map(getTableConfig(table as SQLiteTable).columns.map(function pair(c) { return [c.name, c] }))
         expect(columns.get('ecosystem')?.notNull).toBe(true)
+        expect(columns.get('ecosystem')?.default).toBeUndefined()
         expect(columns.get('source')?.notNull).toBe(false)
+    })
+
+    // NULL means something on these: a project mute, its lift and a scan-failure event have no ecosystem
+    // (SENTINEL-121). The writer types require one for a finding identity instead.
+    it.each([
+        ['mutes', schema.mutes],
+        ['mute_lifts', schema.muteLifts],
+        ['notification_events', schema.notificationEvents]
+    ])('keeps %s.ecosystem nullable', function (_label, table) {
+        const column = getTableConfig(table as SQLiteTable).columns.find(function find(c) { return c.name === 'ecosystem' })
+        expect(column?.notNull).toBe(false)
     })
 })
 

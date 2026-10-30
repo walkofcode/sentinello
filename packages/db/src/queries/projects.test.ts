@@ -64,6 +64,7 @@ function project(overrides: Partial<Project> = {}): Project {
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems: ['npm'],
+        manifests: [{ path: 'package-lock.json', ecosystem: 'npm', kind: 'package-lock.json' }],
         muted: false,
         tags: [],
         createdAt: T0,
@@ -96,7 +97,8 @@ describe('upsertProject and reads', function () {
             rootId: ROOT_ID,
             relPath: 'app',
             tags: ['backend'],
-            ecosystems: ['npm', 'PyPI']
+            ecosystems: ['npm', 'PyPI'],
+            manifests: [{ path: 'package-lock.json', ecosystem: 'npm', kind: 'package-lock.json' }]
         })
     })
 
@@ -114,10 +116,6 @@ describe('upsertProject and reads', function () {
             id: 'mute-1',
             scope: 'project',
             projectId: PROJECT_ID,
-            scanner: null,
-            ecosystem: null,
-            advisoryId: null,
-            packageName: null,
             reason: 'retired service',
             author: 'betty',
             createdAt: T0,
@@ -132,10 +130,6 @@ describe('upsertProject and reads', function () {
             id: 'mute-1',
             scope: 'project',
             projectId: PROJECT_ID,
-            scanner: null,
-            ecosystem: null,
-            advisoryId: null,
-            packageName: null,
             reason: 'temporary',
             author: 'betty',
             createdAt: T0,
@@ -175,6 +169,10 @@ describe('upsertProject and reads', function () {
             nvmrcVersion: '24.14.0',
             gitBranch: 'feature',
             ecosystems: ['npm', 'Go'],
+            manifests: [
+                { path: 'pnpm-lock.yaml', ecosystem: 'npm', kind: 'pnpm-lock.yaml' },
+                { path: 'tools/go.mod', ecosystem: 'Go', kind: 'go.mod' }
+            ],
             tags: ['api'],
             updatedAt: T0 + HOUR
         }))
@@ -185,6 +183,10 @@ describe('upsertProject and reads', function () {
             nvmrcVersion: '24.14.0',
             gitBranch: 'feature',
             ecosystems: ['npm', 'Go'],
+            manifests: [
+                { path: 'pnpm-lock.yaml', ecosystem: 'npm', kind: 'pnpm-lock.yaml' },
+                { path: 'tools/go.mod', ecosystem: 'Go', kind: 'go.mod' }
+            ],
             tags: ['api'],
             updatedAt: T0 + HOUR
         })
@@ -282,6 +284,7 @@ describe('cascadeDeleteProjects', function () {
         mergeFindingsForScan(db, {
             projectId: id,
             scanner: 'osv',
+            ecosystem: 'npm',
             scanId,
             scanFinishedAt: T0,
             incoming: [{
@@ -294,6 +297,7 @@ describe('cascadeDeleteProjects', function () {
                 advisoryUrl: null,
                 packageName: 'lodash',
                 installedVersion: '4.17.11',
+                installations: [],
                 vulnerableRange: '<4.17.21',
                 severity: 'high',
                 fixAvailable: true,
@@ -304,6 +308,7 @@ describe('cascadeDeleteProjects', function () {
             }]
         })
         const eventId = upsertFindingEvent(db, {
+            baselineOf: null,
             projectId: id,
             source: 'osv',
             ecosystem: 'npm',
@@ -409,12 +414,12 @@ describe('cascadeDeleteProjects', function () {
     })
 })
 
-// tags_json and ecosystems_json are only ever written by upsertProject, which serialises a typed
+// tags_json, ecosystems_json and manifests_json are only ever written by upsertProject, which serialises a typed
 // array. These parsers therefore guard the hand-edited or shape-drifted row, and writing the column
 // directly is the only way to reach them. Both must degrade to an empty list rather than throwing:
 // a project row that cannot be read is a project that vanishes from the portal entirely.
 describe('defensive column parsing', function () {
-    function corrupt(patch: { tagsJson?: string; ecosystemsJson?: string }): Project | null {
+    function corrupt(patch: { tagsJson?: string; ecosystemsJson?: string; manifestsJson?: string }): Project | null {
         upsertProject(db, project({ tags: ['prod', 'team-a'], ecosystems: ['npm', 'PyPI'] }))
         db.update(projects).set(patch).where(eq(projects.id, PROJECT_ID)).run()
         return getProjectById(db, PROJECT_ID)
@@ -425,6 +430,7 @@ describe('defensive column parsing', function () {
         const seeded = corrupt({ tagsJson: JSON.stringify(['prod']) })
         expect(seeded?.tags).toEqual(['prod'])
         expect(seeded?.ecosystems).toEqual(['npm', 'PyPI'])
+        expect(seeded?.manifests).toHaveLength(1)
     })
 
     it.each(['{}', 'null', '42', '"prod"'])('reads the non-array tags_json %s as empty', function (json) {
@@ -447,5 +453,32 @@ describe('defensive column parsing', function () {
     // EcosystemId — it would render as a filter nothing can ever match.
     it('drops an ecosystem the registry no longer knows', function () {
         expect(corrupt({ ecosystemsJson: '["npm","cocoapods"]' })?.ecosystems).toEqual(['npm'])
+    })
+
+    it.each(['{}', 'null', '42'])('reads the non-array manifests_json %s as empty', function (json) {
+        expect(corrupt({ manifestsJson: json })?.manifests).toEqual([])
+    })
+
+    // A manifest the runner would be handed to resolve has to be whole: every field a string.
+    it('drops a manifest entry that is not an object or whose fields are not strings', function () {
+        const kept = { path: 'ios/Gemfile.lock', ecosystem: 'RubyGems', kind: 'Gemfile.lock' }
+        const json = JSON.stringify([
+            'Gemfile.lock',
+            null,
+            7,
+            { path: 1, ecosystem: 'RubyGems', kind: 'Gemfile.lock' },
+            { path: 'a/Gemfile.lock', ecosystem: null, kind: 'Gemfile.lock' },
+            { path: 'b/Gemfile.lock', ecosystem: 'RubyGems' },
+            kept
+        ])
+        expect(corrupt({ manifestsJson: json })?.manifests).toEqual([kept])
+    })
+
+    it('drops a manifest whose ecosystem the registry no longer knows', function () {
+        const json = JSON.stringify([
+            { path: 'Podfile.lock', ecosystem: 'cocoapods', kind: 'Podfile.lock' },
+            { path: 'go.mod', ecosystem: 'Go', kind: 'go.mod' }
+        ])
+        expect(corrupt({ manifestsJson: json })?.manifests).toEqual([{ path: 'go.mod', ecosystem: 'Go', kind: 'go.mod' }])
     })
 })

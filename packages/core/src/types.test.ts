@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SEVERITY_ORDER, compareSeverity, findingIdentity, maxSeverity, meetsSeverityFloor, severityWeight } from './types'
+import { SEVERITY_ORDER, compareSeverity, findingIdentity, installedThrough, manifestDirOf, maxSeverity, meetsSeverityFloor, parseFindingInstallations, severityWeight } from './types'
 import type { Severity } from './types'
 
 // There used to be four SEVERITY_RANK tables in this repo — one here, one in merge-findings.ts, and one
@@ -137,5 +137,44 @@ describe('findingIdentity', function () {
         } as Parameters<typeof findingIdentity>[0])
 
         expect(identity).not.toHaveProperty('severity')
+    })
+})
+
+// One installed copy behind a finding per entry; a corrupted column degrades entry by entry.
+describe('parseFindingInstallations', function () {
+    it('reads every well-formed installation', function () {
+        expect(parseFindingInstallations('[{"manifestPath":"ios/Gemfile.lock","version":"2.0.8"},{"manifestPath":"android/Gemfile.lock","version":"2.2.3"}]'))
+            .toEqual([{ manifestPath: 'ios/Gemfile.lock', version: '2.0.8' }, { manifestPath: 'android/Gemfile.lock', version: '2.2.3' }])
+    })
+
+    it.each([['not json'], ['{}'], ['null']])('reads %s as none', function (json) {
+        expect(parseFindingInstallations(json)).toEqual([])
+    })
+
+    it('skips entries that are not objects or miss a field', function () {
+        expect(parseFindingInstallations('[null, 3, {"manifestPath":""}, {"manifestPath":"a","version":""}, {"version":"1"}, {"manifestPath":"Gemfile.lock","version":"1.0.0"}]'))
+            .toEqual([{ manifestPath: 'Gemfile.lock', version: '1.0.0' }])
+    })
+})
+
+// A copy belongs to its manifest's directory: the manifest that directory holds now, whatever its kind, is the
+// one it was installed through (SENTINEL-138).
+describe('installedThrough', function () {
+    it.each([
+        ['the same file', 'ios/Gemfile.lock', ['ios/Gemfile.lock'], true],
+        ['the bare manifest a removed lockfile left', 'ios/Gemfile.lock', ['android/Gemfile.lock', 'ios/Gemfile'], true],
+        ['another lock kind in the directory', 'svc/poetry.lock', ['svc/uv.lock'], true],
+        ['the project\'s own directory', 'Gemfile.lock', ['Gemfile'], true],
+        ['a directory with no manifest left', 'ios/Gemfile.lock', ['android/Gemfile.lock'], false],
+        ['a parent directory only', 'native/ios/Gemfile.lock', ['native/Gemfile'], false],
+        ['a nested directory only', 'Gemfile.lock', ['ios/Gemfile'], false],
+        ['no manifest at all', 'Gemfile.lock', [], false]
+    ])('%s', function (_label, manifestPath, manifests, expected) {
+        expect(installedThrough({ manifestPath, version: '1.0.0' }, manifests)).toBe(expected)
+    })
+
+    it('names the directory of a manifest path', function () {
+        expect(manifestDirOf('native/ios/Gemfile.lock')).toBe('native/ios')
+        expect(manifestDirOf('uv.lock')).toBe('')
     })
 })

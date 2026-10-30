@@ -150,7 +150,7 @@
         "colBranch": "ブランチ",
         "colRoot": "ルート",
         "colPm": "PM",
-        "colNode": "Node",
+        "colRuntime": "ランタイム",
         "colSeverity": "深刻度",
         "colState": "状態",
         "colActions": "操作",
@@ -166,7 +166,10 @@
         "statePartial": "完全にはスキャンできません",
         "stateNotScannedYet": "未スキャン",
         "stateSideProject": "プロジェクト側",
-        "stateSideEnvironment": "この Sentinello 環境側"
+        "stateSideEnvironment": "この Sentinello 環境側",
+        "stateSourceDisabled": "{languages} に有効なソースがありません",
+        "sourceDisabledNotice": "{count} 件のプロジェクトで {languages} に有効なソースがないため、スキャンされていません。",
+        "sourceDisabledAction": "設定 → ソースで有効にしてください"
     },
     "WhatsNew": {
         "pillLabel": "新着情報",
@@ -226,7 +229,7 @@
         "schedule": {
             "metaTitle": "スケジュール · 設定",
             "scanEvery": "スキャン間隔",
-            "cadenceHelp": "ワーカーは設定された各ルートを探索し、検出したすべてのプロジェクトに対してこの間隔で npm audit を実行します。",
+            "cadenceHelp": "ワーカーはこの間隔で設定された各ルートを探索し、検出したすべてのプロジェクトを有効なソースと照合します。",
             "saveButton": "スケジュールを保存",
             "startHour": "開始時刻",
             "startHourHelp": "1 時間より長い間隔の場合、スキャンを開始する時刻を固定します（ワーカーのローカル時刻）。",
@@ -301,7 +304,7 @@
         "sources": {
             "metaTitle": "ソース · 設定",
             "title": "脆弱性ソース",
-            "description": "Sentinello はプロジェクトの Node.js 依存関係を以下のソースと照合します。少なくとも 1 つは有効のままにしておく必要があります。",
+            "description": "Sentinello は、対応するすべての言語の依存関係を以下のソースと照合します。少なくとも 1 つは有効のままにしておく必要があります。",
             "enabled": "有効",
             "disabled": "無効",
             "seeded": "最新",
@@ -313,7 +316,9 @@
             "lastError": "最後のエラー",
             "refreshNow": "今すぐ更新",
             "refreshQueued": "更新を要求しました — バックグラウンドで実行されます。",
-            "previewNote": "開発中のため、まだ提供していません: {names}。",
+            "turnOnTitle": "{language} に有効なソースがありません",
+            "turnOnBody": "{count} 件のプロジェクトが {language} を使用していますが、スキャンするソースがありません。ソースを有効にすると、そのアドバイザリをダウンロードしてすべてのプロジェクトを再スキャンします。",
+            "turnOn": "{language} の {source} を有効にする",
             "aboutTitle": "これらのソースについて",
             "colSource": "ソース",
             "colAdds": "追加されるもの",
@@ -322,10 +327,10 @@
             "npmAuditAdds": "GitHub Advisory Database。プロジェクト自身のパッケージマネージャー経由で取得します。",
             "npmAuditDownloads": "なし。スキャン中に registry.npmjs.org へ問い合わせます。",
             "npmAuditRuns": "スキャンのたびに実行します。",
-            "osvAdds": "npm audit が見落とす CVE に加え、既知の悪意あるパッケージを、実際に侵害されたバージョンと正確に対応付けます。",
+            "osvAdds": "すべての言語のアドバイザリ（Node.js では npm audit が見落とす CVE）に加え、既知の悪意あるパッケージを、実際に侵害されたバージョンと正確に対応付けます。",
             "osvDownloads": "osv-vulnerabilities.storage.googleapis.com から約 {mb} MB。空き容量が {freeMb} MB 必要です。再構築可能で、検出結果とは別に保存されます。",
             "osvRuns": "毎日 03:17 頃、および更新するたびに実行します。照合自体はオフラインで行われます。",
-            "gemnasiumAdds": "npm audit や OSV に加えて独立して整理されたアドバイザリ。深刻度は CVSS ベクターから算出します。",
+            "gemnasiumAdds": "OSV（Node.js では npm audit も）に加えて、すべての言語について独立して整理されたアドバイザリ。深刻度は CVSS ベクターから算出します。",
             "gemnasiumDownloads": "gitlab.com から約 {mb} MB。空き容量が {freeMb} MB 必要です。再構築可能で、検出結果とは別に保存されます。",
             "gemnasiumRuns": "毎日 03:42 頃、および更新するたびに実行します。照合自体はオフラインで行われます。"
         },
@@ -488,6 +493,7 @@
             "verdictBlocked": "{escape} {version} 以上で {target} は外れますが、公開済みの {blockedBy} はどれもそれを許容しません（最新 {latest} の要求は {range}）",
             "verdictNoEscape": "{packages} のどの公開版も {target} を外しません",
             "verdictUnknown": "不明 — {at} でレジストリの情報が不足しています",
+            "verdictNpmOnly": "不明 — 解決策は npm のみで算出されます。このエコシステムのツールで親パッケージの更新を確認してください",
             "verdictDirect": "{target} は直接依存です — 置き換える以外に方法はありません",
             "morePaths": "ほか {count, plural, other {#件のパス}}",
             "morePathsAtLeast": "ほか少なくとも {count, plural, other {#件のパス}}",
@@ -527,6 +533,10 @@
         },
         "notRecheckedCannotScan": "再確認されていません — プロジェクトをスキャンできません: {reason}",
         "notRecheckedPartial": "再確認されていません — プロジェクトを完全にはスキャンできません: {reason}",
+        "notRecheckedCopies": "{manifests} のコピーは再確認されていません — プロジェクトを完全にはスキャンできません: {reason}",
+        "chainUnknown": "チェーン不明",
+        "chainUnknownHint": "ロックファイルに依存関係グラフがないため、このパッケージを取り込んでいるものは不明です。解決策がないという意味ではありません。",
+        "installedThrough": "{manifests} 内",
         "lastScannedSuccessfully": "最後に成功したスキャン {date}",
         "neverScannedSuccessfully": "一度もスキャンに成功していません"
     },
@@ -615,11 +625,11 @@
         "title": "Sentinello",
         "intro": "ポートフォリオ全体の依存関係の脆弱性を一元的に監視します — 自前のインフラ上でセルフホストできます。",
         "notDoTitle": "Sentinello が行わないこと",
-        "notDoBody": "Sentinello は完全にお客様のインフラ上で動作します。ソースコードを読み取ることはなく、依存関係のマニフェストとロックファイル（<code>package.json</code>、<code>package-lock.json</code>、<code>pnpm-lock.yaml</code>、<code>yarn.lock</code>）を見つけることでプロジェクトを検出します。どこにも何もアップロードされず、テレメトリがマシンから送信されることもなく、中央アカウントも存在せず、LLM や AI も一切関与しません。デフォルトでは純粋な <code>npm audit</code> です。オプションの OSV および gemnasium ソース（設定 → ソース、デフォルトはオフ）は、HTTPS 経由で公開アドバイザリデータを取得するだけです。",
+        "notDoBody": "Sentinello は完全にお客様のインフラ上で動作します。アプリケーションのコードを読み取ることは決してなく、対応する各エコシステムの依存関係マニフェストとロックファイル（Node.js は <code>package.json</code> とそのロックファイル、Python は <code>requirements.txt</code>、<code>pyproject.toml</code>、<code>Pipfile</code> とそのロックファイル、Go は <code>go.mod</code>、Rust は <code>Cargo.toml</code> と <code>Cargo.lock</code>、Ruby は <code>Gemfile</code> と <code>Gemfile.lock</code>）を見つけることでプロジェクトを検出します。読み取った内容がマシンの外に出ることはなく、テレメトリも送信されず、中央アカウントも存在せず、LLM や AI も一切関与しません。デフォルトでは Node.js に対する純粋な <code>npm audit</code> です。オプションの OSV および gemnasium ソース（設定 → ソース、デフォルトはオフ）は、HTTPS 経由で公開アドバイザリデータを取得するだけです。",
         "whoTitle": "開発者",
         "whoBody": "<company>Walk of Code LLC</company> および Sebastian Arena（<linkedin>LinkedIn</linkedin>）によって開発されました。",
         "advisoryTitle": "アドバイザリデータの出所",
-        "advisoryBody": "脆弱性データは GitHub Advisory Database に由来し、<code>npm audit</code> を介して npm レジストリのアドバイザリエンドポイント経由で取得されます。さらに OSV と GitLab の gemnasium を有効にして（設定 → ソース）、お使いの Node.js パッケージをこれらの公開アドバイザリデータベースと照合できます。これにより npm audit が見落とすアドバイザリを検出し、既知の悪意あるパッケージを警告します。どちらもロックファイルから依存関係をオフラインで解決し、ローカルにキャッシュしたアドバイザリのコピーと照合するため、スキャン時にプロジェクトごとのリクエストがマシンから送信されることはありません。あいまいなマニフェストは正常として扱うのではなく、部分的または監査不可として報告されます。アドバイザリの対象を判断するために Sentinello が読むのは、gemnasium 自身の機械可読なバージョン範囲と、そのレコードが記載する修正版だけです。npm の範囲は npm 自身の semver 実装で解釈され、読み取れない上限によって有効な区間が黙って無効になることはありません。範囲がどのバージョンも選ばないレコード、または Sentinello が実装していない構文で書かれたレコードは、推測せずに破棄され、不足を補うために他のソースが参照されることはありません。Python、Go、Rust は実装済みですが提供していません。修正版の導出と OSV の PyPI 名照合がまだ正しくなく、誤った理由で「脆弱性なし」と答えるソースは、そもそも提供しないソースより有害だからです。",
+        "advisoryBody": "Sentinello は Node.js、Python、Go、Rust、Ruby に対応しています。Node.js の脆弱性データはデフォルトで GitHub Advisory Database に由来し、<code>npm audit</code> を介して npm レジストリのアドバイザリエンドポイント経由で取得されます。OSV と GitLab の gemnasium（設定 → ソース）は 5 つすべてに対応しています。Node.js では npm audit が見落とすアドバイザリを補い、既知の悪意あるパッケージを警告します。Python、Go、Rust、Ruby ではこの 2 つが唯一のソースです。どちらもデフォルトはオフのため、これら 4 言語のプロジェクトは、ソースを 1 つ有効にするまで「… に有効なソースがありません」と表示されます。どちらもロックファイルから依存関係をオフラインで解決し、ローカルにキャッシュしたアドバイザリのコピーと照合するため、スキャン時にプロジェクトごとのリクエストがマシンから送信されることはありません。あいまいなマニフェストやロックファイルのないマニフェストは、正常として扱うのではなく、部分的または監査不可として報告されます。アドバイザリの対象を判断するために Sentinello が読むのは、gemnasium 自身の機械可読なバージョン範囲と、そのレコードが記載する修正版だけです。各エコシステムのバージョンはそれぞれのルールで比較されます。npm は npm 自身の semver 実装、crates.io は semver、Python は PEP 440、Go はモジュールバージョン、RubyGems は独自のバージョン順序です。OSV のイベント範囲で読み取れない上限は無視されるため、それによって本来有効な区間が黙って無効になることはありません。範囲がどのバージョンも選ばないレコード、または Sentinello が実装していない構文で書かれたレコードは、推測せずに破棄され、不足を補うために他のソースが参照されることはありません。修正版は各エコシステム自身のレジストリで確認されます。",
         "sendsTitle": "Sentinello が送信するもの",
         "tableDestination": "送信先",
         "tablePurpose": "目的",
@@ -642,7 +652,7 @@
                 "disable": "無効化できません。SENTINELLO_NPM_DOWNLOADS_URL で別の宛先を指定できます。到達できない場合は最後に取得した数を表示し、それもなければ不明と表示します"
             },
             "osv": {
-                "purpose": "npm エコシステムの公開 OSV アドバイザリエクスポートをダウンロード",
+                "purpose": "OSV が有効な各エコシステム（npm、PyPI、Go、crates.io、RubyGems）の公開 OSV アドバイザリエクスポートをダウンロード",
                 "when": "毎日 03:17 頃、加えて手動更新 — OSV が有効な場合のみ",
                 "disable": "設定 → ソース（デフォルトはオフ）、または SENTINELLO_OSV_FEED_URL=off"
             },
@@ -665,6 +675,26 @@
                 "purpose": "アラートを設定した検出結果を送信します — プロジェクト名、git ブランチ、パッケージとバージョン、深刻度、アドバイザリ ID、このポータルへのリンク",
                 "when": "スキャンで新規の検出、解決済みの検出、またはスキャン失敗が発生したとき",
                 "disable": "設定 → 通知 — 追加するまで通知先は存在しません"
+            },
+            "pypi": {
+                "purpose": "検出のある Python パッケージの修正版が実際に公開され、取り下げ（yank）されていないことを確認",
+                "when": "各スキャンの後、Python の検出のみについて、過去24時間に成功した答えがないパッケージについて。失敗したリクエストは保存されないため、それより早く再試行されることがあります",
+                "disable": "Python に有効なソースがある間だけ実行されます（設定 → ソース）。SENTINELLO_PYPI_URL でミラーを指定できます。到達できない場合は以前の答えを取得日付きで再利用し、それもなければ修正版は「レジストリで未確認」と表示されます"
+            },
+            "goproxy": {
+                "purpose": "検出のある Go モジュールの修正版が実際に公開されていることを確認。モジュールのバージョン一覧と、アドバイザリが挙げるバージョンが一覧にない場合はそのバージョン自体を確認します",
+                "when": "各スキャンの後、Go の検出のみについて、過去24時間に成功した答えがないモジュールについて。失敗したリクエストは保存されないため、それより早く再試行されることがあります",
+                "disable": "Go に有効なソースがある間だけ実行されます（設定 → ソース）。SENTINELLO_GOPROXY_URL で別のモジュールプロキシを指定できます。到達できない場合は以前の答えを取得日付きで再利用し、それもなければ修正版は「レジストリで未確認」と表示されます"
+            },
+            "crates": {
+                "purpose": "検出のある Rust クレートの修正版が実際に公開され、取り下げ（yank）されていないことを、スパースインデックスのクレートファイルで確認",
+                "when": "各スキャンの後、Rust の検出のみについて、過去24時間に成功した答えがないクレートについて。失敗したリクエストは保存されないため、それより早く再試行されることがあります",
+                "disable": "Rust に有効なソースがある間だけ実行されます（設定 → ソース）。SENTINELLO_CRATES_INDEX_URL でミラーを指定できます。到達できない場合は以前の答えを取得日付きで再利用し、それもなければ修正版は「レジストリで未確認」と表示されます"
+            },
+            "rubygems": {
+                "purpose": "検出のある Ruby gem の修正版が実際に公開され、取り下げ（yank）されていないことを確認",
+                "when": "各スキャンの後、Ruby の検出のみについて、過去24時間に成功した答えがない gem について。失敗したリクエストは保存されないため、それより早く再試行されることがあります",
+                "disable": "Ruby に有効なソースがある間だけ実行されます（設定 → ソース）。SENTINELLO_RUBYGEMS_URL でミラーを指定できます。到達できない場合は以前の答えを取得日付きで再利用し、それもなければ修正版は「レジストリで未確認」と表示されます"
             }
         },
         "dataLivesTitle": "データの保存場所",
@@ -688,7 +718,11 @@
             "gemnasiumFeedUrl": "GitLab gemnasium アドバイザリアーカイブの URL。gemnasium ソースが有効な場合にのみ使用されます。off に設定すると gemnasium のネットワークアクセスをすべて無効にします。",
             "gemnasiumDbPath": "再構築可能な gemnasium アドバイザリキャッシュの保存場所。デフォルトではメインデータベースの隣に配置されます。",
             "npmRegistryUrl": "各スキャン後に修正版を確認し、回避策のためのパッケージメタデータを取得する npm レジストリ。ミラーを使う場合はそちらを指定します。到達できない場合、以前に取得したパッケージメタデータがまだ使えるならそれを再利用し、現在の検出結果をそれで評価して取得日を示します。使えるメタデータがなければ、修正版はレジストリで未確認と表示されます。",
-            "npmDownloadsUrl": "回避策に表示する週間ダウンロード数を取得する npm のダウンロード数 API。到達できない場合は最後に取得した数を表示し、それもなければ不明と表示します。"
+            "npmDownloadsUrl": "回避策に表示する週間ダウンロード数を取得する npm のダウンロード数 API。到達できない場合は最後に取得した数を表示し、それもなければ不明と表示します。",
+            "pypiUrl": "各スキャン後に Python の検出の修正版を確認する PyPI。Python に有効なソースがある間だけ使われます。ミラーを使う場合はそちらを指定します。到達できない場合は以前の答えを取得日付きで再利用し、それもなければ修正版はレジストリで未確認と表示されます。",
+            "goproxyUrl": "各スキャン後に Go の検出の修正版を確認する Go モジュールプロキシ。Go に有効なソースがある間だけ使われます。別のプロキシを使う場合はそちらを指定します。到達できない場合は以前の答えを取得日付きで再利用し、それもなければ修正版はレジストリで未確認と表示されます。",
+            "cratesIndexUrl": "各スキャン後に Rust の検出の修正版を確認する crates.io のスパースインデックス。Rust に有効なソースがある間だけ使われます。ミラーを使う場合はそちらを指定します。到達できない場合は以前の答えを取得日付きで再利用し、それもなければ修正版はレジストリで未確認と表示されます。",
+            "rubygemsUrl": "各スキャン後に Ruby の検出の修正版を確認する RubyGems。Ruby に有効なソースがある間だけ使われます。ミラーを使う場合はそちらを指定します。到達できない場合は以前の答えを取得日付きで再利用し、それもなければ修正版はレジストリで未確認と表示されます。"
         },
         "builtWithTitle": "使用技術",
         "reportingTitle": "Sentinello の脆弱性を報告する",
@@ -742,6 +776,8 @@
             "scanReasonSideProject": "プロジェクト側の問題: プロジェクト内のファイルが読み取りを妨げており、そこを変更することが対処です",
             "scanReasonSideEnvironment": "この Sentinello 環境側の問題: 環境がスキャンを実行できず、運用者が対処します",
             "scanReasonNotYetRun": "まだ何も確認していません: 次回のスキャンで確認されます",
+            "sourceDisabledReason": "{languages} に有効なソースがありません",
+            "sourceDisabledAction": "設定 → ソースで有効にしてください",
             "noFindingsUnknownTitle": "記録された検出結果はありません",
             "noFindingsUnknownBody": "何も見つかりませんでしたが、このプロジェクトは完全にはスキャンできませんでした。安全ではなく不明です。",
             "noFindingsNotScannedBody": "このプロジェクトはまだスキャンされていません。"

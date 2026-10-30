@@ -14,7 +14,7 @@ const STEPS = [
 // Rows contrast `npm audit` with the CLI. Deliberately framed as "npm audit is one of the three sources"
 // rather than as a benchmark: the interesting claim is coverage, and a findings count from any one
 // repository would not generalise.
-const CONTRASTS = ['scope', 'sources', 'malware', 'output', 'matching']
+const CONTRASTS = ['scope', 'languages', 'sources', 'malware', 'output', 'matching']
 
 export function Cli() {
     const t = useTranslations('Cli')

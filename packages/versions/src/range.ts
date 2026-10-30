@@ -27,6 +27,28 @@ export type VersionRange = {
     // Inclusive upper bound with no known fix: vulnerable THROUGH this version. Null/absent for the common
     // `fixed` case.
     lastAffected?: string | null
+    // Set when this entry is NOT an interval but a part of the source's affected set the parser refused to
+    // read: a disjunct in a syntax no dialect here implements (`~=2.0`, `===1.0`), or a bound no comparator
+    // reads. It holds the source's own text, which is all there is to show.
+    //
+    // A refused part is kept rather than dropped because dropping it is not neutral. The surviving parts
+    // still match what they match, but a set missing a branch would tell the fix picker that a candidate
+    // inside the lost branch is safe — `<1.0 || ~=2.0` read as `<1.0` "proves" 2.0 clean. So a range with
+    // this set selects no version (versionInRange) and makes every set holding it incomplete
+    // (rangesReadable), which leaves settlement unknown. `introduced` carries the same text, so a reader that
+    // forgets to check this field still meets a bound it cannot read rather than a bottom-of-space `0`.
+    refused?: string
+}
+
+// A refused part of a source's affected set, in the one shape every reader recognises. See `refused`.
+export function refusedRange(text: string, type?: string): VersionRange {
+    const range: VersionRange = { introduced: text, fixed: null, lastAffected: null, refused: text }
+    if (type !== undefined) range.type = type
+    return range
+}
+
+export function isRefused(range: VersionRange): boolean {
+    return range.refused !== undefined
 }
 
 // "0", "0.0", "0.0.0" — the bottom of the version space, however upstream spelled it. Feeds write this as
@@ -51,6 +73,7 @@ export type FormatOptions = {
 // away that dropped it, which meant no `lastAffected` advisory ever got a fix version suggested. One
 // function is what stops that from happening again.
 export function formatRange(range: VersionRange, options: FormatOptions): string {
+    if (range.refused !== undefined) return range.refused
     const lo = range.introduced === '0' ? options.zero : range.introduced
     const lower = (range.introducedExclusive === true ? '>' : '>=') + lo
     if (range.fixed !== null && range.fixed !== undefined) return lower + ' <' + range.fixed

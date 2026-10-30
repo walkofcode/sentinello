@@ -55,6 +55,7 @@ function addProject(id: string, overrides: Record<string, unknown> = {}): void {
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems: ['npm'],
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,
@@ -74,6 +75,7 @@ function finding(overrides: Partial<IncomingFinding> = {}): IncomingFinding {
         advisoryUrl: null,
         packageName: 'lodash',
         installedVersion: '4.17.11',
+        installations: [],
         vulnerableRange: '<4.17.21',
         severity: 'high',
         fixAvailable: true,
@@ -112,6 +114,7 @@ function scanProject(
         mergeFindingsForScan(db, {
             projectId,
             scanner,
+            ecosystem: incoming[0]?.ecosystem ?? 'npm',
             scanId,
             scanFinishedAt: finishedAt,
             incoming: incoming.map(function scoped(f) { return { ...f, projectId, scanner, source: scanner } })
@@ -252,6 +255,7 @@ describe('getDashboardSummary', function () {
         expect(getDashboardSummary(db, T0 + HOUR).findingsLast24h).toBe(0)
 
         upsertFindingEvent(db, {
+            baselineOf: null,
             projectId: 'project-1',
             source: 'npm-audit',
             ecosystem: 'npm',
@@ -267,6 +271,7 @@ describe('getDashboardSummary', function () {
     it('drops an event out of the window once it ages past a day', function () {
         const scanId = scanProject('project-1', [finding()], { at: T0 })
         upsertFindingEvent(db, {
+            baselineOf: null,
             projectId: 'project-1',
             source: 'npm-audit',
             ecosystem: 'npm',
@@ -282,6 +287,7 @@ describe('getDashboardSummary', function () {
     it('excludes a muted discovery event', function () {
         const scanId = scanProject('project-1', [finding()], { at: T0 })
         upsertFindingEvent(db, {
+            baselineOf: null,
             projectId: 'project-1',
             source: 'npm-audit',
             ecosystem: 'npm',
@@ -332,6 +338,7 @@ describe('listProjectCatalog', function () {
         expect(row?.scanStates).toEqual([
             {
                 source: 'npm-audit',
+                ecosystem: 'npm',
                 finishedAt: T0 + 5 * HOUR,
                 status: 'error',
                 reasonCode: 'audit_spawn_error',

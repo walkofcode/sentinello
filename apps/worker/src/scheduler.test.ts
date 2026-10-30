@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONFIG_KEYS } from './config-loader'
-import { setConfigValue, upsertRoot } from '@sentinello/db'
+import { getBaselineState, insertScan, seedCapabilityBaselines, setConfigValue, upsertRoot } from '@sentinello/db'
+import { CAPABILITIES } from '@sentinello/core'
 import {
     PKG_JSON,
     T0,
+    seedProject,
     closeWorkerTestDb,
     makeTree,
     openWorkerTestDb,
@@ -50,7 +52,7 @@ vi.mock('node-cron', function mockNodeCron() {
 })
 
 const runBatch = vi.hoisted(function makeRunBatch() {
-    return vi.fn(async function runBatch(_input: unknown) { return [] as unknown[] })
+    return vi.fn(async function runBatch(_input: unknown) { return { outcomes: [] as unknown[], completed: true } })
 })
 
 vi.mock('./runner', function mockRunner() {
@@ -235,7 +237,7 @@ describe('sweepActiveProjects', function () {
         }
         runBatch.mockImplementationOnce(async function recordBatch() {
             order.push('batch')
-            return []
+            return { outcomes: [], completed: true }
         })
         await sweepActiveProjects({ ...input(), osvController })
         expect(order).toEqual(['refreshed', 'batch'])
@@ -323,7 +325,7 @@ describe('sweepActiveProjects', function () {
         try {
             runBatch.mockImplementationOnce(async function slow() {
                 vi.advanceTimersByTime(1500)
-                return []
+                return { outcomes: [], completed: true }
             })
             await sweepActiveProjects(input())
             expect(logLines().some(function match(l) {
@@ -332,5 +334,43 @@ describe('sweepActiveProjects', function () {
         } finally {
             vi.useRealTimers()
         }
+    })
+})
+
+// The silent baseline closes on the first COMPLETED sweep after the upgrade (SENTINEL-120); an aborted one
+// leaves it pending for the next. Resolution of runBatch is not proof: it says whether it completed.
+describe('sweepActiveProjects and the silent baseline', function () {
+    function pendingBaseline(db = handle.db): void {
+        insertScanFor(db)
+        seedCapabilityBaselines(db, CAPABILITIES, T0)
+    }
+
+    // A project under a root that is not mounted (so discovery keeps it), with a scan: what makes a database
+    // an upgraded install.
+    function insertScanFor(db: typeof handle.db): void {
+        upsertRoot(db, { id: 'old-root', path: '/not-mounted', label: null, createdAt: T0 })
+        seedProject(db, { id: 'old-project', rootId: 'old-root' })
+        insertScan(db, { id: 'old-scan', projectId: 'old-project', startedAt: T0, finishedAt: T0, scanner: 'npm-audit', source: 'npm-audit', ecosystem: 'npm', status: 'ok', reasonCode: 'ok', durationMs: 1, errorText: null, rawJson: '{}' })
+    }
+
+    it('claims a pending baseline when the sweep completed', async function () {
+        pendingBaseline()
+        await sweepActiveProjects(input())
+        expect(getBaselineState(handle.db, 'languages-3.8')).toBe('done')
+    })
+
+    it('leaves the baseline pending after an interrupted sweep', async function () {
+        pendingBaseline()
+        runBatch.mockResolvedValueOnce({ outcomes: [], completed: false })
+        await sweepActiveProjects(input())
+        expect(getBaselineState(handle.db, 'languages-3.8')).toBe('pending')
+    })
+
+    it('counts a sweep with no project to scan as completed', async function () {
+        const empty = await openWorkerTestDb('worker-scheduler-baseline-empty')
+        pendingBaseline(empty.db)
+        await sweepActiveProjects({ db: empty.db, sqlite: empty.sqlite, runtime })
+        expect(getBaselineState(empty.db, 'languages-3.8')).toBe('done')
+        await closeWorkerTestDb(empty)
     })
 })

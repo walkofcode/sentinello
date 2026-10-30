@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatRange, formatRanges, type VersionRange } from './index'
+import { formatRange, formatRanges, isRefused, refusedRange, type VersionRange } from './index'
 
 // Rendering a range back to text is where a rounded bound becomes visible to a human: the finding card and
 // the MCP/export output both show this string, and it is also what the fix picker re-parses to derive a fix
@@ -68,5 +68,20 @@ describe('formatRanges', function () {
 
     it('renders an empty list as an empty string', function () {
         expect(formatRanges([], DISPLAY)).toBe('')
+    })
+})
+
+describe('refused parts', function () {
+    // The source's own text is all there is to show for a part nobody could read.
+    it('render as the source wrote them', function () {
+        expect(formatRanges([range({ fixed: '1.0' }), refusedRange('~=2.0')], DISPLAY)).toBe('>=0 <1.0 || ~=2.0')
+    })
+
+    // The lower bound repeats the text, so a reader that forgets the flag meets an unreadable bound, never
+    // the bottom of the version space.
+    it('carry their text as the lower bound and their type when given', function () {
+        expect(refusedRange('>=garbage', 'ECOSYSTEM')).toEqual({ type: 'ECOSYSTEM', introduced: '>=garbage', fixed: null, lastAffected: null, refused: '>=garbage' })
+        expect(isRefused(refusedRange('~=2.0'))).toBe(true)
+        expect(isRefused(range({}))).toBe(false)
     })
 })

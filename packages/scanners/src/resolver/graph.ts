@@ -1,4 +1,4 @@
-import type { DepScope, NodeGraph, ResolvedGraph, ResolvedPackage } from './types'
+import type { DepScope, LockEdge, LockNode, LockRoot, NodeGraph, ResolvedGraph, ResolvedPackage } from './types'
 
 // Generic forward reachability over a string-keyed adjacency map: returns every node reachable from any
 // of `roots`, the roots themselves included. Used to mark which lockfile nodes are pulled in by prod vs
@@ -100,4 +100,88 @@ export function parseDepKey(key: string): { name: string; version: string } | nu
     const version = s.slice(atIdx + 1)
     if (!name || !version) return null
     return { name, version }
+}
+
+// A lockfile that carries its dependency graph (Cargo.lock, poetry.lock, uv.lock, Gemfile.lock), turned into
+// a ResolvedGraph whose scope and chains both come from that graph.
+//
+//   - Scope is REACHABILITY: a package is prod when a prod root reaches it, dev when a dev root does, both
+//     when both do. One no root reaches (a cycle, a root the manifest did not name) is prod, the resolver's
+//     fail-open posture: a finding in the wrong bucket beats a finding not shown.
+//   - `depPaths` is the shortest chain from any root to the package, each step written `name@version`, so a
+//     finding reads `rails@7.1.0 → actionpack@7.1.0 → rack@2.2.8` instead of the bare package it is about.
+//     The chain is found over node ids, which a resolver may qualify beyond name and version (a Cargo
+//     crate's id carries its source, so a git `x@1.0.0` and the crates.io one stay two nodes); the label is
+//     only how a step reads.
+//
+// `auditable` says which nodes become packages: a node from a source no advisory database covers (a git
+// checkout, a local path) still carries edges, so what it depends on is still reached, but it is never
+// matched as though it were the registry package of the same name.
+export type LockGraphInput = {
+    ecosystem: string
+    manifestPath: string
+    nodes: LockNode[]
+    edges: LockEdge[]
+    roots: LockRoot[]
+    auditable(nodeId: string): boolean
+}
+
+export function graphFromLock(input: LockGraphInput): ResolvedGraph {
+    const adjacency = new Map<string, string[]>()
+    for (const edge of input.edges) {
+        const children = adjacency.get(edge.from)
+        if (children) children.push(edge.to)
+        else adjacency.set(edge.from, [edge.to])
+    }
+    function rootsOf(kind: LockRoot['kind']): string[] {
+        return input.roots.filter(function ofKind(r) { return r.kind === kind }).map(function id(r) { return r.nodeId })
+    }
+    const prod = reachableFrom(rootsOf('prod'), adjacency)
+    const optional = reachableFrom(rootsOf('optional'), adjacency)
+    const dev = reachableFrom(rootsOf('dev'), adjacency)
+    const chains = shortestChains(input.roots.map(function id(r) { return r.nodeId }), adjacency)
+    const labels = new Map(input.nodes.map(function label(node) { return [node.id, node.name + '@' + node.version] as const }))
+    // Every chain step is a node: roots and edges only ever name the nodes a resolver handed in.
+    function chainOf(nodeId: string): string[] {
+        return (chains.get(nodeId) ?? [nodeId]).map(function step(id) { return labels.get(id) as string })
+    }
+    const packages: ResolvedPackage[] = []
+    for (const node of input.nodes) {
+        if (!input.auditable(node.id)) continue
+        const reached = prod.has(node.id) || optional.has(node.id) || dev.has(node.id)
+        packages.push({
+            ecosystem: input.ecosystem,
+            name: node.name,
+            version: node.version,
+            scope: {
+                isProd: prod.has(node.id) || optional.has(node.id) || !reached,
+                isDev: dev.has(node.id),
+                isOptional: optional.has(node.id) && !prod.has(node.id)
+            },
+            depPaths: chainOf(node.id),
+            manifestPath: input.manifestPath
+        })
+    }
+    return makeGraph(packages, { nodes: input.nodes, edges: input.edges, roots: input.roots })
+}
+
+// Breadth-first from every root at once, so each node's chain is a shortest one.
+function shortestChains(roots: string[], adjacency: Map<string, string[]>): Map<string, string[]> {
+    const chains = new Map<string, string[]>()
+    const queue: string[] = []
+    for (const root of roots) {
+        if (chains.has(root)) continue
+        chains.set(root, [root])
+        queue.push(root)
+    }
+    for (let head = 0; head < queue.length; head++) {
+        const node = queue[head] as string
+        const chain = chains.get(node) as string[]
+        for (const child of adjacency.get(node) ?? []) {
+            if (chains.has(child)) continue
+            chains.set(child, [...chain, child])
+            queue.push(child)
+        }
+    }
+    return chains
 }

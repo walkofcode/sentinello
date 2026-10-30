@@ -1,5 +1,4 @@
-import { errText } from '@sentinello/core'
-import { baseHeaders } from '../http'
+import { getRegistryBody, isRecord, jsonBody, REGISTRY_TIMEOUT_MS, registryBaseUrl } from './request'
 
 // The npm registry, read for one purpose: which versions of a package were actually published, so a fix
 // version is a fact rather than arithmetic on a range. Uses `fetch` and nothing else, like the rest of
@@ -19,14 +18,12 @@ export const DEFAULT_NPM_REGISTRY_URL = 'https://registry.npmjs.org'
 
 // The scan path pays this at most once per package per cache window; a registry slower than this is
 // treated as unreachable for the scan, which degrades the fix to "not checked", never fails the scan.
-export const NPM_REGISTRY_TIMEOUT_MS = 15_000
+export const NPM_REGISTRY_TIMEOUT_MS = REGISTRY_TIMEOUT_MS
 
 // Plumbing, not a setting: mirrors and the test stub point it elsewhere. There is deliberately no UI
 // switch for registry lookups (they are part of what makes a fix version true).
 export function npmRegistryUrl(): string {
-    const fromEnv = process.env.SENTINELLO_NPM_REGISTRY_URL
-    const raw = fromEnv && fromEnv.trim().length > 0 ? fromEnv.trim() : DEFAULT_NPM_REGISTRY_URL
-    return raw.replace(/\/+$/, '')
+    return registryBaseUrl('SENTINELLO_NPM_REGISTRY_URL', DEFAULT_NPM_REGISTRY_URL)
 }
 
 // A dependency edge set as one release declares it. Optional peers are listed by name, since npm installs
@@ -94,64 +91,12 @@ function encodeName(name: string): string {
     return encodeURIComponent(name).replace(/^%40/, '@')
 }
 
-type Failure = { status: 'not_found' } | { status: 'error'; reason: string }
-type JsonResult = { status: 'ok'; body: unknown; bytes: number } | Failure
-
-// One GET with the shared user-agent, a timeout and no retries: the scan path must not stall on a registry
-// outage, and a failure is never cached, so the next scan asks again.
-async function request(url: string, options: FetchNpmPackageOptions | undefined, headers: Record<string, string>): Promise<Response | { status: 'error'; reason: string }> {
-    const timeout = AbortSignal.timeout(options?.timeoutMs ?? NPM_REGISTRY_TIMEOUT_MS)
-    const signal = options?.abortSignal ? AbortSignal.any([options.abortSignal, timeout]) : timeout
-    try {
-        return await fetch(url, { headers: { ...baseHeaders(), Accept: 'application/json', ...headers }, signal })
-    } catch (err) {
-        return { status: 'error', reason: errorReason(err) }
-    }
-}
-
-// A 404 or another status is answered from the status line alone; its body is only released, never read —
-// reading it could stall or fail after the headers (a proxy that sends a 503 and hangs) and would throw
-// past every fallback.
-async function readJson(response: Response, what: string): Promise<JsonResult> {
-    if (response.status !== 200) {
-        await discardBody(response)
-        return response.status === 404 ? { status: 'not_found' } : { status: 'error', reason: 'HTTP ' + response.status }
-    }
-    try {
-        const body = new Uint8Array(await response.arrayBuffer())
-        return { status: 'ok', body: JSON.parse(new TextDecoder().decode(body)), bytes: body.byteLength }
-    } catch (err) {
-        return { status: 'error', reason: 'unreadable ' + what + ': ' + errorReason(err) }
-    }
-}
-
-async function getJson(url: string, options: FetchNpmPackageOptions | undefined, what: string): Promise<JsonResult> {
-    const response = await request(url, options, {})
-    return response instanceof Response ? readJson(response, what) : response
-}
-
 export async function fetchNpmPackage(name: string, options?: FetchNpmPackumentOptions): Promise<NpmPackageResult> {
-    const validator = options?.ifNoneMatch ?? null
-    const response = await request(npmPackageUrl(options?.registryUrl ?? npmRegistryUrl(), name), options, validator === null ? {} : { 'If-None-Match': validator })
-    if (!(response instanceof Response)) return response
-    const etag = response.headers.get('etag')
-    // Only a conditional request can be answered "not modified"; a 304 to a plain GET is a broken server,
-    // and falls through to the status check as an error like any other unexpected status.
-    if (response.status === 304 && validator !== null) {
-        await discardBody(response)
-        return { status: 'not_modified', etag }
-    }
-    const result = await readJson(response, 'packument')
+    const result = await getRegistryBody(npmPackageUrl(options?.registryUrl ?? npmRegistryUrl(), name), options, jsonBody('packument', [404]))
     if (result.status !== 'ok') return result
     const summary = summarizePackument(name, result.body)
     if (summary === null) return { status: 'error', reason: 'packument has no versions map' }
-    return { status: 'ok', summary, etag, bytes: result.bytes }
-}
-
-// Releases an unread body without waiting for it. Cancelling cannot meaningfully fail here, and nothing
-// about the answer depends on it, so its rejection is deliberately ignored.
-async function discardBody(response: Response): Promise<void> {
-    await response.body?.cancel().catch(function ignore() { return undefined })
+    return { status: 'ok', summary, etag: result.etag, bytes: result.bytes }
 }
 
 export const DEFAULT_NPM_DOWNLOADS_URL = 'https://api.npmjs.org'
@@ -159,9 +104,7 @@ export const DEFAULT_NPM_DOWNLOADS_URL = 'https://api.npmjs.org'
 // npm's download counts live on a separate service from the registry, and a registry mirror does not serve
 // them. Same plumbing rule as the registry URL: env-only, for tests and unusual networks.
 export function npmDownloadsUrl(): string {
-    const fromEnv = process.env.SENTINELLO_NPM_DOWNLOADS_URL
-    const raw = fromEnv && fromEnv.trim().length > 0 ? fromEnv.trim() : DEFAULT_NPM_DOWNLOADS_URL
-    return raw.replace(/\/+$/, '')
+    return registryBaseUrl('SENTINELLO_NPM_DOWNLOADS_URL', DEFAULT_NPM_DOWNLOADS_URL)
 }
 
 export type NpmDownloadsResult =
@@ -172,18 +115,12 @@ export type NpmDownloadsResult =
 // Last week's download count for one package (`GET {api}/downloads/point/last-week/{name}`). A signal shown
 // beside a package, never an input to a verdict.
 export async function fetchNpmWeeklyDownloads(name: string, options?: FetchNpmPackageOptions): Promise<NpmDownloadsResult> {
-    const result = await getJson((options?.registryUrl ?? npmDownloadsUrl()) + '/downloads/point/last-week/' + encodeName(name), options, 'download count')
-    if (result.status !== 'ok') return result
+    const result = await getRegistryBody((options?.registryUrl ?? npmDownloadsUrl()) + '/downloads/point/last-week/' + encodeName(name), options, jsonBody('download count', [404]))
+    // No validator is sent for a count, so the service cannot have answered "not modified".
+    if (result.status !== 'ok') return result as Exclude<typeof result, { status: 'not_modified' }>
     const downloads = isRecord(result.body) ? result.body.downloads : undefined
     if (typeof downloads !== 'number' || !Number.isFinite(downloads) || downloads < 0) return { status: 'error', reason: 'download count missing' }
     return { status: 'ok', weeklyDownloads: downloads }
-}
-
-// fetch throws `TypeError: fetch failed` and keeps the reason (ECONNREFUSED, a DNS failure, a timeout)
-// in `cause`, which is the part worth recording.
-function errorReason(err: unknown): string {
-    const cause = (err as { cause?: unknown }).cause
-    return cause === undefined ? errText(err) : errText(err) + ': ' + errText(cause)
 }
 
 // A full release version: three numeric parts, no prerelease tag (build metadata allowed). Prereleases
@@ -277,8 +214,4 @@ function repositoryOf(value: unknown): string | null {
     if (typeof value === 'string' && value.length > 0) return value
     if (isRecord(value) && typeof value.url === 'string' && value.url.length > 0) return value.url
     return null
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

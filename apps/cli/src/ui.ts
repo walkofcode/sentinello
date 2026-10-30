@@ -2,6 +2,7 @@ import { createInterface } from 'node:readline/promises'
 import { describeScanReasons, isSourceUnavailableReason, type ScanState, type Severity } from '@sentinello/core'
 import type { RetryNotice } from '@sentinello/feeds'
 import type { DiscoveredProject, DiscoverySkip } from '@sentinello/scanners'
+import type { FeedCell } from './cache/lookup'
 import type { SyncOutcome, SyncPlan, SyncPlanItem } from './cache/sync'
 import type { CliOptions } from './options'
 import type { ProjectScanResult } from './scan'
@@ -80,7 +81,7 @@ export type Ui = {
     noProjects(skipped: readonly DiscoverySkip[]): void
     confirmSeed(plan: SyncPlan): Promise<boolean>
     confirmRetry(failed: readonly SyncOutcome[]): Promise<boolean>
-    sourcesSwitchedOff(sources: readonly string[]): void
+    sourcesSwitchedOff(cells: readonly FeedCell[]): void
     seedDeclined(gated: boolean): void
     // npmAuditSkipped: npm audit was asked for, and --offline left it out.
     offlineNotice(npmAuditSkipped: boolean): void
@@ -88,7 +89,7 @@ export type Ui = {
     syncProgress(item: SyncPlanItem, bytesRead: number, totalBytes: number | null): void
     syncRetry(item: SyncPlanItem, notice: RetryNotice): void
     syncDone(outcomes: readonly SyncOutcome[]): void
-    withdrawalsUnchecked(): void
+    withdrawalsUnchecked(ecosystems: readonly string[]): void
     scanStart(count: number): void
     scanProject(project: DiscoveredProject): void
     scanProjectDone(result: ProjectScanResult): void
@@ -160,10 +161,10 @@ export function createUi(options: CliOptions): Ui {
             return i.kind === 'seed'
         })
         write('')
-        write('  ' + c.bold + 'First run — the advisory databases need downloading.' + c.reset)
+        write('  ' + c.bold + 'These advisory databases need downloading first.' + c.reset)
         write('')
         for (const item of seeds) {
-            write('    ' + sourceLabel(item.source) + c.dim + '  ' + formatBytes(item.downloadBytes, item.downloadBytesEstimated) + c.reset)
+            write('    ' + syncLabel(item) + c.dim + '  ' + formatBytes(item.downloadBytes, item.downloadBytesEstimated) + c.reset)
             if (item.purpose === 'withdrawal-evidence') {
                 write('      ' + c.dim + 'used only to drop advisories GitHub has withdrawn' + c.reset)
             }
@@ -193,8 +194,13 @@ export function createUi(options: CliOptions): Ui {
     // is not a skip, it is a run that cannot answer — and it exits non-zero rather than looking clean.
     // Said out loud because the alternative is silent: a source switched off is dropped from the run
     // entirely, so a typo in SENTINELLO_OSV_FEED_URL would otherwise just quietly narrow what gets audited.
-    function sourcesSwitchedOff(sources: readonly string[]): void {
-        const names = sources.map(sourceLabel).join(', ')
+    function sourcesSwitchedOff(cells: readonly FeedCell[]): void {
+        // One entry per source, naming the ecosystems it was dropped for: "OSV (PyPI, Go)".
+        const bySource = new Map<string, string[]>()
+        for (const cell of cells) bySource.set(cell.source, [...(bySource.get(cell.source) ?? []), cell.ecosystem])
+        const names = Array.from(bySource, function label([source, ecosystems]): string {
+            return syncLabel({ source, ecosystems })
+        }).join(', ')
         write('    ' + c.dim + '· ' + names + ' switched off and never seeded — not scanned' + c.reset)
     }
 
@@ -206,9 +212,7 @@ export function createUi(options: CliOptions): Ui {
     // prompt nobody can answer. That is the same rule confirmSeed applies, for the same reason.
     async function confirmRetry(failed: readonly SyncOutcome[]): Promise<boolean> {
         if (!interactive || !process.stdin.isTTY || !process.stderr.isTTY) return false
-        const names = failed.map(function label(outcome): string {
-            return sourceLabel(outcome.source)
-        }).join(', ')
+        const names = failed.map(syncLabel).join(', ')
         write('')
         write('  ' + c.yellow + names + ' could not be downloaded.' + c.reset)
         write('  ' + c.dim + 'The scan can continue without it, but anything only that source knows about' + c.reset)
@@ -240,7 +244,7 @@ export function createUi(options: CliOptions): Ui {
     function syncStatus(item: SyncPlanItem, phase: 'start' | 'done'): void {
         if (phase === 'start') {
             const verb = item.kind === 'seed' ? 'downloading' : 'checking'
-            write('  ' + verb + ' ' + sourceLabel(item.source))
+            write('  ' + verb + ' ' + syncLabel(item))
             return
         }
         clearProgress()
@@ -272,7 +276,7 @@ export function createUi(options: CliOptions): Ui {
     function syncRetry(item: SyncPlanItem, notice: RetryNotice): void {
         clearProgress()
         const budgetLeft = Math.max(0, notice.budgetMs - notice.elapsedMs)
-        write('    ' + c.yellow + '!' + c.reset + ' ' + sourceLabel(item.source) + ' declined the download (HTTP ' +
+        write('    ' + c.yellow + '!' + c.reset + ' ' + syncLabel(item) + ' declined the download (HTTP ' +
             notice.status + ') — retrying in ' + formatDuration(notice.waitMs) + c.dim +
             '  (waiting up to ' + formatDuration(budgetLeft) + ' more; --feed-wait 0 to skip)' + c.reset)
     }
@@ -287,30 +291,36 @@ export function createUi(options: CliOptions): Ui {
         clearProgress()
         for (const outcome of outcomes) {
             if (outcome.status === 'unchanged') {
-                write('    ' + c.green + '✓' + c.reset + ' ' + sourceLabel(outcome.source) + c.dim + ' up to date (' + outcome.rowCount.toLocaleString() + ' advisories)' + c.reset)
+                write('    ' + c.green + '✓' + c.reset + ' ' + syncLabel(outcome) + c.dim + ' up to date (' + outcome.rowCount.toLocaleString() + ' advisories)' + c.reset)
                 continue
             }
             if (outcome.status === 'error') {
-                write('    ' + c.yellow + '!' + c.reset + ' ' + sourceLabel(outcome.source) + c.yellow + ' ' + (outcome.message ?? 'sync failed') + c.reset)
+                write('    ' + c.yellow + '!' + c.reset + ' ' + syncLabel(outcome) + c.yellow + ' ' + (outcome.message ?? 'sync failed') + c.reset)
                 continue
             }
             if (outcome.status === 'skipped') {
-                write('    ' + c.dim + '· ' + sourceLabel(outcome.source) + ' ' + (outcome.message ?? 'skipped') + c.reset)
+                write('    ' + c.dim + '· ' + syncLabel(outcome) + ' ' + (outcome.message ?? 'skipped') + c.reset)
                 continue
             }
             const verb = outcome.status === 'seeded' ? 'downloaded' : 'updated'
-            write('    ' + c.green + '✓' + c.reset + ' ' + sourceLabel(outcome.source) + c.dim + ' ' + verb + ' (' + outcome.rowCount.toLocaleString() + ' advisories)' + c.reset)
+            write('    ' + c.green + '✓' + c.reset + ' ' + syncLabel(outcome) + c.dim + ' ' + verb + ' (' + outcome.rowCount.toLocaleString() + ' advisories)' + c.reset)
         }
     }
 
-    function withdrawalsUnchecked(): void {
-        write('    ' + c.yellow + '!' + c.reset + c.dim + ' OSV withdrawal data is not downloaded — GitLab gemnasium may list advisories GitHub has withdrawn' + c.reset)
+    function withdrawalsUnchecked(ecosystems: readonly string[]): void {
+        write('    ' + c.yellow + '!' + c.reset + c.dim + ' OSV withdrawal data is not downloaded for ' + ecosystems.join(', ') + ' — GitLab gemnasium may list advisories GitHub has withdrawn' + c.reset)
     }
 
     function sourceLabel(source: string): string {
         if (source === 'osv') return 'OSV'
         if (source === 'gemnasium') return 'GitLab gemnasium'
         return source
+    }
+
+    // "OSV (PyPI)", "GitLab gemnasium (npm, Go)": a source and the ecosystems one sync of it covers. OSV has
+    // one download per ecosystem, so the ecosystem is what tells two of its lines apart.
+    function syncLabel(entry: { source: string; ecosystems: readonly string[] }): string {
+        return sourceLabel(entry.source) + ' (' + entry.ecosystems.join(', ') + ')'
     }
 
     function scanStart(count: number): void {
@@ -353,23 +363,24 @@ export function createUi(options: CliOptions): Ui {
 
     function registryCacheNotSaved(why: string): void {
         clearProgress()
-        write('  ' + c.dim + 'npm registry cache not saved (' + why + '); the next run fetches again' + c.reset)
+        write('  ' + c.dim + 'registry cache not saved (' + why + '); the next run fetches again' + c.reset)
     }
 
-    // Sources that never answered, deduplicated across projects. report.ts's ProjectSummary comment says
-    // "0 findings is never confused with nothing could be checked" — that was true of the document and
-    // false of the terminal, which said "clean" regardless.
+    // Sources that never answered, per ecosystem, deduplicated across projects. report.ts's ProjectSummary
+    // comment says "0 findings is never confused with nothing could be checked" — that was true of the
+    // document and false of the terminal, which said "clean" regardless.
     function lostSourceLines(runSummary: RunSummary): string[] {
         const seen = new Map<string, string>()
         for (const project of runSummary.projects) {
             for (const entry of project.unauditable) {
                 if (!isSourceUnavailableReason(entry.reasonCode)) continue
-                if (seen.has(entry.scanner)) continue
-                seen.set(entry.scanner, entry.errorText || entry.reasonCode)
+                const label = syncLabel({ source: entry.scanner, ecosystems: [entry.ecosystem] })
+                if (seen.has(label)) continue
+                seen.set(label, entry.errorText || entry.reasonCode)
             }
         }
-        return Array.from(seen, function line([scanner, why]) {
-            return sourceLabel(scanner) + c.dim + '  ' + why + c.reset
+        return Array.from(seen, function line([label, why]) {
+            return label + c.dim + '  ' + why + c.reset
         })
     }
 

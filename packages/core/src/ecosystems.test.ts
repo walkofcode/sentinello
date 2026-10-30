@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
+    canonicalPackageName,
+    comparatorForEcosystem,
+    computesWayOut,
     DEFAULT_ECOSYSTEM,
     ECOSYSTEMS,
+    packageManagerOfManifest,
+    projectPackageManagers,
+    requireComparator,
+    requireEcosystemId,
+    STABLE_ECOSYSTEMS,
     ecosystemForOsvId,
     getEcosystem,
     getSource,
@@ -57,6 +65,15 @@ describe('getEcosystem', function () {
     // Ids are persisted values, so a case-insensitive match would silently accept bad data.
     it('is case sensitive', function () {
         expect(getEcosystem('pypi')).toBeNull()
+    })
+})
+
+// SENTINEL-119: the way out needs npm's per-version dependency metadata; every other ecosystem gets one
+// unknown verdict, and an unknown id gets none.
+describe('computesWayOut', function () {
+    it('is true for npm only', function () {
+        expect(ECOSYSTEMS.filter(function wayOut(e) { return computesWayOut(e.id) }).map(function id(e) { return e.id })).toEqual(['npm'])
+        expect(computesWayOut('Hackage')).toBe(false)
     })
 })
 
@@ -146,5 +163,81 @@ describe('sourcesForEcosystem', function () {
         for (const eco of ECOSYSTEMS) {
             expect(sourcesForEcosystem(eco.id).length).toBeGreaterThan(0)
         }
+    })
+})
+
+describe('comparator lookups', function () {
+    it('resolves every registered ecosystem to the comparator it names', function () {
+        for (const eco of ECOSYSTEMS) {
+            expect(comparatorForEcosystem(eco.id)?.id).toBe(eco.comparator)
+            expect(requireComparator(eco.id).id).toBe(eco.comparator)
+        }
+    })
+
+    // Null from the lookup, a loud failure from the reader that holds a persisted id: never semver.
+    it('answers an unknown ecosystem with null, or an error where one is a defect', function () {
+        expect(comparatorForEcosystem('maven')).toBeNull()
+        expect(function unknown() { return requireComparator('maven') }).toThrow('unknown ecosystem "maven"')
+    })
+
+    it('orders Go by its own comparator and Ruby by Gem::Version', function () {
+        expect(getEcosystem('Go')?.comparator).toBe('go')
+        expect(getEcosystem('RubyGems')).toMatchObject({ language: 'ruby', osvEcosystem: 'RubyGems', gemnasiumPackageType: 'gem', resolverKinds: ['Gemfile.lock'], comparator: 'rubygems', status: 'stable' })
+    })
+})
+
+describe('canonicalPackageName', function () {
+    // PEP 503 for PyPI, so `Django` from OSV meets `django` from a lockfile; every other registry's names
+    // are exact.
+    it.each([
+        ['PyPI', 'Django', 'django'],
+        ['PyPI', 'zope.interface', 'zope-interface'],
+        ['PyPI', 'ruamel_yaml', 'ruamel-yaml'],
+        ['PyPI', 'Flask--SQLAlchemy', 'flask-sqlalchemy'],
+        ['PyPI', '  Requests  ', 'requests'],
+        ['npm', 'JSONStream', 'JSONStream'],
+        ['RubyGems', 'Ruby_Gem', 'Ruby_Gem'],
+        ['crates.io', 'serde_json', 'serde_json']
+    ])('keys %s %j as %j', function (ecosystem, name, expected) {
+        expect(canonicalPackageName(ecosystem, name)).toBe(expected)
+    })
+})
+
+// Promoting an ecosystem is the status field and nothing else: 3.8 offers all five.
+describe('3.8', function () {
+    it('offers every ecosystem as stable', function () {
+        expect(STABLE_ECOSYSTEMS.map(function id(e) { return e.id })).toEqual(['npm', 'PyPI', 'Go', 'crates.io', 'RubyGems'])
+    })
+
+    it('maps every manifest kind to its package manager, and lists a project\'s managers once each', function () {
+        expect(ECOSYSTEMS.flatMap(function kinds(e) { return [...e.resolverKinds, ...e.manifestKinds] }).map(packageManagerOfManifest)).toEqual([
+            'npm', 'pnpm', 'yarn', 'unknown',
+            'poetry', 'pipenv', 'pip', 'uv', 'unknown', 'pipenv',
+            'go', 'go',
+            'cargo', 'cargo',
+            'bundler', 'bundler'
+        ])
+        expect(packageManagerOfManifest('setup.py')).toBe('unknown')
+        expect(projectPackageManagers([
+            { path: 'pnpm-lock.yaml', ecosystem: 'npm', kind: 'pnpm-lock.yaml' },
+            { path: 'ios/Gemfile.lock', ecosystem: 'RubyGems', kind: 'Gemfile.lock' },
+            { path: 'android/Gemfile.lock', ecosystem: 'RubyGems', kind: 'Gemfile.lock' },
+            { path: 'tools/pyproject.toml', ecosystem: 'PyPI', kind: 'pyproject.toml' }
+        ])).toEqual(['pnpm', 'bundler'])
+    })
+
+    it('narrows a known ecosystem id and refuses an unknown one', function () {
+        expect(requireEcosystemId('RubyGems')).toBe('RubyGems')
+        expect(function unknown() { requireEcosystemId('Maven') }).toThrow('unknown ecosystem "Maven"')
+    })
+
+    it('names the lockless manifests of each ecosystem', function () {
+        expect(Object.fromEntries(ECOSYSTEMS.map(function kinds(e) { return [e.id, e.manifestKinds] }))).toEqual({
+            npm: ['package.json'],
+            PyPI: ['pyproject.toml', 'Pipfile'],
+            Go: [],
+            'crates.io': ['Cargo.toml'],
+            RubyGems: ['Gemfile']
+        })
     })
 })

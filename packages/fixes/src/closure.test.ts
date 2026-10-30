@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import { describe, expect, it } from 'vitest'
-import type { AffectedSet } from '@sentinello/scanners'
+import { versionSetFromSemverRange, type AffectedSet } from '@sentinello/scanners'
 import { createClosureWalker, edgesOf, resolveRange, targetIdentity, unalias, type ProofTarget } from './closure'
 import { fakeRegistry, fakeSummary, type FakePackage } from './registry-fake.fixture'
 
@@ -10,7 +10,7 @@ import { fakeRegistry, fakeSummary, type FakePackage } from './registry-fake.fix
 // the ways evidence can run out, which must read 'unknown', never 'no'.
 
 function affected(ranges: string): AffectedSet {
-    return { ranges, exact: [], complete: true }
+    return versionSetFromSemverRange(ranges)
 }
 
 const BRACES: ProofTarget = { name: 'braces', affected: [affected('<=3.0.3')] }
@@ -131,7 +131,7 @@ describe('reaches — when the evidence runs out it is unknown, never no', funct
 
     it('an affected set that cannot be evaluated', async function () {
         const { walker: w } = walker({ a: { releases: { '1.0.0': { dependencies: { braces: '3.0.3' } } } }, braces: { releases: { '3.0.3': {} } } })
-        const broken: ProofTarget = { name: 'braces', affected: [{ ranges: '<=3.0.3', exact: [], complete: false }] }
+        const broken: ProofTarget = { name: 'braces', affected: [{ ...affected('<=3.0.3'), complete: false }] }
         expect(await w.reaches('a', '1.0.0', broken)).toMatchObject({ verdict: 'unknown', reason: 'the affected range could not be evaluated' })
     })
 

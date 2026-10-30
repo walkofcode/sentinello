@@ -3,6 +3,7 @@ import { errText } from '@sentinello/core'
 import {
     deleteMute,
     listExpiredMutes,
+    muteWriteOf,
     recordMuteLift,
     type DrizzleDb
 } from '@sentinello/db'
@@ -57,7 +58,7 @@ export async function sweepExpiredMutes(input: SweepInput): Promise<SweepResult>
     const expired = listExpiredMutes(input.db, input.at)
     if (expired.length === 0) return { liftedCount: 0 }
     for (const mute of expired) {
-        recordMuteLift(input.db, mute, input.at)
+        recordMuteLift(input.db, muteWriteOf(mute), input.at)
         deleteMute(input.db, mute.id)
     }
     console.log('[mute-expiry] lifted ' + expired.length + ' expired mute(s)')

@@ -1,4 +1,4 @@
-import type { FindingCorroboration, Severity, ScanStatus, ReasonCode, PackageManager } from '@sentinello/core'
+import type { FindingCorroboration, FindingInstallation, Severity, ScanStatus, ReasonCode, PackageManager } from '@sentinello/core'
 import type { ResolvedGraph } from './resolver/types'
 import type { FixEvidence } from './version-fix'
 
@@ -11,7 +11,13 @@ export type RawFinding = {
     // npm-audit scanner builds findings directly and leaves it undefined, so the worker defaults it to
     // the npm ecosystem when stamping the persisted finding.
     ecosystem?: string
+    // The lowest affected installed version, once reconcileAgainstReported has folded every installed copy.
     installedVersion: string
+    // Every (manifest, installed version) this finding was matched through. The matcher writes one per
+    // copy, and reconcileAgainstReported folds a source's copies into one finding listing them all. Absent
+    // on npm-audit's findings, which carry only the comma-joined installed value; the worker fills it in
+    // from the resolved graph.
+    installations?: FindingInstallation[]
     vulnerableRange: string
     severity: Severity
     fixAvailable: boolean
@@ -50,12 +56,15 @@ export type ScanResult = {
     durationMs: number
 }
 
-// Per-ecosystem resolver coverage for one project, threaded into the advisory-feed scanners so they can
-// record (in their rawJson) which ecosystems were fully/partially/not auditable this scan. The reason
-// codes are stable so Phase 5 can render the disclosure per ecosystem; capturing it here keeps the
-// classification end-to-end in Phase 4 rather than silently dropping it.
+// Resolver coverage, threaded into the advisory-feed scanners so they can record (in their rawJson) which
+// manifests were fully/partially/not auditable this scan. One entry per manifest: a project holding two
+// manifests of one ecosystem (ios/Gemfile.lock and android/Gemfile.lock) records two, each naming its
+// manifest, so a readable one never hides an unreadable sibling.
 export type EcosystemCoverage = {
     ecosystem: string
+    // The manifest the entry is about, relative to the project with `/` separators (ProjectManifest.path).
+    // Absent where the caller does not track manifests (the CLI).
+    manifestPath?: string
     status: 'ok' | 'partial' | 'unauditable'
     reasonCode?: ReasonCode
     details?: string[]
@@ -63,6 +72,9 @@ export type EcosystemCoverage = {
 
 export type ScanContext = {
     timeoutMs: number
+    // The ecosystem of the (source, ecosystem) cell this run is for: the worker runs a source once per cell,
+    // with only that ecosystem's graph. Absent where one run covers every ecosystem (the CLI).
+    ecosystem?: string
     abortSignal?: AbortSignal
     useNvm?: boolean
     // The project's resolved dependency graph, computed once per project by the runner and shared by

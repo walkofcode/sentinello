@@ -1,7 +1,7 @@
 {
     "Meta": {
         "title": "Sentinello — 전체 포트폴리오를 위한 조기 경보형 CVE 모니터링",
-        "description": "Node.js 프로젝트를 위한 자체 호스팅, 오픈 소스 의존성 취약점 모니터링. 저장소를 가리키기만 하면 모든 프로젝트의 알려진 CVE를 하나의 분류 대기열에서 확인할 수 있습니다.",
+        "description": "Node.js, Python, Go, Rust, Ruby 프로젝트를 위한 자체 호스팅, 오픈 소스 의존성 취약점 모니터링. 저장소를 가리키기만 하면 모든 프로젝트의 알려진 CVE를 하나의 분류 대기열에서 확인할 수 있습니다.",
         "tagline": "전체 포트폴리오를 위한 CVE 조기 경보",
         "tabTitle": "Sentinello — 다중 언어 CVE 모니터링"
     },
@@ -38,7 +38,7 @@
     },
     "Hero": {
         "title": "더 이상 지켜보지 않게 된 의존성을 위한 조기 경보 시스템.",
-        "subtitle": "AI 시대에는 유지할 수 있는 것보다 더 많은 프로젝트를 출시하게 됩니다. Sentinello는 그 하나하나를 지켜보며 Node.js 의존성에 숨은 알려진 CVE를 드러냅니다 — 잊힌 프로젝트가 사고로 이어지기 전에.",
+        "subtitle": "AI 시대에는 유지할 수 있는 것보다 더 많은 프로젝트를 출시하게 됩니다. Sentinello는 그 하나하나를 지켜보며 의존성(Node.js, Python, Go, Rust, Ruby)에 숨은 알려진 CVE를 드러냅니다 — 잊힌 프로젝트가 사고로 이어지기 전에.",
         "commandCaption": "명령 하나로 실행:",
         "ctaPrimary": "빠른 시작 읽기",
         "ctaSecondary": "GitHub에서 별 누르기",
@@ -86,7 +86,7 @@
         "title": "기능",
         "subtitle": "자체 호스팅 포털 하나에 모두 — 외부 서비스 없음, 데이터가 네트워크를 떠나지 않음.",
         "queueTitle": "단일 분류 대기열",
-        "queueBody": "수십 개의 체크아웃에 흩어진 npm audit 대신, 전체 포트폴리오의 CVE를 한곳에서 보고 분류하세요.",
+        "queueBody": "수십 개의 체크아웃에 흩어진 감사 결과 대신, 전체 포트폴리오의 CVE를 언어에 상관없이 한곳에서 보고 분류하세요.",
         "browseTitle": "프로젝트별 또는 라이브러리별 탐색",
         "browseBody": "어떤 저장소든 들어가 발견 결과, 수정 버전, 기록을 확인하거나 — 취약한 패키지로 전환해 영향을 받는 모든 프로젝트를 보고 한 번에 모든 곳에서 음소거하세요.",
         "exportTitle": "권고 내보내기",
@@ -94,7 +94,9 @@
         "scanningTitle": "지속적인 스캔",
         "scanningBody": "백그라운드 워커가 일정에 따라 다시 스캔하므로, 확인하는 것을 기억하지 않아도 새 권고가 나타납니다.",
         "sourcesTitle": "다중 소스",
-        "sourcesBody": "npm audit를 넘어 OSV와 GitLab gemnasium 모두와 대조하여 더 넓은 CVE 범위와 알려진 악성 패키지 탐지를 제공합니다.",
+        "sourcesBody": "Node.js에는 npm audit, 모든 언어에는 OSV와 GitLab gemnasium을 사용해 더 넓은 CVE 범위와 알려진 악성 패키지 탐지를 제공합니다.",
+        "ecosystemsTitle": "Python · Go · Rust · Ruby",
+        "ecosystemsBody": "Node.js 외에도 Python, Go, Rust, Ruby 프로젝트를 lockfile(requirements.txt, poetry.lock, uv.lock, go.mod, Cargo.lock, Gemfile.lock)로 스캔합니다. 오프라인으로 분석하며 pip, go, cargo, bundler는 실행하지 않습니다.",
         "notificationsTitle": "알림 및 웹훅",
         "notificationsBody": "실패와 발견 알림을 Slack, Telegram 또는 단순한 웹훅으로 받아보세요 — 루트나 프로젝트 단위로 범위를 지정하고, 선택한 언어로. 자동 수정 에이전트를 위한 JSON 또는 일반 텍스트 페이로드도 제공합니다.",
         "selfContainedTitle": "이미지 하나, 파일 하나",
@@ -166,6 +168,9 @@
         "row_scope": "범위",
         "npm_scope": "지금 서 있는 프로젝트 하나.",
         "ours_scope": "폴더 아래 모든 프로젝트를, 한 번의 실행과 하나의 리포트로.",
+        "row_languages": "언어",
+        "npm_languages": "npm 프로젝트만.",
+        "ours_languages": "Node.js, Python, Go, Rust, Ruby 잠금 파일을 지원합니다. Python, Go, Rust, Ruby는 오프라인으로 읽으며 패키지 관리자를 설치하거나 실행하지 않습니다. Node.js는 npm audit도 실행합니다.",
         "row_sources": "권고문 소스",
         "npm_sources": "사용 중인 레지스트리의 권고문 피드.",
         "ours_sources": "여기에 OSV와 GitLab gemnasium을 더합니다. 중복은 억제되므로 소스를 추가해도 새로운 발견만 늘어납니다.",

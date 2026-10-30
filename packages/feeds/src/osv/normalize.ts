@@ -1,5 +1,5 @@
-import { getEcosystem, type OsvAdvisoryRow, type OsvRange } from '@sentinello/core'
-import { canMatchSomething, normalizeSemver } from '@sentinello/versions'
+import { canonicalPackageName, comparatorForEcosystem, type OsvAdvisoryRow, type OsvRange } from '@sentinello/core'
+import { canMatchSomething, isRefused, isZeroVersion, refusedRange, type VersionComparator } from '@sentinello/versions'
 
 // Parses a single OSV record (one *.json file from a per-ecosystem export, or one /v1/vulns response) into
 // the denormalized advisory→package rows we cache. One record can affect multiple packages, each with its
@@ -45,6 +45,10 @@ export function normalizeOsvRecord(record: unknown, ecosystem: string): OsvAdvis
     const advisoryId = typeof r.id === 'string' ? r.id : null
     if (!advisoryId) return []
     if (!Array.isArray(r.affected)) return []
+    // The ecosystem's comparator reads every bound below. One the registry does not know cannot be read
+    // at all, which is no rows rather than rows read under the wrong ordering.
+    const comparator = comparatorForEcosystem(ecosystem)
+    if (comparator === null) return []
     const malicious = advisoryId.startsWith('MAL-')
     const aliases = Array.isArray(r.aliases) ? r.aliases.filter(isNonEmptyString) : []
     const severity = pickSeverity(r)
@@ -68,13 +72,16 @@ export function normalizeOsvRecord(record: unknown, ecosystem: string): OsvAdvis
         // Keep only the ecosystem currently being synced (OSV uses the canonical ids 'npm'/'PyPI'/'Go'/
         // 'crates.io' verbatim in `package.ecosystem`). Other ecosystems are handled by their own sync.
         if (!pkg || pkg.ecosystem !== ecosystem) continue
-        const packageName = typeof pkg.name === 'string' ? pkg.name : null
+        // PEP 503 for PyPI, exactly as the resolver keys the installed package. OSV publishes PyPI names as
+        // their project spells them (`Django`, `PyYAML`, `zope.interface`), and before this the cache kept
+        // that spelling, so the advisory never met a lockfile that wrote the name any other way.
+        const packageName = typeof pkg.name === 'string' && pkg.name.length > 0 ? canonicalPackageName(ecosystem, pkg.name) : null
         if (!packageName) continue
         // Parse the real affected set for ALL records, malware included. Malware advisories pin the
         // compromised builds in `versions` (e.g. ["4.4.2"]) and frequently carry a usable range too
         // (e.g. fsevents >=1.0.0 <1.2.11) — discarding either (the old `maliciousRange()` shortcut) is
         // what made the matcher flag clean, remediated versions as compromised.
-        const ranges = extractRanges(affected.ranges, affected.database_specific?.last_known_affected_version_range, ecosystem)
+        const ranges = extractRanges(affected.ranges, affected.database_specific?.last_known_affected_version_range, comparator)
         const versions = extractVersions(affected.versions)
         const existing = byPackage.get(packageName)
         if (existing) {
@@ -109,7 +116,9 @@ export function normalizeOsvRecord(record: unknown, ecosystem: string): OsvAdvis
         // withdrawal. A withdrawn record with no `affected` entry for this ecosystem at all (identity-only)
         // produces no row and stays out of reach: there is no package to scope it to, and the per-ecosystem
         // export and modified_id.csv list a record only through its affected packages.
-        if (row.ranges.length === 0 && row.versions.length === 0 && !malicious && row.withdrawn === null) continue
+        // A refused part (an event no comparator reads) is not something to match on either.
+        const matchable = row.ranges.some(function readable(range) { return !isRefused(range) })
+        if (!matchable && row.versions.length === 0 && !malicious && row.withdrawn === null) continue
         rows.push(row)
     }
     return rows
@@ -124,9 +133,13 @@ function extractVersions(versions: string[] | undefined): string[] {
     return out
 }
 
-function extractRanges(ranges: OsvRangeRaw[] | undefined, lastKnownAffected: string | undefined, ecosystem: string): OsvRange[] {
+function extractRanges(ranges: OsvRangeRaw[] | undefined, lastKnownAffected: string | undefined, comparator: VersionComparator): OsvRange[] {
     if (!Array.isArray(ranges)) return []
     const out: ExtractedRange[] = []
+    // Every event the comparator cannot read, as a refused part of the affected set (VersionRange.refused):
+    // it matches nothing, and it keeps the set incomplete, so a version inside the interval it opened or
+    // closed is never proved safe by its absence.
+    const refused: OsvRange[] = []
     for (const range of ranges) {
         // Retain SEMVER (npm/Go/Rust) and ECOSYSTEM (PyPI PEP 440) ranges — the ecosystem's comparator
         // interprets the version strings. GIT ranges carry commit hashes, not versions, and no comparator
@@ -144,17 +157,23 @@ function extractRanges(ranges: OsvRangeRaw[] | undefined, lastKnownAffected: str
                     out.push({ type, introduced, fixed: null, lastAffected })
                 }
                 lastAffected = null
-                // A malformed lower bound cannot open an interval without inventing where it starts.
-                // SEMVER ranges can be validated here; ECOSYSTEM ranges need their registry comparator.
-                introduced = !usesSemver(type, ecosystem) || normalizeSemver(event.introduced) !== null
+                // A malformed lower bound cannot open an interval without inventing where it starts. The
+                // bottom of the version space needs no reading — versionInRange never compares against it,
+                // and Go's comparator, which reads no partial versions, would refuse a bare "0".
+                introduced = isZeroVersion(event.introduced) || comparator.normalize(event.introduced) !== null
                     ? event.introduced
                     : null
+                if (introduced === null) refused.push(refusedRange('>=' + event.introduced, type))
                 continue
             }
             if (typeof event.fixed === 'string' && introduced !== null) {
                 // An unreadable upper bound must not turn a valid open interval into one the matcher can
-                // never enter. Ignore the close and keep the interval open instead.
-                if (usesSemver(type, ecosystem) && normalizeSemver(event.fixed) === null) continue
+                // never enter. Ignore the close and keep the interval open instead — wider than the source
+                // meant, so it is refused as well and the set stays incomplete.
+                if (comparator.normalize(event.fixed) === null) {
+                    refused.push(refusedRange('<' + event.fixed, type))
+                    continue
+                }
                 out.push({ type, introduced, fixed: event.fixed, lastAffected: null })
                 introduced = null
                 lastAffected = null
@@ -162,7 +181,10 @@ function extractRanges(ranges: OsvRangeRaw[] | undefined, lastKnownAffected: str
             }
             if (typeof event.last_affected === 'string' && introduced !== null) {
                 // Inclusive upper bound with no clean fix — remember it for the current interval.
-                if (usesSemver(type, ecosystem) && normalizeSemver(event.last_affected) === null) continue
+                if (comparator.normalize(event.last_affected) === null) {
+                    refused.push(refusedRange('<=' + event.last_affected, type))
+                    continue
+                }
                 lastAffected = event.last_affected
             }
         }
@@ -176,19 +198,15 @@ function extractRanges(ranges: OsvRangeRaw[] | undefined, lastKnownAffected: str
     // produces is that function's own job, and it keeps the open range when the bound cannot match.
     const matchable: ExtractedRange[] = []
     for (const range of out) {
-        if (canRangeMatch(range, ecosystem)) matchable.push(range)
+        if (canMatchSomething(range, comparator)) matchable.push(range)
     }
-    return boundOpenEndedRange(matchable, lastKnownAffected, ecosystem)
+    return [...boundOpenEndedRange(matchable, lastKnownAffected, comparator), ...refused]
 }
 
-function usesSemver(type: string, ecosystem: string): boolean {
-    if (type === 'SEMVER') return true
-    return type === 'ECOSYSTEM' && getEcosystem(ecosystem)?.comparator === 'semver'
-}
-
-function canRangeMatch(range: ExtractedRange, ecosystem: string): boolean {
-    return canMatchSomething(usesSemver(range.type, ecosystem) ? { ...range, type: 'SEMVER' } : range)
-}
+// Every bound above is read by the ECOSYSTEM'S comparator, whatever the range's `type` says. This used to
+// validate and order only SEMVER-typed bounds and semver ecosystems, so a PyPI interval with an unreadable
+// bound or inverted bounds was cached as live and could never match. The matcher filters range types per
+// comparator separately; a range it will not evaluate is harmless to have validated.
 
 // `canMatchSomething` is the SHARED rule, from @sentinello/versions. It used to be a private copy here and
 // a differently-shaped `isEmptyInterval` in the gemnasium normalizer — the same question answered twice,
@@ -221,7 +239,7 @@ function canRangeMatch(range: ExtractedRange, ecosystem: string): boolean {
 // bound from a string we misread would hide a real vulnerability. The `<= X` arm is exercised by tests
 // only; in the export it always co-occurs with a real `fixed` event, which the open-range gate then skips.
 // It is written because it is the field's stated grammar, not because a record has been seen to need it.
-function boundOpenEndedRange(ranges: ExtractedRange[], lastKnownAffected: string | undefined, ecosystem: string): ExtractedRange[] {
+function boundOpenEndedRange(ranges: ExtractedRange[], lastKnownAffected: string | undefined, comparator: VersionComparator): ExtractedRange[] {
     if (ranges.length !== 1 || typeof lastKnownAffected !== 'string') return ranges
     const text = lastKnownAffected.trim()
     const inclusive = text.startsWith('<=')
@@ -232,13 +250,13 @@ function boundOpenEndedRange(ranges: ExtractedRange[], lastKnownAffected: string
     const range = ranges[0]!
     const open = range.fixed === null && range.lastAffected === null
     if (!open) return ranges
-    if (usesSemver(range.type, ecosystem) && normalizeSemver(version) === null) return ranges
+    if (comparator.normalize(version) === null) return ranges
     // Spread rather than rebuild: `range.type` has to survive, because the matcher drops an untyped
     // range whenever the OSV scanner filters by accepted range type.
     const bounded = { ...range, fixed: inclusive ? null : version, lastAffected: inclusive ? version : null }
     // Validation belongs after the transformation. A fallback at or below the lower bound would create
     // an interval that can never report, so retain the original open range instead.
-    return canRangeMatch(bounded, ecosystem) ? [bounded] : ranges
+    return canMatchSomething(bounded, comparator) ? [bounded] : ranges
 }
 
 // GHSA records carry the severity bucket in database_specific.severity (e.g. "MODERATE"). Some records

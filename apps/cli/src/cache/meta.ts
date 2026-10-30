@@ -6,9 +6,9 @@ import { join, resolve } from 'node:path'
 //
 // The cache directory is the ONLY place the CLI writes to, apart from the advisory it was asked to write.
 // Nothing about the scanned code is ever persisted: no findings, no history, no project list, no
-// telemetry. The cache holds public data — the advisories, the npm registry metadata the fix check and the
-// way out read (cache/registry.ts) — and the bookkeeping needed to refresh it, and deleting it costs
-// nothing but a re-download.
+// telemetry. The cache holds public data — the advisories, the registry metadata the fix check and the way
+// out read (cache/registry.ts) — and the bookkeeping needed to refresh it, and deleting it costs nothing but
+// a re-download.
 
 // Bump when the on-disk layout changes in a way older files cannot satisfy. A mismatch discards and
 // re-seeds, which is always safe here precisely because this is a cache and not a source of truth.
@@ -34,9 +34,8 @@ export type SourceState = {
 
 export type CacheMeta = {
     schemaVersion: number
-    // Keyed by source, then by ecosystem. The CLI scans JavaScript only today, so the inner key is always
-    // 'npm' — but keying by ecosystem now means adding Python or Go later is a data change rather than a
-    // migration.
+    // Keyed by source, then by ecosystem: one entry per ecosystem a run has needed, so a tree that gains a
+    // Python project adds a PyPI entry beside npm's without touching it.
     sources: Record<SourceId, Record<string, SourceState>>
 }
 
@@ -56,10 +55,14 @@ export function resolveCacheDir(override?: string | null): string {
     return join(homedir(), '.cache', 'sentinello')
 }
 
+// An ecosystem id as it appears in a cache file name. Ids can hold characters that are awkward in file
+// names, so anything outside a conservative set is flattened.
+export function ecosystemFileSlug(ecosystem: string): string {
+    return ecosystem.replace(/[^a-zA-Z0-9._-]+/g, '-')
+}
+
 export function advisoryFilePath(cacheDir: string, source: SourceId, ecosystem: string): string {
-    // Ecosystem ids can contain characters that are awkward in filenames ('crates.io'), so flatten them.
-    const slug = ecosystem.replace(/[^a-zA-Z0-9._-]+/g, '-')
-    return join(cacheDir, source + '-' + slug + '.ndjson.gz')
+    return join(cacheDir, source + '-' + ecosystemFileSlug(ecosystem) + '.ndjson.gz')
 }
 
 function metaPath(cacheDir: string): string {

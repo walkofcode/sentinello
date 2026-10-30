@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { revalidatePath } from 'next/cache'
-import { insertMute, listActiveMutes } from '@sentinello/db'
+import { insertMute, listActiveMutes, muteWriteOf } from '@sentinello/db'
 import type { Mute } from '@sentinello/core'
 import { closePortalTestDb, openPortalTestDb, seedProject, seedRoot, T0, type PortalTestDb } from '@/lib/portal-test-db.fixture'
 import {
@@ -35,7 +35,7 @@ function firstMute(): Mute {
 }
 
 function seedMute(id: string, overrides: Partial<Mute> = {}): void {
-    insertMute(handle.db, {
+    insertMute(handle.db, muteWriteOf({
         id,
         scope: 'finding',
         projectId: 'project-1',
@@ -48,7 +48,7 @@ function seedMute(id: string, overrides: Partial<Mute> = {}): void {
         createdAt: T0,
         expiresAt: null,
         ...overrides
-    } as Mute)
+    } as Mute))
 }
 
 beforeEach(async function setup() {
@@ -72,6 +72,7 @@ describe('muteAction', function () {
         scope: 'finding' as const,
         projectId: 'project-1',
         source: 'npm-audit',
+        ecosystem: 'npm',
         advisoryId: 'CVE-2024-1',
         packageName: 'lodash',
         reason: 'accepted risk',
@@ -97,11 +98,12 @@ describe('muteAction', function () {
     // part of that key would produce a mute that matches far more than the operator selected.
     it.each([
         ['source', { source: null }],
+        ['ecosystem', { ecosystem: null }],
         ['advisoryId', { advisoryId: null }],
         ['packageName', { packageName: null }]
     ])('rejects a finding-scope mute missing %s', async function (_label, patch) {
         await expect(muteAction({ ...findingInput, ...patch })).rejects.toThrow(
-            'finding-scope mutes require source, advisoryId, and packageName'
+            'finding-scope mutes require source, ecosystem, advisoryId, and packageName'
         )
         expect(activeMutes()).toEqual([])
     })
@@ -143,10 +145,15 @@ describe('muteAction', function () {
 
     // Ecosystem-aware callers pass the real value; older ones have none. Defaulting to npm keeps a
     // mute from being ecosystem-wildcard, which would silence a same-named PyPI package too.
-    it('defaults a missing ecosystem to npm', async function () {
-        await muteAction(findingInput)
+    // A mute on npm lodash must never silence a same-named PyPI package, and nothing guesses npm for one
+    // that names no ecosystem (SENTINEL-121).
+    it('refuses an ecosystem the registry does not know', async function () {
+        await expect(muteAction({ ...findingInput, ecosystem: 'Maven' })).rejects.toThrow('unknown ecosystem "Maven"')
+        expect(activeMutes()).toEqual([])
+    })
 
-        expect(firstMute().ecosystem).toBe('npm')
+    it('refuses a project mute with no project', async function () {
+        await expect(muteAction({ ...findingInput, scope: 'project', projectId: null })).rejects.toThrow('project-scope mutes require a projectId')
     })
 
     it('honours an explicit ecosystem', async function () {
@@ -202,8 +209,8 @@ describe('muteLibraryAction', function () {
         const result = await muteLibraryAction({
             ...base,
             advisories: [
-                { source: 'npm-audit', advisoryId: 'CVE-2024-1' },
-                { source: 'osv', advisoryId: 'GHSA-2' }
+                { source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' },
+                { source: 'osv', ecosystem: 'npm', advisoryId: 'GHSA-2' }
             ]
         })
 
@@ -213,7 +220,7 @@ describe('muteLibraryAction', function () {
 
     it('rejects an empty reason before touching the database', async function () {
         await expect(
-            muteLibraryAction({ ...base, reason: ' ', advisories: [{ source: 'npm-audit', advisoryId: 'CVE-2024-1' }] })
+            muteLibraryAction({ ...base, reason: ' ', advisories: [{ source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' }] })
         ).rejects.toThrow('mute reason is required')
         expect(activeMutes()).toEqual([])
     })
@@ -234,8 +241,8 @@ describe('muteLibraryAction', function () {
         const result = await muteLibraryAction({
             ...base,
             advisories: [
-                { source: 'npm-audit', advisoryId: 'CVE-2024-1' },
-                { source: 'npm-audit', advisoryId: 'CVE-2024-2' }
+                { source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' },
+                { source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-2' }
             ]
         })
 
@@ -250,8 +257,8 @@ describe('muteLibraryAction', function () {
         const result = await muteLibraryAction({
             ...base,
             advisories: [
-                { source: 'npm-audit', advisoryId: 'CVE-2024-1' },
-                { source: 'osv', advisoryId: 'GHSA-2' }
+                { source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' },
+                { source: 'osv', ecosystem: 'npm', advisoryId: 'GHSA-2' }
             ]
         })
 
@@ -262,14 +269,15 @@ describe('muteLibraryAction', function () {
     it('treats a project-agnostic mute as covering this project', async function () {
         seedMute('mute-global', { projectId: null })
 
-        const result = await muteLibraryAction({ ...base, advisories: [{ source: 'npm-audit', advisoryId: 'CVE-2024-1' }] })
+        const result = await muteLibraryAction({ ...base, advisories: [{ source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' }] })
 
         expect(result).toEqual({ created: 0, skipped: 1 })
     })
 
     // Likewise a null ecosystem is the legacy wildcard written before mutes were ecosystem-aware.
     it('treats a null-ecosystem mute as covering any ecosystem', async function () {
-        seedMute('mute-legacy', { ecosystem: null })
+        seedMute('mute-legacy')
+        handle.sqlite.prepare('UPDATE mutes SET ecosystem = NULL').run()
 
         const result = await muteLibraryAction({
             ...base,
@@ -295,7 +303,7 @@ describe('muteLibraryAction', function () {
     it('does not let a mute for one source cover another source', async function () {
         seedMute('mute-npm-audit', { scanner: 'npm-audit' })
 
-        const result = await muteLibraryAction({ ...base, advisories: [{ source: 'osv', advisoryId: 'CVE-2024-1' }] })
+        const result = await muteLibraryAction({ ...base, advisories: [{ source: 'osv', ecosystem: 'npm', advisoryId: 'CVE-2024-1' }] })
 
         expect(result).toEqual({ created: 1, skipped: 0 })
     })
@@ -304,7 +312,7 @@ describe('muteLibraryAction', function () {
     it('ignores an expired mute when deciding what to skip', async function () {
         seedMute('mute-expired', { expiresAt: T0 - 1 })
 
-        const result = await muteLibraryAction({ ...base, advisories: [{ source: 'npm-audit', advisoryId: 'CVE-2024-1' }] })
+        const result = await muteLibraryAction({ ...base, advisories: [{ source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' }] })
 
         expect(result).toEqual({ created: 1, skipped: 0 })
     })
@@ -313,8 +321,8 @@ describe('muteLibraryAction', function () {
         await muteLibraryAction({
             ...base,
             advisories: [
-                { source: 'npm-audit', advisoryId: 'CVE-2024-1' },
-                { source: 'osv', advisoryId: 'GHSA-2' }
+                { source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' },
+                { source: 'osv', ecosystem: 'npm', advisoryId: 'GHSA-2' }
             ]
         })
 
@@ -331,8 +339,8 @@ describe('muteLibraryEverywhereAction', function () {
         const result = await muteLibraryEverywhereAction({
             ...base,
             rows: [
-                { projectId: 'project-1', source: 'npm-audit', advisoryId: 'CVE-2024-1' },
-                { projectId: 'project-2', source: 'npm-audit', advisoryId: 'CVE-2024-1' }
+                { projectId: 'project-1', source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' },
+                { projectId: 'project-2', source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' }
             ]
         })
 
@@ -346,7 +354,7 @@ describe('muteLibraryEverywhereAction', function () {
             muteLibraryEverywhereAction({
                 ...base,
                 reason: '\t',
-                rows: [{ projectId: 'project-1', source: 'npm-audit', advisoryId: 'CVE-2024-1' }]
+                rows: [{ projectId: 'project-1', source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' }]
             })
         ).rejects.toThrow('mute reason is required')
     })
@@ -366,8 +374,8 @@ describe('muteLibraryEverywhereAction', function () {
         const result = await muteLibraryEverywhereAction({
             ...base,
             rows: [
-                { projectId: 'project-1', source: 'npm-audit', advisoryId: 'CVE-2024-1' },
-                { projectId: 'project-2', source: 'npm-audit', advisoryId: 'CVE-2024-1' }
+                { projectId: 'project-1', source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' },
+                { projectId: 'project-2', source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' }
             ]
         })
 
@@ -396,7 +404,7 @@ describe('muteLibraryEverywhereAction', function () {
         await muteLibraryEverywhereAction({
             ...base,
             packageName: '@scope/pkg',
-            rows: [{ projectId: 'project-1', source: 'npm-audit', advisoryId: 'CVE-2024-1' }]
+            rows: [{ projectId: 'project-1', source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' }]
         })
 
         expect(bustedPaths()).toContain('/libraries/npm/%40scope%2Fpkg')
@@ -406,8 +414,8 @@ describe('muteLibraryEverywhereAction', function () {
         await muteLibraryEverywhereAction({
             ...base,
             rows: [
-                { projectId: 'project-1', source: 'npm-audit', advisoryId: 'CVE-2024-1' },
-                { projectId: 'project-2', source: 'npm-audit', advisoryId: 'CVE-2024-1' }
+                { projectId: 'project-1', source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' },
+                { projectId: 'project-2', source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' }
             ]
         })
 
@@ -425,8 +433,8 @@ describe('muteLibraryEverywhereAction', function () {
         const result = await muteLibraryEverywhereAction({
             ...base,
             rows: [
-                { projectId: 'project-1', source: 'npm-audit', advisoryId: 'CVE-2024-1' },
-                { projectId: 'project-2', source: 'npm-audit', advisoryId: 'CVE-2024-1' }
+                { projectId: 'project-1', source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' },
+                { projectId: 'project-2', source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' }
             ]
         })
 
@@ -443,7 +451,7 @@ describe('muteLibraryEverywhereAction', function () {
 
         await muteLibraryEverywhereAction({
             ...base,
-            rows: [{ projectId: 'project-1', source: 'npm-audit', advisoryId: 'CVE-2024-1' }]
+            rows: [{ projectId: 'project-1', source: 'npm-audit', ecosystem: 'npm', advisoryId: 'CVE-2024-1' }]
         })
 
         expect(bustedPaths()).not.toContain('/projects/project-1')

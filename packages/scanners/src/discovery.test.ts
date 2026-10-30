@@ -2,8 +2,9 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterAll, describe, expect, it } from 'vitest'
-import { discoverProjectsInTree, detectEcosystems, detectPackageManager, readGitBranch } from './discovery'
-import type { DiscoverySkip } from './discovery'
+import { ECOSYSTEMS, STABLE_ECOSYSTEMS } from '@sentinello/core'
+import { discoverProjectsInTree, detectPackageManager, readGitBranch } from './discovery'
+import type { DiscoveryError, DiscoverySkip } from './discovery'
 
 // Fixture trees are built at runtime from the specs below rather than committed as files, for two
 // reasons that leave no choice:
@@ -280,28 +281,43 @@ describe('discoverProjectsInTree — project metadata', function () {
     })
 })
 
-describe('detectEcosystems and detectPackageManager', function () {
-    it('detects npm from package.json alone', async function () {
+describe('ecosystems and detectPackageManager', function () {
+    function ecosystemsOf(root: string, options: Record<string, unknown> = {}): string[][] {
+        return discoverProjectsInTree({ rootPath: root, ...options }).map(function ecos(p) { return p.ecosystems })
+    }
+
+    it('detects npm from package.json alone, listing it as the manifest', async function () {
         const root = await makeTree({ 'package.json': PKG })
-        expect(detectEcosystems(root)).toContain('npm')
+        expect(discoverProjectsInTree({ rootPath: root })[0]).toMatchObject({
+            ecosystems: ['npm'],
+            manifests: [{ path: 'package.json', ecosystem: 'npm', kind: 'package.json' }]
+        })
     })
 
-    // Preview ecosystems are not detected at all, rather than detected and then ignored downstream.
+    // Ecosystems not asked for are not detected at all, rather than detected and then ignored downstream.
     // Stamping an id on the project produced a coverage row for an ecosystem no source would ever answer
     // for, which reads to an operator as "found and handled" when nothing was scanned.
-    it('ignores a preview ecosystem manifest', async function () {
-        const root = await makeTree({ 'Cargo.lock': '[[package]]\n' })
-        expect(detectEcosystems(root)).toEqual([])
+    it('ignores the manifests of an ecosystem it was not asked for', async function () {
+        const npmOnly = ECOSYSTEMS.filter(function isNpm(eco) { return eco.id === 'npm' })
+        expect(ecosystemsOf(await makeTree({ 'Cargo.lock': '[[package]]\n' }), { ecosystems: npmOnly })).toEqual([])
+        expect(ecosystemsOf(await makeTree({ 'package.json': PKG, 'go.mod': 'module x\n' }), { ecosystems: npmOnly })).toEqual([['npm']])
     })
 
-    it('detects only the offered ecosystems in a mixed directory', async function () {
-        const root = await makeTree({ 'package.json': PKG, 'go.mod': 'module x\n' })
-        expect(detectEcosystems(root)).toEqual(['npm'])
+    // The default is the registry's stable set, whatever it holds at the time.
+    it('looks for the stable ecosystems by default', async function () {
+        const root = await makeTree({
+            'package.json': PKG,
+            'requirements.txt': '',
+            'go.mod': 'module x\n',
+            'Cargo.lock': '',
+            'Gemfile.lock': ''
+        })
+        expect(ecosystemsOf(root)).toEqual([STABLE_ECOSYSTEMS.map(function id(eco) { return eco.id })])
     })
 
-    it('reports no ecosystems for a plain directory', async function () {
+    it('reports no project for a plain directory', async function () {
         const root = await makeTree({ 'readme.md': '# hi' })
-        expect(detectEcosystems(root)).toEqual([])
+        expect(ecosystemsOf(root, { ecosystems: ECOSYSTEMS })).toEqual([])
     })
 
     // npm wins because LOCKFILE_TO_PM is checked in declaration order.
@@ -426,6 +442,21 @@ describe('discoverProjectsInTree — unreadable paths', function () {
         await chmod(join(root, 'locked'), 0o000)
         try {
             expect(discoverProjectsInTree({ rootPath: root }).map(function rel(p) { return p.relPath })).toEqual(['good'])
+        } finally {
+            await chmod(join(root, 'locked'), 0o755)
+        }
+    })
+
+    // …but not silently: a caller that deletes what it no longer sees must know this walk is incomplete.
+    it('reports the directory it could not read', async function () {
+        const { chmod } = await import('node:fs/promises')
+        const root = await makeTree({ 'good/package.json': PKG, 'locked/keep': 'x' })
+        await chmod(join(root, 'locked'), 0o000)
+        const errors: DiscoveryError[] = []
+        try {
+            discoverProjectsInTree({ rootPath: root, onError: function record(error) { errors.push(error) } })
+            expect(errors.map(function path(e) { return e.path })).toEqual([join(root, 'locked')])
+            expect(errors[0]?.message).toContain('EACCES')
         } finally {
             await chmod(join(root, 'locked'), 0o755)
         }

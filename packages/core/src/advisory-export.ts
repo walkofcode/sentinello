@@ -1,4 +1,5 @@
-import { compareSeverity, type FixStatus, type Severity } from './types'
+import { compareSeverity, type FindingInstallation, type FixStatus, type Severity } from './types'
+import { computesWayOut, getEcosystem } from './ecosystems'
 import { describeFix, describeFixDisagreement, describeNotRechecked, type FixCheck, type FixTextStyle } from './fix-status'
 import { describeRemediation, type Remediation } from './remediation'
 import type { NotRecheckedBecause, ScanState } from './scan-state'
@@ -27,6 +28,9 @@ import { describeGroupedReasonLong, groupScanReasons, scanStateHeadline } from '
 //     clean board. Muting is a human's accepted-risk call; the same goes for widening a range or
 //     narrowing the scan's scope until the advisory stops matching. The residual table is the honest
 //     alternative: it makes "not fixed" visible and dated instead of absent.
+//   - "Use each ecosystem's own tools": since 3.8 a finding can be a Python, Go, Rust or Ruby package. The
+//     sections above speak npm (overrides, `pnpm why`); an agent applying them literally to a Gemfile.lock
+//     reaches for tools that do not exist there, or fixes one manifest of several.
 //   - "When no fixed version is released": agents handed a fix version that was never published lost
 //     whole runs searching for it, pinning it, or forcing it with an override. A finding whose Fix line
 //     says no fixed version is released has no version to chase; its "Way out" block is the plan.
@@ -42,7 +46,7 @@ Do NOT propose or apply a single version change until you have worked through al
 
 1. **What the advisory actually does.** Open the linked URL. Severity alone does not tell you whether your code path is exposed — a "critical" in a dev-only tool is very different from a "critical" in a request-handling library. Note the realistic exposure for *this* project.
 
-2. **Direct or transitive?** Run \`pnpm why <pkg>\` / \`npm ls <pkg>\` / \`yarn why <pkg>\` at the repo root. Record the dependency path and the immediate parent.
+2. **Direct or transitive?** Run \`pnpm why <pkg>\` / \`npm ls <pkg>\` / \`yarn why <pkg>\` at the repo root, or the ecosystem's own tool listed below. Record the dependency path and the immediate parent.
 
 3. **The parent-upgrade path — always check this; it is the preferred fix.** If the package is transitive, the safest fix is almost always to upgrade the *parent* so it pulls the patched child via a combination its author actually tested. For each transitive finding, report: the immediate parent, whether a newer parent version exists that resolves to the patched child, that parent's release maturity (stable / rc / beta / canary), and whether it is installable under the project's policy. Only if no viable parent upgrade exists do you move on to an override.
 
@@ -70,6 +74,18 @@ Where you do control the specifier, prefer an exact version for direct dependenc
 - **Removal trigger** — the concrete condition under which the override should be dropped (e.g. "remove when the parent ships a stable release that pulls the patched child"). Record this next to the override in the manifest.
 
 No justification block, no override.
+
+## Use each ecosystem's own tools
+
+Every finding below names its ecosystem, and every manifest it is installed through. The sections above are written in npm's terms; for the other ecosystems use their own tools, and apply the fix in every manifest listed under **Installed through**, not only the first:
+
+- **npm** (\`package-lock.json\`, \`pnpm-lock.yaml\`): everything above applies as written.
+- **PyPI** (\`requirements.txt\`, \`poetry.lock\`, \`uv.lock\`, \`Pipfile.lock\`): raise the pin in \`requirements.txt\`, or run \`poetry update <pkg>\`, \`uv lock --upgrade-package <pkg>\` or \`pipenv update <pkg>\`. Find who pulls it in with \`pipdeptree -r -p <pkg>\`, \`poetry show --why <pkg>\` or \`uv tree --invert --package <pkg>\`. A constraint added only to force a transitive version is an override.
+- **Go** (\`go.mod\`): \`go get <module>@<version>\`, then \`go mod tidy\`; \`go mod why -m <module>\` shows who needs it. A \`replace\` directive is an override.
+- **crates.io** (\`Cargo.lock\`): \`cargo update -p <crate> --precise <version>\` when its dependents' requirements admit that version, otherwise upgrade the parent; \`cargo tree -i <crate>\` shows who pulls it in. A \`[patch]\` entry is an override.
+- **RubyGems** (\`Gemfile.lock\`): \`bundle update --conservative <gem>\`; the Gemfile.lock's \`specs\` section shows which gem requires it. Pinning a transitive gem in the Gemfile only to force its version is an override.
+
+Overrides in any ecosystem need the four-part justification above. The release-age gate of step 6 is npm's and pnpm's; treat an equivalent policy in another ecosystem (uv's \`exclude-newer\`, for example) the same way, and never commit a relaxed one. **Chain unknown** means the lockfile records no dependency graph (\`requirements.txt\`, \`go.mod\`): find the parent with the tools above before deciding whether the package is direct or transitive. The **Way out** is computed for npm only: for any other ecosystem it says so, and the parent upgrade is yours to investigate.
 
 ## When no fixed version is released
 
@@ -115,8 +131,14 @@ export type ExportScope =
     | { kind: 'workspace'; rootPath: string; projectCount: number; depType: 'all' | 'prod' | 'dev' }
 
 export type ExportFinding = {
+    // The finding's ecosystem (EcosystemId): which registry the package is from, and so which tool upgrades it.
+    ecosystem: string
     packageName: string
+    // The lowest affected version across `installations`.
     installedVersion: string
+    // Every (manifest, installed version) the finding was matched through: a library installed through two
+    // Gemfile.locks is one finding listing both. Empty on a row written before 3.8.
+    installations: readonly FindingInstallation[]
     fixAvailable: boolean
     fixVersion: string | null
     // How far the fix version was verified (see FixStatus), and the snapshot it was verified on. A null
@@ -135,6 +157,8 @@ export type ExportFinding = {
     vulnerableRange: string | null
     isProd: boolean
     isDev: boolean
+    // The dependency chain(s) the finding was reached through. Empty when the lockfile records no dependency
+    // graph (requirements.txt, go.mod): the chain is unknown, and the document says so.
     depPath: string[]
     // Only set on library-scope exports — the project this finding belongs to. For project-scope
     // exports every row is the same project, so this is omitted from the rendered output.
@@ -203,6 +227,7 @@ function formatFinding(index: number, f: ExportFinding): string {
     const headline = '`' + escapeForMarkdown(f.packageName) + '@' + escapeForMarkdown(f.installedVersion) + '` — ' + f.severity
     lines.push('### ' + index + '. ' + headline)
     lines.push('')
+    lines.push('- **Ecosystem:** ' + ecosystemLabel(f.ecosystem))
     const title = f.advisoryTitle || f.advisoryId
     if (f.advisoryUrl) {
         lines.push('- **Advisory:** [' + title + '](' + f.advisoryUrl + ') (`' + escapeForMarkdown(f.advisoryId) + '`)')
@@ -223,10 +248,14 @@ function formatFinding(index: number, f: ExportFinding): string {
     const disagreement = describeFixDisagreement(f, MARKDOWN_FIX_STYLE)
     if (disagreement) lines.push('- **Fix evidence:** ' + disagreement)
     if (f.fixStatus === 'none_released' && f.remediation) {
-        for (const line of wayOutLines(f.remediation, f.notRecheckedBecause ?? null)) lines.push(line)
+        for (const line of wayOutLines(f.ecosystem, f.remediation, f.notRecheckedBecause ?? null)) lines.push(line)
     }
     if (f.vulnerableRange) {
         lines.push('- **Vulnerable range:** `' + escapeForMarkdown(f.vulnerableRange) + '`')
+    }
+    // Each copy, so a fix can be applied in every manifest that holds one.
+    if (f.installations.length > 0) {
+        lines.push('- **Installed through:** ' + f.installations.map(function copy(i) { return '`' + escapeForMarkdown(i.manifestPath) + '` (' + escapeForMarkdown(i.version) + ')' }).join(', '))
     }
     lines.push('- **Dep type:** ' + depTypeForFinding(f))
     // A merged entry carries the union of every contributing row's paths. One path still renders in the
@@ -243,6 +272,8 @@ function formatFinding(index: number, f: ExportFinding): string {
         for (const p of paths) {
             lines.push('    - `' + p.map(escapeForMarkdown).join(' › ') + '`')
         }
+    } else {
+        lines.push('- **Dependency path:** ' + CHAIN_UNKNOWN_TEXT)
     }
     if (f.projectName) {
         lines.push('- **Project:** ' + f.projectName)
@@ -250,13 +281,28 @@ function formatFinding(index: number, f: ExportFinding): string {
     return lines.join('\n')
 }
 
+// What every surface says where a finding has no dependency chain: the lockfile it was read from records no
+// graph (requirements.txt, go.mod), so the chain is unknown — never that there is no way out.
+export const CHAIN_UNKNOWN_TEXT = 'chain unknown (the lockfile records no dependency graph)'
+
+// "`PyPI` (Python)": the registry id a tool takes, and the language it is.
+function ecosystemLabel(ecosystem: string): string {
+    const definition = getEcosystem(ecosystem)
+    return '`' + escapeForMarkdown(ecosystem) + '`' + (definition === null ? '' : ' (' + definition.displayName + ')')
+}
+
 // The "Way out" block under the Fix line: the package's health, one verdict per dependency path, whether
 // only dev tooling reaches it, and the curated alternatives with their signals. A way out kept from an
-// earlier scan says so first: the registry may have moved since.
-function wayOutLines(r: Remediation, notRechecked: NotRecheckedBecause | null): string[] {
+// earlier scan says so first: the registry may have moved since. An ecosystem with no computed way out has
+// no health or alternatives to show, only its verdicts, which say why.
+function wayOutLines(ecosystem: string, r: Remediation, notRechecked: NotRecheckedBecause | null): string[] {
     const text = describeRemediation(r, MARKDOWN_FIX_STYLE)
     const lines = ['- **Way out:**']
     if (notRechecked) lines.push('    - **As of the last successful scan:** ' + describeNotRechecked(notRechecked))
+    if (!computesWayOut(ecosystem)) {
+        for (const c of text.chains) lines.push('    - ' + c)
+        return lines
+    }
     lines.push('    - **Health:** ' + text.health)
     if (text.chains.length > 0) {
         lines.push('    - **Paths:**')

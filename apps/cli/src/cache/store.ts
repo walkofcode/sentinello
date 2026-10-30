@@ -28,13 +28,18 @@ export type StorableRow = {
     advisoryId: string
 }
 
+// The two leading fields of a row's line, which identify one package's entry for one advisory.
+//
+// A tab or newline inside a package name or advisory id would corrupt the record boundaries. Neither is
+// legal in either identifier, but the cache is derived from third-party feeds, so strip rather than trust: a
+// malformed upstream record must not be able to smuggle in extra rows. Exported so a caller naming rows to
+// drop (rewriteRows' dropRowKeys) spells the key exactly as the line does.
+export function rowKey(packageName: string, advisoryId: string): string {
+    return packageName.replace(/[\t\n\r]/g, '') + FIELD_SEPARATOR + advisoryId.replace(/[\t\n\r]/g, '')
+}
+
 function encodeRow(row: StorableRow): string {
-    // A tab or newline inside a package name or advisory id would corrupt the record boundaries. Neither is
-    // legal in either identifier, but the cache is derived from third-party feeds, so strip rather than
-    // trust: a malformed upstream record must not be able to smuggle in extra rows.
-    const name = row.packageName.replace(/[\t\n\r]/g, '')
-    const id = row.advisoryId.replace(/[\t\n\r]/g, '')
-    return name + FIELD_SEPARATOR + id + FIELD_SEPARATOR + JSON.stringify(row)
+    return rowKey(row.packageName, row.advisoryId) + FIELD_SEPARATOR + JSON.stringify(row)
 }
 
 export type RowWriter = {
@@ -151,8 +156,13 @@ export async function readRowsForPackages<T extends StorableRow>(
 
 export type RewriteInput<T extends StorableRow> = {
     // Advisory ids whose existing rows should be dropped. An advisory that changed upstream is cleared and
-    // rewritten wholesale, so a package removed from its affected set disappears instead of lingering.
-    dropAdvisoryIds: Set<string>
+    // rewritten wholesale, so a package removed from its affected set disappears instead of lingering. Right
+    // for OSV, where one record is the whole advisory for every package of the file's ecosystem.
+    dropAdvisoryIds?: Set<string>
+    // Single (package, advisory) rows to drop, keyed by rowKey. gemnasium keeps one file per package and
+    // advisory, so a changed file speaks for its package alone: dropping its advisory id wholesale would
+    // also delete the rows of every other package that advisory names, and re-append only this one.
+    dropRowKeys?: Set<string>
     // Rows to append after the surviving ones.
     append: readonly T[]
 }
@@ -171,8 +181,8 @@ export async function rewriteRows<T extends StorableRow>(path: string, input: Re
             if (nameEnd === -1) continue
             const idEnd = line.indexOf(FIELD_SEPARATOR, nameEnd + 1)
             if (idEnd === -1) continue
-            const advisoryId = line.slice(nameEnd + 1, idEnd)
-            if (input.dropAdvisoryIds.has(advisoryId)) continue
+            if (input.dropAdvisoryIds && input.dropAdvisoryIds.has(line.slice(nameEnd + 1, idEnd))) continue
+            if (input.dropRowKeys && input.dropRowKeys.has(line.slice(0, idEnd))) continue
             surviving.push(line)
         }
     } catch {

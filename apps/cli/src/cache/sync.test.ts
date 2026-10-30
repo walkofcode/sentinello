@@ -2,9 +2,9 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GEMNASIUM_NORMALIZER_VERSION, GEMNASIUM_SEED_DOWNLOAD_BYTES, OSV_NORMALIZER_VERSION, type GemnasiumAdvisoryRow, type OsvAdvisoryRow } from '@sentinello/core'
+import { GEMNASIUM_NORMALIZER_VERSION, GEMNASIUM_SEED_DOWNLOAD_BYTES, osvNormalizerVersion, type EcosystemId, type GemnasiumAdvisoryRow, type OsvAdvisoryRow } from '@sentinello/core'
 import { advisoryFilePath, ensureCacheDir, getSourceState, readCacheMeta, setSourceState, writeCacheMeta, type SourceId, type SourceState } from './meta'
-import { createRowWriter, readRowsForPackages } from './store'
+import { createRowWriter, readRowsForPackages, rowKey } from './store'
 
 // Turns the shared feed package into a refreshed on-disk cache. @sentinello/feeds is the only thing
 // stubbed, and only because it owns the network — every cache file below is real gzipped NDJSON written
@@ -36,7 +36,7 @@ vi.mock('@sentinello/feeds', async function mockFeeds(importOriginal) {
     return { ...actual, ...feeds }
 })
 
-const { cacheRowCount, planSync, runSync } = await import('./sync')
+const { cacheRowCount, gemnasiumPathRowKey, normalizerVersionOf, pathEcosystemMatches, planSync, runSync } = await import('./sync')
 
 const T0 = Date.UTC(2026, 0, 1)
 
@@ -46,7 +46,7 @@ function options(overrides: Partial<Parameters<typeof runSync>[0]> = {}) {
     return {
         cacheDir: dir,
         sources: ['osv', 'gemnasium'] as SourceId[],
-        ecosystem: 'npm' as const,
+        ecosystems: ['npm'] as EcosystemId[],
         ...overrides
     }
 }
@@ -100,7 +100,7 @@ async function seedFile(source: SourceId, rows: readonly object[]): Promise<void
 async function seedState(source: SourceId, overrides: Partial<SourceState> = {}): Promise<void> {
     const meta = await readCacheMeta(dir)
     setSourceState(meta, source, 'npm', {
-        normalizerVersion: source === 'osv' ? OSV_NORMALIZER_VERSION : GEMNASIUM_NORMALIZER_VERSION,
+        normalizerVersion: source === 'osv' ? osvNormalizerVersion('npm') : GEMNASIUM_NORMALIZER_VERSION,
         recordCount: 1,
         refreshedAt: T0,
         ...overrides
@@ -195,7 +195,7 @@ describe('planSync', function () {
 
     // A cache written by an older normalizer is treated as absent rather than matched with wrong semantics.
     it('plans a re-seed when the cached rows came from an older normalizer', async function () {
-        await seedState('osv', { normalizerVersion: OSV_NORMALIZER_VERSION - 1 })
+        await seedState('osv', { normalizerVersion: osvNormalizerVersion('npm') - 1 })
         const plan = await planSync(options({ sources: ['osv'] }))
         expect(plan.items[0]?.kind).toBe('seed')
     })
@@ -279,7 +279,7 @@ describe('planSync — withdrawal evidence for gemnasium', function () {
 
     it('re-seeds the evidence when it came from an older normalizer', async function () {
         await seedState('gemnasium')
-        await seedState('osv', { normalizerVersion: OSV_NORMALIZER_VERSION - 1 })
+        await seedState('osv', { normalizerVersion: osvNormalizerVersion('npm') - 1 })
         const plan = await planSync(options({ sources: ['gemnasium'] }))
         expect(plan.items[1]).toMatchObject({ source: 'osv', kind: 'seed', purpose: 'withdrawal-evidence' })
     })
@@ -397,7 +397,7 @@ describe('runSync — OSV', function () {
     // A fresh seed supersedes any prior cursor, so the next refresh must re-read modified_id.csv rather
     // than trust a 304 against a copy from before the seed.
     it('clears the etag on a seed', async function () {
-        await seedState('osv', { etag: 'stale-etag', normalizerVersion: OSV_NORMALIZER_VERSION - 1 })
+        await seedState('osv', { etag: 'stale-etag', normalizerVersion: osvNormalizerVersion('npm') - 1 })
         await runSync(options({ sources: ['osv'] }), await planSync(options({ sources: ['osv'] })))
         expect((await stateOf('osv'))?.etag).toBeNull()
     })
@@ -681,6 +681,32 @@ describe('runSync — gemnasium', function () {
         expect(outcomes[0]?.rowCount).toBe(2)
     })
 
+    // The rows a failed pass would have replaced are the ones still in force upstream: dropping them before
+    // every changed file was re-read would leave a seeded cache that answers "no advisory" for them.
+    it('keeps every row a pass would touch when a later file fetch fails', async function () {
+        await seedFile('gemnasium', [
+            gemRow({ advisoryId: 'GMS-a', packageName: 'a', summary: 'old text' }),
+            gemRow({ advisoryId: 'GMS-b', packageName: 'b' }),
+            gemRow({ advisoryId: 'GMS-c', packageName: 'c' })
+        ])
+        await seedState('gemnasium', { headSha: 'b'.repeat(40) })
+        feeds.fetchGemnasiumChangedPaths.mockResolvedValue({
+            status: 'ok',
+            changed: ['npm/a/GMS-a.yml', 'npm/b/GMS-b.yml'],
+            deleted: ['npm/c/GMS-c.yml']
+        })
+        feeds.fetchGemnasiumFileRows
+            .mockResolvedValueOnce([gemRow({ advisoryId: 'GMS-a', packageName: 'a', summary: 'new text' })])
+            .mockRejectedValueOnce(new Error('upstream 500'))
+        const outcomes = await runSync(options({ sources: ['gemnasium'] }), await planSync(options({ sources: ['gemnasium'] })))
+        expect(outcomes[0]).toMatchObject({ status: 'error', message: expect.stringContaining('upstream 500') })
+        expect((await stateOf('gemnasium'))?.headSha).toBe('b'.repeat(40))
+        const rows = await readRowsForPackages<GemnasiumAdvisoryRow>(advisoryFilePath(dir, 'gemnasium', 'npm'), new Set(['a', 'b', 'c']))
+        expect(rows.get('a')).toEqual([expect.objectContaining({ advisoryId: 'GMS-a', summary: 'old text' })])
+        expect(rows.get('b')).toHaveLength(1)
+        expect(rows.get('c')).toHaveLength(1)
+    })
+
     it('stops fetching advisory files partway through once aborted', async function () {
         await seedFile('gemnasium', [gemRow()])
         await seedState('gemnasium', { headSha: 'b'.repeat(40) })
@@ -694,8 +720,12 @@ describe('runSync — gemnasium', function () {
             controller.abort()
             return [gemRow({ advisoryId: 'GMS-a' })]
         })
-        await runSync(options({ sources: ['gemnasium'], abortSignal: controller.signal }), await planSync(options({ sources: ['gemnasium'] })))
+        const outcomes = await runSync(options({ sources: ['gemnasium'], abortSignal: controller.signal }), await planSync(options({ sources: ['gemnasium'] })))
         expect(feeds.fetchGemnasiumFileRows).toHaveBeenCalledTimes(1)
+        // A pass cut short writes nothing and keeps the sha, so the next refresh repeats the window.
+        expect(outcomes[0]).toMatchObject({ status: 'error', message: expect.stringContaining('cancelled') })
+        expect((await stateOf('gemnasium'))?.headSha).toBe('b'.repeat(40))
+        expect(await cacheRowCount(dir, 'gemnasium', 'npm')).toBe(1)
     })
 })
 
@@ -762,7 +792,7 @@ describe('runSync — the cursor and record-count fallbacks', function () {
         feeds.fetchOsvChangedIds.mockResolvedValue(changed)
 
         const outcomes = await runSync(options({ sources: ['osv'] }), {
-            items: [{ source: 'osv', ecosystem: 'npm', purpose: 'findings', kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false }],
+            items: [{ source: 'osv', ecosystems: ['npm'], purpose: 'findings', kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false }],
             seedBytes: 0,
             needsConsent: false
         })
@@ -779,7 +809,7 @@ describe('runSync — the cursor and record-count fallbacks', function () {
         feeds.fetchOsvAdvisoryRows.mockRejectedValue(new Error('connection reset'))
 
         const outcomes = await runSync(options({ sources: ['osv'] }), {
-            items: [{ source: 'osv', ecosystem: 'npm', purpose: 'findings', kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false }],
+            items: [{ source: 'osv', ecosystems: ['npm'], purpose: 'findings', kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false }],
             seedBytes: 0,
             needsConsent: false
         })
@@ -908,45 +938,258 @@ describe('runSync — gemnasium paths that are not advisories', function () {
         expect(outcomes[0]).toMatchObject({ status: 'refreshed', rowCount: 2 })
     })
 
-    // The changed-path filter is npm-specific by design: gemnasium's archive is laid out as
-    // "<packageType>/<package>/<id>.yml" and npm's package-type directory happens to share its name with
-    // the registry ecosystem id, which is the only reason a prefix compare works. For every other
-    // ecosystem the filter has to pass everything through rather than silently discarding the whole
-    // compare — a wrong answer there reports "nothing changed" forever.
-    //
-    // Reachable today only by driving the plan directly: the CLI has no --ecosystem flag yet and every
-    // production caller passes DEFAULT_ECOSYSTEM. The moment one is added, this is the arm it takes.
-    it('keeps every changed path for a non-npm ecosystem', async function () {
+})
+
+// Several ecosystems in one cache (SENTINEL-67). OSV has one export per ecosystem and is planned per
+// ecosystem; gemnasium is one archive for all of them, planned and downloaded once. Each ecosystem keeps its
+// own file, and a change to one ecosystem must never touch another's rows.
+describe('several ecosystems', function () {
+    const HEAD = 'a'.repeat(40)
+    const OLD = 'b'.repeat(40)
+
+    async function seedEcosystemFile(source: SourceId, ecosystem: EcosystemId, rows: readonly object[]): Promise<void> {
         await ensureCacheDir(dir)
-        const writer = createRowWriter(advisoryFilePath(dir, 'gemnasium', 'PyPI'))
-        await writer.write([gemRow({ ecosystem: 'PyPI', packageName: 'flask', advisoryId: 'GMS-py-1' })] as never)
+        const writer = createRowWriter(advisoryFilePath(dir, source, ecosystem))
+        await writer.write(rows as never)
         await writer.commit()
+    }
+
+    async function seedEcosystemState(source: SourceId, ecosystem: EcosystemId, overrides: Partial<SourceState> = {}): Promise<void> {
         const meta = await readCacheMeta(dir)
-        setSourceState(meta, 'gemnasium', 'PyPI', {
-            normalizerVersion: GEMNASIUM_NORMALIZER_VERSION,
+        setSourceState(meta, source, ecosystem, {
+            normalizerVersion: normalizerVersionOf(source, ecosystem),
             recordCount: 1,
             refreshedAt: T0,
-            headSha: 'b'.repeat(40)
+            ...overrides
         })
         await writeCacheMeta(dir, meta)
-        feeds.fetchGemnasiumChangedPaths.mockResolvedValue({
-            status: 'ok',
-            changed: ['pypi/flask/GMS-py-2.yml'],
-            deleted: []
-        })
-        feeds.fetchGemnasiumFileRows.mockResolvedValue([
-            gemRow({ ecosystem: 'PyPI', packageName: 'flask', advisoryId: 'GMS-py-2' })
-        ])
+    }
 
-        const outcomes = await runSync(options({ sources: ['gemnasium'], ecosystem: 'PyPI' }), {
-            items: [{ source: 'gemnasium', ecosystem: 'PyPI', purpose: 'findings', kind: 'refresh', downloadBytes: null, downloadBytesEstimated: false }],
-            seedBytes: 0,
-            needsConsent: false
+    async function rowsOf(source: SourceId, ecosystem: EcosystemId, names: string[]) {
+        return await readRowsForPackages<GemnasiumAdvisoryRow>(advisoryFilePath(dir, source, ecosystem), new Set(names))
+    }
+
+    function polyglot(overrides: Partial<Parameters<typeof runSync>[0]> = {}) {
+        return options({ ecosystems: ['npm', 'PyPI'], ...overrides })
+    }
+
+    describe('planSync', function () {
+        it('plans one OSV export per ecosystem and one gemnasium archive for all of them', async function () {
+            const plan = await planSync(polyglot())
+            expect(plan.items.map(function shape(i) { return [i.source, i.ecosystems, i.kind] })).toEqual([
+                ['osv', ['npm'], 'seed'],
+                ['osv', ['PyPI'], 'seed'],
+                ['gemnasium', ['npm', 'PyPI'], 'seed']
+            ])
+            expect(feeds.headOsvSeed.mock.calls.map(function eco(call) { return call[0] })).toEqual(['npm', 'PyPI'])
+            // Two OSV exports at 96 MB each, and the archive once.
+            expect(plan.seedBytes).toBe(2 * 96 * 1024 * 1024 + GEMNASIUM_SEED_DOWNLOAD_BYTES)
         })
 
-        // The pypi/ path was NOT filtered out, so the refresh applied it rather than reporting the
-        // commit as irrelevant and advancing the sha over it.
-        expect(outcomes[0]).toMatchObject({ status: 'refreshed' })
-        expect(feeds.fetchGemnasiumFileRows).toHaveBeenCalled()
+        it('downloads nothing for a tree with no ecosystem', async function () {
+            const plan = await planSync(options({ ecosystems: [] }))
+            expect(plan.items).toEqual([])
+            expect(plan.needsConsent).toBe(false)
+        })
+
+        it('re-seeds the gemnasium archive when one of its ecosystems is new, but refreshes a seeded OSV export', async function () {
+            await seedEcosystemState('osv', 'npm')
+            await seedEcosystemState('gemnasium', 'npm', { headSha: HEAD })
+            const plan = await planSync(polyglot())
+            expect(plan.items.map(function shape(i) { return [i.source, i.ecosystems, i.kind] })).toEqual([
+                ['osv', ['npm'], 'refresh'],
+                ['osv', ['PyPI'], 'seed'],
+                ['gemnasium', ['npm', 'PyPI'], 'seed']
+            ])
+        })
+
+        it('plans OSV withdrawal evidence for each ecosystem gemnasium audits', async function () {
+            const plan = await planSync(polyglot({ sources: ['gemnasium'] }))
+            expect(plan.items.map(function shape(i) { return [i.source, i.ecosystems, i.purpose] })).toEqual([
+                ['gemnasium', ['npm', 'PyPI'], 'findings'],
+                ['osv', ['npm'], 'withdrawal-evidence'],
+                ['osv', ['PyPI'], 'withdrawal-evidence']
+            ])
+        })
+    })
+
+    describe('a gemnasium seed', function () {
+        it('downloads the archive once and writes each ecosystem its own file', async function () {
+            feeds.streamGemnasiumArchive.mockImplementation(streamOf([{
+                rows: [
+                    gemRow({ ecosystem: 'npm', packageName: 'lodash' }),
+                    gemRow({ ecosystem: 'npm', packageName: 'lodash', advisoryId: 'GMS-2024-2' }),
+                    gemRow({ ecosystem: 'PyPI', packageName: 'requests', advisoryId: 'GMS-py' }),
+                    gemRow({ ecosystem: 'Go', packageName: 'example.invalid/mod', advisoryId: 'GMS-go' })
+                ]
+            }]))
+            const outcomes = await runSync(polyglot({ sources: ['gemnasium'] }), {
+                items: [{ source: 'gemnasium', ecosystems: ['npm', 'PyPI'], purpose: 'findings', kind: 'seed', downloadBytes: null, downloadBytesEstimated: true }],
+                seedBytes: 0,
+                needsConsent: false
+            })
+            expect(feeds.streamGemnasiumArchive).toHaveBeenCalledTimes(1)
+            expect(outcomes[0]).toMatchObject({ source: 'gemnasium', ecosystems: ['npm', 'PyPI'], status: 'seeded', rowCount: 3 })
+            expect((await rowsOf('gemnasium', 'npm', ['lodash'])).get('lodash')).toHaveLength(2)
+            expect([...(await rowsOf('gemnasium', 'PyPI', ['requests'])).keys()]).toEqual(['requests'])
+            // An ecosystem the tree does not hold is not written at all.
+            expect(await cacheRowCount(dir, 'gemnasium', 'Go')).toBe(0)
+            const meta = await readCacheMeta(dir)
+            expect(getSourceState(meta, 'gemnasium', 'npm')).toMatchObject({ headSha: HEAD, recordCount: 2 })
+            expect(getSourceState(meta, 'gemnasium', 'PyPI')).toMatchObject({ headSha: HEAD, recordCount: 1 })
+        })
+
+        it('keeps every ecosystem\'s previous file when the download fails midway', async function () {
+            await seedEcosystemFile('gemnasium', 'npm', [gemRow({ advisoryId: 'GMS-old-npm' })])
+            await seedEcosystemFile('gemnasium', 'PyPI', [gemRow({ ecosystem: 'PyPI', packageName: 'requests', advisoryId: 'GMS-old-py' })])
+            feeds.streamGemnasiumArchive.mockImplementation(async function* failing() {
+                yield { rows: [gemRow({ ecosystem: 'PyPI', packageName: 'requests', advisoryId: 'GMS-new-py' })] }
+                throw new Error('connection reset')
+            })
+            const outcomes = await runSync(polyglot({ sources: ['gemnasium'] }), await planSync(polyglot({ sources: ['gemnasium'] })))
+            expect(outcomes[0]).toMatchObject({ status: 'error', message: 'connection reset' })
+            expect((await rowsOf('gemnasium', 'npm', ['lodash'])).get('lodash')?.map(function id(r) { return r.advisoryId })).toEqual(['GMS-old-npm'])
+            expect((await rowsOf('gemnasium', 'PyPI', ['requests'])).get('requests')?.map(function id(r) { return r.advisoryId })).toEqual(['GMS-old-py'])
+        })
+    })
+
+    describe('a gemnasium refresh', function () {
+        async function seedBoth(npmSha: string, pypiSha: string): Promise<void> {
+            await seedEcosystemFile('gemnasium', 'npm', [gemRow({ advisoryId: 'CVE-FAKE-SHARED', packageName: 'lodash' })])
+            await seedEcosystemFile('gemnasium', 'PyPI', [gemRow({ ecosystem: 'PyPI', advisoryId: 'CVE-FAKE-SHARED', packageName: 'requests' })])
+            await seedEcosystemState('gemnasium', 'npm', { headSha: npmSha })
+            await seedEcosystemState('gemnasium', 'PyPI', { headSha: pypiSha })
+        }
+
+        async function refreshBoth() {
+            return await runSync(polyglot({ sources: ['gemnasium'] }), await planSync(polyglot({ sources: ['gemnasium'] })))
+        }
+
+        // The bug this replaced: every non-npm path matched every ecosystem, and the drop went by advisory id,
+        // so an npm file changing CVE-X deleted PyPI's CVE-X rows and re-appended none.
+        it('leaves the PyPI rows intact when an npm advisory sharing their id changes', async function () {
+            await seedBoth(OLD, OLD)
+            feeds.fetchGemnasiumChangedPaths.mockResolvedValue({ status: 'ok', changed: ['npm/lodash/CVE-FAKE-SHARED.yml'], deleted: [] })
+            feeds.fetchGemnasiumFileRows.mockResolvedValue([gemRow({ advisoryId: 'CVE-FAKE-SHARED', packageName: 'lodash', severity: 'low' })])
+            const outcomes = await refreshBoth()
+            expect(outcomes[0]).toMatchObject({ status: 'refreshed', rowCount: 2, message: '1 advisory file(s) updated' })
+            expect(feeds.fetchGemnasiumChangedPaths).toHaveBeenCalledTimes(1)
+            expect(feeds.fetchGemnasiumFileRows).toHaveBeenCalledTimes(1)
+            expect((await rowsOf('gemnasium', 'PyPI', ['requests'])).get('requests')).toHaveLength(1)
+            expect((await rowsOf('gemnasium', 'npm', ['lodash'])).get('lodash')?.[0]?.severity).toBe('low')
+            // Both ecosystems move to the compared commit.
+            const meta = await readCacheMeta(dir)
+            expect(getSourceState(meta, 'gemnasium', 'npm')?.headSha).toBe(HEAD)
+            expect(getSourceState(meta, 'gemnasium', 'PyPI')?.headSha).toBe(HEAD)
+        })
+
+        it('leaves the npm rows intact when a PyPI advisory file sharing their id is deleted', async function () {
+            await seedBoth(OLD, OLD)
+            feeds.fetchGemnasiumChangedPaths.mockResolvedValue({ status: 'ok', changed: [], deleted: ['pypi/requests/CVE-FAKE-SHARED.yml'] })
+            await refreshBoth()
+            expect(await cacheRowCount(dir, 'gemnasium', 'PyPI')).toBe(0)
+            expect((await rowsOf('gemnasium', 'npm', ['lodash'])).get('lodash')).toHaveLength(1)
+        })
+
+        it('keeps another package\'s rows for the same advisory in the same ecosystem', async function () {
+            await seedEcosystemFile('gemnasium', 'npm', [gemRow({ advisoryId: 'CVE-FAKE-TWO', packageName: 'left-pkg' }), gemRow({ advisoryId: 'CVE-FAKE-TWO', packageName: 'right-pkg' })])
+            await seedEcosystemState('gemnasium', 'npm', { headSha: OLD })
+            feeds.fetchGemnasiumChangedPaths.mockResolvedValue({ status: 'ok', changed: ['npm/left-pkg/CVE-FAKE-TWO.yml'], deleted: [] })
+            feeds.fetchGemnasiumFileRows.mockResolvedValue([gemRow({ advisoryId: 'CVE-FAKE-TWO', packageName: 'left-pkg', severity: 'low' })])
+            await runSync(options({ sources: ['gemnasium'] }), await planSync(options({ sources: ['gemnasium'] })))
+            const rows = await rowsOf('gemnasium', 'npm', ['left-pkg', 'right-pkg'])
+            expect(rows.get('right-pkg')).toHaveLength(1)
+            expect(rows.get('left-pkg')?.map(function severity(r) { return r.severity })).toEqual(['low'])
+        })
+
+        it('compares each stored commit once, and none already at HEAD', async function () {
+            const OTHER = 'c'.repeat(40)
+            await seedBoth(OLD, OTHER)
+            await seedEcosystemFile('gemnasium', 'Go', [gemRow({ ecosystem: 'Go', packageName: 'example.invalid/mod' })])
+            await seedEcosystemState('gemnasium', 'Go', { headSha: HEAD, recordCount: 5 })
+            const options3 = options({ sources: ['gemnasium'], ecosystems: ['npm', 'PyPI', 'Go'] })
+            const outcomes = await runSync(options3, await planSync(options3))
+            expect(feeds.fetchGemnasiumChangedPaths.mock.calls.map(function from(call) { return call[0] })).toEqual([OLD, OTHER])
+            // Nothing relevant changed anywhere: unchanged, the counts summed across the three files.
+            expect(outcomes[0]).toMatchObject({ status: 'unchanged', rowCount: 7 })
+            expect(getSourceState(await readCacheMeta(dir), 'gemnasium', 'PyPI')?.headSha).toBe(HEAD)
+        })
+
+        it('re-seeds every ecosystem from one archive when a compare is unavailable', async function () {
+            await seedBoth(OLD, OLD)
+            feeds.fetchGemnasiumChangedPaths.mockResolvedValue({ status: 'unavailable', reason: 'compare timed out upstream' })
+            feeds.streamGemnasiumArchive.mockImplementation(streamOf([{ rows: [gemRow(), gemRow({ ecosystem: 'PyPI', packageName: 'requests' })] }]))
+            const outcomes = await refreshBoth()
+            expect(outcomes[0]).toMatchObject({ status: 'seeded', rowCount: 2 })
+            expect(feeds.streamGemnasiumArchive).toHaveBeenCalledTimes(1)
+        })
+
+        it('re-seeds every ecosystem when one has no stored commit', async function () {
+            await seedBoth(OLD, OLD)
+            await seedEcosystemState('gemnasium', 'PyPI', { headSha: null })
+            const outcomes = await refreshBoth()
+            expect(outcomes[0]?.status).toBe('seeded')
+            expect(feeds.fetchGemnasiumHeadSha).toHaveBeenCalledTimes(1)
+        })
+
+        it.each([
+            ['crates.io', 'cargo/serde/RUSTSEC-FAKE-1.yml', 'serde'],
+            ['RubyGems', 'gem/rack/CVE-FAKE-RB.yml', 'rack'],
+            ['Go', 'go/example.invalid/mod/CVE-FAKE-GO.yml', 'example.invalid/mod']
+        ] as const)('applies a %s change found under its own package-type directory', async function (ecosystem, path, name) {
+            await seedEcosystemFile('gemnasium', ecosystem, [gemRow({ ecosystem, packageName: name, advisoryId: 'OLD-ID' })])
+            await seedEcosystemState('gemnasium', ecosystem, { headSha: OLD })
+            feeds.fetchGemnasiumChangedPaths.mockResolvedValue({ status: 'ok', changed: [path], deleted: [] })
+            feeds.fetchGemnasiumFileRows.mockResolvedValue([gemRow({ ecosystem, packageName: name, advisoryId: path.split('/').pop()!.replace('.yml', '') })])
+            const scoped = options({ sources: ['gemnasium'], ecosystems: [ecosystem] })
+            const outcomes = await runSync(scoped, await planSync(scoped))
+            expect(outcomes[0]).toMatchObject({ status: 'refreshed', rowCount: 2 })
+        })
+    })
+})
+
+describe('pathEcosystemMatches', function () {
+    it.each([
+        ['npm/lodash/CVE-1.yml', 'npm', true],
+        ['pypi/requests/CVE-1.yml', 'PyPI', true],
+        ['pypi/requests/CVE-1.yml', 'npm', false],
+        ['npm/lodash/CVE-1.yml', 'PyPI', false],
+        ['cargo/serde/CVE-1.yml', 'crates.io', true],
+        ['gem/rack/CVE-1.yml', 'RubyGems', true],
+        ['go/example.invalid/mod/CVE-1.yml', 'Go', true],
+        // A directory whose name merely starts with a package type is another package type.
+        ['npmx/pkg/CVE-1.yml', 'npm', false],
+        ['maven/org/x/CVE-1.yml', 'npm', false],
+        ['npm/lodash/CVE-1.yml', 'nuget', false]
+    ])('%s belongs to %s: %s', function (path, ecosystem, expected) {
+        expect(pathEcosystemMatches(path, ecosystem)).toBe(expected)
+    })
+})
+
+describe('gemnasiumPathRowKey', function () {
+    it('keys the package between the type directory and the file, scoped names included', function () {
+        expect(gemnasiumPathRowKey('npm/@scope/pkg/CVE-1.yml')).toBe(rowKey('@scope/pkg', 'CVE-1'))
+        expect(gemnasiumPathRowKey('go/example.invalid/org/mod/GHSA-x.yml')).toBe(rowKey('example.invalid/org/mod', 'GHSA-x'))
+    })
+
+    // The normalizer keys PyPI names by PEP 503, so the drop has to as well or the old row survives.
+    it('canonicalizes a PyPI name the way the normalizer does', function () {
+        expect(gemnasiumPathRowKey('pypi/Some_Package/CVE-1.yml')).toBe(rowKey('some-package', 'CVE-1'))
+    })
+
+    it.each([
+        ['npm/CVE-1.yml'],
+        ['npm/lodash/'],
+        ['npm//CVE-1.yml']
+    ])('is null for %s, which names no package and file', function (path) {
+        expect(gemnasiumPathRowKey(path)).toBeNull()
+    })
+})
+
+describe('normalizerVersionOf', function () {
+    it('reads OSV\'s per ecosystem and gemnasium\'s single number', function () {
+        expect(normalizerVersionOf('osv', 'PyPI')).toBe(osvNormalizerVersion('PyPI'))
+        expect(normalizerVersionOf('osv', 'npm')).toBe(osvNormalizerVersion('npm'))
+        expect(normalizerVersionOf('gemnasium', 'PyPI')).toBe(GEMNASIUM_NORMALIZER_VERSION)
     })
 })

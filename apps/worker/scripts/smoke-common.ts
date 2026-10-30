@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import type { DepTypeFilter, Project } from '@sentinello/core'
 import type { DrizzleDb } from '@sentinello/db'
-import type { FixEvidence, OsvAdvisory, RawFinding, ScannerPlugin, ScanResult } from '@sentinello/scanners'
+import { versionSetFromSemverRange, type FixEvidence, type OsvAdvisory, type RawFinding, type ScannerPlugin, type ScanResult } from '@sentinello/scanners'
 import { checkInvariants, FRESH_WINDOW_MS, type InvariantInput, type InvariantRow } from './smoke-invariants'
 import { openScratchEnv, type ScratchEnv } from './scratch-env'
 import { startStubRegistry, type StubRegistry } from '../../../tests/fixtures/registry-stub'
@@ -140,11 +140,12 @@ async function osvFixtureScanner(): Promise<ScannerPlugin> {
 // A second source that reports one extra qs advisory, and can be told to fail: the shape of a source that
 // succeeded last scan and errored this one, whose rows the runner deliberately preserves.
 function failingSecondSource(): ScannerPlugin & { failing: boolean } {
-    const affected = { ranges: '>=6.14.2 <=6.15.3', exact: [], complete: true }
-    const evidence: FixEvidence = { source: 'gemnasium', installed: ['6.15.0'], affected, patched: null, statedFix: null, fixViaParent: false }
+    const vulnerableRange = '>=6.14.2 <=6.15.3'
+    const affected = versionSetFromSemverRange(vulnerableRange)
+    const evidence: FixEvidence = { source: 'gemnasium', installed: ['6.15.0'], affected, patched: null, patchedSet: null, statedFix: null, fixViaParent: false }
     const finding: RawFinding = {
         advisoryId: 'GMS-fixture-qs-extra', aliases: [], advisoryTitle: 'Fixture: an extra qs advisory from a second source', advisoryUrl: null,
-        packageName: 'qs', ecosystem: 'npm', installedVersion: '6.15.0', vulnerableRange: affected.ranges, severity: 'moderate',
+        packageName: 'qs', ecosystem: 'npm', installedVersion: '6.15.0', vulnerableRange, severity: 'moderate',
         fixAvailable: false, fixVersion: null, fixInputs: evidence, depPath: ['qs'], isProd: true, isDev: false
     }
     const source = {
@@ -165,7 +166,7 @@ async function seedFixtureProject(env: ScratchEnv): Promise<Project> {
     upsertRoot(env.db, { id: 'fixture-root', path: join(FIXTURES, 'projects'), label: 'fixtures', createdAt: at })
     const project: Project = {
         id: 'fixture-fix-status', rootId: 'fixture-root', relPath: 'fix-status', name: 'fix-status', alias: null, packageManager: 'npm',
-        nvmrcVersion: null, gitBranch: null, ecosystems: ['npm'], muted: false, tags: [], createdAt: at, updatedAt: at
+        nvmrcVersion: null, gitBranch: null, ecosystems: ['npm'], manifests: [], muted: false, tags: [], createdAt: at, updatedAt: at
     }
     upsertProject(env.db, project)
     // The read model shows only enabled source cells; the fixture's findings come from OSV (and, in the

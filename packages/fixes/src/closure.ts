@@ -193,7 +193,7 @@ function judge(closure: Closure, target: ProofTarget, finished: boolean): Reach 
 // affected sets) never share a verdict.
 export function targetIdentity(target: ProofTarget): string {
     const sets = target.affected.map(function canonical(a) {
-        return JSON.stringify({ ranges: a.ranges, exact: [...a.exact].sort(), complete: a.complete })
+        return JSON.stringify({ comparator: a.comparator, ranges: a.ranges, exact: [...a.exact].sort(), complete: a.complete })
     }).sort()
     return target.name + '|' + sets.join('|')
 }

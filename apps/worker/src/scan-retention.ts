@@ -33,8 +33,9 @@ export const DEFAULT_RETENTION_DAYS = 90
 
 // Never prune a project below its most recent 100 scans, however old they are. That keeps the latest scan
 // of every source still running — the coverage getProjectEcosystemCoverage reads and the scan state is
-// computed from — and the vuln-trend sparkline. Each source's latest scan and latest ok scan are kept on
-// top of it (listPrunableScanIds), so a source out-scanned by the others never reads an old ok as current,
+// computed from — and the vuln-trend sparkline. Each (source, ecosystem) cell's latest scan and latest ok
+// scan are kept on top of it (listPrunableScanIds), so a cell out-scanned by the others never reads an old
+// ok as current,
 // and a long-failing project still says when it last scanned successfully.
 export const KEEP_PER_PROJECT = 100
 

@@ -1,18 +1,12 @@
 import type { Metadata } from 'next'
 import { getTranslations } from 'next-intl/server'
-import { getConfigValue, getSourceEnabled } from '@sentinello/db'
-import {
-    DEFAULT_ECOSYSTEM,
-    STABLE_ECOSYSTEMS,
-    LEGACY_SOURCE_CONFIG_KEYS,
-    SOURCES,
-    sourceStatusKey,
-    sourceSupportsEcosystem,
-    type SourceStatus
-} from '@sentinello/core'
+import { getSourceEnabled, listProjectScanStates } from '@sentinello/db'
+import { STABLE_ECOSYSTEMS, SOURCES, sourceSupportsEcosystem } from '@sentinello/core'
 import { SourceReferenceTable } from '@/components/settings/source-reference-table'
 import { SourcesForm, type SourceCellVM, type LanguageRowVM } from '@/components/settings/sources-form'
 import { getDb } from '@/lib/db'
+import { projectsWithoutSource } from '@/lib/project-state'
+import { readSourceCellStatus } from '@/lib/source-status'
 
 export async function generateMetadata(): Promise<Metadata> {
     const t = await getTranslations('Settings')
@@ -24,22 +18,14 @@ export default async function SourcesSettingsPage() {
     // Build the Languages × Sources matrix from the central registry so Settings, filters, and the backend
     // never drift on ecosystem/source identity. Each cell carries its persisted enabled flag (read through
     // getSourceEnabled, which applies the per-cell key, legacy-key fallback, and per-source default) and,
-    // for cache-backed sources, the worker's last sync-status snapshot.
+    // for cache-backed sources, the worker's last sync-status snapshot (readSourceCellStatus).
+    // Per language, the projects nothing scans because no source is enabled for it: what the "Turn on"
+    // actions are offered for. Read from the same scan states the dashboard and project pages show.
+    const withoutSource = projectsWithoutSource(listProjectScanStates(db).values()).ecosystems
     const rows: LanguageRowVM[] = STABLE_ECOSYSTEMS.map(function toRow(eco) {
         const cells: SourceCellVM[] = SOURCES.filter(function supports(source) {
             return sourceSupportsEcosystem(source.id, eco.id)
         }).map(function toCell(source): SourceCellVM {
-            // Status snapshots read the per-cell key; the npm cell additionally falls back to the legacy
-            // flat key for the brief window before the worker boot migrates them. Non-cache-backed sources
-            // (npm-audit) have no snapshot.
-            let status: SourceStatus | null = null
-            if (source.cacheBacked) {
-                status = getConfigValue<SourceStatus>(db, sourceStatusKey(source.id, eco.id))
-                if (!status && eco.id === DEFAULT_ECOSYSTEM) {
-                    const legacyKey = source.id === 'osv' ? LEGACY_SOURCE_CONFIG_KEYS.osvStatus : LEGACY_SOURCE_CONFIG_KEYS.gemnasiumStatus
-                    status = getConfigValue<SourceStatus>(db, legacyKey)
-                }
-            }
             return {
                 source: source.id,
                 ecosystem: eco.id,
@@ -49,14 +35,15 @@ export default async function SourcesSettingsPage() {
                 // `defaultEnabled` IS the definition of the built-in source: the one that is on out of
                 // the box, which is exactly the one an operator must not be able to switch off.
                 builtIn: source.defaultEnabled,
-                status
+                status: readSourceCellStatus(db, source.id, eco.id)
             }
         })
         return {
             ecosystem: eco.id,
             language: eco.language,
             displayName: eco.displayName,
-            cells
+            cells,
+            projectsWithoutSource: withoutSource.find(function same(entry) { return entry.ecosystem === eco.id })?.projects ?? 0
         }
     })
     return (

@@ -48,6 +48,7 @@ function addProject(id: string): void {
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems: ['npm'],
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,
@@ -66,6 +67,7 @@ function finding(overrides: Partial<IncomingFinding> = {}): IncomingFinding {
         advisoryUrl: 'https://example.test/1',
         packageName: 'lodash',
         installedVersion: '4.17.11',
+        installations: [],
         vulnerableRange: '<4.17.21',
         severity: 'high',
         fixAvailable: true,
@@ -96,15 +98,22 @@ function scanProject(projectId: string, incoming: IncomingFinding[], scanner = '
         errorText: null,
         rawJson: ''
     })
-    mergeFindingsForScan(db, {
-        projectId,
-        scanner,
-        scanId,
-        scanFinishedAt: T0 + scanCounter,
-        // The finding's own scanner/source must match the scan's, or the source-cell filter judges it
-        // under the wrong cell — npm-audit, for instance, only ever answers for the npm ecosystem.
-        incoming: incoming.map(function scoped(f) { return { ...f, projectId, scanner, source: scanner } })
-    })
+    // One merge per (scanner, ecosystem) cell, as the runner does.
+    const ecosystems = Array.from(new Set(incoming.map(function eco(f) { return f.ecosystem })))
+    for (const ecosystem of ecosystems.length > 0 ? ecosystems : ['npm' as const]) {
+        mergeFindingsForScan(db, {
+            projectId,
+            scanner,
+            ecosystem,
+            scanId,
+            scanFinishedAt: T0 + scanCounter,
+            // The finding's own scanner/source must match the scan's, or the source-cell filter judges it
+            // under the wrong cell — npm-audit, for instance, only ever answers for the npm ecosystem.
+            incoming: incoming
+                .filter(function inCell(f) { return f.ecosystem === ecosystem })
+                .map(function scoped(f) { return { ...f, projectId, scanner, source: scanner } })
+        })
+    }
 }
 
 function mute(overrides: Record<string, unknown> = {}): void {
@@ -323,6 +332,12 @@ describe('listLibraryUsage', function () {
             ecosystem: 'npm',
             advisoryId: 'CVE-2024-1'
         })
+    })
+
+    // The library export lists every manifest a copy is in, and the chain, unknown when it is empty.
+    it('carries the installations and the dependency chain', function () {
+        scanProject('project-1', [finding({ installations: [{ manifestPath: 'package-lock.json', version: '4.17.11' }], depPath: ['app>lodash'] })])
+        expect(listLibraryUsage(db, 'lodash', AT)[0]).toMatchObject({ installations: [{ manifestPath: 'package-lock.json', version: '4.17.11' }], depPath: ['app>lodash'] })
     })
 
     it('reports the installed version and range', function () {

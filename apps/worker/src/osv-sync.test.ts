@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
     OSV_META_KEYS,
-    OSV_NORMALIZER_VERSION,
+    osvNormalizerVersion,
     countOsvAdvisories,
     getOsvMeta,
     lookupOsvByPackages,
@@ -231,7 +231,7 @@ describe('seedOsv', function () {
 
         expect(result).toMatchObject({ status: 'ok', upserted: 2, recordCount: 2, message: null })
         expect(meta<boolean>(OSV_META_KEYS.seedComplete)).toBe(true)
-        expect(meta<number>(OSV_META_KEYS.normalizerVersion)).toBe(OSV_NORMALIZER_VERSION)
+        expect(meta<number>(OSV_META_KEYS.normalizerVersion)).toBe(osvNormalizerVersion(ECO))
         expect(meta<number>(OSV_META_KEYS.recordCount)).toBe(2)
         expect(meta<string>(OSV_META_KEYS.lastModified)).toBe('Mon, 01 Jan 2026 00:00:00 GMT')
         expect(meta<string>(OSV_META_KEYS.lastError)).toBeNull()
@@ -355,7 +355,7 @@ describe('seedOsv', function () {
 describe('incrementalSyncOsv', function () {
     beforeEach(function markSeeded() {
         setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, ECO), true)
-        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, ECO), OSV_NORMALIZER_VERSION)
+        setOsvMeta(db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, ECO), osvNormalizerVersion(ECO))
     })
 
     it('skips when the feed is disabled', async function () {

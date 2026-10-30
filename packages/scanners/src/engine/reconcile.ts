@@ -1,4 +1,5 @@
-import { DEFAULT_ECOSYSTEM, escalatedSeverity, type FindingCorroboration, type Severity } from '@sentinello/core'
+import { DEFAULT_ECOSYSTEM, escalatedSeverity, requireComparator, type FindingCorroboration, type FindingInstallation, type Severity } from '@sentinello/core'
+import { compareVersions, highestVersion } from '@sentinello/versions'
 import type { RawFinding } from '../types'
 import type { FixEvidence } from '../version-fix'
 
@@ -84,6 +85,14 @@ export function reconcileAgainstReported(
         const existing = reportedByPackage.get(packageKey) || new Map<string, ReportedAdvisory>()
         const keys = findingIdentityKeys(finding)
         const target = firstReported(existing, keys)
+        if (target && target.source === source) {
+            // The same source matched the same advisory through another installed copy — another manifest
+            // (ios/ and android/ Gemfile.locks) or another copy in one lockfile. Still one finding: it lists
+            // every installation. That is not agreement, so it is not a corroboration either.
+            foldInstallation(target.finding, finding)
+            target.evidence.push(finding.fixInputs)
+            continue
+        }
         if (target) {
             // Same vulnerability, already reported. Record who else saw it and how they graded it —
             // never a second finding.
@@ -96,8 +105,7 @@ export function reconcileAgainstReported(
             if (!attached.some(function already(c) { return c.source === by.source })) attached.push(by)
             target.finding.corroborations = attached
             target.finding.severity = escalatedSeverity(target.severity, attached)
-            // A second source, or a second installed copy from the same source: its evidence still bears
-            // on the fix even though it is not a second finding.
+            // A second source: its evidence still bears on the fix even though it is not a second finding.
             target.evidence.push(finding.fixInputs)
             continue
         }
@@ -116,6 +124,34 @@ export function reconcileAgainstReported(
         reportedByPackage.set(packageKey, existing)
     }
     return { kept, corroborations }
+}
+
+// Folds another installed copy into the finding that survived for it (decision #4):
+//   - `installations` lists every (manifest, version), each once;
+//   - `installedVersion` is the lowest affected installed version, by the ecosystem's comparator;
+//   - the stated fix is the highest of the copies' own stated fixes, so it covers every copy — or none when
+//     some copy has no stated fix, since then no single version is known to fix them all (settlement decides
+//     from every copy's evidence either way);
+//   - the scope is the union: shipped if any copy ships it;
+//   - the dependency chains are every copy's, each once.
+function foldInstallation(survivor: RawFinding, copy: RawFinding): void {
+    const comparator = requireComparator(survivor.ecosystem ?? DEFAULT_ECOSYSTEM)
+    const installations = installationsOf(survivor)
+    for (const installation of installationsOf(copy)) {
+        if (!installations.some(function same(i) { return i.manifestPath === installation.manifestPath && i.version === installation.version })) installations.push(installation)
+    }
+    survivor.installations = installations
+    if (compareVersions(copy.installedVersion, survivor.installedVersion, comparator) < 0) survivor.installedVersion = copy.installedVersion
+    survivor.fixVersion = survivor.fixVersion === null || copy.fixVersion === null ? null : highestVersion([survivor.fixVersion, copy.fixVersion], comparator)
+    survivor.fixAvailable = survivor.fixVersion !== null
+    survivor.isProd = survivor.isProd || copy.isProd
+    survivor.isDev = survivor.isDev || copy.isDev
+    // A new array: the survivor's chain is the resolved package's own list, shared with the graph.
+    survivor.depPath = survivor.depPath.concat(copy.depPath.filter(function unseen(step) { return !survivor.depPath.includes(step) }))
+}
+
+function installationsOf(finding: RawFinding): FindingInstallation[] {
+    return finding.installations ? finding.installations.slice() : []
 }
 
 function firstReported(existing: Map<string, ReportedAdvisory>, keys: string[]): ReportedAdvisory | null {

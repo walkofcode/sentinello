@@ -141,7 +141,8 @@ jobs:
 
     portal-e2e:
         name: portal end-to-end
-        runs-on: ubuntu-latest
+        # Playwright 1.60 has no ubuntu-26.04 support; unpin once it is bumped to a release that has.
+        runs-on: ubuntu-24.04
         # Two next start processes plus a real worker means a hang is possible; the default ceiling
         # is six hours, which would burn a runner rather than fail.
         timeout-minutes: 30

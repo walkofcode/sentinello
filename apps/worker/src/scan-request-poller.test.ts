@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { CAPABILITIES } from '@sentinello/core'
 import {
     enqueueScanRequest,
     enqueueWorkerSignal,
+    getBaselineState,
+    insertScan,
     listRecentScanRequests,
     projectId as makeProjectId,
+    seedCapabilityBaselines,
     setConfigValue,
     upsertRoot
 } from '@sentinello/db'
@@ -14,6 +18,7 @@ import {
     closeWorkerTestDb,
     makeTree,
     openWorkerTestDb,
+    seedProject,
     type WorkerTestDb
 } from './worker-test-db.fixture'
 import { createWorkerRuntime, type WorkerRuntime } from './runtime'
@@ -35,7 +40,7 @@ import { createWorkerRuntime, type WorkerRuntime } from './runtime'
 // terminal-status queries and discovery, is real.
 
 const runBatch = vi.hoisted(function makeRunBatch() {
-    return vi.fn(async function runBatch(_input: unknown) { return [] as unknown[] })
+    return vi.fn(async function runBatch(_input: unknown) { return { outcomes: [] as unknown[], completed: true } })
 })
 
 vi.mock('./runner', function mockRunner() {
@@ -176,6 +181,21 @@ describe('pollOnce — full sweep', function () {
         enqueueScanRequest(handle.db, {}, T0)
         await pollOnce(input())
         expect(lastBatch().abortSignal).toBe(runtime.abortController.signal)
+    })
+
+    // A requested full sweep completes the silent baseline like a scheduled one — only if it completed.
+    it.each([
+        ['claims a pending baseline when the sweep completed', true, 'done'],
+        ['leaves the baseline pending when the sweep was cut short', false, 'pending']
+    ])('%s', async function (_label, completed, state) {
+        upsertRoot(handle.db, { id: 'old-root', path: '/not-mounted', label: null, createdAt: T0 })
+        seedProject(handle.db, { id: 'old-project', rootId: 'old-root' })
+        insertScan(handle.db, { id: 'old-scan', projectId: 'old-project', startedAt: T0, finishedAt: T0, scanner: 'npm-audit', source: 'npm-audit', ecosystem: 'npm', status: 'ok', reasonCode: 'ok', durationMs: 1, errorText: null, rawJson: '{}' })
+        seedCapabilityBaselines(handle.db, CAPABILITIES, T0)
+        runBatch.mockResolvedValueOnce({ outcomes: [], completed })
+        enqueueScanRequest(handle.db, {}, T0)
+        await pollOnce(input())
+        expect(getBaselineState(handle.db, 'languages-3.8')).toBe(state)
     })
 })
 
@@ -351,7 +371,7 @@ describe('pollOnce — the heartbeat', function () {
         let release = function release() {}
         runBatch.mockImplementationOnce(function slow() {
             return new Promise(function executor(resolve) {
-                release = function () { resolve([]) }
+                release = function () { resolve({ outcomes: [], completed: true }) }
             })
         })
         const request = enqueueScanRequest(handle.db, {}, T0)
@@ -388,7 +408,7 @@ describe('pollOnce — the heartbeat', function () {
         runBatch.mockImplementationOnce(function slow() {
             handle.sqlite.close()
             return new Promise(function executor(resolve) {
-                release = function () { resolve([]) }
+                release = function () { resolve({ outcomes: [], completed: true }) }
             })
         })
         enqueueScanRequest(handle.db, {}, T0)
@@ -494,7 +514,7 @@ describe('worker signals', function () {
         enqueueScanRequest(handle.db, {}, T0)
         runBatch.mockImplementationOnce(function assertOrder() {
             expect(scheduler.reload).toHaveBeenCalled()
-            return Promise.resolve([])
+            return Promise.resolve({ outcomes: [], completed: true })
         })
         await pollOnce(input())
         expect(runBatch).toHaveBeenCalled()
@@ -633,7 +653,7 @@ describe('startScanRequestPoller', function () {
         let release = function release() {}
         runBatch.mockImplementationOnce(function slow() {
             return new Promise(function executor(resolve) {
-                release = function () { resolve([]) }
+                release = function () { resolve({ outcomes: [], completed: true }) }
             })
         })
         const handles = startScanRequestPoller(input({ intervalMs: 100 }))

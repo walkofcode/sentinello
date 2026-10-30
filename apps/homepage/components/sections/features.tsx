@@ -1,5 +1,5 @@
 import { useTranslations } from 'next-intl'
-import { Bell, Bot, Boxes, CheckCheck, Container, FileDown, FolderGit2, Inbox, Languages, RefreshCw, ServerCog, ShieldAlert, type LucideIcon } from 'lucide-react'
+import { Bell, Bot, Boxes, CheckCheck, Container, FileDown, FolderGit2, Inbox, Languages, Layers, RefreshCw, ServerCog, ShieldAlert, type LucideIcon } from 'lucide-react'
 import { Section } from './section'
 
 const FEATURES: { key: string; Icon: LucideIcon }[] = [
@@ -8,6 +8,8 @@ const FEATURES: { key: string; Icon: LucideIcon }[] = [
     { key: 'corroboration', Icon: CheckCheck },
     { key: 'scanning', Icon: RefreshCw },
     { key: 'sources', Icon: ShieldAlert },
+    // The package ecosystems scanned beside npm. Not 'languages': that key is the UI-localization card.
+    { key: 'ecosystems', Icon: Layers },
     { key: 'notifications', Icon: Bell },
     { key: 'mcp', Icon: Bot },
     { key: 'export', Icon: FileDown },
