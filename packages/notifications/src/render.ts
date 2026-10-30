@@ -1,4 +1,4 @@
-import { describeFix, describeScanReasons, getEcosystem, type Capability, PLAIN_FIX_STYLE, scanStateHeadline, reasonSide, summarizeRemediation, reasonCodeLabel, REASON_CODE_VALUES, SCAN_STATE_SIDE_SHORT, type Finding, type LabelledScanState, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
+import { CHAIN_UNKNOWN_TEXT, describeFix, describeScanReasons, getEcosystem, type Capability, PLAIN_FIX_STYLE, scanStateHeadline, reasonSide, summarizeRemediation, reasonCodeLabel, REASON_CODE_VALUES, SCAN_STATE_SIDE_SHORT, type Finding, type LabelledScanState, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
 import type { CapabilitySummaryWebhook, RenderedMessage } from './types'
 import { CAPABILITY_SUMMARY_COPY } from './capability-copy'
 
@@ -97,6 +97,7 @@ export function renderSingleFinding(input: RenderFindingInput): RenderedMessage 
     if (input.finding.installations.length > 0) lines.push('*Installed through:* ' + installationsText(input.finding))
     lines.push('*Vulnerable range:* ' + input.finding.vulnerableRange)
     lines.push('*Severity:* ' + sev + fix)
+    lines.push('*Dependency path:* ' + chainText(input.finding))
     if (input.finding.fixStatus === 'none_released' && input.finding.remediation) {
         lines.push('*Way out:* ' + summarizeRemediation(input.finding.remediation, PLAIN_FIX_STYLE))
     }
@@ -189,8 +190,16 @@ function formatLine(finding: Finding): string {
     let line = '• [' + sev + '] ' + finding.packageName + '@' + finding.installedVersion + ' (' + ecosystemLabel(finding.ecosystem) + ', ' + finding.advisoryId + ') — ' + describeFix(finding, PLAIN_FIX_STYLE)
     // Every manifest the library is installed through, so the fix reaches each copy.
     if (finding.installations.length > 0) line += '\n    In: ' + installationsText(finding)
+    line += '\n    Path: ' + chainText(finding)
     if (finding.fixStatus !== 'none_released' || !finding.remediation) return line
     return line + '\n    Way out: ' + summarizeRemediation(finding.remediation, PLAIN_FIX_STYLE)
+}
+
+// "rails › actionpack › rack", whatever the fix status: the chain is a fact of the lockfile, and the way out
+// (npm only) is a separate one. A lockfile with no graph (requirements.txt, go.mod) leaves the chain unknown,
+// which is said rather than left out, as in the advisory export.
+function chainText(finding: Finding): string {
+    return finding.depPath.length > 0 ? finding.depPath.join(' › ') : CHAIN_UNKNOWN_TEXT
 }
 
 // "ios/Gemfile.lock 2.0.8, android/Gemfile.lock 2.1.0".

@@ -170,7 +170,7 @@
         "ours_scope": "フォルダー配下のすべてのプロジェクトを、1 回の実行と 1 つのレポートで。",
         "row_languages": "言語",
         "npm_languages": "npm プロジェクトのみ。",
-        "ours_languages": "Node.js、Python、Go、Rust、Ruby のロックファイルをオフラインで読み取ります。そのために何かをインストールしたり実行したりはしません。",
+        "ours_languages": "Node.js、Python、Go、Rust、Ruby のロックファイルに対応。Python、Go、Rust、Ruby はオフラインで読み取り、パッケージマネージャーのインストールや実行は一切行いません。Node.js では npm audit も実行します。",
         "row_sources": "アドバイザリソース",
         "npm_sources": "利用中のレジストリのアドバイザリフィード。",
         "ours_sources": "それに加えて OSV と GitLab gemnasium。重複は抑制されるため、ソースを増やしても新規の検出だけが加わります。",

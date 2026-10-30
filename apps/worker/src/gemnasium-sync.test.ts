@@ -389,11 +389,14 @@ describe('syncGemnasium — the incremental path', function () {
     })
 
     // The single most consequential rule in this module: a half-applied catch-up must be retried from the
-    // same point, so the sha stays where it was.
-    it('does not advance the sha when a file fetch fails', async function () {
+    // same point, so the sha stays where it was — and the cache must stay whole meanwhile. The file changed
+    // upstream but its advisory still applies; had its row been cleared before the failed fetch, a seeded,
+    // current cache would answer "no advisory" and the next scan would resolve the open finding.
+    it('keeps the previous snapshot and the sha when a file fetch fails', async function () {
+        upsertGemnasiumAdvisories(db, [row({ advisoryId: 'CVE-X', ecosystem: 'PyPI', packageName: 'django' })])
         feeds.fetchGemnasiumChangedPaths.mockResolvedValue({
             status: 'ok',
-            changed: ['npm/a/CVE-1.yml'],
+            changed: ['pypi/django/CVE-X.yml'],
             deleted: [],
             toSha: 'sha-new'
         })
@@ -401,29 +404,44 @@ describe('syncGemnasium — the incremental path', function () {
 
         const result = await syncGemnasium(db)
 
-        expect(result).toMatchObject({ status: 'error' })
+        expect(result).toMatchObject({ status: 'error', upserted: 0, recordCount: 1 })
         expect(meta<string>(GEMNASIUM_META_KEYS.headSha)).toBe('sha-old')
         expect(meta<string>(GEMNASIUM_META_KEYS.lastError)).toContain('upstream 500')
+        expect(lookupGemnasiumByPackages(db, 'PyPI', ['django']).get('django')?.map(function id(r) { return r.advisoryId })).toEqual(['CVE-X'])
     })
 
-    it('reports how far it got before failing', async function () {
+    // A later file failing undoes nothing already fetched, because nothing was written yet: neither the first
+    // file's replacement nor a deletion in the same compare is applied, and every row it would have touched
+    // is still matchable.
+    it('applies nothing when a later file fails after an earlier one was fetched', async function () {
+        upsertGemnasiumAdvisories(db, [
+            row({ advisoryId: 'CVE-1', packageName: 'a', summary: 'old text' }),
+            row({ advisoryId: 'CVE-2', packageName: 'b' }),
+            row({ advisoryId: 'CVE-3', packageName: 'c' })
+        ])
         feeds.fetchGemnasiumChangedPaths.mockResolvedValue({
             status: 'ok',
             changed: ['npm/a/CVE-1.yml', 'npm/b/CVE-2.yml'],
-            deleted: [],
+            deleted: ['npm/c/CVE-3.yml'],
             toSha: 'sha-new'
         })
         feeds.fetchGemnasiumFileRows
-            .mockResolvedValueOnce([row({ advisoryId: 'CVE-1' })])
+            .mockResolvedValueOnce([row({ advisoryId: 'CVE-1', packageName: 'a', summary: 'new text' })])
             .mockRejectedValueOnce(new Error('upstream 500'))
 
         const result = await syncGemnasium(db)
 
-        expect(result).toMatchObject({ status: 'error', upserted: 1 })
-        expect(meta<string>(GEMNASIUM_META_KEYS.lastError)).toContain('after 1 rows')
+        expect(result).toMatchObject({ status: 'error', upserted: 0, recordCount: 3 })
+        expect(meta<string>(GEMNASIUM_META_KEYS.lastError)).toContain('after fetching 1 of 2 changed files')
+        expect(meta<string>(GEMNASIUM_META_KEYS.headSha)).toBe('sha-old')
+        const cached = lookupGemnasiumByPackages(db, 'npm', ['a', 'b', 'c'])
+        expect(cached.get('a')?.[0]?.summary).toBe('old text')
+        expect(cached.get('b')).toHaveLength(1)
+        expect(cached.get('c')).toHaveLength(1)
     })
 
-    it('stops on abort and leaves the sha where it was', async function () {
+    it('stops on abort and keeps the previous snapshot and the sha', async function () {
+        upsertGemnasiumAdvisories(db, [row({ advisoryId: 'CVE-1', packageName: 'a' }), row({ advisoryId: 'CVE-2', packageName: 'b' })])
         const controller = new AbortController()
         feeds.fetchGemnasiumChangedPaths.mockResolvedValue({
             status: 'ok',
@@ -433,7 +451,7 @@ describe('syncGemnasium — the incremental path', function () {
         })
         feeds.fetchGemnasiumFileRows.mockImplementation(async function abortAfterFirst() {
             controller.abort()
-            return [row({ advisoryId: 'CVE-1' })]
+            return []
         })
 
         const result = await syncGemnasium(db, controller.signal)
@@ -441,6 +459,32 @@ describe('syncGemnasium — the incremental path', function () {
         expect(result.status).toBe('error')
         expect(feeds.fetchGemnasiumFileRows).toHaveBeenCalledTimes(1)
         expect(meta<string>(GEMNASIUM_META_KEYS.headSha)).toBe('sha-old')
+        const cached = lookupGemnasiumByPackages(db, 'npm', ['a', 'b'])
+        expect(cached.get('a')).toHaveLength(1)
+        expect(cached.get('b')).toHaveLength(1)
+    })
+
+    // A scan running while the files download reads the previous snapshot, not a cache with the rows gone.
+    it('leaves the cache readable while the changed files are fetched', async function () {
+        upsertGemnasiumAdvisories(db, [row({ advisoryId: 'CVE-1', packageName: 'a' })])
+        feeds.fetchGemnasiumChangedPaths.mockResolvedValue({
+            status: 'ok',
+            changed: ['npm/a/CVE-1.yml'],
+            deleted: [],
+            toSha: 'sha-new'
+        })
+        const seenDuringFetch: number[] = []
+        feeds.fetchGemnasiumFileRows.mockImplementation(async function observe() {
+            seenDuringFetch.push(lookupGemnasiumByPackages(db, 'npm', ['a']).get('a')?.length ?? 0)
+            return [row({ advisoryId: 'CVE-1', packageName: 'a', summary: 'rewritten' })]
+        })
+
+        const result = await syncGemnasium(db)
+
+        expect(seenDuringFetch).toEqual([1])
+        expect(result).toMatchObject({ status: 'ok', upserted: 1, recordCount: 1 })
+        expect(lookupGemnasiumByPackages(db, 'npm', ['a']).get('a')?.[0]?.summary).toBe('rewritten')
+        expect(meta<string>(GEMNASIUM_META_KEYS.headSha)).toBe('sha-new')
     })
 
     it('clears a stale error once a catch-up succeeds', async function () {

@@ -56,8 +56,9 @@ export function reasonSide(code: string | null): ScanStateSide {
 // `scanned` — every expected source's latest scan is ok and every detected ecosystem's coverage is known and ok.
 // `partial` — at least one expected source answered, but something else did not: another source failed,
 //   one has not run yet, or an ecosystem could not be fully read. Shown as "cannot be fully scanned".
-// `cannot_scan` — no expected source answered, and at least one tried and failed.
-// `not_scanned_yet` — no expected source has ever scanned the project: the existing "never scanned". Its
+// `cannot_scan` — no expected source answered: every one that tried failed, or no source is enabled for any
+//   detected ecosystem at all (only ecosystem_source_disabled reasons, before any scan was attempted).
+// `not_scanned_yet` — an enabled source is expected but none has scanned the project yet: the existing "never scanned". Its
 //   only reasons are ecosystem_source_disabled ones, for a detected language no source is enabled for.
 export type ScanStateValue = 'scanned' | 'partial' | 'cannot_scan' | 'not_scanned_yet'
 

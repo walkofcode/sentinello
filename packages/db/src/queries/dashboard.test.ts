@@ -338,6 +338,7 @@ describe('listProjectCatalog', function () {
         expect(row?.scanStates).toEqual([
             {
                 source: 'npm-audit',
+                ecosystem: 'npm',
                 finishedAt: T0 + 5 * HOUR,
                 status: 'error',
                 reasonCode: 'audit_spawn_error',

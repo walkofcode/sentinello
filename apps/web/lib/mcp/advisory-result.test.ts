@@ -22,7 +22,8 @@ function resultOf(overrides: Partial<PaginatedAdvisoryMarkdown> = {}, mutedExclu
         page: pageOf(overrides),
         mutedExcludedCount,
         projectId: 'proj-1',
-        depType: 'prod'
+        depType: 'prod',
+        minSeverity: null
     })
 }
 

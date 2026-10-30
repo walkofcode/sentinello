@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { reasonCodeLabel, type Capability, type Finding, type FixCheck, type Locale, type NotificationEvent, type Remediation } from '@sentinello/core'
+import { CHAIN_UNKNOWN_TEXT, reasonCodeLabel, WAY_OUT_NPM_ONLY, type Capability, type Finding, type FixCheck, type Locale, type NotificationEvent, type Remediation } from '@sentinello/core'
 import { renderBatchedFindings, renderCapabilitySummary, renderScanFailure, renderSingleFinding, type RenderBatchedFindingsInput } from './render'
 
 // Notification bodies are the part of Sentinello a recipient sees without opening the portal, so the
@@ -517,6 +517,55 @@ describe('the way out in a notification', function () {
         const out = renderBatchedFindings({ projectName: 'api', projectId: 'project-1', gitBranch: null, findings: [finding({ packageName: 'braces', remediation }), finding({ id: 'f2' })], isBaseline: false, portalBaseUrl: null })
         expect(out.markdown).toContain('\n    Way out: ' + expected)
         expect(out.markdown.match(/Way out/g)).toHaveLength(1)
+    })
+})
+
+// The chain and the way-out verdict are separate facts (decision #6): a Gemfile.lock records the real chain
+// even though the way out is computed for npm only, and a requirements.txt records no chain at all, which is
+// said whatever the fix status.
+describe('the dependency chain in a notification', function () {
+    const npmOnly: Remediation = {
+        v: 1, checkedAt: Date.UTC(2026, 9, 3), package: 'rack',
+        health: { name: 'rack', latest: null, lastPublishAt: null, maintainers: 0, weeklyDownloads: null, deprecated: null, daysSinceLastPublish: null, unmaintained: false },
+        chains: [{ importer: null, rootKind: null, path: [], verdict: { kind: 'unknown', at: 'rack', reason: WAY_OUT_NPM_ONLY } }],
+        moreChains: 0, moreChainsAtLeast: false, alternatives: [], devOnly: null
+    }
+    const npmVerdict: Remediation = {
+        v: 1, checkedAt: Date.UTC(2026, 9, 3), package: 'braces',
+        health: { name: 'braces', latest: '3.0.3', lastPublishAt: Date.UTC(2024, 4, 21), maintainers: 2, weeklyDownloads: 1, deprecated: null, daysSinceLastPublish: 30, unmaintained: false },
+        chains: [{ importer: '.', rootKind: 'prod', path: ['nodemon@3.1.14', 'chokidar@3.6.0', 'braces@3.0.3'], verdict: { kind: 'blocked', escapePackage: 'chokidar', escapeVersion: '4.0.0', blockedBy: 'nodemon', blockedByLatest: '3.1.14', blockedRange: '^3.5.2', proof: { release: 'chokidar@4.0.0', closureSize: 2 } } }],
+        moreChains: 0, moreChainsAtLeast: false, alternatives: [], devOnly: false
+    }
+    const npm = finding({ packageName: 'braces', installedVersion: '3.0.3', depPath: ['nodemon', 'chokidar', 'braces'], remediation: npmVerdict })
+    const ruby = finding({ ecosystem: 'RubyGems', packageName: 'rack', installedVersion: '2.0.8', depPath: ['rails', 'actionpack', 'rack'], remediation: npmOnly })
+    const python = finding({ ecosystem: 'PyPI', packageName: 'django', installedVersion: '4.2.0', depPath: [], fixStatus: 'released', fixAvailable: true, fixVersion: '4.2.1' })
+
+    function single(f: Finding): string {
+        return renderSingleFinding({ projectName: 'app', gitBranch: null, finding: f, isBaseline: false, portalBaseUrl: null }).markdown
+    }
+
+    it('shows an npm finding\'s chain beside its computed verdict', function () {
+        expect(single(npm)).toContain('*Dependency path:* nodemon › chokidar › braces')
+        expect(single(npm)).toContain('*Way out:* chokidar ≥ 4.0.0 drops braces')
+    })
+
+    it('shows a Ruby finding\'s real chain, and says its way out is not computed', function () {
+        expect(single(ruby)).toContain('*Dependency path:* rails › actionpack › rack')
+        expect(single(ruby)).toContain('*Way out:* unknown — ' + WAY_OUT_NPM_ONLY)
+        expect(single(ruby)).not.toContain(CHAIN_UNKNOWN_TEXT)
+    })
+
+    // A released fix has no way-out line, so the qualification must not hang off it.
+    it('says a requirements.txt finding\'s chain is unknown, even with a released fix', function () {
+        expect(single(python)).toContain('*Dependency path:* ' + CHAIN_UNKNOWN_TEXT)
+        expect(single(python)).not.toContain('Way out')
+    })
+
+    it('carries each chain under its line in a batch', function () {
+        const out = renderBatchedFindings({ projectName: 'app', projectId: 'project-1', gitBranch: null, findings: [npm, ruby, python], isBaseline: false, portalBaseUrl: null })
+        expect(out.markdown).toContain('(registry checked 2026-10-03)\n    Path: nodemon › chokidar › braces\n    Way out: chokidar ≥ 4.0.0')
+        expect(out.markdown).toContain('(registry checked 2026-10-03)\n    Path: rails › actionpack › rack\n    Way out: unknown — ' + WAY_OUT_NPM_ONLY)
+        expect(out.markdown).toContain('django@4.2.0 (Python, GHSA-1) — upgrade to 4.2.1\n    Path: ' + CHAIN_UNKNOWN_TEXT)
     })
 })
 

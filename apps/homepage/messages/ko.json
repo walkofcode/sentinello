@@ -170,7 +170,7 @@
         "ours_scope": "폴더 아래 모든 프로젝트를, 한 번의 실행과 하나의 리포트로.",
         "row_languages": "언어",
         "npm_languages": "npm 프로젝트만.",
-        "ours_languages": "Node.js, Python, Go, Rust, Ruby 잠금 파일을 오프라인으로 읽습니다. 이를 위해 아무것도 설치하거나 실행하지 않습니다.",
+        "ours_languages": "Node.js, Python, Go, Rust, Ruby 잠금 파일을 지원합니다. Python, Go, Rust, Ruby는 오프라인으로 읽으며 패키지 관리자를 설치하거나 실행하지 않습니다. Node.js는 npm audit도 실행합니다.",
         "row_sources": "권고문 소스",
         "npm_sources": "사용 중인 레지스트리의 권고문 피드.",
         "ours_sources": "여기에 OSV와 GitLab gemnasium을 더합니다. 중복은 억제되므로 소스를 추가해도 새로운 발견만 늘어납니다.",

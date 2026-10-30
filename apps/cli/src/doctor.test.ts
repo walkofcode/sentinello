@@ -1,9 +1,9 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { gzipSync } from 'node:zlib'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GEMNASIUM_NORMALIZER_VERSION, osvNormalizerVersion } from '@sentinello/core'
+import { GEMNASIUM_NORMALIZER_VERSION, osvNormalizerVersion, type OsvAdvisoryRow } from '@sentinello/core'
 import { advisoryFilePath, ensureCacheDir, readCacheMeta, setSourceState, writeCacheMeta, type SourceId, type SourceState } from './cache/meta'
 import { registryFilePath } from './cache/registry'
 import { createRowWriter } from './cache/store'
@@ -183,14 +183,60 @@ describe('runDoctor — advisory cache', function () {
     })
 
     // The contradiction this command exists to eliminate: rows present, metadata missing.
-    it('reports rows found on disk with no sync metadata, and how to use them', async function () {
+    it('reports rows found on disk with no sync metadata, and that a scan will not use them', async function () {
         await makeProject('.')
         await seedRows('osv', 3)
         await runDoctor(options(), cacheDir)
         const text = report()
         expect(text).toContain('3 advisories on disk, but no sync metadata')
         expect(text).toContain(advisoryFilePath(cacheDir, 'osv', 'npm'))
-        expect(text).toContain('usable with --offline; a normal run will re-download it')
+        expect(text).toContain('not used until it is synced again: a run without --offline re-downloads it')
+        expect(text).not.toContain('usable with --offline')
+    })
+
+    // Nothing says which normalizer wrote metadata-less rows, so the scan's seed gate refuses them, --offline
+    // included: an offline scan of that cache does not report the advisory a matching row holds, and a gated
+    // run fails rather than pass on no data. Doctor's advice above has to agree with this.
+    it('agrees with an offline scan of the same metadata-less cache', async function () {
+        await mkdir(rootPath, { recursive: true })
+        await writeFile(join(rootPath, 'package.json'), JSON.stringify({ name: 'app', version: '1.0.0', dependencies: { lodash: '^4.17.11' } }), 'utf8')
+        await writeFile(join(rootPath, 'package-lock.json'), JSON.stringify({
+            name: 'app',
+            lockfileVersion: 3,
+            packages: { '': { name: 'app', version: '1.0.0', dependencies: { lodash: '^4.17.11' } }, 'node_modules/lodash': { version: '4.17.11' } }
+        }), 'utf8')
+        await ensureCacheDir(cacheDir)
+        const writer = createRowWriter(advisoryFilePath(cacheDir, 'osv', 'npm'))
+        const lodash: OsvAdvisoryRow = {
+            advisoryId: 'GHSA-unsynced-lodash', ecosystem: 'npm', packageName: 'lodash', aliases: [],
+            ranges: [{ type: 'SEMVER', introduced: '0', fixed: '4.17.21', lastAffected: null }], versions: [],
+            severity: 'critical', summary: 'Prototype pollution', url: null, malicious: false, withdrawn: null
+        }
+        await writer.write([lodash])
+        await writer.commit()
+        await runDoctor(options({ sources: ['osv'] }), cacheDir)
+        expect(report()).toContain('1 advisories on disk, but no sync metadata')
+
+        stdout.length = 0
+        const { main } = await import('./run')
+        async function offlineScan(): Promise<number> {
+            const argv = process.argv
+            process.argv = [argv[0] ?? 'node', 'sentinello', rootPath, '--cache-dir', cacheDir, '--source', 'osv', '--offline', '--json', '--fail-on', 'critical']
+            try {
+                return await main()
+            } finally {
+                process.argv = argv
+            }
+        }
+        expect(await offlineScan()).toBe(1)
+        expect(report()).toContain('osv_db_not_seeded')
+        expect(report()).not.toContain('GHSA-unsynced-lodash')
+
+        // The control: the same file with its metadata is matched, so the refusal above is the gate's.
+        stdout.length = 0
+        await seedState('osv')
+        expect(await offlineScan()).toBe(2)
+        expect(report()).toContain('GHSA-unsynced-lodash')
     })
 
     it('reports the on-disk count and the cache path once synced', async function () {

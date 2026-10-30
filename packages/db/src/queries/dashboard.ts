@@ -171,10 +171,11 @@ export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeF
     }
 }
 
-// One entry per advisory source that has scanned this project and whose (source, ecosystem) cell is
-// still enabled, carrying that source's OWN latest verdict. Two sources that disagree produce two
-// entries; the single lastScan* fields this replaced reported whichever source happened to finish
-// last — in practice OSV every time, because it finishes milliseconds after npm audit.
+// One entry per (source, ecosystem) cell that has scanned this project and is still enabled, carrying
+// that cell's OWN latest verdict. Two sources that disagree produce two entries, and so does one source
+// answering differently for two languages (OSV ok for Ruby, failing for Python); the single lastScan*
+// fields this replaced reported whichever source happened to finish last — in practice OSV every time,
+// because it finishes milliseconds after npm audit.
 //
 // An empty array means nothing has ever scanned the project, which is NOT the same as clean — it is
 // why the dashboard's isHealthy checks the length before it checks the statuses.
@@ -182,6 +183,9 @@ export type ProjectScanState = {
     // COALESCE(source, scanner), typed as string rather than SourceId to match CurrentFindingRow.source:
     // the column is free text and a legacy row can carry a plugin name the registry never knew.
     source: string
+    // The ecosystem id the source scanned in this cell ('npm', 'PyPI', …): with source, what tells the
+    // entries of one polyglot project apart.
+    ecosystem: string
     finishedAt: number
     status: string
     reasonCode: string | null
@@ -211,19 +215,20 @@ export type ProjectCatalogRow = {
     tagsJson: string
     scanStates: ProjectScanState[]
     // The project's scan state over its expected sources (projectScanState): what the State column and
-    // MCP say, where scanStates above is each source's own last word.
+    // MCP say, where scanStates above is each cell's own last word.
     scanState: ScanState
     severityCounts: SeverityCounts
 }
 
-// Latest scan per (project, source), for every source cell that is currently active
-// (listLatestSourceScans says why one row per source, and why an absent source means "has not run").
+// Latest scan per (project, source, ecosystem), for every source cell that is currently active
+// (listLatestSourceScans says why one row per cell, and why an absent cell means "has not run").
 function listLatestScanStates(db: DrizzleDb, latest: readonly LatestSourceScanRow[]): Map<string, ProjectScanState[]> {
     const byProject = new Map<string, ProjectScanState[]>()
     for (const row of activeScanRows(db, latest)) {
         const states = byProject.get(row.projectId) ?? []
         states.push({
             source: row.source,
+            ecosystem: row.ecosystem,
             finishedAt: row.finishedAt,
             status: row.status,
             reasonCode: row.reasonCode,

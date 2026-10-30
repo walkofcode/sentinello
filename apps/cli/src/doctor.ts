@@ -100,7 +100,9 @@ async function sourceLines(cacheDir: string, meta: CacheMeta, source: SourceId, 
         if (rows === 0) return [label + 'not downloaded']
         lines.push(label + rows.toLocaleString() + ' advisories on disk, but no sync metadata')
         lines.push(DETAIL_INDENT + advisoryFilePath(cacheDir, source, ecosystem))
-        lines.push(DETAIL_INDENT + 'usable with --offline; a normal run will re-download it')
+        // Without metadata nothing says which normalizer wrote these rows or when, so every scan (--offline
+        // included) treats the cell as not downloaded rather than match against it.
+        lines.push(DETAIL_INDENT + 'not used until it is synced again: a run without --offline re-downloads it')
         return lines
     }
     const age = describeAge(state.refreshedAt)

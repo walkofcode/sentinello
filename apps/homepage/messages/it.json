@@ -170,7 +170,7 @@
         "ours_scope": "Ogni progetto sotto una cartella, in un solo passaggio e un solo report.",
         "row_languages": "Linguaggi",
         "npm_languages": "Solo progetti npm.",
-        "ours_languages": "Lockfile di Node.js, Python, Go, Rust e Ruby, letti offline. Per questi non viene installato né eseguito nulla.",
+        "ours_languages": "Lockfile di Node.js, Python, Go, Rust e Ruby. Quelli di Python, Go, Rust e Ruby sono letti offline, senza installare né eseguire alcun package manager; per Node.js viene eseguito anche npm audit.",
         "row_sources": "Fonti di advisory",
         "npm_sources": "Il feed di advisory del tuo registry.",
         "ours_sources": "Quello, più OSV e GitLab gemnasium. I duplicati vengono soppressi, quindi ogni fonte aggiuntiva aggiunge solo risultati nuovi.",

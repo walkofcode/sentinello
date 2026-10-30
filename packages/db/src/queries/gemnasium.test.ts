@@ -12,8 +12,8 @@ import {
 } from '../gemnasium-client'
 import type { GemnasiumAdvisoryRow } from '@sentinello/core'
 import {
+    applyGemnasiumIncrement,
     countGemnasiumAdvisories,
-    deleteGemnasiumRows,
     deleteGemnasiumAdvisoriesExcept,
     GEMNASIUM_META_KEYS,
     gemnasiumRowKeyFor,
@@ -201,7 +201,11 @@ describe('countGemnasiumAdvisories', function () {
     })
 })
 
-describe('deleteGemnasiumRows', function () {
+describe('applyGemnasiumIncrement', function () {
+    function increment(overrides: Partial<Parameters<typeof applyGemnasiumIncrement>[1]> = {}) {
+        return { drop: [], upsert: [], headSha: 'sha-new', refreshedAt: 1700000000000, ...overrides }
+    }
+
     // The incremental sync clears the one row a changed or deleted file holds. One CVE has files under several
     // packages and ecosystems, so a row is (advisory, ecosystem, package), never the advisory id alone.
     it('removes exactly the named rows, never the same advisory elsewhere', function () {
@@ -210,16 +214,48 @@ describe('deleteGemnasiumRows', function () {
             advisory({ advisoryId: 'CVE-1', ecosystem: 'PyPI', packageName: 'b' }),
             advisory({ advisoryId: 'CVE-1', ecosystem: 'npm', packageName: 'c' })
         ])
-        expect(deleteGemnasiumRows(db, [{ advisoryId: 'CVE-1', ecosystem: 'npm', packageName: 'a' }])).toBe(1)
-        expect(countGemnasiumAdvisories(db)).toBe(2)
+        expect(applyGemnasiumIncrement(db, increment({ drop: [{ advisoryId: 'CVE-1', ecosystem: 'npm', packageName: 'a' }] })))
+            .toEqual({ deleted: 1, recordCount: 2 })
         expect(lookupGemnasiumByPackages(db, 'PyPI', ['b']).get('b')).toHaveLength(1)
         expect(lookupGemnasiumByPackages(db, 'npm', ['c']).get('c')).toHaveLength(1)
     })
 
-    it('does nothing for an empty list, and reports zero for a row that is not cached', function () {
+    it('rewrites a dropped row from its replacement and advances the cursor with it', function () {
+        setGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastError, 'previous failure')
+        upsertGemnasiumAdvisories(db, [advisory({ summary: 'old' })])
+        const result = applyGemnasiumIncrement(db, increment({
+            drop: [{ advisoryId: 'CVE-2024-1', ecosystem: 'npm', packageName: 'lodash' }],
+            upsert: [advisory({ summary: 'new' })]
+        }))
+        expect(result).toEqual({ deleted: 1, recordCount: 1 })
+        expect(lookupGemnasiumByPackages(db, 'npm', ['lodash']).get('lodash')?.[0]?.summary).toBe('new')
+        expect(getGemnasiumMeta(db, GEMNASIUM_META_KEYS.headSha)).toBe('sha-new')
+        expect(getGemnasiumMeta(db, GEMNASIUM_META_KEYS.recordCount)).toBe(1)
+        expect(getGemnasiumMeta(db, GEMNASIUM_META_KEYS.refreshedAt)).toBe(1700000000000)
+        expect(getGemnasiumMeta(db, GEMNASIUM_META_KEYS.lastError)).toBeNull()
+    })
+
+    // One transaction: a write failing part-way leaves the deletes, the earlier upserts and the cursor as
+    // they were, so the cache is never published half-applied.
+    it('rolls every change back when one write fails', function () {
+        setGemnasiumMeta(db, GEMNASIUM_META_KEYS.headSha, 'sha-old')
+        upsertGemnasiumAdvisories(db, [advisory({ advisoryId: 'CVE-1', packageName: 'a' })])
+        const broken = advisory({ advisoryId: 'CVE-3', packageName: null as unknown as string })
+        expect(function apply() {
+            applyGemnasiumIncrement(db, increment({
+                drop: [{ advisoryId: 'CVE-1', ecosystem: 'npm', packageName: 'a' }],
+                upsert: [advisory({ advisoryId: 'CVE-2', packageName: 'b' }), broken]
+            }))
+        }).toThrow()
+        expect(lookupGemnasiumByPackages(db, 'npm', ['a']).get('a')).toHaveLength(1)
+        expect(lookupGemnasiumByPackages(db, 'npm', ['b']).get('b')).toBeUndefined()
+        expect(getGemnasiumMeta(db, GEMNASIUM_META_KEYS.headSha)).toBe('sha-old')
+    })
+
+    it('reports zero for an empty drop list and for a row that is not cached', function () {
         upsertGemnasiumAdvisories(db, [advisory()])
-        expect(deleteGemnasiumRows(db, [])).toBe(0)
-        expect(deleteGemnasiumRows(db, [{ advisoryId: 'CVE-nope', ecosystem: 'npm', packageName: 'lodash' }])).toBe(0)
+        expect(applyGemnasiumIncrement(db, increment()).deleted).toBe(0)
+        expect(applyGemnasiumIncrement(db, increment({ drop: [{ advisoryId: 'CVE-nope', ecosystem: 'npm', packageName: 'lodash' }] })).deleted).toBe(0)
         expect(countGemnasiumAdvisories(db)).toBe(1)
     })
 
@@ -227,8 +263,7 @@ describe('deleteGemnasiumRows', function () {
         const rows: GemnasiumAdvisoryRow[] = []
         for (let i = 0; i < 600; i++) rows.push(advisory({ advisoryId: 'CVE-' + i, packageName: 'pkg' + i }))
         upsertGemnasiumAdvisories(db, rows)
-        expect(deleteGemnasiumRows(db, rows)).toBe(600)
-        expect(countGemnasiumAdvisories(db)).toBe(0)
+        expect(applyGemnasiumIncrement(db, increment({ drop: rows }))).toEqual({ deleted: 600, recordCount: 0 })
     })
 })
 

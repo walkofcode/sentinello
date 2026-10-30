@@ -170,7 +170,7 @@
         "ours_scope": "一个文件夹下的所有项目，一次执行、一份报告。",
         "row_languages": "语言",
         "npm_languages": "仅限 npm 项目。",
-        "ours_languages": "离线读取 Node.js、Python、Go、Rust 和 Ruby 的锁文件，不为它们安装或运行任何东西。",
+        "ours_languages": "支持 Node.js、Python、Go、Rust 和 Ruby 的锁文件。Python、Go、Rust 和 Ruby 的锁文件离线读取，不安装或运行任何包管理器；Node.js 还会运行 npm audit。",
         "row_sources": "公告来源",
         "npm_sources": "你所用注册表的公告源。",
         "ours_sources": "在此基础上再加 OSV 与 GitLab gemnasium。重复项会被抑制，因此每增加一个来源只会带来新增的发现。",

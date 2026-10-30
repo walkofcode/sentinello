@@ -169,7 +169,27 @@ describe('list_projects', function () {
         expect(scoped[0]).toHaveProperty('rootPath', ROOT_PATH)
         // The description promises one entry per source; assert the contract is actually met rather
         // than only that the two modes agree with each other.
-        expect(all[0]?.scanStates).toMatchObject([{ source: 'npm-audit', status: 'ok' }])
+        expect(all[0]?.scanStates).toMatchObject([{ source: 'npm-audit', ecosystem: 'npm', status: 'ok' }])
+    })
+
+    // One source scans each language of a polyglot project separately. Identified by source alone, an OSV
+    // entry that is ok and one that failed are indistinguishable, and nobody can tell which language needs
+    // attention.
+    it('tells one source\'s cells apart by ecosystem', async function () {
+        enableSourceCell('osv', 'PyPI')
+        enableSourceCell('osv', 'RubyGems')
+        scanProject(handle.db, 'project-1', [], { at: T0 + 1000, scanner: 'osv', ecosystem: 'PyPI', status: 'unauditable', reasonCode: 'osv_db_not_seeded' })
+        scanProject(handle.db, 'project-1', [], { at: T0 + 2000, scanner: 'osv', ecosystem: 'RubyGems' })
+
+        const listed = jsonOf<{ id: string; scanStates: { source: string; ecosystem: string; status: string; reasonCode: string | null }[] }[]>(await mcp.call('list_projects'))
+        const states = listed.find(function mine(p) { return p.id === 'project-1' })?.scanStates ?? []
+
+        expect(states).toHaveLength(2)
+        expect(states).toEqual(expect.arrayContaining([
+            expect.objectContaining({ source: 'osv', ecosystem: 'PyPI', status: 'unauditable', reasonCode: 'osv_db_not_seeded' }),
+            expect.objectContaining({ source: 'osv', ecosystem: 'RubyGems', status: 'ok' })
+        ]))
+        expect(await mcp.describeTool('list_projects')).toContain('ONE ENTRY PER (SOURCE, ECOSYSTEM) CELL')
     })
 
     it('rejects a depType outside the allowed set', async function () {
@@ -653,6 +673,36 @@ describe('get_project_advisory', function () {
             const result = await mcp.call('get_project_advisory', { projectId: 'project-1', minSeverity: 'high' })
 
             expect(textOf(result)).not.toContain('lowpkg')
+        })
+
+        // The continuation call is printed for the agent to make verbatim. Without the floor it widens every
+        // later page to all severities and changes the total mid-document, so the floor has to ride along.
+        it('keeps the floor in the literal continuation call until the document ends', async function () {
+            const filler = 'x'.repeat(20_000)
+            const rows = []
+            for (let i = 0; i < 8; i++) rows.push(finding({ advisoryId: 'CVE-HIGH-' + i, packageName: 'highpkg' + i, severity: 'high', advisoryTitle: 'High ' + i + ' ' + filler }))
+            for (let i = 0; i < 4; i++) rows.push(finding({ advisoryId: 'CVE-LOW-' + i, packageName: 'lowpkg' + i, severity: 'low', advisoryTitle: 'Low ' + i + ' ' + filler }))
+            scanProject(handle.db, 'project-1', rows)
+
+            let args: Record<string, unknown> | null = { projectId: 'project-1', minSeverity: 'high' }
+            const totals: string[] = []
+            const seen: string[] = []
+            let pages = 0
+            while (args !== null) {
+                const text = textOf(await mcp.call('get_project_advisory', args))
+                pages += 1
+                expect(text).not.toContain('lowpkg')
+                for (const match of text.matchAll(/highpkg\d+/g)) seen.push(match[0])
+                const next = /`get_project_advisory\((\{.*\})\)`/.exec(text)
+                const total = /of (\d+);/.exec(text)
+                if (total?.[1]) totals.push(total[1])
+                // The note prints a JS object literal; quote its keys to read it as JSON.
+                args = next?.[1] ? JSON.parse(next[1].replace(/(\w+):/g, '"$1":')) as Record<string, unknown> : null
+                if (args) expect(args.minSeverity).toBe('high')
+            }
+            expect(pages).toBeGreaterThan(1)
+            expect(new Set(totals)).toEqual(new Set(['8']))
+            expect(new Set(seen)).toEqual(new Set(['highpkg0', 'highpkg1', 'highpkg2', 'highpkg3', 'highpkg4', 'highpkg5', 'highpkg6', 'highpkg7']))
         })
 
         it('narrows to critical alone at the top floor', async function () {

@@ -681,6 +681,32 @@ describe('runSync — gemnasium', function () {
         expect(outcomes[0]?.rowCount).toBe(2)
     })
 
+    // The rows a failed pass would have replaced are the ones still in force upstream: dropping them before
+    // every changed file was re-read would leave a seeded cache that answers "no advisory" for them.
+    it('keeps every row a pass would touch when a later file fetch fails', async function () {
+        await seedFile('gemnasium', [
+            gemRow({ advisoryId: 'GMS-a', packageName: 'a', summary: 'old text' }),
+            gemRow({ advisoryId: 'GMS-b', packageName: 'b' }),
+            gemRow({ advisoryId: 'GMS-c', packageName: 'c' })
+        ])
+        await seedState('gemnasium', { headSha: 'b'.repeat(40) })
+        feeds.fetchGemnasiumChangedPaths.mockResolvedValue({
+            status: 'ok',
+            changed: ['npm/a/GMS-a.yml', 'npm/b/GMS-b.yml'],
+            deleted: ['npm/c/GMS-c.yml']
+        })
+        feeds.fetchGemnasiumFileRows
+            .mockResolvedValueOnce([gemRow({ advisoryId: 'GMS-a', packageName: 'a', summary: 'new text' })])
+            .mockRejectedValueOnce(new Error('upstream 500'))
+        const outcomes = await runSync(options({ sources: ['gemnasium'] }), await planSync(options({ sources: ['gemnasium'] })))
+        expect(outcomes[0]).toMatchObject({ status: 'error', message: expect.stringContaining('upstream 500') })
+        expect((await stateOf('gemnasium'))?.headSha).toBe('b'.repeat(40))
+        const rows = await readRowsForPackages<GemnasiumAdvisoryRow>(advisoryFilePath(dir, 'gemnasium', 'npm'), new Set(['a', 'b', 'c']))
+        expect(rows.get('a')).toEqual([expect.objectContaining({ advisoryId: 'GMS-a', summary: 'old text' })])
+        expect(rows.get('b')).toHaveLength(1)
+        expect(rows.get('c')).toHaveLength(1)
+    })
+
     it('stops fetching advisory files partway through once aborted', async function () {
         await seedFile('gemnasium', [gemRow()])
         await seedState('gemnasium', { headSha: 'b'.repeat(40) })
