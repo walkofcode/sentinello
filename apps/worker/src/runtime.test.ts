@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createWorkerRuntime, waitForInFlight } from './runtime'
+import { createCacheRebuilds, createWorkerRuntime, waitForInFlight } from './runtime'
 
 // Shutdown correctness depends on this pair. abort() tells scanner subprocesses to bail out fast,
 // and waitForInFlight holds the shutdown until DB writes for already-started scans have landed —
@@ -236,5 +236,51 @@ describe('waitForInFlight — the settled race', function () {
             warn.mockRestore()
             vi.useRealTimers()
         }
+    })
+})
+
+// One source's runtime has to see that another's cache is still rebuilding, so the poller can hold full
+// sweeps until every cache an upgrade rebuilds has landed.
+describe('createCacheRebuilds', function () {
+    it('is idle with nothing tracked', function () {
+        expect(createCacheRebuilds().active()).toBe(false)
+        expect(createWorkerRuntime().rebuilds.active()).toBe(false)
+    })
+
+    it('is active while a tracked sync is in flight on an unusable cache, and idle once it settles', async function () {
+        const rebuilds = createCacheRebuilds()
+        const seed = deferred()
+        rebuilds.track(seed.promise, function unusable() { return true })
+        expect(rebuilds.active()).toBe(true)
+        seed.resolve()
+        await seed.promise
+        await Promise.resolve()
+        expect(rebuilds.active()).toBe(false)
+    })
+
+    it('reads the cache state at each check, so a sync that discards a usable cache becomes a rebuild', function () {
+        const rebuilds = createCacheRebuilds()
+        let discarded = false
+        rebuilds.track(deferred().promise, function unusable() { return discarded })
+        expect(rebuilds.active()).toBe(false)
+        discarded = true
+        expect(rebuilds.active()).toBe(true)
+    })
+
+    it('lets go of a sync that failed', async function () {
+        const rebuilds = createCacheRebuilds()
+        const seed = deferred()
+        rebuilds.track(seed.promise, function unusable() { return true })
+        seed.reject(new Error('ECONNRESET'))
+        await seed.promise.catch(function ignore() {})
+        await Promise.resolve()
+        expect(rebuilds.active()).toBe(false)
+    })
+
+    it('stays active while any one of several syncs is rebuilding', function () {
+        const rebuilds = createCacheRebuilds()
+        rebuilds.track(deferred().promise, function usable() { return false })
+        rebuilds.track(deferred().promise, function unusable() { return true })
+        expect(rebuilds.active()).toBe(true)
     })
 })

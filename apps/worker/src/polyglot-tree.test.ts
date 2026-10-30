@@ -130,7 +130,7 @@ describe('a polyglot tree, upgraded to 3.8', function () {
         expect(getProjectScanState(handle.db, ids.web).state).toBe('scanned')
 
         // The first completed sweep closes the baseline: one summary to the target, rack counted in it.
-        await onCompletedSweep(handle.db, { send: recordingSender })
+        await onCompletedSweep(handle.db, [], { send: recordingSender })
         expect(sent.map(function to(s) { return s.targetId })).toEqual(['team'])
         expect(sent[0]?.message.text).toBe([
             'Sentinello 3.8 now checks Python/Go/Rust/Ruby: 1 finding across 1 project, 0 critical',

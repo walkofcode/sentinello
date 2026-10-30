@@ -1,4 +1,4 @@
-import { CAPABILITIES, type Capability, type Locale } from '@sentinello/core'
+import { CAPABILITIES, isCacheNotReadyReason, type Capability, type Locale } from '@sentinello/core'
 import {
     baselineCountsForTarget,
     claimCompletedBaselines,
@@ -17,6 +17,9 @@ import {
 } from '@sentinello/db'
 import { redactErrorText, redactTarget, renderCapabilitySummary, type NotificationSender } from '@sentinello/notifications'
 import { CONFIG_KEYS } from './config-loader'
+import { gemnasiumFeedDisabled } from './gemnasium-sync'
+import { osvFeedDisabled } from './osv-sync'
+import type { ProjectScanOutcome } from './runner'
 import { sendByKind } from './transport'
 
 // The silent baseline's worker side (plan Phase 3 step 5, decisions SENTINEL-120/124/125). The notifier
@@ -112,17 +115,39 @@ async function dispatchOpenSummaries(input: DispatchSummariesInput): Promise<voi
     closeFinishedBaselines(input.db, Date.now())
 }
 
+// The sweep's scans in the capability's ecosystems that are unauditable only because an advisory cache is
+// not downloaded or is being rebuilt. Each is a source the operator enabled (the runner runs only enabled
+// cells) that has not answered yet: a summary counted now would leave out whatever it is about to find, and
+// every later finding would then be sent one by one. So the capability waits for the next sweep — the one
+// queued when the cache lands. A source whose feed is switched off is never downloading anything: its
+// "not downloaded" verdict is final, and waiting for it would hold the baseline for good.
+function scansWaitingOnACache(capability: Capability, outcomes: readonly ProjectScanOutcome[]): number {
+    return outcomes.filter(function waiting(outcome) {
+        const scan = outcome.scan
+        if (scan.status !== 'unauditable' || !isCacheNotReadyReason(scan.reasonCode)) return false
+        if (!(capability.ecosystems as string[]).includes(scan.ecosystem)) return false
+        return scan.reasonCode === 'gemnasium_db_not_seeded' ? !gemnasiumFeedDisabled() : !osvFeedDisabled()
+    }).length
+}
+
 function sameCounts(a: BaselineCounts, b: BaselineCounts): boolean {
     return a.findings === b.findings && a.projects === b.projects && a.critical === b.critical && a.sourceDisabledProjects === b.sourceDisabledProjects
 }
 
-// What a COMPLETED sweep does for the baselines (decision SENTINEL-120): claim every pending one — a
-// concurrent completion loses the claim — then dispatch whatever summary is still owed, including retries
-// of earlier failures. Only a sweep that processed every project and was not aborted counts; an
-// interrupted one leaves the baseline pending for the next.
-export async function onCompletedSweep(db: DrizzleDb, options: { send?: DispatchSummariesInput['send']; capabilities?: readonly Capability[] } = {}): Promise<void> {
+// What a COMPLETED sweep does for the baselines (decision SENTINEL-120, tightened in 3.8.1): claim every
+// pending one the sweep answered for — a concurrent completion loses the claim — then dispatch whatever
+// summary is still owed, including retries of earlier failures. Only a sweep that processed every project
+// and was not aborted counts; an interrupted one leaves the baseline pending for the next. `outcomes` is
+// every scan the sweep made.
+export async function onCompletedSweep(db: DrizzleDb, outcomes: readonly ProjectScanOutcome[], options: { send?: DispatchSummariesInput['send']; capabilities?: readonly Capability[] } = {}): Promise<void> {
     const capabilities = options.capabilities ?? CAPABILITIES
-    claimCompletedBaselines(db, capabilities, Date.now())
+    const answered = capabilities.filter(function sweptFor(capability) {
+        const waiting = scansWaitingOnACache(capability, outcomes)
+        if (waiting === 0) return true
+        console.log('[baseline] ' + capability.id + ' stays pending: ' + waiting + ' scan' + (waiting === 1 ? '' : 's') + ' of its languages could not answer while an advisory cache was not ready')
+        return false
+    })
+    claimCompletedBaselines(db, answered, Date.now())
     await dispatchCapabilitySummaries({
         db,
         dryRun: getConfigValue<boolean>(db, CONFIG_KEYS.dryRunNotify) || false,

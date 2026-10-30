@@ -1,6 +1,6 @@
 import { and, eq, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm'
 import { ulid } from 'ulid'
-import type { DepTypeFilter, NotificationDelivery, NotificationEvent, NotificationTarget } from '@sentinello/core'
+import { CACHE_NOT_READY_FAILURE_SIGNATURES, type DepTypeFilter, type NotificationDelivery, type NotificationEvent, type NotificationTarget } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { notificationDeliveries, notificationEvents, notificationTargets } from '../schema'
 import { listTargetRootIds } from './notification-target-roots'
@@ -117,11 +117,16 @@ export function selectDispatchablePairs(db: DrizzleDb, projectId: string, at: nu
 //  - mutes: project-scope mutes silence every event of the project, scan failures included; finding-scope
 //    mutes match the finding identity tuple (a NULL mute ecosystem is a legacy row and matches any) and
 //    only finding events; a mute with no project is global. Active while expires_at IS NULL or > at.
+//  - a scan failure whose only cause is an advisory cache not ready yet (CACHE_NOT_READY_FAILURE_SIGNATURES)
+//    is told to no target: the install is downloading or rebuilding the cache, not failing on the project.
+//    3.8.1 records no such event; this keeps the ones an earlier version recorded from being sent late.
 export function eventEligibleForTargetSql(e: string, t: string, at: number): SQL {
     const ev = sql.raw(e)
     const tg = sql.raw(t)
+    const cacheNotReady = sql.join(CACHE_NOT_READY_FAILURE_SIGNATURES.map(function value(signature) { return sql`${signature}` }), sql`, `)
     return sql`(
-        (
+        NOT (${ev}.event_type = 'scan_failure' AND COALESCE(${ev}.failure_signature, '') IN (${cacheNotReady}))
+        AND (
             ${ev}.event_type = 'scan_failure'
             OR EXISTS (
                 SELECT 1 FROM json_each(${tg}.severity_filter_json)

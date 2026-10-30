@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { NotificationTarget } from '@sentinello/core'
+import { CACHE_NOT_READY_FAILURE_SIGNATURES, type NotificationTarget } from '@sentinello/core'
 import { openDb } from '../client'
 import type { DrizzleDb, SqliteDb } from '../client'
 import { runMigrations } from '../migrate'
@@ -230,6 +230,33 @@ describe('selectDispatchablePairs — basics', function () {
         const pair = dispatchable()[0]
         expect(pair?.target.rootIds).toEqual([ROOT_ID])
         expect(pair?.target.projectIds).toEqual([PROJECT_ID])
+    })
+})
+
+// 3.8.1: a scan that only waited on an advisory cache records no event any more, but 3.8.0 recorded one per
+// project and source during the upgrade's cache rebuild, and an event left undelivered (a rate-limited
+// channel) would otherwise go out on the project's next scan, long after the cache landed.
+describe('selectDispatchablePairs — a scan failure that only waited on a cache', function () {
+    it.each(CACHE_NOT_READY_FAILURE_SIGNATURES)('never pairs %s with a target, delivered or not', function (failureSignature) {
+        addTarget()
+        const eventId = addFailureEvent({ scanner: 'osv', status: 'unauditable', failureSignature })
+        expect(dispatchable()).toEqual([])
+        recordAttempt(db, eventId, TARGET_ID, T0 + HOUR)
+        recordFailure(db, eventId, TARGET_ID, T0 + HOUR, 'Too Many Requests')
+        expect(dispatchable()).toEqual([])
+    })
+
+    it('still pairs a cache that could not be opened, and a failure recorded with no signature', function () {
+        addTarget()
+        addFailureEvent({ scanner: 'osv', status: 'unauditable', failureSignature: 'unauditable:osv_db_unavailable' })
+        addFailureEvent({ scanner: 'gemnasium', status: 'error', failureSignature: null })
+        expect(dispatchable().map(function signature(p) { return p.event.failureSignature }).sort()).toEqual([null, 'unauditable:osv_db_unavailable'])
+    })
+
+    it('is never backfilled to a new target', function () {
+        addTarget({ createdAt: T0 + HOUR })
+        addFailureEvent({ scanner: 'osv', status: 'unauditable', failureSignature: CACHE_NOT_READY_FAILURE_SIGNATURES[0], at: T0 })
+        expect(backfillForNewTarget(db, TARGET_ID, T0 + 2 * HOUR)).toBe(0)
     })
 })
 

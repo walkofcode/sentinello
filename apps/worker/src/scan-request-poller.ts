@@ -71,7 +71,10 @@ export async function pollOnce(input: StartPollerInput): Promise<void> {
     // change made mid-scan still propagates within one poll interval, not whenever the scan finishes.
     drainWorkerSignals(input)
     const claimedAt = Date.now()
-    const claimed = claimNextPendingRequest(input.db, claimedAt)
+    // While an advisory cache is rebuilding, a full sweep waits: run now, it would record every project the
+    // cache covers as "not downloaded yet". The sweep queued when the cache lands — by whichever cache lands
+    // last, the earlier ones find it waiting — is the one that runs. Project and root requests still run.
+    const claimed = claimNextPendingRequest(input.db, claimedAt, { holdFullSweeps: input.runtime.rebuilds.active() })
     if (!claimed) return
     // Liveness ping. Keeps scan_requests.heartbeat_at fresh so the web UI knows this row is
     // still being worked on, and so a future worker startup (post-crash) can distinguish
@@ -131,7 +134,7 @@ async function runFullSweep(input: StartPollerInput, requestId: string): Promise
     console.log('[scan-request-poller] full sweep started (request=' + requestId + ', ' + projects.length + ' project' + (projects.length === 1 ? '' : 's') + ')')
     if (projects.length === 0) {
         console.log('[scan-request-poller] full sweep finished (request=' + requestId + ', 0 projects, ' + formatDurationMs(Date.now() - startedAt) + ')')
-        await onCompletedSweep(input.db)
+        await onCompletedSweep(input.db, [])
         return
     }
     const parallelism = (getConfigValue<number>(input.db, CONFIG_KEYS.parallelism)) || DEFAULT_PARALLELISM
@@ -145,7 +148,7 @@ async function runFullSweep(input: StartPollerInput, requestId: string): Promise
     })
     console.log('[scan-request-poller] full sweep finished (request=' + requestId + ', ' + projects.length + ' project' + (projects.length === 1 ? '' : 's') + ', ' + formatDurationMs(Date.now() - startedAt) + ')')
     // A requested full sweep is a sweep like the scheduled one: a completed one completes the baselines.
-    if (batch.completed) await onCompletedSweep(input.db)
+    if (batch.completed) await onCompletedSweep(input.db, batch.outcomes)
 }
 
 async function runRootSweep(input: StartPollerInput, rootId: string, requestId: string): Promise<void> {

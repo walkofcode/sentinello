@@ -13,6 +13,7 @@ import {
     type GemnasiumDrizzleDb,
     type SqliteDb,
     listRecentScanRequests,
+    enqueueScanRequest,
     insertScan,
     upsertProject,
     upsertRoot
@@ -323,6 +324,19 @@ describe('startGemnasiumRuntime', function () {
         expect(listRecentScanRequests(handle.db)).toHaveLength(1)
     })
 
+    it('queues no second boot re-scan while one is already waiting', function () {
+        const cache = openCache()
+        setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.seedComplete, true)
+        setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.normalizerVersion, GEMNASIUM_NORMALIZER_VERSION)
+        cache.sqlite.close()
+        enable('npm')
+        seedStaleProject()
+        enqueueScanRequest(handle.db, {}, Date.now())
+        startGemnasiumRuntime(handle.db, runtime, evidence)
+        expect(listRecentScanRequests(handle.db)).toHaveLength(1)
+        expect(logLines()).not.toContain('[gemnasium] cache is matchable but projects still hold unauditable verdicts — enqueued a full re-scan')
+    })
+
     // The re-scan would record the same unauditable verdict while no enabled ecosystem has its withdrawal
     // evidence; the OSV runtime enqueues it itself once that cache lands.
     it('does not re-scan at boot while the withdrawal evidence is incomplete', function () {
@@ -482,6 +496,44 @@ describe('runSync', function () {
         const requests = listRecentScanRequests(handle.db)
         expect(requests).toHaveLength(1)
         expect(requests[0]).toMatchObject({ projectId: null, rootId: null, status: 'pending' })
+    })
+
+    // The live 3.8.0 upgrade: gemnasium landed first and queued its sweep; OSV landing later finds it waiting.
+    it('queues no second sweep while one is still waiting', async function () {
+        enqueueScanRequest(handle.db, {}, Date.now())
+        sync.syncGemnasium.mockImplementationOnce(async function seed() {
+            setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.seedComplete, true)
+            setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.normalizerVersion, GEMNASIUM_NORMALIZER_VERSION)
+            return { status: 'ok', upserted: 1, recordCount: 1, message: null }
+        })
+        await runSync(handle.db, cache.db, runtime)
+        expect(listRecentScanRequests(handle.db)).toHaveLength(1)
+        expect(logLines()).toContain('[gemnasium] cache is matchable again — a full re-scan is already queued')
+    })
+
+    // A normalizer change makes the cache unmatchable from the first byte; the daily refresh of a matchable
+    // one never does, so it never holds a sweep.
+    it('counts a rebuild of an unmatchable cache, and only that, as a rebuild', async function () {
+        let finish!: () => void
+        sync.syncGemnasium.mockImplementationOnce(function rebuild() {
+            return new Promise(function executor(resolve) {
+                finish = function done() {
+                    setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.seedComplete, true)
+                    setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.normalizerVersion, GEMNASIUM_NORMALIZER_VERSION)
+                    resolve({ status: 'ok', upserted: 1, recordCount: 1, message: null })
+                }
+            })
+        })
+        setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.seedComplete, true)
+        setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.normalizerVersion, GEMNASIUM_NORMALIZER_VERSION - 1)
+        const rebuild = runSync(handle.db, cache.db, runtime)
+        expect(runtime.rebuilds.active()).toBe(true)
+        finish()
+        await rebuild
+        expect(runtime.rebuilds.active()).toBe(false)
+        const refresh = runSync(handle.db, cache.db, runtime)
+        expect(runtime.rebuilds.active()).toBe(false)
+        await refresh
     })
 
     // Simultaneously the "unchanged upstream" case and the non-destructive-rebuild case: gemnasium

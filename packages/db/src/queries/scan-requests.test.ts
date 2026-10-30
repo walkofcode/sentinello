@@ -11,6 +11,7 @@ import { upsertRoot } from './config'
 import { upsertProject } from './projects'
 import {
     claimNextPendingRequest,
+    enqueueFullSweepUnlessPending,
     enqueueScanRequest,
     isAnyScanInFlight,
     isScanInFlightForProject,
@@ -149,6 +150,41 @@ describe('claimNextPendingRequest', function () {
         const request = enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
         markScanRequestDone(db, request.id, T0 + 1)
         expect(claimNextPendingRequest(db, T0 + 2)).toBeNull()
+    })
+
+    // While an advisory cache rebuilds the worker holds full sweeps; project and root scans still run.
+    it('leaves a full sweep waiting and claims the next project or root request when told to hold sweeps', function () {
+        const sweep = enqueueScanRequest(db, {}, T0)
+        enqueueScanRequest(db, { rootId: ROOT_ID }, T0 + 1)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0 + 2)
+        expect(claimNextPendingRequest(db, T0 + 10, { holdFullSweeps: true })?.rootId).toBe(ROOT_ID)
+        expect(claimNextPendingRequest(db, T0 + 11, { holdFullSweeps: true })?.projectId).toBe(PROJECT_ID)
+        expect(claimNextPendingRequest(db, T0 + 12, { holdFullSweeps: true })).toBeNull()
+        expect(claimNextPendingRequest(db, T0 + 13)?.id).toBe(sweep.id)
+    })
+})
+
+describe('enqueueFullSweepUnlessPending', function () {
+    it('queues a full sweep when none is waiting', function () {
+        expect(enqueueFullSweepUnlessPending(db, T0)).toBe(true)
+        expect(listRecentScanRequests(db)).toMatchObject([{ projectId: null, rootId: null, status: 'pending', requestedAt: T0 }])
+    })
+
+    it('queues nothing while a full sweep is still waiting', function () {
+        enqueueFullSweepUnlessPending(db, T0)
+        expect(enqueueFullSweepUnlessPending(db, T0 + 1)).toBe(false)
+        expect(listRecentScanRequests(db)).toHaveLength(1)
+    })
+
+    // A running sweep may be the one whose verdicts the new sweep must replace; a project or root request
+    // does not scan everything.
+    it('queues one behind a running sweep, and beside project or root requests', function () {
+        enqueueScanRequest(db, {}, T0)
+        claimNextPendingRequest(db, T0 + 1)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0 + 2)
+        enqueueScanRequest(db, { rootId: ROOT_ID }, T0 + 3)
+        expect(enqueueFullSweepUnlessPending(db, T0 + 4)).toBe(true)
+        expect(listRecentScanRequests(db).filter(function full(r) { return r.projectId === null && r.rootId === null })).toHaveLength(2)
     })
 })
 

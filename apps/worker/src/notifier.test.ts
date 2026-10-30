@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { senderFor, toWebhookVulnerability, type NotificationSender } from '@sentinello/notifications'
-import { CAPABILITIES, type NotificationTarget, type Finding, type Project, type Scan } from '@sentinello/core'
+import { CACHE_NOT_READY_FAILURE_SIGNATURES, CACHE_NOT_READY_REASON_CODES, CAPABILITIES, type NotificationTarget, type Finding, type Project, type Scan } from '@sentinello/core'
 import {
     getDelivery,
     insertNotificationTarget,
@@ -185,6 +185,20 @@ describe('notifyForCompletedScan — event recording', function () {
         const events = listEventsForProject(db, PROJECT_ID)
         expect(events).toHaveLength(1)
         expect(events[0]?.eventType).toBe('scan_failure')
+    })
+
+    // 3.8.1 (SENTINEL-158): a cache still downloading or rebuilding is the install getting ready, not the
+    // project failing. On the 3.8.0 upgrade every project scanned during the OSV rebuild paged the operator.
+    it.each(CACHE_NOT_READY_REASON_CODES)('records no failure event, and sends nothing, for a scan that waited on a cache (%s)', async function (reasonCode) {
+        insertNotificationTarget(db, target())
+        await notify(outcome([], { status: 'unauditable', reasonCode, errorText: 'OSV database has not been downloaded yet' }))
+        expect(listEventsForProject(db, PROJECT_ID)).toEqual([])
+        expect(send).not.toHaveBeenCalled()
+    })
+
+    it('still records a failure event for a cache that could not be opened', async function () {
+        await notify(outcome([], { status: 'unauditable', reasonCode: 'osv_db_unavailable', errorText: 'SQLITE_CORRUPT' }))
+        expect(listEventsForProject(db, PROJECT_ID).map(function signature(e) { return e.failureSignature })).toEqual(['unauditable:osv_db_unavailable'])
     })
 
     it('records no failure event for an ok scan', async function () {
@@ -686,6 +700,12 @@ describe('normalizeFailureSignature', function () {
         })
 
         // All four substitutions in one string, which is what a real spawn failure looks like.
+        // Dispatch skips the cache-not-ready events an earlier version recorded by these signatures.
+        it('gives a scan that waited on a cache the signature dispatch skips', function () {
+            const signatures = CACHE_NOT_READY_REASON_CODES.map(function sign(code) { return normalizeFailureSignature('unauditable', code, 'not downloaded yet') })
+            expect(signatures).toEqual(CACHE_NOT_READY_FAILURE_SIGNATURES)
+        })
+
         it('collapses two runs of the same failure onto one signature', function () {
             const first = normalizeFailureSignature('error', null, 'pid 411 died after 30000 ms running /srv/a/node_modules/.bin/npm at 1767225600123')
             const second = normalizeFailureSignature('error', null, 'pid 987 died after 45000 ms running /srv/b/node_modules/.bin/npm at 1767225999999')

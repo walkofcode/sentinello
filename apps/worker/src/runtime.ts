@@ -11,6 +11,38 @@ export type WorkerRuntime = {
     abortController: AbortController
     inFlight: Set<Promise<unknown>>
     track<T>(work: Promise<T>): Promise<T>
+    rebuilds: CacheRebuilds
+}
+
+// The advisory-cache syncs in flight, across every source, so one source's runtime can see that another's
+// cache is still being rebuilt. A full sweep run while any cache is rebuilding records "not downloaded yet"
+// for every project that source covers (gemnasium too, while the OSV cache its withdrawal evidence comes
+// from is incomplete), so the scan-request poller holds full sweeps until none is.
+export type CacheRebuilds = {
+    // Registers a sync until it settles. It counts as a rebuild only while `unusable` answers true, read at
+    // each check: a first seed or a normalizer rebuild from the start, an OSV incremental only once it has
+    // discarded the cache to re-seed, and a gemnasium refresh of a usable cache never.
+    track(sync: Promise<unknown>, unusable: () => boolean): void
+    active(): boolean
+}
+
+export function createCacheRebuilds(): CacheRebuilds {
+    const syncs = new Map<Promise<unknown>, () => boolean>()
+    return {
+        track: function track(sync, unusable) {
+            syncs.set(sync, unusable)
+            function untrack(): void {
+                syncs.delete(sync)
+            }
+            sync.then(untrack, untrack)
+        },
+        active: function active() {
+            for (const unusable of syncs.values()) {
+                if (unusable()) return true
+            }
+            return false
+        }
+    }
 }
 
 export function createWorkerRuntime(): WorkerRuntime {
@@ -24,7 +56,7 @@ export function createWorkerRuntime(): WorkerRuntime {
         work.then(removeTracked, removeTracked)
         return work
     }
-    return { abortController, inFlight, track }
+    return { abortController, inFlight, track, rebuilds: createCacheRebuilds() }
 }
 
 // Waits for every currently-tracked promise to settle, or for graceMs to elapse, whichever comes first.

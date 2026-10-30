@@ -8,7 +8,7 @@ import {
     lookupGemnasiumByPackages,
     openGemnasiumDb,
     runGemnasiumMigrations,
-    enqueueScanRequest,
+    enqueueFullSweepUnlessPending,
     hasStaleSourceUnavailableScans,
     setConfigValue,
     type DrizzleDb,
@@ -199,8 +199,7 @@ function reconcileStaleVerdicts(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzle
     if (!gemnasiumCacheUsable(gemnasiumDb)) return
     if (!enabledGemnasiumEcosystems(mainDb).some(evidence.ready)) return
     if (!hasStaleSourceUnavailableScans(mainDb, GEMNASIUM_SCANNER_NAME)) return
-    enqueueScanRequest(mainDb, {}, Date.now())
-    console.log('[gemnasium] cache is matchable but projects still hold unauditable verdicts — enqueued a full re-scan')
+    if (enqueueFullSweepUnlessPending(mainDb, Date.now())) console.log('[gemnasium] cache is matchable but projects still hold unauditable verdicts — enqueued a full re-scan')
 }
 
 // The predicate the SCANNER gates on, in one place, so isSeeded and the post-sync "did this cache become
@@ -224,17 +223,24 @@ export async function runSync(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb
     const usableBefore = gemnasiumCacheUsable(gemnasiumDb)
     // Stamped before the first network byte so the portal can say a sync is running across a page reload.
     writeStatus(mainDb, gemnasiumDb, Date.now())
+    const sync = syncGemnasium(gemnasiumDb, signal)
+    // A rebuild for as long as the cache is unusable: from the start for a first seed or a normalizer
+    // change, never for the daily refresh of a usable one. The poller holds full sweeps meanwhile.
+    runtime.rebuilds.track(sync, function rebuilding() { return !gemnasiumCacheUsable(gemnasiumDb) })
     try {
-        await syncGemnasium(gemnasiumDb, signal)
+        await sync
     } finally {
         writeStatus(mainDb, gemnasiumDb, null)
     }
     if (!usableBefore && gemnasiumCacheUsable(gemnasiumDb)) {
-        // See the OSV twin for why this is a full sweep and why it is deliberately not guarded by
-        // isAnyScanInFlight: every project scanned while the cache was unusable holds a stale
-        // gemnasium_db_not_seeded verdict that nothing else in the system ever revisits.
-        enqueueScanRequest(mainDb, {}, Date.now())
-        console.log('[gemnasium] cache is matchable again — enqueued a full re-scan to replace stale unauditable verdicts')
+        // See the OSV twin for why this is a full sweep, why it is deliberately not guarded by
+        // isAnyScanInFlight, and why one already waiting is enough: every project scanned while the cache
+        // was unusable holds a stale gemnasium_db_not_seeded verdict that nothing else ever revisits.
+        if (enqueueFullSweepUnlessPending(mainDb, Date.now())) {
+            console.log('[gemnasium] cache is matchable again — enqueued a full re-scan to replace stale unauditable verdicts')
+        } else {
+            console.log('[gemnasium] cache is matchable again — a full re-scan is already queued')
+        }
     }
 }
 
