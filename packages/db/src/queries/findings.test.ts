@@ -115,7 +115,7 @@ function incoming(advisoryId: string, overrides: Partial<IncomingFinding> = {}):
     }
 }
 
-function merge(scanId: string, finishedAt: number, findings: IncomingFinding[], scanner = 'osv', ecosystem: EcosystemId = findings[0]?.ecosystem ?? 'npm') {
+function merge(scanId: string, finishedAt: number, findings: IncomingFinding[], scanner = 'osv', ecosystem: EcosystemId = findings[0]?.ecosystem ?? 'npm', unreadManifests?: string[]) {
     scan(scanId, finishedAt, scanner)
     return mergeFindingsForScan(db, {
         projectId: PROJECT_ID,
@@ -123,9 +123,52 @@ function merge(scanId: string, finishedAt: number, findings: IncomingFinding[], 
         ecosystem,
         scanId,
         scanFinishedAt: finishedAt,
-        incoming: findings
+        incoming: findings,
+        unreadManifests
     })
 }
+
+// SENTINEL-138: a cell's ok scan speaks only for the manifests it read. What was installed through one it
+// could not read is neither resolved nor stripped of that copy.
+describe('mergeFindingsForScan — manifests the scan could not read', function () {
+    const IOS = { manifestPath: 'ios/Gemfile.lock', version: '2.0.8' }
+    const ANDROID = { manifestPath: 'android/Gemfile.lock', version: '2.1.0' }
+
+    function rack(installations: { manifestPath: string; version: string }[], installedVersion = installations[0]?.version ?? '2.0.8'): IncomingFinding {
+        return incoming('GHSA-rack-1', { ecosystem: 'RubyGems', packageName: 'rack', installedVersion, installations })
+    }
+
+    it('keeps a finding open whose only copy is in an unread manifest, and resolves it once that manifest is read', function () {
+        const opened = merge('s1', T0, [rack([IOS])]).active[0]!
+        const kept = merge('s2', T0 + HOUR, [], 'osv', 'RubyGems', ['ios/Gemfile.lock'])
+        expect(kept.resolved).toEqual([])
+        expect(listFindingsForProject(db, PROJECT_ID).find(function f(r) { return r.id === opened.id })).toMatchObject({ resolvedAt: null, lastSeenAt: T0 })
+        expect(merge('s3', T0 + 2 * HOUR, [], 'osv', 'RubyGems', []).resolved.map(function id(r) { return r.id })).toEqual([opened.id])
+    })
+
+    it('resolves a finding whose copies were all in manifests the scan read', function () {
+        merge('s1', T0, [rack([ANDROID])])
+        expect(merge('s2', T0 + HOUR, [], 'osv', 'RubyGems', ['ios/Gemfile.lock']).resolved).toHaveLength(1)
+    })
+
+    it('keeps a row that records no installation while any manifest of the cell went unread', function () {
+        merge('s1', T0, [rack([])])
+        expect(merge('s2', T0 + HOUR, [], 'osv', 'RubyGems', ['ios/Gemfile.lock']).resolved).toEqual([])
+    })
+
+    it('adds the unread copies back to a finding seen elsewhere, at the lowest installed version', function () {
+        merge('s1', T0, [rack([ANDROID, IOS], '2.0.8')])
+        const seen = merge('s2', T0 + HOUR, [rack([ANDROID], '2.1.0')], 'osv', 'RubyGems', ['ios/Gemfile.lock']).active[0]!
+        expect(seen).toMatchObject({ installedVersion: '2.0.8', installations: [ANDROID, IOS], lastSeenAt: T0 + HOUR })
+        expect(listFindingsForProject(db, PROJECT_ID)[0]).toMatchObject({ installedVersion: '2.0.8', installations: [ANDROID, IOS] })
+    })
+
+    it('keeps the seen version when the unread copy is higher, and drops a copy from a manifest it read', function () {
+        merge('s1', T0, [rack([{ manifestPath: 'ios/Gemfile.lock', version: '2.2.0' }, { manifestPath: 'web/Gemfile.lock', version: '2.0.1' }], '2.0.1')])
+        const seen = merge('s2', T0 + HOUR, [rack([ANDROID], '2.1.0')], 'osv', 'RubyGems', ['ios/Gemfile.lock']).active[0]!
+        expect(seen).toMatchObject({ installedVersion: '2.1.0', installations: [ANDROID, { manifestPath: 'ios/Gemfile.lock', version: '2.2.0' }] })
+    })
+})
 
 // SENTINEL-122: a feed source scans once per ecosystem, and each cell's merge reads and resolves only that
 // cell's open episodes. An empty Ruby result says nothing about Python.

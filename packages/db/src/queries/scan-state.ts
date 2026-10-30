@@ -4,6 +4,7 @@ import {
     SOURCE_IDS,
     projectScanState,
     type ExpectedCell,
+    type FindingInstallation,
     type FindingScanContext,
     type ScanState,
     type ScanStateInputs,
@@ -154,17 +155,21 @@ export function activeScanRows(db: DrizzleDb, rows: readonly LatestSourceScanRow
     })
 }
 
-// Per-ecosystem resolver coverage, as one scan recorded it in its rawJson. It is how the UI/API say "this
+// One manifest's resolver coverage, as one scan recorded it in its rawJson. It is how the UI/API say "this
 // Python scan was partial/unauditable" instead of reading a coverage gap as a clean bill of health.
+// `manifestPath` is null on an entry written before 3.8, which recorded one entry per ecosystem.
 export type EcosystemCoverageRow = {
     ecosystem: string
+    manifestPath: string | null
     status: 'ok' | 'partial' | 'unauditable'
     reasonCode: string | null
     details: string[]
 }
 
 // Null when the summary is not JSON or carries no coverage array: that scan says nothing about coverage.
-// Unexpected entries are skipped rather than guessed at.
+// Unexpected entries are skipped rather than guessed at. Every entry is kept, in recorded order: an
+// ecosystem's manifests each have their own (a readable Gemfile.lock and a bare ios/Gemfile), and keeping
+// only the first of them read the project as fully covered whenever the readable one came first.
 function coverageOf(rawJson: string): EcosystemCoverageRow[] | null {
     let parsed: unknown
     try {
@@ -177,10 +182,10 @@ function coverageOf(rawJson: string): EcosystemCoverageRow[] | null {
     const out: EcosystemCoverageRow[] = []
     for (const entry of coverage) {
         if (!entry || typeof entry.ecosystem !== 'string') continue
-        if (out.some(function seen(c) { return c.ecosystem === entry.ecosystem })) continue
         const status = entry.status === 'partial' || entry.status === 'unauditable' ? entry.status : 'ok'
         out.push({
             ecosystem: entry.ecosystem,
+            manifestPath: typeof entry.manifestPath === 'string' ? entry.manifestPath : null,
             status,
             reasonCode: typeof entry.reasonCode === 'string' ? entry.reasonCode : null,
             details: Array.isArray(entry.details) ? entry.details.filter(function isStr(d: unknown): d is string { return typeof d === 'string' }) : []
@@ -251,6 +256,8 @@ function cellKey(source: string, ecosystem: string): string {
 type ProjectScanInputs = {
     inputs: ScanStateInputs
     latestByCell: Map<string, LatestSourceScanRow>
+    // The latest scan's coverage, per manifest (null: unknown).
+    coverage: EcosystemCoverageRow[] | null
 }
 
 // `latest` is listLatestSourceScans(db, projectIds), when the caller has already read it for its own use:
@@ -285,7 +292,8 @@ function readScanInputs(db: DrizzleDb, projectIds: readonly string[] | null, lat
                     return { ecosystem: c.ecosystem, status: c.status, reasonCode: c.reasonCode }
                 })
             },
-            latestByCell
+            latestByCell,
+            coverage
         })
     }
     return out
@@ -323,15 +331,23 @@ export function getProjectScanState(db: DrizzleDb, projectId: string): ScanState
 // For the findings queries: what each row's (source, ecosystem) cell last did on the row's project, and the
 // project's state, so readFixFields can say a retained row was not re-checked. Keyed by the finding's own
 // ecosystem: OSV failing on Python says nothing about an OSV Ruby finding its successful Ruby scan just
-// re-checked. Null for a cell with no scan of the project.
-export type FindingScanContextLookup = (projectId: string, source: string, ecosystem: string) => FindingScanContext | null
+// re-checked. Null for a cell with no scan of the project. `row` is the finding's own lifecycle facts: with
+// them an open row its cell's ok scan kept without seeing (a manifest it lives in went unread) reads as not
+// re-checked too; without them only a failed scan does.
+export type FindingScanContextLookup = (projectId: string, source: string, ecosystem: string, row?: FindingRowFacts) => FindingScanContext | null
+
+export type FindingRowFacts = {
+    lastSeenAt: number | null
+    resolvedAt: number | null
+    installations: readonly FindingInstallation[]
+}
 
 // Read for the named projects only: a library page lists rows from a handful of projects, and a fleet-wide
 // read costs a pass over every scan.
 export function findingScanContexts(db: DrizzleDb, projectIds: readonly string[]): FindingScanContextLookup {
     const read = readScanInputs(db, projectIds)
     const states = new Map<string, ScanState>()
-    return function lookup(id, source, ecosystem) {
+    return function lookup(id, source, ecosystem, row) {
         const project = read.get(id)
         const latest = project?.latestByCell.get(cellKey(source, ecosystem))
         if (!project || !latest) return null
@@ -340,6 +356,27 @@ export function findingScanContexts(db: DrizzleDb, projectIds: readonly string[]
             state = projectScanState(project.inputs)
             states.set(id, state)
         }
+        if (row !== undefined && keptUnseen(latest, row)) {
+            return { latestStatus: latest.status, latestReasonCode: latest.reasonCode, lastOkScanAt: row.lastSeenAt, projectState: state.state, unreadReasonCode: unreadReasonCode(project.coverage, ecosystem, row.installations) }
+        }
         return { latestStatus: latest.status, latestReasonCode: latest.reasonCode, lastOkScanAt: latest.lastOkScanAt, projectState: state.state }
     }
+}
+
+// An ok scan refreshes last_seen_at on every row of its cell it sees and resolves every other one it could
+// see (mergeFindingsForScan), so an open row older than its cell's latest ok scan is one that scan kept
+// without seeing: a manifest the row lives in went unread.
+function keptUnseen(latest: LatestSourceScanRow, row: FindingRowFacts): row is FindingRowFacts & { lastSeenAt: number } {
+    return latest.status === 'ok' && row.resolvedAt === null && row.lastSeenAt !== null && row.lastSeenAt < latest.finishedAt
+}
+
+// Why the row went unread: the coverage reason of the unread manifest it lives in, else of the first unread
+// manifest of its ecosystem (a row written before 3.8 names no manifest), else a partial graph — the row was
+// not seen, whatever the latest scan recorded about it.
+function unreadReasonCode(coverage: readonly EcosystemCoverageRow[] | null, ecosystem: string, installations: readonly FindingInstallation[]): string {
+    const unread = (coverage ?? []).filter(function gap(c) { return c.ecosystem === ecosystem && c.status === 'unauditable' })
+    const own = unread.find(function holds(c) {
+        return installations.some(function at(i) { return i.manifestPath === c.manifestPath })
+    })
+    return (own ?? unread[0])?.reasonCode ?? 'partial_dependency_graph'
 }

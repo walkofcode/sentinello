@@ -11,6 +11,7 @@ import {
     type ProjectManifest
 } from '@sentinello/core'
 import { detectManifestsInSync, type DetectedManifest } from './resolver'
+import { isWithin } from './resolver/paths'
 
 // Project discovery: walk a directory tree and report every project in it, with every manifest it owns.
 // Shared by the worker (which walks mounted /roots on a schedule and reconciles the
@@ -145,6 +146,96 @@ export function discoverProjectsInTree(options: DiscoveryOptions): DiscoveredPro
         out
     })
     for (const project of out) finishProject(project, ecosystems)
+    return out
+}
+
+export type ProjectRediscoveryOptions = {
+    // The walk root the project was discovered under, and the project's own directory below it.
+    rootPath: string
+    projectPath: string
+    excludes?: string[]
+    ecosystems?: readonly EcosystemDefinition[]
+}
+
+export type ProjectRediscovery = {
+    // The project as a discovery pass would record it now; null when its directory no longer anchors one.
+    project: DiscoveredProject | null
+    // Directories below the project that could not be read: see withUnreadManifests.
+    errors: DiscoveryError[]
+}
+
+// Re-reads ONE known project exactly as a discovery pass would — the same rules, the ignore files of every
+// directory from the root down, the same excludes — without walking the rest of the root. A scan requested
+// between sweeps (the watcher, a manual scan) uses it, so a lockfile added since the last sweep is scanned
+// now (a uv.lock beside a bare pyproject.toml, a new ios/Gemfile.lock), and which manifests a project owns is
+// still decided in one place: an appended file name would bypass lockfile precedence and nested-project
+// ownership.
+export function rediscoverProject(options: ProjectRediscoveryOptions): ProjectRediscovery {
+    const rootPath = resolve(options.rootPath)
+    const projectPath = resolve(options.projectPath)
+    const errors: DiscoveryError[] = []
+    if (!isWithin(rootPath, projectPath) || !existsSync(projectPath)) return { project: null, errors }
+    const rel = relative(rootPath, projectPath)
+    const excludeMatcher = ignoreFactory()
+    if (options.excludes && options.excludes.length > 0) excludeMatcher.add(options.excludes)
+    // The ignore layers the root-down walk would have stacked above the project; walk() adds the project's own.
+    const layers: IgnoreLayer[] = []
+    const segments = rel === '' ? [] : rel.split(sep)
+    let dir = rootPath
+    for (const segment of segments) {
+        const layer = loadIgnoreLayer(dir)
+        if (layer) layers.push(layer)
+        dir = join(dir, segment)
+    }
+    const ecosystems = options.ecosystems ?? STABLE_ECOSYSTEMS
+    const out: DiscoveredProject[] = []
+    walk({
+        rootPath,
+        currentDir: projectPath,
+        depth: segments.length,
+        maxDepth: null,
+        excludeMatcher,
+        hasExcludes: Boolean(options.excludes && options.excludes.length > 0),
+        layers,
+        onSkip: undefined,
+        onError: function record(error) {
+            errors.push(error)
+        },
+        ecosystems,
+        npmOn: ecosystems.some(isNpm),
+        subEcosystems: ecosystems.filter(function nonNpm(eco) { return !isNpm(eco) }),
+        owner: null,
+        manifestsOff: false,
+        out
+    })
+    // The walk also reaches the npm projects nested below a non-npm one (rule 4); they are not this project's.
+    const project = out.find(function self(p) { return p.absolutePath === projectPath }) ?? null
+    if (project !== null) finishProject(project, ecosystems)
+    return { project, errors }
+}
+
+// A walk that could not read some directory cannot say what is below it, so a recorded manifest there is
+// kept rather than dropped: the project still has to answer for it, and dropping it would let the next scan
+// read the project as fully covered, or resolve what was found in it, when nothing looked (SENTINEL-140). A
+// directory whose listing failed may hide its own files too (a mode-000 directory cannot be stat'ed into),
+// so a manifest in the unreadable directory itself is kept as well. Returns the project with those manifests
+// added back and its ecosystems derived again; unchanged when the walk was complete.
+export function withUnreadManifests(
+    project: DiscoveredProject,
+    recorded: readonly ProjectManifest[],
+    errors: readonly DiscoveryError[],
+    ecosystems: readonly EcosystemDefinition[] = STABLE_ECOSYSTEMS
+): DiscoveredProject {
+    if (errors.length === 0) return project
+    const manifests = project.manifests.slice()
+    for (const manifest of recorded) {
+        if (manifests.some(function same(m) { return m.path === manifest.path })) continue
+        const dir = dirname(join(project.absolutePath, manifest.path))
+        if (!errors.some(function hides(error) { return isWithin(resolve(error.path), dir) })) continue
+        manifests.push(manifest)
+    }
+    const out: DiscoveredProject = { ...project, manifests }
+    finishProject(out, ecosystems)
     return out
 }
 

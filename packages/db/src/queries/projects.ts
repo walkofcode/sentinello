@@ -113,6 +113,23 @@ export function setProjectGitBranch(db: DrizzleDb, id: string, gitBranch: string
     db.update(projects).set({ gitBranch, updatedAt: at }).where(eq(projects.id, id)).run()
 }
 
+// What a project's directory says about it, re-read at scan start (rediscoverProject) so a scan between
+// sweeps uses the manifests the project holds now, and the portal reads the ecosystems that scan covered.
+export type ProjectInventory = Pick<Project, 'packageManager' | 'nvmrcVersion' | 'ecosystems' | 'manifests'>
+
+export function setProjectInventory(db: DrizzleDb, id: string, inventory: ProjectInventory, at: number): void {
+    db.update(projects)
+        .set({
+            packageManager: inventory.packageManager,
+            nvmrcVersion: inventory.nvmrcVersion,
+            ecosystemsJson: JSON.stringify(inventory.ecosystems),
+            manifestsJson: JSON.stringify(inventory.manifests),
+            updatedAt: at
+        })
+        .where(eq(projects.id, id))
+        .run()
+}
+
 function rowToProject(row: ProjectRow): Project {
     return {
         id: row.id,

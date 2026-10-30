@@ -221,8 +221,15 @@ describe('scan state — no source enabled for an ecosystem', function () {
         }).reasons).toEqual([{ source: null, ecosystem: 'PyPI', reasonCode: 'no_lockfile', side: 'project' }, disabled])
     })
 
-    it('is not scanned yet while an expected cell has not run, even with an ecosystem disabled', function () {
+    // SENTINEL-141: the marker is a configuration fact, not something a scan finds. It used to be dropped
+    // until npm's first scan, so the dashboard notice and Settings' turn-on count missed the project.
+    it('is not scanned yet while an expected cell has not run, and still names the disabled ecosystem', function () {
         expect(projectScanState({ expectedCells: cells('npm-audit'), sourceDisabled: [python], latestScans: [], detectedEcosystems: ['npm', 'PyPI'], coverage: null }))
+            .toEqual({ state: 'not_scanned_yet', reasons: [{ source: null, ecosystem: 'PyPI', reasonCode: 'ecosystem_source_disabled', side: 'environment' }] })
+    })
+
+    it('is not scanned yet with no reasons when every detected ecosystem has a source', function () {
+        expect(projectScanState({ expectedCells: cells('npm-audit'), sourceDisabled: [], latestScans: [], detectedEcosystems: ['npm'], coverage: null }))
             .toEqual({ state: 'not_scanned_yet', reasons: [] })
     })
 })
@@ -232,6 +239,12 @@ describe('scan state — notRecheckedBecause', function () {
         expect(notRecheckedBecause(null)).toBeNull()
         expect(notRecheckedBecause({ latestStatus: null, latestReasonCode: null, lastOkScanAt: null, projectState: 'not_scanned_yet' })).toBeNull()
         expect(notRecheckedBecause({ latestStatus: 'ok', latestReasonCode: 'ok', lastOkScanAt: AT, projectState: 'scanned' })).toBeNull()
+    })
+
+    it('names the unread manifest\'s reason for a row an ok scan kept without seeing', function () {
+        expect(notRecheckedBecause({ latestStatus: 'ok', latestReasonCode: 'ok', lastOkScanAt: AT, projectState: 'partial', unreadReasonCode: 'unsupported_lockfile' }))
+            .toEqual({ reasonCode: 'unsupported_lockfile', side: 'project', projectState: 'partial', lastOkScanAt: AT })
+        expect(notRecheckedBecause({ latestStatus: 'ok', latestReasonCode: 'ok', lastOkScanAt: AT, projectState: 'scanned', unreadReasonCode: null })).toBeNull()
     })
 
     it('names the failure, its side, the project state and the last ok scan', function () {

@@ -1,6 +1,7 @@
 import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import { ulid } from 'ulid'
-import { escalatedSeverity, parseFindingCorroborations, parseFindingInstallations, parseRemediation, readFixFields, type EcosystemId, type FixCheck, type FixFields, type FixStatus, type Finding, type FindingCorroboration, type FindingInstallation, type FindingScanContext, type Remediation } from '@sentinello/core'
+import { escalatedSeverity, parseFindingCorroborations, parseFindingInstallations, parseRemediation, readFixFields, requireComparator, type EcosystemId, type FixCheck, type FixFields, type FixStatus, type Finding, type FindingCorroboration, type FindingInstallation, type FindingScanContext, type Remediation } from '@sentinello/core'
+import { compareVersions } from '@sentinello/versions'
 import type { DrizzleDb } from '../client'
 import { findings } from '../schema'
 import { sumCount } from './count'
@@ -48,6 +49,11 @@ export type MergeFindingsInput = {
     scanId: string
     scanFinishedAt: number
     incoming: IncomingFinding[]
+    // The cell's manifests this scan could not read (resolved `unauditable`: missing, unparseable, unreadable),
+    // as ProjectManifest paths. The scan's ok status speaks only for the manifests it read: what was installed
+    // through one of these was not re-checked, so the merge neither resolves it nor drops that installation
+    // from a finding it saw elsewhere (SENTINEL-138). Empty or absent when every manifest was read.
+    unreadManifests?: readonly string[]
 }
 
 export type MergeFindingsResult = {
@@ -64,7 +70,9 @@ export type MergeFindingsResult = {
 // Behaviour (only invoke for status='ok' scans):
 //   - identity present in DB (open)  + present in scan  -> UPDATE last_seen_at + mutable fields
 //   - identity NOT present (or only resolved rows) + present in scan -> INSERT new open episode
-//   - identity present in DB (open)  + absent from scan -> UPDATE resolved_at = scan.finishedAt
+//   - identity present in DB (open)  + absent from scan -> UPDATE resolved_at = scan.finishedAt, unless it was
+//     installed through a manifest the scan could not read (or its row predates installations and some
+//     manifest went unread): then it is kept open, untouched, because nothing re-checked it
 //
 // Duplicate self-heal: an identity should have at most one open row, but historical inserts could
 // leave several. We bucket ALL open rows per identity (never overwrite): on a match we keep the
@@ -98,6 +106,7 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
         if (bucket) bucket.push(row)
         else openByIdentity.set(key, [row])
     }
+    const unread = input.unreadManifests ?? []
     const active: Finding[] = []
     const resolved: Finding[] = []
     const seenIdentityKeys = new Set<string>()
@@ -112,12 +121,13 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             // Keep the earliest-detected row as the continuing episode; resolve any duplicates so a
             // stranded orphan is closed by the same scan that refreshes the real one.
             const canonical = pickOldestRow(bucket)
+            const { installedVersion, installations } = withUnreadInstallations(inc, canonical, unread)
             db.update(findings)
                 .set({
                     advisoryTitle: inc.advisoryTitle,
                     advisoryUrl: inc.advisoryUrl,
-                    installedVersion: inc.installedVersion,
-                    installationsJson: JSON.stringify(inc.installations),
+                    installedVersion,
+                    installationsJson: JSON.stringify(installations),
                     vulnerableRange: inc.vulnerableRange,
                     severity: inc.severity,
                     fixAvailable: inc.fixAvailable,
@@ -138,8 +148,8 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
                 ...canonical,
                 advisoryTitle: inc.advisoryTitle,
                 advisoryUrl: inc.advisoryUrl,
-                installedVersion: inc.installedVersion,
-                installationsJson: JSON.stringify(inc.installations),
+                installedVersion,
+                installationsJson: JSON.stringify(installations),
                 vulnerableRange: inc.vulnerableRange,
                 severity: inc.severity,
                 fixAvailable: inc.fixAvailable,
@@ -220,12 +230,39 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
     }
     for (const [key, bucket] of openByIdentity.entries()) {
         if (seenIdentityKeys.has(key)) continue
-        // Whole identity is gone from the scan: resolve every open row for it, duplicates included.
+        // Whole identity is gone from the scan: resolve every open row for it, duplicates included — except a
+        // row the scan could not have seen, which stays open as it was.
         for (const row of bucket) {
+            if (installedThroughUnread(parseFindingInstallations(row.installationsJson), unread)) continue
             resolved.push(resolveFindingRow(db, row, input.scanFinishedAt, input.scanId))
         }
     }
     return { active, resolved }
+}
+
+// Whether an open row may hide behind a manifest the scan did not read: one of its copies was installed
+// through one, or the row predates installations (written before 3.8), so where it lives is unknown.
+function installedThroughUnread(installations: readonly FindingInstallation[], unread: readonly string[]): boolean {
+    if (unread.length === 0) return false
+    if (installations.length === 0) return true
+    return installations.some(function inUnread(i) { return unread.includes(i.manifestPath) })
+}
+
+// A continuing finding's copies: the ones this scan saw, plus the row's earlier ones in manifests it could
+// not read, which are still there as far as anyone knows. `installedVersion` stays the lowest affected
+// installed version (by the ecosystem's comparator) across all of them.
+function withUnreadInstallations(inc: IncomingFinding, row: FindingRow, unread: readonly string[]): { installedVersion: string; installations: FindingInstallation[] } {
+    if (unread.length === 0) return { installedVersion: inc.installedVersion, installations: inc.installations }
+    const comparator = requireComparator(inc.ecosystem)
+    const installations = inc.installations.slice()
+    let installedVersion = inc.installedVersion
+    for (const prior of parseFindingInstallations(row.installationsJson)) {
+        // A manifest the scan could not read contributed nothing to it, so no incoming copy is from one.
+        if (!unread.includes(prior.manifestPath)) continue
+        installations.push(prior)
+        if (compareVersions(prior.version, installedVersion, comparator) < 0) installedVersion = prior.version
+    }
+    return { installedVersion, installations }
 }
 
 // Resolve a single open row against this scan and return the closed Finding. Shared by the
@@ -425,7 +462,11 @@ export function findFindingByIdentity(
         )
         .get()
     if (!row) return null
-    return rowToFindingInContext(row, scanContext(row.projectId, row.source ?? row.scanner, row.ecosystem))
+    return rowToFindingInContext(row, scanContext(row.projectId, row.source ?? row.scanner, row.ecosystem, {
+        lastSeenAt: row.lastSeenAt,
+        resolvedAt: row.resolvedAt,
+        installations: parseFindingInstallations(row.installationsJson)
+    }))
 }
 
 // In-memory dedup key for the lifecycle merge. First component is the persisted source identity, not

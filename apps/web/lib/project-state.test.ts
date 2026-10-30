@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ScanState } from '@sentinello/core'
-import type { ProjectCatalogRow } from '@sentinello/db'
+import { listProjectScanStates, type ProjectCatalogRow } from '@sentinello/db'
+import { closePortalTestDb, openPortalTestDb, seedProject, seedRoot, type PortalTestDb } from './portal-test-db.fixture'
 import { isProjectHealthy, languageNames, projectsWithoutSource, scanStateBadge, scanStateReasonsText, sourceDisabledEcosystems } from './project-state'
 
 function row(scanState: ScanState): ProjectCatalogRow {
@@ -115,5 +116,30 @@ describe('projects with no enabled source', function () {
     it('counts nothing on an install where every project has a source', function () {
         expect(projectsWithoutSource([SCANNED, CANNOT, PARTIAL])).toEqual({ projects: 0, ecosystems: [] })
         expect(projectsWithoutSource([])).toEqual({ projects: 0, ecosystems: [] })
+    })
+})
+
+// SENTINEL-141: a project discovered with npm and Python and not scanned yet already has a language nothing
+// will scan (npm audit is on by default, OSV is not). The dashboard notice and Settings' "Turn on" count
+// read it from the scan state; it used to be dropped until npm's first scan.
+describe('projects with no enabled source — before the first scan', function () {
+    let handle: PortalTestDb
+
+    beforeEach(async function setup() {
+        handle = await openPortalTestDb('portal-no-source')
+        seedRoot(handle.db)
+    })
+
+    afterEach(async function teardown() {
+        await closePortalTestDb(handle)
+    })
+
+    it('counts a newly discovered mixed project that has no scan rows', function () {
+        seedProject(handle.db, 'mixed', { ecosystems: ['npm', 'PyPI'] })
+        seedProject(handle.db, 'plain')
+        const states = listProjectScanStates(handle.db)
+        expect(states.get('mixed')?.state).toBe('not_scanned_yet')
+        expect(states.get('plain')).toEqual({ state: 'not_scanned_yet', reasons: [] })
+        expect(projectsWithoutSource(states.values())).toEqual({ projects: 1, ecosystems: [{ ecosystem: 'PyPI', projects: 1 }] })
     })
 })

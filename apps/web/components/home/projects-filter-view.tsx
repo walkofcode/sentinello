@@ -631,7 +631,8 @@ function RowActions({ project, depType, scanning }: { project: ProjectCatalogRow
 }
 
 // The project's scan state as one badge — "Cannot be scanned", "Cannot be fully scanned" or "Not scanned
-// yet" — with every reason and whose side it is on in its tooltip. A fully scanned project shows nothing.
+// yet" — with every reason and whose side it is on in its tooltip. A fully scanned project shows nothing. A
+// project not scanned yet has reasons only for a language no source is enabled for, shown the same way.
 function ScanStateBadges({ row }: { row: ProjectCatalogRow }) {
     const t = useTranslations('Home')
     const locale = useLocale() as Locale
@@ -643,7 +644,15 @@ function ScanStateBadges({ row }: { row: ProjectCatalogRow }) {
         { project: t('stateSideProject'), environment: t('stateSideEnvironment') },
         function sourceDisabled(languages) { return t('stateSourceDisabled', { languages }) }
     )
-    if (badge === 'notScannedYet') return <Badge variant="muted">{t('stateNotScannedYet')}</Badge>
+    if (badge === 'notScannedYet') {
+        if (row.scanState.reasons.length === 0) return <Badge variant="muted">{t('stateNotScannedYet')}</Badge>
+        return (
+            <span className="flex flex-col items-start gap-0.5">
+                <Badge variant="muted" title={reasons}>{t('stateNotScannedYet')}</Badge>
+                <span className="text-[0.625rem] text-muted-foreground">{reasons}</span>
+            </span>
+        )
+    }
     return (
         <span className="flex flex-col items-start gap-0.5">
             <Badge variant={badge === 'cannotScan' ? 'high' : 'moderate'} title={reasons}>

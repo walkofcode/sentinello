@@ -473,6 +473,7 @@ export function listCurrentFindingsForProject(
             f.package_name ASC
     `)
     return rows.map(function toRow(row): CurrentFindingRow {
+        const installations = parseFindingInstallations(row.installations_json)
         return {
             id: row.id,
             scanId: row.scan_id,
@@ -485,12 +486,13 @@ export function listCurrentFindingsForProject(
             advisoryUrl: row.advisory_url,
             packageName: row.package_name,
             installedVersion: row.installed_version,
-            installations: parseFindingInstallations(row.installations_json),
+            installations,
             vulnerableRange: row.vulnerable_range,
             severity: row.severity,
             ...readFixFields(
                 { fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json, remediationJson: row.remediation_json },
-                scanContext(row.project_id, row.source ?? row.scanner, row.ecosystem)
+                // Every row here is open (resolved_at IS NULL above).
+                scanContext(row.project_id, row.source ?? row.scanner, row.ecosystem, { lastSeenAt: row.last_seen_at, resolvedAt: null, installations })
             ),
             depPathJson: row.dep_path_json,
             corroborations: parseFindingCorroborations(row.corroborations_json),

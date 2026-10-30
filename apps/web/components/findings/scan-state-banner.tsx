@@ -15,9 +15,11 @@ type Props = {
 // operator's fix). A reason several sources share — no lockfile stops npm audit, OSV and the npm
 // dependency read alike — is listed once, naming them all. A language no enabled source answers for reads
 // "No source enabled for Python" and points at Settings → Sources, where one click turns a source on.
-// Nothing is shown for a fully scanned project, nor for one never scanned, which the header already says.
+// Nothing is shown for a fully scanned project, nor for one never scanned, which the header already says —
+// unless it has a language no source is enabled for: that is known before any scan, and no scan will
+// answer for it, so the project cannot be fully scanned.
 export async function ScanStateBanner({ scanState, locale }: Props) {
-    if (scanState.state !== 'cannot_scan' && scanState.state !== 'partial') return null
+    if (scanState.state === 'scanned' || scanState.reasons.length === 0) return null
     const t = await getTranslations('Detail')
     const cannot = scanState.state === 'cannot_scan'
     return (

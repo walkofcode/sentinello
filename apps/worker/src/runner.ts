@@ -17,7 +17,6 @@ import {
     type SqliteDb
 } from '@sentinello/db'
 import {
-    detectManifests,
     graphForEcosystem,
     splitInstalled,
     mergeResolvedGraphs,
@@ -35,8 +34,8 @@ import {
 } from '@sentinello/scanners'
 import { errText } from '@sentinello/feeds'
 import { createRegistryClients, fixEvidenceKey, type RegistryClients } from '@sentinello/fixes'
-import { CONFIG_KEYS } from './config-loader'
-import { readGitBranch } from './discovery'
+import { CONFIG_KEYS, DEFAULT_GLOBAL_IGNORE } from './config-loader'
+import { readGitBranch, refreshProjectInventory } from './discovery'
 import { verifyFixes } from './fix-verification'
 import { notifyForCompletedScan } from './notifier'
 import { createDbRegistryStores } from './registry-store'
@@ -161,22 +160,29 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
     // independent — a developer switching branches between the two would otherwise leave the portal
     // (and the notification) attributing findings to the wrong branch. Cheap: one file read.
     refreshGitBranch(input.db, project, projectPath, root.path)
-    // Resolve every manifest discovery recorded for the project ONCE per scan — its own directory's and every
-    // sub-manifest (ios/Gemfile.lock) — each classified ok/partial/unauditable so coverage is honest. A row
-    // discovered before 3.8 recorded none, and is read from its own directory until the next sweep records
-    // them. Then each source runs once per (source, ecosystem) cell the project has and the operator enabled
-    // (decision SENTINEL-117): one scan row per cell, stamped with its real ecosystem, and a lifecycle merge
-    // scoped to that cell, so OSV failing on Python neither hides nor resolves what it found for Ruby.
+    // Which manifests the project owns is re-read now, by the discovery rules, not taken from the last sweep:
+    // a scan the watcher or the operator asked for between sweeps has to see the lockfile that was just added
+    // (SENTINEL-139). The ecosystems recorded before it still run this once, so one whose manifests are all
+    // gone records that it could not be read, and the findings it left read as not re-checked, not as current.
+    const recordedEcosystems = project.ecosystems.slice()
+    const globalIgnore = getConfigValue<string[]>(input.db, CONFIG_KEYS.globalIgnore) || DEFAULT_GLOBAL_IGNORE
+    refreshProjectInventory(input.db, project, root.path, globalIgnore, Date.now())
+    // Resolve every manifest the project owns ONCE per scan — its own directory's and every sub-manifest
+    // (ios/Gemfile.lock) — each classified ok/partial/unauditable so coverage is honest, one entry per
+    // manifest. Then each source runs once per (source, ecosystem) cell the project has and the operator
+    // enabled (decision SENTINEL-117): one scan row per cell, stamped with its real ecosystem, and a lifecycle
+    // merge scoped to that cell, so OSV failing on Python neither hides nor resolves what it found for Ruby.
     // npm-audit runs only for a project with an npm manifest, and is the sole scanner that touches the Node
     // toolchain (nvm).
-    const manifests = recordedManifests(project, projectPath) ?? await detectManifests(projectPath)
-    const resolverResults = await resolveProjectGraphs(projectPath, manifests)
+    const resolved = await resolveManifests(project, projectPath)
+    const resolverResults = resolved.map(function result(r) { return r.result })
     const npmGraph = graphForEcosystem(resolverResults, 'npm')
-    const coverage = resolverResults.map(toCoverage)
-    // The project's ecosystems: what its manifests hold now, and what discovery recorded for it — an
-    // ecosystem whose lockfile vanished since still runs, and records no_lockfile instead of "not yet run".
+    const coverage = resolved.map(toCoverage)
+    // The project's ecosystems: what its manifests hold now, and what was recorded for it before this scan —
+    // an ecosystem whose lockfile vanished since still runs, and records no_lockfile instead of "not yet run".
     // A row with neither is read as npm, the only thing a pre-polyglot row can be.
-    const present = new Set<string>(project.ecosystems)
+    const present = new Set<string>(recordedEcosystems)
+    for (const e of project.ecosystems) present.add(e)
     for (const r of resolverResults) present.add(r.ecosystem)
     if (present.size === 0) present.add('npm')
     const detected = ECOSYSTEMS.filter(function inProject(eco) { return present.has(eco.id) }).map(function id(eco) { return eco.id })
@@ -196,10 +202,14 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
             if (input.abortSignal && input.abortSignal.aborted) break
             if (!cellRunnable(runnable, scanner.name, ecosystem)) continue
             const isNpmAudit = scanner.name === NPM_AUDIT_SCANNER_NAME
-            const cell = cellResults(resolverResults, ecosystem)
-            const graphForCell = isNpmAudit ? npmGraph : mergeResolvedGraphs(cell)
+            const cell = cellResults(resolved, ecosystem)
+            const graphForCell = isNpmAudit ? npmGraph : mergeResolvedGraphs(cell.map(function result(r) { return r.result }))
             const coverageForCell = isNpmAudit ? undefined : cell.map(toCoverage)
-            const outcome = await runOneScanner(input, project, projectPath, scanner, ecosystem, reportedByPackage, corroborations, graphForCell, coverageForCell, coverage)
+            // A feed source matches the merged graph of the manifests that could be read, so its ok answer says
+            // nothing about one that could not: what lives there is not resolved by its absence. npm-audit runs
+            // its own audit of the project rather than this graph, and answers for it whole.
+            const unreadManifests = isNpmAudit ? [] : unreadOf(cell)
+            const outcome = await runOneScanner(input, project, projectPath, scanner, ecosystem, reportedByPackage, corroborations, graphForCell, coverageForCell, coverage, unreadManifests)
             outcomes.push(outcome)
         }
     }
@@ -239,13 +249,27 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
     return outcomes
 }
 
-// The manifests discovery recorded for the project, as the resolver takes them; null for a row recorded
-// before 3.8, which is read from its own directory instead.
-function recordedManifests(project: Project, projectPath: string): DetectedManifest[] | null {
-    if (project.manifests.length === 0) return null
-    return project.manifests.map(function toDetected(m): DetectedManifest {
+// One manifest's resolver result, with the manifest it came from (ProjectManifest.path).
+type ResolvedManifest = {
+    manifestPath: string
+    result: ResolverResult
+}
+
+// Resolves the project's manifests, each paired with its path: resolveProjectGraphs answers in the order it
+// is asked.
+async function resolveManifests(project: Project, projectPath: string): Promise<ResolvedManifest[]> {
+    const manifests = project.manifests.map(function toDetected(m): DetectedManifest {
         return { kind: m.kind, ecosystem: m.ecosystem, absolutePath: join(projectPath, m.path) }
     })
+    const results = await resolveProjectGraphs(projectPath, manifests)
+    return results.map(function pair(result, i): ResolvedManifest {
+        return { manifestPath: project.manifests[i]!.path, result }
+    })
+}
+
+// The manifests of a cell the resolver could not read at all — they contributed nothing to its graph.
+function unreadOf(cell: readonly ResolvedManifest[]): string[] {
+    return cell.filter(function unread(r) { return r.result.status === 'unauditable' }).map(function path(r) { return r.manifestPath })
 }
 
 function cellRunnable(runnable: readonly SourceCell[], source: string, ecosystem: string): boolean {
@@ -253,8 +277,8 @@ function cellRunnable(runnable: readonly SourceCell[], source: string, ecosystem
 }
 
 // One ecosystem's resolver results: every manifest of it the project holds (two Gemfile.locks are two).
-function cellResults(results: readonly ResolverResult[], ecosystem: string): ResolverResult[] {
-    return results.filter(function of(r) { return r.ecosystem === ecosystem })
+function cellResults(results: readonly ResolvedManifest[], ecosystem: string): ResolvedManifest[] {
+    return results.filter(function of(r) { return r.result.ecosystem === ecosystem })
 }
 
 // Where each copy of a package a finding names was installed. The matcher records it for the feed sources;
@@ -389,10 +413,10 @@ function diagnosticEnvelope(raw: string, coverage: EcosystemCoverage[]): string 
     return envelope
 }
 
-// Flatten a classified ResolverResult into the compact per-ecosystem coverage the feed scanners record.
-function toCoverage(result: ResolverResult): EcosystemCoverage {
-    if (result.status === 'ok') return { ecosystem: result.ecosystem, status: 'ok' }
-    return { ecosystem: result.ecosystem, status: result.status, reasonCode: result.reasonCode, details: result.details }
+// Flatten a classified ResolverResult into the compact per-manifest coverage the feed scanners record.
+function toCoverage({ manifestPath, result }: ResolvedManifest): EcosystemCoverage {
+    if (result.status === 'ok') return { ecosystem: result.ecosystem, manifestPath, status: 'ok' }
+    return { ecosystem: result.ecosystem, manifestPath, status: result.status, reasonCode: result.reasonCode, details: result.details }
 }
 
 async function runOneScanner(
@@ -405,7 +429,8 @@ async function runOneScanner(
     corroborations: CorroborationEvent[],
     resolvedGraph: ResolvedGraph | null,
     coverage: EcosystemCoverage[] | undefined,
-    projectCoverage: EcosystemCoverage[]
+    projectCoverage: EcosystemCoverage[],
+    unreadManifests: readonly string[]
 ): Promise<ProjectScanOutcome> {
     const startedAt = Date.now()
     // nvm/Node tooling is JavaScript-only: only the npm-audit scanner ever invokes it. Feed sources are
@@ -485,7 +510,8 @@ async function runOneScanner(
             ecosystem,
             scanId: scan.id,
             scanFinishedAt: scan.finishedAt,
-            incoming
+            incoming,
+            unreadManifests
         })
         return result.active
     })

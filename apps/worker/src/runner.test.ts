@@ -741,7 +741,7 @@ describe('runBatch — ecosystem coverage', function () {
 
         await batch([osv], [project()])
 
-        expect(coverageOf(osv)).toEqual([{ ecosystem: 'npm', status: 'ok' }])
+        expect(coverageOf(osv)).toEqual([{ ecosystem: 'npm', manifestPath: 'package-lock.json', status: 'ok' }])
     })
 
     // yarn.lock is detected as the npm manifest but deliberately not parsed, so the graph is
@@ -789,7 +789,7 @@ describe('runBatch — coverage on every scan row', function () {
         return JSON.parse(listScansForProject(db, PROJECT_ID)[0]?.rawJson ?? '')
     }
 
-    const NO_LOCKFILE = [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile', details: ['package.json has no lockfile covering it (package-lock.json, pnpm-lock.yaml, yarn.lock)'] }]
+    const NO_LOCKFILE = [{ ecosystem: 'npm', manifestPath: 'package.json', status: 'unauditable', reasonCode: 'no_lockfile', details: ['package.json has no lockfile covering it (package-lock.json, pnpm-lock.yaml, yarn.lock)'] }]
 
     it('records it on an npm-audit scan, which is handed none', async function () {
         await writeBarePackageJson()
@@ -848,7 +848,7 @@ describe('runBatch — coverage on every scan row', function () {
         await batch([fakeScanner('osv', { ...okResult([]), rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'ok' }] }) })], [project()])
         await batch([fakeScanner('npm-audit', { status: 'error', reasonCode: 'audit_parse_error', findings: [], rawJson: 'raw audit text', errorText: 'bad', durationMs: 1 })], [project()])
         expect(getProjectEcosystemCoverage(db, PROJECT_ID)).toEqual([
-            { ecosystem: 'npm', status: 'unauditable', reasonCode: 'unsupported_lockfile', details: ['yarn.lock is not a supported JavaScript lockfile format'] }
+            { ecosystem: 'npm', manifestPath: 'yarn.lock', status: 'unauditable', reasonCode: 'unsupported_lockfile', details: ['yarn.lock is not a supported JavaScript lockfile format'] }
         ])
     })
 

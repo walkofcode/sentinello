@@ -57,7 +57,8 @@ export function reasonSide(code: string | null): ScanStateSide {
 // `partial` — at least one expected source answered, but something else did not: another source failed,
 //   one has not run yet, or an ecosystem could not be fully read. Shown as "cannot be fully scanned".
 // `cannot_scan` — no expected source answered, and at least one tried and failed.
-// `not_scanned_yet` — no expected source has ever scanned the project: the existing "never scanned".
+// `not_scanned_yet` — no expected source has ever scanned the project: the existing "never scanned". Its
+//   only reasons are ecosystem_source_disabled ones, for a detected language no source is enabled for.
 export type ScanStateValue = 'scanned' | 'partial' | 'cannot_scan' | 'not_scanned_yet'
 
 // One reason the project is not `scanned`. A source's failed scan names the source; an ecosystem whose
@@ -138,7 +139,9 @@ export function projectScanState(inputs: ScanStateInputs): ScanState {
         // Nothing is expected to scan it at all: no sweep will ever change that, so it is not "not scanned
         // yet" — it cannot be scanned until a source is turned on.
         if (expected.size === 0 && disabledReasons.length > 0) return { state: 'cannot_scan', reasons: disabledReasons }
-        return { state: 'not_scanned_yet', reasons: [] }
+        // Its other languages have not been scanned yet, but a language no source is enabled for is a
+        // configuration fact already: the marker and the Turn on count must not wait for the first sweep.
+        return { state: 'not_scanned_yet', reasons: disabledReasons }
     }
     const reasons: ScanStateReason[] = []
     let answered = 0
@@ -205,17 +208,28 @@ export type NotRecheckedBecause = {
 }
 
 // What a findings query knows about the row's source: its latest scan of the project and the last ok one.
+// `unreadReasonCode` is set when that latest scan was ok but did not see the row because a manifest it may
+// live in could not be read (the lifecycle merge keeps such a row open rather than resolve it): the coverage
+// reason of that manifest. Null or absent otherwise. For such a row `lastOkScanAt` is the last scan that did
+// see it, not the ok scan that could not.
 export type FindingScanContext = {
     latestStatus: string | null
     latestReasonCode: string | null
     lastOkScanAt: number | null
     projectState: ScanStateValue
+    unreadReasonCode?: string | null
 }
 
-// Null when the source's latest scan was ok (the row was re-checked by it) or when the source has no scan
-// of the project at all (nothing failed). Otherwise the row was retained by a failed scan, settled or not.
+// Null when the source's latest scan was ok and re-checked the row, or when the source has no scan of the
+// project at all (nothing failed). Otherwise the row was retained, settled or not: by a failed scan, or by
+// an ok one that could not read the manifest the row lives in.
 export function notRecheckedBecause(context: FindingScanContext | null): NotRecheckedBecause | null {
-    if (context === null || context.latestStatus === null || context.latestStatus === 'ok') return null
+    if (context === null || context.latestStatus === null) return null
+    if (context.latestStatus === 'ok') {
+        if (context.unreadReasonCode === undefined || context.unreadReasonCode === null) return null
+        const unread = failureReasonCode(context.unreadReasonCode)
+        return { reasonCode: unread, side: REASON_SIDE[unread], projectState: context.projectState, lastOkScanAt: context.lastOkScanAt }
+    }
     const reasonCode = failureReasonCode(context.latestReasonCode)
     return { reasonCode, side: REASON_SIDE[reasonCode], projectState: context.projectState, lastOkScanAt: context.lastOkScanAt }
 }

@@ -1,11 +1,11 @@
 import { statSync } from 'node:fs'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { getEcosystem, STABLE_ECOSYSTEMS, type EcosystemDefinition } from '@sentinello/core'
 import type { DetectedLockfile } from '../types'
 import { parseGoMod } from './go'
 import { makeGraph } from './graph'
 import { parseNpmLock } from './npm-lock'
-import { manifestPathOf } from './paths'
+import { isWithin, manifestPathOf } from './paths'
 import { parsePnpmLock } from './pnpm'
 import { parsePythonLock } from './python'
 import { parseGemfileLock } from './ruby'
@@ -84,11 +84,6 @@ function coveredByLock(eco: EcosystemDefinition, manifest: string, dir: string, 
         if (current === root) break
     }
     return false
-}
-
-function isWithin(root: string, path: string): boolean {
-    const rel = relative(root, path)
-    return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
 function firstPresent(dir: string, kinds: readonly string[]): string | null {

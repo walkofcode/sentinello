@@ -56,12 +56,15 @@ export type ScanResult = {
     durationMs: number
 }
 
-// Per-ecosystem resolver coverage for one project, threaded into the advisory-feed scanners so they can
-// record (in their rawJson) which ecosystems were fully/partially/not auditable this scan. The reason
-// codes are stable so Phase 5 can render the disclosure per ecosystem; capturing it here keeps the
-// classification end-to-end in Phase 4 rather than silently dropping it.
+// Resolver coverage, threaded into the advisory-feed scanners so they can record (in their rawJson) which
+// manifests were fully/partially/not auditable this scan. One entry per manifest: a project holding two
+// manifests of one ecosystem (ios/Gemfile.lock and android/Gemfile.lock) records two, each naming its
+// manifest, so a readable one never hides an unreadable sibling.
 export type EcosystemCoverage = {
     ecosystem: string
+    // The manifest the entry is about, relative to the project with `/` separators (ProjectManifest.path).
+    // Absent where the caller does not track manifests (the CLI).
+    manifestPath?: string
     status: 'ok' | 'partial' | 'unauditable'
     reasonCode?: ReasonCode
     details?: string[]

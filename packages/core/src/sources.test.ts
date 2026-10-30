@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { GEMNASIUM_NORMALIZER_VERSION, OSV_NORMALIZER_VERSIONS, osvNormalizerVersion } from './advisory-rows'
 import { ECOSYSTEMS } from './ecosystems'
-import { sourceNormalizerVersion } from './sources'
+import { GEMNASIUM_STATUS_KEY, sourceCellStatusKey, sourceNormalizerVersion, sourceStatusKey } from './sources'
 
 // The portal compares a mirrored SourceStatus.normalizerVersion against this to decide whether the
 // scanner will actually match against the cache. Pinned against the constants rather than literals so
@@ -29,5 +29,17 @@ describe('osvNormalizerVersion', function () {
 
     it('fails loudly for an ecosystem the registry does not know', function () {
         expect(function unknown() { return osvNormalizerVersion('maven') }).toThrow('unknown ecosystem "maven"')
+    })
+})
+
+// SENTINEL-142: gemnasium writes ONE status; every gemnasium cell must read that one, and OSV keeps its own
+// per cell.
+describe('sourceCellStatusKey', function () {
+    it('reads every gemnasium cell from the one status gemnasium writes, and each OSV cell from its own', function () {
+        expect(GEMNASIUM_STATUS_KEY).toBe(sourceStatusKey('gemnasium', 'npm'))
+        for (const eco of ECOSYSTEMS) {
+            expect(sourceCellStatusKey('gemnasium', eco.id)).toBe(GEMNASIUM_STATUS_KEY)
+            expect(sourceCellStatusKey('osv', eco.id)).toBe(sourceStatusKey('osv', eco.id))
+        }
     })
 })

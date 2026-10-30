@@ -12,7 +12,11 @@ export function manifestPathOf(projectPath: string, absolutePath: string): strin
 // Outside, it is someone's local checkout that no advisory database covers, and the scan says it could not
 // audit it.
 export function isInsideProject(projectPath: string, fromDir: string, localPath: string): boolean {
-    const target = resolve(fromDir, localPath)
-    const rel = relative(resolve(projectPath), target)
+    return isWithin(resolve(projectPath), resolve(fromDir, localPath))
+}
+
+// Whether `path` is `dir` or below it. Both absolute.
+export function isWithin(dir: string, path: string): boolean {
+    const rel = relative(dir, path)
     return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }

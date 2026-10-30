@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { readFixFields, type DepTypeFilter, type FixCheck, type FixStatus, type NotRecheckedBecause, type Remediation } from '@sentinello/core'
+import { parseFindingInstallations, readFixFields, type DepTypeFilter, type FixCheck, type FixStatus, type NotRecheckedBecause, type Remediation } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { depTypeClause } from './dep-type'
 import { findingScanContexts } from './scan-state'
@@ -119,19 +119,21 @@ export function listLibraryUsage(
     const depFilter = depTypeClause(depType)
     const sourceFilter = activeSourceCellClause(db)
     // A library is (ecosystem, packageName); when the detail page passes the ecosystem we scope to that
-    // cell so a same-named package in another ecosystem never bleeds into this view. COALESCE keeps
-    // un-backfilled legacy rows (ecosystem NULL) reachable under 'npm'.
+    // cell so a same-named package in another ecosystem never bleeds into this view. findings.ecosystem is
+    // NOT NULL and every writer names it, so the column is compared as it is.
     const ecosystemFilter = ecosystem ? sql`AND f.ecosystem = ${ecosystem}` : sql``
     const rows = db.all<{
         project_id: string
         project_name: string
         scanner: string
-        // Both COALESCEd in the SELECT below (COALESCE(f.source, f.scanner), COALESCE(f.ecosystem,
-        // 'npm')), so SQLite has already substituted by the time the mapper runs. This is the one place
-        // where source is non-null despite the column being nullable — the query, not the schema, is why.
+        // COALESCE(f.source, f.scanner) in the SELECT below: source is nullable on an un-backfilled legacy
+        // row, whose scanner names it, so SQLite has already substituted by the time the mapper runs — the
+        // query, not the schema, is why it is non-null here. ecosystem needs no fallback: the column is
+        // NOT NULL.
         source: string
         ecosystem: string
         installed_version: string
+        installations_json: string
         vulnerable_range: string
         advisory_id: string
         advisory_title: string | null
@@ -154,6 +156,7 @@ export function listLibraryUsage(
             COALESCE(f.source, f.scanner) AS source,
             f.ecosystem AS ecosystem,
             f.installed_version AS installed_version,
+            f.installations_json AS installations_json,
             f.vulnerable_range AS vulnerable_range,
             f.advisory_id AS advisory_id,
             f.advisory_title AS advisory_title,
@@ -208,7 +211,8 @@ export function listLibraryUsage(
             severity: row.severity,
             ...readFixFields(
                 { fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json, remediationJson: row.remediation_json },
-                scanContext(row.project_id, row.source, row.ecosystem)
+                // Every row here is open (resolved_at IS NULL above).
+                scanContext(row.project_id, row.source, row.ecosystem, { lastSeenAt: row.last_seen_at, resolvedAt: null, installations: parseFindingInstallations(row.installations_json) })
             ),
             isProd: row.is_prod === 1,
             isDev: row.is_dev === 1,

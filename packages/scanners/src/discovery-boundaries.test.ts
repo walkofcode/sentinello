@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterAll, describe, expect, it } from 'vitest'
 import { ECOSYSTEMS } from '@sentinello/core'
-import { discoverProjectsInTree, type DiscoveredProject } from './discovery'
+import { discoverProjectsInTree, rediscoverProject, withUnreadManifests, type DiscoveredProject } from './discovery'
 
 // Project boundaries once Python, Go, Rust and Ruby are looked for (decision #3 of the 3.8 plan). The worker
 // hard-deletes a project that stops being discovered, with its mutes, aliases, tags and history, so the
@@ -299,4 +299,105 @@ describe('discoverProjectsInTree — adding non-npm manifests only ever adds', f
             await rm(root, { recursive: true, force: true })
         }
     }, 60_000)
+})
+
+// SENTINEL-139: a scan between sweeps re-reads one project with rediscoverProject. It must see exactly what a
+// whole-root walk would record for that project — the same manifests, the same lockfile chosen, the same
+// ownership — or a single-project scan and the next sweep would disagree about what the project holds.
+describe('rediscoverProject — one project, read as the whole walk reads it', function () {
+    const NAMES = ['apps', 'web', 'ios', 'android', 'scripts', 'vendor', 'build', 'svc']
+    const KINDS = [
+        'package.json', 'package-lock.json', 'pnpm-lock.yaml',
+        ...ECOSYSTEMS.filter(function nonNpm(eco) { return eco.id !== 'npm' }).flatMap(function kinds(eco) { return [...eco.resolverKinds, ...eco.manifestKinds] })
+    ]
+    const CASES = 150
+
+    function pick<T>(next: () => number, from: readonly T[]): T {
+        return from[Math.floor(next() * from.length)]!
+    }
+
+    it('matches discoverProjectsInTree for every project of ' + CASES + ' generated trees, ignore files and excludes included', async function () {
+        const next = prng(0x13c9)
+        for (let i = 0; i < CASES; i++) {
+            const spec: Record<string, string> = {}
+            const count = 2 + Math.floor(next() * 7)
+            for (let j = 0; j < count; j++) {
+                const depth = Math.floor(next() * 4)
+                const parts: string[] = []
+                for (let k = 0; k < depth; k++) parts.push(pick(next, NAMES))
+                parts.push(pick(next, KINDS))
+                spec[parts.join('/')] = parts[parts.length - 1] === 'package.json' ? PKG : ''
+            }
+            // An ignore file above some projects, so the layers stacked from the root down matter.
+            if (next() < 0.5) spec['.gitignore'] = pick(next, NAMES) + '/' + pick(next, NAMES) + '/\n'
+            if (next() < 0.3) spec['apps/.sentinelloignore'] = pick(next, NAMES) + '\n'
+            const excludes = next() < 0.3 ? [pick(next, NAMES) + '/' + pick(next, NAMES)] : []
+            const root = await makeTree(spec)
+            const label = 'case ' + i + ': ' + JSON.stringify({ spec, excludes })
+            const whole = discoverProjectsInTree({ rootPath: root, ecosystems: ECOSYSTEMS, excludes })
+            for (const project of whole) {
+                const again = rediscoverProject({ rootPath: root, projectPath: project.absolutePath, ecosystems: ECOSYSTEMS, excludes })
+                expect(again, label).toEqual({ project, errors: [] })
+            }
+            await rm(root, { recursive: true, force: true })
+        }
+    }, 60_000)
+
+    it('finds nothing outside the root, for a directory that is gone, or for one that anchors no project', async function () {
+        const root = await makeTree({ 'notes/README.md': 'x', 'app/package.json': PKG })
+        expect(rediscoverProject({ rootPath: join(root, 'app'), projectPath: root })).toEqual({ project: null, errors: [] })
+        expect(rediscoverProject({ rootPath: root, projectPath: join(root, 'gone') })).toEqual({ project: null, errors: [] })
+        expect(rediscoverProject({ rootPath: root, projectPath: join(root, 'notes') })).toEqual({ project: null, errors: [] })
+    })
+
+    it('reads the root itself as a project, on the stable ecosystems by default', async function () {
+        const root = await makeTree({ 'requirements.txt': 'django==3.2.0\n', 'ios/Gemfile.lock': '' })
+        const again = rediscoverProject({ rootPath: root, projectPath: root })
+        expect(again.project).toMatchObject({ relPath: '.', ecosystems: ['PyPI', 'RubyGems'] })
+        expect(again.project?.manifests.map(function path(m) { return m.path })).toEqual(['requirements.txt', 'ios/Gemfile.lock'])
+    })
+
+    it('reports a directory below the project it could not read', async function () {
+        const { chmod } = await import('node:fs/promises')
+        const root = await makeTree({ 'app/package.json': PKG, 'app/native/ios/Gemfile.lock': '' })
+        await chmod(join(root, 'app', 'native'), 0o000)
+        try {
+            const again = rediscoverProject({ rootPath: root, projectPath: join(root, 'app') })
+            expect(again.project?.manifests.map(function path(m) { return m.path })).toEqual(['package.json'])
+            expect(again.errors.map(function path(e) { return e.path })).toEqual([join(root, 'app', 'native')])
+        } finally {
+            await chmod(join(root, 'app', 'native'), 0o755)
+        }
+    })
+})
+
+// SENTINEL-140: what an incomplete walk could not see is kept from the record, and nothing else is.
+describe('withUnreadManifests', function () {
+    const project: DiscoveredProject = {
+        absolutePath: '/r/app',
+        relPath: 'app',
+        name: 'app',
+        packageManager: 'npm',
+        nvmrcVersion: null,
+        gitBranch: null,
+        ecosystems: ['npm'],
+        manifests: [{ path: 'package-lock.json', ecosystem: 'npm', kind: 'package-lock.json' }]
+    }
+    const recorded = [
+        { path: 'package-lock.json', ecosystem: 'npm' as const, kind: 'package-lock.json' },
+        { path: 'native/ios/Gemfile.lock', ecosystem: 'RubyGems' as const, kind: 'Gemfile.lock' },
+        { path: 'native/Cargo.lock', ecosystem: 'crates.io' as const, kind: 'Cargo.lock' },
+        { path: 'android/Gemfile.lock', ecosystem: 'RubyGems' as const, kind: 'Gemfile.lock' }
+    ]
+
+    it('returns the project as found when the walk was complete', function () {
+        expect(withUnreadManifests(project, recorded, [])).toBe(project)
+    })
+
+    it('keeps the recorded manifests in or below an unreadable directory, and derives the ecosystems again', function () {
+        const kept = withUnreadManifests(project, recorded, [{ path: '/r/app/native', message: 'EACCES' }])
+        expect(kept.manifests.map(function path(m) { return m.path })).toEqual(['package-lock.json', 'native/Cargo.lock', 'native/ios/Gemfile.lock'])
+        expect(kept.ecosystems).toEqual(['npm', 'crates.io', 'RubyGems'])
+        expect(project.manifests).toHaveLength(1)
+    })
 })

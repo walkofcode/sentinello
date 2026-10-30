@@ -17,9 +17,11 @@ export type { DepScope, DetectedManifest, LockEdge, LockEdgeKind, LockNode, Lock
 export {
     detectPackageManager,
     discoverProjectsInTree,
-    readGitBranch
+    readGitBranch,
+    rediscoverProject,
+    withUnreadManifests
 } from './discovery'
-export type { DiscoveredProject, DiscoveryError, DiscoveryOptions, DiscoverySkip, DiscoverySkipSource } from './discovery'
+export type { DiscoveredProject, DiscoveryError, DiscoveryOptions, DiscoverySkip, DiscoverySkipSource, ProjectRediscovery, ProjectRediscoveryOptions } from './discovery'
 export { createOsvScanner, matchPackages, OSV_SCANNER_NAME } from './osv'
 export type { OsvAdvisory, OsvLookup, OsvRange, OsvScannerDeps } from './osv'
 export { createGemnasiumScanner, GEMNASIUM_SCANNER_NAME } from './gemnasium'

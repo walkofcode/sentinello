@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { ScanAutoRefresh } from '@/components/scan-auto-refresh'
 import { Switch } from '@/components/ui/switch'
 import { formatRelativeTime } from '@/lib/format'
+import { isRefreshPending, type RefreshBaseline } from '@/lib/source-refresh'
 import { refreshSourceAction, turnOnSourceForEcosystemAction, updateSourceCellAction } from '@/lib/actions/settings'
 
 export type SourceCellVM = {
@@ -149,7 +150,7 @@ function SourceCell({ cell, label }: SourceCellProps) {
     // What this cell's status looked like when a refresh was asked for. The worker exposes no
     // "syncing" state — only the SourceStatus snapshot it writes when a sync ENDS — so "still
     // running" is derived by comparing against this baseline rather than stored anywhere.
-    const [refreshBaseline, setRefreshBaseline] = useState<{ refreshedAt: number | null; lastError: string | null } | null>(null)
+    const [refreshBaseline, setRefreshBaseline] = useState<RefreshBaseline | null>(null)
     const [error, setError] = useState<string | null>(null)
     const status = cell.status
 
@@ -203,19 +204,10 @@ function SourceCell({ cell, label }: SourceCellProps) {
     const failing = status !== null && status.lastError !== null
     // Derived during render, not tracked in an effect: `status` is a server prop, so once the worker
     // writes a newer snapshot (or a new error) the very next render flips this false and leaves it
-    // false. This used to be a useState nothing ever reset, so the label sat there until you navigated
-    // away — claiming a refresh was still running hours after it finished.
-    //
-    // Known limitation, accepted: the baseline is client memory, so reloading the page drops the label
-    // while the sync is genuinely still running. Fixing that properly means a syncStartedAt field on
-    // SourceStatus, stamped by the worker.
-    // The baseline now covers only the <=5s between clicking Refresh and the worker claiming the
+    // false. The baseline covers only the <=5s between clicking Refresh and the worker claiming the
     // refresh-* signal, before anything has stamped syncStartedAt. After that `syncing` is the truth,
     // and it survives a reload where the baseline never did.
-    const refreshPending = syncing
-        || (refreshBaseline !== null
-            && (status?.refreshedAt ?? null) === refreshBaseline.refreshedAt
-            && (status?.lastError ?? null) === refreshBaseline.lastError)
+    const refreshPending = isRefreshPending(status, refreshBaseline)
 
     return (
         <div className="py-3">

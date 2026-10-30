@@ -21,6 +21,17 @@ export function sourceStatusKey(source: SourceId, ecosystem: EcosystemId): strin
     return 'sources.' + source + '.' + ecosystem + '.status'
 }
 
+// Gemnasium's cache is ONE download for every ecosystem, with one seed, record count and refresh time, so it
+// has one sync status. It lives under a fixed slot, the npm cell's key, where it lived before cells had
+// ecosystems; the worker writes it there and every gemnasium cell reads it from there.
+export const GEMNASIUM_STATUS_KEY = sourceStatusKey('gemnasium', 'npm')
+
+// Where a cell's sync status is read from. OSV downloads each ecosystem separately and keeps a status per
+// cell; a gemnasium cell, whatever its ecosystem, reads gemnasium's one status.
+export function sourceCellStatusKey(source: SourceId, ecosystem: EcosystemId): string {
+    return source === 'gemnasium' ? GEMNASIUM_STATUS_KEY : sourceStatusKey(source, ecosystem)
+}
+
 // Pre-Phase-2 flat keys. Kept ONLY so the per-cell readers can fall back to them and the worker boot can
 // migrate them to the npm-cell keys above. Never written going forward.
 export const LEGACY_SOURCE_CONFIG_KEYS = {
