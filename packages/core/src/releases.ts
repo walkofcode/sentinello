@@ -20,6 +20,7 @@ function stripVPrefix(value: string): string {
 // needs no empty-array fallback — and an accidental truncation to [] becomes a type error rather than a
 // silently null "latest release".
 export const RELEASES: [ReleaseEntry, ...ReleaseEntry[]] = [
+    { version: '3.8.1', date: '2026-10-30' },
     { version: '3.8.0', date: '2026-10-30' },
     { version: '3.7.6', date: '2026-10-25' },
     { version: '3.7.4', date: '2026-10-24' },
@@ -63,6 +64,13 @@ export const RELEASES: [ReleaseEntry, ...ReleaseEntry[]] = [
 // this is plain TS data, not a next-intl message key (next-intl forbids '.' in keys).
 export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     en: {
+        '3.8.1': {
+            title: 'No false scan-failure alerts while an upgrade rebuilds the advisory caches',
+            items: [
+                'An upgrade that changes how advisories are stored makes Sentinello rebuild its OSV and gemnasium caches. During the upgrade to 3.8.0, the cache that finished first started a full re-scan while the other was still downloading: every project read as not scannable, and a scan-failure notification went out for each. A full re-scan now waits until every cache being rebuilt is ready, and a scan that only waited on a cache still downloading or rebuilding never sends a scan-failure notification, including any that 3.8.0 recorded and never delivered.',
+                'The one-time summary of what Sentinello found in Python, Go, Rust and Ruby projects could be sent after a scan that ran during that rebuild, and count nothing. It is now sent only after a scan in which every source turned on for those languages could check them.'
+            ]
+        },
         '3.8.0': {
             title: 'Python, Go, Rust and Ruby projects are checked like Node.js ones',
             items: [
@@ -368,6 +376,13 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Initial open-source release', items: ['The first public release of Sentinello'] }
     },
     es: {
+        '3.8.1': {
+            title: 'Sin falsas alertas de escaneo fallido mientras una actualización reconstruye las cachés de avisos',
+            items: [
+                'Una actualización que cambia cómo se guardan los avisos hace que Sentinello reconstruya sus cachés de OSV y gemnasium. Durante la actualización a 3.8.0, la caché que terminó primero lanzó un reescaneo completo mientras la otra aún se descargaba: todos los proyectos figuraron como imposibles de escanear y se envió una notificación de escaneo fallido por cada uno. Ahora un reescaneo completo espera a que todas las cachés en reconstrucción estén listas, y un escaneo que solo esperaba a una caché que aún se descarga o se reconstruye nunca envía una notificación de escaneo fallido, tampoco las que 3.8.0 registró sin llegar a entregarlas.',
+                'El resumen único de lo que Sentinello encontró en proyectos Python, Go, Rust y Ruby podía enviarse tras un escaneo hecho durante esa reconstrucción y no contar nada. Ahora solo se envía tras un escaneo en el que todas las fuentes activadas para esos lenguajes pudieron comprobarlos.'
+            ]
+        },
         '3.8.0': {
             title: 'Los proyectos de Python, Go, Rust y Ruby se revisan igual que los de Node.js',
             items: [
@@ -676,6 +691,13 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primera versión de código abierto', items: ['El primer lanzamiento público de Sentinello'] }
     },
     fr: {
+        '3.8.1': {
+            title: 'Plus de fausses alertes d’analyse échouée pendant qu’une mise à jour reconstruit les caches d’avis',
+            items: [
+                'Une mise à jour qui change la façon dont les avis sont stockés oblige Sentinello à reconstruire ses caches OSV et gemnasium. Pendant la mise à jour vers 3.8.0, le cache terminé le premier a lancé une nouvelle analyse complète alors que l’autre se téléchargeait encore : chaque projet apparaissait comme impossible à analyser, et une notification d’analyse échouée est partie pour chacun. Une nouvelle analyse complète attend désormais que chaque cache en reconstruction soit prêt, et une analyse qui n’attendait qu’un cache encore en téléchargement ou en reconstruction n’envoie jamais de notification d’analyse échouée, y compris celles que 3.8.0 a enregistrées sans jamais les remettre.',
+                'Le résumé unique de ce que Sentinello a trouvé dans les projets Python, Go, Rust et Ruby pouvait partir après une analyse faite pendant cette reconstruction, et ne rien compter. Il n’est désormais envoyé qu’après une analyse où chaque source activée pour ces langages a pu les vérifier.'
+            ]
+        },
         '3.8.0': {
             title: 'Les projets Python, Go, Rust et Ruby sont vérifiés comme ceux de Node.js',
             items: [
@@ -986,6 +1008,13 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Première version open source', items: ['La première version publique de Sentinello'] }
     },
     de: {
+        '3.8.1': {
+            title: 'Keine falschen Meldungen über fehlgeschlagene Scans mehr, während ein Update die Hinweis-Caches neu aufbaut',
+            items: [
+                'Ein Update, das ändert, wie Hinweise gespeichert werden, lässt Sentinello seine OSV- und gemnasium-Caches neu aufbauen. Beim Update auf 3.8.0 startete der zuerst fertige Cache einen vollständigen Neuscan, während der andere noch heruntergeladen wurde: Jedes Projekt galt als nicht scanbar, und für jedes ging eine Meldung über einen fehlgeschlagenen Scan hinaus. Ein vollständiger Neuscan wartet jetzt, bis jeder Cache im Neuaufbau bereit ist, und ein Scan, der nur auf einen noch ladenden oder sich neu aufbauenden Cache wartete, verschickt nie eine Meldung über einen fehlgeschlagenen Scan, auch keine, die 3.8.0 aufgezeichnet und nie zugestellt hat.',
+                'Die einmalige Zusammenfassung dessen, was Sentinello in Python-, Go-, Rust- und Ruby-Projekten gefunden hat, konnte nach einem Scan während dieses Neuaufbaus verschickt werden und nichts zählen. Sie wird jetzt erst nach einem Scan verschickt, in dem jede für diese Sprachen aktivierte Quelle sie prüfen konnte.'
+            ]
+        },
         '3.8.0': {
             title: 'Python-, Go-, Rust- und Ruby-Projekte werden wie Node.js-Projekte geprüft',
             items: [
@@ -1297,6 +1326,13 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         }
     },
     'pt-BR': {
+        '3.8.1': {
+            title: 'Sem falsos alertas de varredura com falha enquanto uma atualização reconstrói os caches de avisos',
+            items: [
+                'Uma atualização que muda a forma como os avisos são armazenados faz o Sentinello reconstruir seus caches do OSV e do gemnasium. Na atualização para a 3.8.0, o cache que terminou primeiro iniciou uma nova varredura completa enquanto o outro ainda era baixado: todos os projetos apareceram como impossíveis de verificar, e uma notificação de varredura com falha foi enviada para cada um. Agora uma nova varredura completa espera até que todos os caches em reconstrução estejam prontos, e uma varredura que só esperava por um cache ainda sendo baixado ou reconstruído nunca envia notificação de varredura com falha, nem as que a 3.8.0 registrou e nunca entregou.',
+                'O resumo único do que o Sentinello encontrou em projetos Python, Go, Rust e Ruby podia ser enviado após uma varredura feita durante essa reconstrução e não contar nada. Agora ele só é enviado após uma varredura em que todas as fontes ativadas para essas linguagens conseguiram verificá-las.'
+            ]
+        },
         '3.8.0': {
             title: 'Projetos Python, Go, Rust e Ruby são verificados como os de Node.js',
             items: [
@@ -1605,6 +1641,13 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primeira versão de código aberto', items: ['O primeiro lançamento público do Sentinello'] }
     },
     it: {
+        '3.8.1': {
+            title: 'Niente più falsi avvisi di scansione non riuscita mentre un aggiornamento ricostruisce le cache degli avvisi',
+            items: [
+                'Un aggiornamento che cambia il modo in cui gli avvisi sono memorizzati fa ricostruire a Sentinello le sue cache OSV e gemnasium. Durante l’aggiornamento alla 3.8.0, la cache finita per prima ha avviato una nuova scansione completa mentre l’altra era ancora in download: ogni progetto risultava non scansionabile, ed è partita una notifica di scansione non riuscita per ciascuno. Ora una nuova scansione completa aspetta che ogni cache in ricostruzione sia pronta, e una scansione che aspettava soltanto una cache ancora in download o in ricostruzione non invia mai una notifica di scansione non riuscita, nemmeno quelle che la 3.8.0 ha registrato senza mai consegnarle.',
+                'Il riepilogo unico di ciò che Sentinello ha trovato nei progetti Python, Go, Rust e Ruby poteva partire dopo una scansione fatta durante quella ricostruzione, e non contare nulla. Ora parte solo dopo una scansione in cui ogni fonte attivata per quei linguaggi ha potuto controllarli.'
+            ]
+        },
         '3.8.0': {
             title: 'I progetti Python, Go, Rust e Ruby vengono controllati come quelli Node.js',
             items: [
@@ -1913,6 +1956,13 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Prima versione open source', items: ['La prima versione pubblica di Sentinello'] }
     },
     ja: {
+        '3.8.1': {
+            title: 'アップグレードでアドバイザリのキャッシュを再構築している間に、スキャン失敗の誤った通知が届かなくなりました',
+            items: [
+                'アドバイザリの保存形式が変わるアップグレードでは、Sentinello は OSV と gemnasium のキャッシュを再構築します。3.8.0 へのアップグレードでは、先に終わったキャッシュがもう一方のダウンロード中にフルスキャンを始めたため、すべてのプロジェクトがスキャンできない扱いになり、プロジェクトごとにスキャン失敗の通知が送られていました。現在は、再構築中のキャッシュがすべて準備できるまでフルスキャンを待ちます。また、ダウンロード中または再構築中のキャッシュを待っていただけのスキャンは、スキャン失敗の通知を一切送りません。3.8.0 が記録して未配信のままになっている通知も同様です。',
+                'Python、Go、Rust、Ruby のプロジェクトで見つかったものをまとめた 1 回限りの要約が、その再構築中に行われたスキャンの後に送られ、何も数えていないことがありました。現在は、これらの言語に対して有効なすべてのソースがチェックできたスキャンの後にのみ送られます。'
+            ]
+        },
         '3.8.0': {
             title: 'Python、Go、Rust、Ruby のプロジェクトも Node.js と同じようにチェックされます',
             items: [
@@ -2217,6 +2267,13 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '初のオープンソースリリース', items: ['Sentinello の最初の一般公開リリース'] }
     },
     'zh-CN': {
+        '3.8.1': {
+            title: '升级重建公告缓存期间，不再误报扫描失败',
+            items: [
+                '如果升级改变了公告的存储方式，Sentinello 会重建 OSV 和 gemnasium 缓存。升级到 3.8.0 时，先完成的缓存在另一个缓存仍在下载时就启动了完整重新扫描：每个项目都显示为无法扫描，并且为每个项目都发出了一条扫描失败通知。现在，完整重新扫描会等到所有正在重建的缓存都就绪；只是在等待仍在下载或重建的缓存的扫描，永远不会发送扫描失败通知，3.8.0 已记录但从未送达的此类通知也不会再发送。',
+                'Sentinello 对 Python、Go、Rust 和 Ruby 项目发现结果的一次性摘要，可能在该重建期间运行的扫描之后发出，并且什么都没有计入。现在，只有在为这些语言启用的每个来源都能检查它们的扫描之后，才会发送该摘要。'
+            ]
+        },
         '3.8.0': {
             title: 'Python、Go、Rust 和 Ruby 项目与 Node.js 项目一样接受检查',
             items: [
@@ -2501,6 +2558,13 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '首个开源版本', items: ['Sentinello 的首个公开发布版本'] }
     },
     ko: {
+        '3.8.1': {
+            title: '업그레이드가 권고 캐시를 다시 만드는 동안 스캔 실패 오경보가 더 이상 오지 않습니다',
+            items: [
+                '권고 저장 방식이 바뀌는 업그레이드에서는 Sentinello가 OSV와 gemnasium 캐시를 다시 만듭니다. 3.8.0으로 업그레이드할 때 먼저 끝난 캐시가 다른 캐시가 아직 다운로드되는 중에 전체 재스캔을 시작했고, 그 결과 모든 프로젝트가 스캔할 수 없는 것으로 표시되어 프로젝트마다 스캔 실패 알림이 발송되었습니다. 이제 전체 재스캔은 다시 만들어지는 모든 캐시가 준비될 때까지 기다리며, 아직 다운로드되거나 다시 만들어지는 캐시를 기다렸을 뿐인 스캔은 스캔 실패 알림을 보내지 않습니다. 3.8.0이 기록했지만 전달하지 못한 알림도 마찬가지입니다.',
+                'Python, Go, Rust, Ruby 프로젝트에서 찾은 내용을 담은 한 번뿐인 요약이 캐시를 다시 만드는 동안 실행된 스캔 뒤에 발송되어 아무것도 세지 못할 수 있었습니다. 이제는 이 언어들에 대해 켜 둔 모든 소스가 확인할 수 있었던 스캔 뒤에만 발송됩니다.'
+            ]
+        },
         '3.8.0': {
             title: 'Python, Go, Rust, Ruby 프로젝트도 Node.js처럼 검사합니다',
             items: [
@@ -2799,6 +2863,13 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '첫 오픈 소스 릴리스', items: ['Sentinello의 첫 공개 릴리스'] }
     },
     ru: {
+        '3.8.1': {
+            title: 'Больше никаких ложных уведомлений о сбое сканирования, пока обновление перестраивает кэши рекомендаций',
+            items: [
+                'Обновление, меняющее способ хранения рекомендаций, заставляет Sentinello перестроить кэши OSV и gemnasium. При обновлении до 3.8.0 кэш, готовый первым, запустил полное повторное сканирование, пока второй ещё скачивался: каждый проект выглядел как не поддающийся сканированию, и по каждому ушло уведомление о сбое сканирования. Теперь полное повторное сканирование ждёт, пока будут готовы все перестраиваемые кэши, а сканирование, которое лишь ждало кэш, ещё скачиваемый или перестраиваемый, никогда не отправляет уведомление о сбое сканирования, в том числе те, что 3.8.0 записала, но так и не доставила.',
+                'Разовая сводка того, что Sentinello нашёл в проектах на Python, Go, Rust и Ruby, могла уйти после сканирования, прошедшего во время этой перестройки, и ничего не учесть. Теперь она отправляется только после сканирования, в котором каждый источник, включённый для этих языков, смог их проверить.'
+            ]
+        },
         '3.8.0': {
             title: 'Проекты на Python, Go, Rust и Ruby проверяются так же, как на Node.js',
             items: [
