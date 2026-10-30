@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SEVERITY_ORDER, compareSeverity, findingIdentity, maxSeverity, meetsSeverityFloor, severityWeight } from './types'
+import { SEVERITY_ORDER, compareSeverity, findingIdentity, maxSeverity, meetsSeverityFloor, parseFindingInstallations, severityWeight } from './types'
 import type { Severity } from './types'
 
 // There used to be four SEVERITY_RANK tables in this repo — one here, one in merge-findings.ts, and one
@@ -137,5 +137,22 @@ describe('findingIdentity', function () {
         } as Parameters<typeof findingIdentity>[0])
 
         expect(identity).not.toHaveProperty('severity')
+    })
+})
+
+// One installed copy behind a finding per entry; a corrupted column degrades entry by entry.
+describe('parseFindingInstallations', function () {
+    it('reads every well-formed installation', function () {
+        expect(parseFindingInstallations('[{"manifestPath":"ios/Gemfile.lock","version":"2.0.8"},{"manifestPath":"android/Gemfile.lock","version":"2.2.3"}]'))
+            .toEqual([{ manifestPath: 'ios/Gemfile.lock', version: '2.0.8' }, { manifestPath: 'android/Gemfile.lock', version: '2.2.3' }])
+    })
+
+    it.each([['not json'], ['{}'], ['null']])('reads %s as none', function (json) {
+        expect(parseFindingInstallations(json)).toEqual([])
+    })
+
+    it('skips entries that are not objects or miss a field', function () {
+        expect(parseFindingInstallations('[null, 3, {"manifestPath":""}, {"manifestPath":"a","version":""}, {"version":"1"}, {"manifestPath":"Gemfile.lock","version":"1.0.0"}]'))
+            .toEqual([{ manifestPath: 'Gemfile.lock', version: '1.0.0' }])
     })
 })

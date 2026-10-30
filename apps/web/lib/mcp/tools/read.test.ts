@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { insertMute, setConfigValue } from '@sentinello/db'
+import { insertMute, muteWriteOf, setConfigValue } from '@sentinello/db'
 import { sourceEnabledKey, type EcosystemId, type Mute, type SourceId } from '@sentinello/core'
 import {
     closePortalTestDb,
@@ -23,7 +23,7 @@ let handle: PortalTestDb
 let mcp: McpHarness
 
 function seedMute(id: string, overrides: Partial<Mute> = {}): void {
-    insertMute(handle.db, {
+    insertMute(handle.db, muteWriteOf({
         id,
         scope: 'finding',
         projectId: 'project-1',
@@ -36,7 +36,7 @@ function seedMute(id: string, overrides: Partial<Mute> = {}): void {
         createdAt: T0,
         expiresAt: null,
         ...overrides
-    } as Mute)
+    } as Mute))
 }
 
 // Findings are visible only through the currently-active (source, ecosystem) cells. npm-audit/npm is

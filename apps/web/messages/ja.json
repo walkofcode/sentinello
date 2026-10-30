@@ -150,7 +150,7 @@
         "colBranch": "ブランチ",
         "colRoot": "ルート",
         "colPm": "PM",
-        "colNode": "Node",
+        "colRuntime": "ランタイム",
         "colSeverity": "深刻度",
         "colState": "状態",
         "colActions": "操作",
@@ -166,7 +166,10 @@
         "statePartial": "完全にはスキャンできません",
         "stateNotScannedYet": "未スキャン",
         "stateSideProject": "プロジェクト側",
-        "stateSideEnvironment": "この Sentinello 環境側"
+        "stateSideEnvironment": "この Sentinello 環境側",
+        "stateSourceDisabled": "{languages} に有効なソースがありません",
+        "sourceDisabledNotice": "{count} 件のプロジェクトで {languages} に有効なソースがないため、スキャンされていません。",
+        "sourceDisabledAction": "設定 → ソースで有効にしてください"
     },
     "WhatsNew": {
         "pillLabel": "新着情報",
@@ -313,7 +316,9 @@
             "lastError": "最後のエラー",
             "refreshNow": "今すぐ更新",
             "refreshQueued": "更新を要求しました — バックグラウンドで実行されます。",
-            "previewNote": "開発中のため、まだ提供していません: {names}。",
+            "turnOnTitle": "{language} に有効なソースがありません",
+            "turnOnBody": "{count} 件のプロジェクトが {language} を使用していますが、スキャンするソースがありません。ソースを有効にすると、そのアドバイザリをダウンロードしてすべてのプロジェクトを再スキャンします。",
+            "turnOn": "{language} の {source} を有効にする",
             "aboutTitle": "これらのソースについて",
             "colSource": "ソース",
             "colAdds": "追加されるもの",
@@ -742,6 +747,8 @@
             "scanReasonSideProject": "プロジェクト側の問題: プロジェクト内のファイルが読み取りを妨げており、そこを変更することが対処です",
             "scanReasonSideEnvironment": "この Sentinello 環境側の問題: 環境がスキャンを実行できず、運用者が対処します",
             "scanReasonNotYetRun": "まだ何も確認していません: 次回のスキャンで確認されます",
+            "sourceDisabledReason": "{languages} に有効なソースがありません",
+            "sourceDisabledAction": "設定 → ソースで有効にしてください",
             "noFindingsUnknownTitle": "記録された検出結果はありません",
             "noFindingsUnknownBody": "何も見つかりませんでしたが、このプロジェクトは完全にはスキャンできませんでした。安全ではなく不明です。",
             "noFindingsNotScannedBody": "このプロジェクトはまだスキャンされていません。"

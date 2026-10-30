@@ -54,6 +54,7 @@ function finding(overrides: Partial<Finding> = {}): Finding {
     return {
         packageName: 'lodash',
         installedVersion: '4.17.11',
+        installations: [],
         fixStatus: 'released',
         fixAvailable: true,
         fixVersion: '4.17.21',

@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { type Project } from '@sentinello/core'
-import { discoverProjectsInTree, readGitBranch, type DiscoverySkip } from '@sentinello/scanners'
+import { discoverProjectsInTree, readGitBranch, type DiscoveryError, type DiscoverySkip } from '@sentinello/scanners'
 import {
     type DrizzleDb,
     type Root,
@@ -36,14 +36,25 @@ export function discoverProjects(input: DiscoveryInput): DiscoveryResult {
     // unmounted root against an empty walk and hard-delete every project under it; re-checking
     // existsSync further down would reintroduce that on a mount that drops mid-pass.
     const walkedRootIds = new Set<string>()
+    // Roots whose walk could not read some directory. Their result is incomplete, so a project missing from
+    // it may still be on disk: those roots get their discoveries recorded but nothing deleted.
+    const incompleteRootIds = new Set<string>()
     for (const root of input.roots) {
         if (!existsSync(root.path)) continue
         walkedRootIds.add(root.id)
+        const errors: DiscoveryError[] = []
         const found = discoverProjectsInTree({
             rootPath: root.path,
             excludes: input.globalIgnore,
-            onSkip: logSkip
+            onSkip: logSkip,
+            onError: function record(error) {
+                errors.push(error)
+            }
         })
+        if (errors.length > 0) {
+            incompleteRootIds.add(root.id)
+            logIncompleteWalk(root.path, errors)
+        }
         for (const project of found) {
             discoveredByPath.set(project.absolutePath, {
                 id: makeProjectId(root.id, project.relPath),
@@ -55,6 +66,7 @@ export function discoverProjects(input: DiscoveryInput): DiscoveryResult {
                 nvmrcVersion: project.nvmrcVersion,
                 gitBranch: project.gitBranch,
                 ecosystems: project.ecosystems,
+                manifests: project.manifests,
                 muted: false,
                 tags: [],
                 createdAt: input.at,
@@ -95,6 +107,7 @@ export function discoverProjects(input: DiscoveryInput): DiscoveryResult {
     const deletedProjectIds: string[] = []
     for (const prior of existing) {
         if (discoveredIds.has(prior.id)) continue
+        if (incompleteRootIds.has(prior.rootId)) continue
         // The project's root was walked but the folder is gone, so the project is genuinely gone.
         // Sentinello keeps only what it currently sees: hard-delete the project and all of its
         // history (scans, findings, notification events/deliveries, mutes). An unmounted root never
@@ -103,6 +116,16 @@ export function discoverProjects(input: DiscoveryInput): DiscoveryResult {
         deletedProjectIds.push(prior.id)
     }
     return { discoveredProjects: discovered, newProjectIds, deletedProjectIds }
+}
+
+// A directory that went unreadable mid-walk (a permissions change, a mount dropping under the walk) used to
+// read as empty, and every project below it was hard-deleted with its history. Saying why the deletes were
+// held back is what lets an operator tell a held-back sweep from a project that genuinely survived.
+function logIncompleteWalk(rootPath: string, errors: DiscoveryError[]): void {
+    for (const error of errors) {
+        console.log('[discovery] could not read ' + error.path + ': ' + error.message)
+    }
+    console.log('[discovery] not deleting any project under ' + rootPath + ' this pass: ' + errors.length + ' unreadable path(s) left the walk incomplete')
 }
 
 // Discovery now honours .gitignore, so a directory an operator expected to see can legitimately be

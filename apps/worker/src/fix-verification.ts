@@ -1,6 +1,6 @@
 import { errText, type Finding, type FixFields } from '@sentinello/core'
 import { applyFixSettlement, applyRemediation, type DrizzleDb } from '@sentinello/db'
-import { fixEvidenceKey, settleProject, type FixSettlement, type RegistryClient } from '@sentinello/fixes'
+import { fixEvidenceKey, settleProject, type FixSettlement, type RegistryClients } from '@sentinello/fixes'
 import type { FixEvidence, ResolvedGraph } from '@sentinello/scanners'
 
 // The worker's side of the shared fix logic: one settleProject call per project scan, after every source
@@ -15,7 +15,8 @@ export type VerifyFixesInput = {
     evidence: Map<string, FixEvidence[]>
     // The project's npm graph; null when the project has none (no lockfile, or one we cannot parse).
     graph: ResolvedGraph | null
-    registry: RegistryClient
+    // Each ecosystem's registry (createRegistryClients). An ecosystem with none settles unverified, skipped.
+    registry: RegistryClients
     checkedAt: number
 }
 

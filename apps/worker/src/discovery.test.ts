@@ -1,4 +1,4 @@
-import { rm } from 'node:fs/promises'
+import { chmod, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -24,6 +24,7 @@ import {
     project,
     type WorkerTestDb
 } from './worker-test-db.fixture'
+import type { Project } from '@sentinello/core'
 import { discoverProjects } from './discovery'
 
 // discoverProjects is the reconciliation half of a discovery pass: the walk itself lives in
@@ -232,6 +233,7 @@ describe('discoverProjects — re-discovery', function () {
         mergeFindingsForScan(handle.db, {
             projectId: id,
             scanner: 'npm-audit',
+            ecosystem: 'npm',
             scanId: 'scan-1',
             scanFinishedAt: T0 + 500,
             incoming: [{
@@ -244,6 +246,7 @@ describe('discoverProjects — re-discovery', function () {
                 advisoryUrl: 'https://example.test/CVE-2024-1',
                 packageName: 'lodash',
                 installedVersion: '4.17.11',
+                installations: [],
                 vulnerableRange: '<4.17.21',
                 severity: 'high',
                 fixAvailable: true,
@@ -280,6 +283,49 @@ describe('discoverProjects — re-discovery', function () {
         expect(listActiveMutes(handle.db, T0 + 1000).map(function muteId(m) { return m.id })).toEqual(['mute-1'])
     })
 
+    // A directory the walk cannot read reads as empty, so its projects are missing from the result while
+    // still on disk. Deleting on that evidence would destroy their history over a permissions change or a
+    // mount dropping mid-walk, so the whole root is held back from deletion for the pass.
+    it('deletes nothing under a root whose walk could not read a directory', async function () {
+        await chmod(join(rootPath, 'api'), 0o000)
+        try {
+            const result = discoverProjects({
+                db: handle.db,
+                roots: [root('root-1', rootPath)],
+                globalIgnore: [],
+                at: T0 + 1000
+            })
+            expect(result.discoveredProjects.map(function rel(p) { return p.relPath })).toEqual(['web'])
+            expect(result.deletedProjectIds).toEqual([])
+            expect(ids()).toEqual([makeProjectId('root-1', 'api'), makeProjectId('root-1', 'web')].sort())
+            const logged = vi.mocked(console.log).mock.calls.map(function first(c) { return String(c[0]) })
+            expect(logged).toContain('[discovery] not deleting any project under ' + rootPath + ' this pass: 1 unreadable path(s) left the walk incomplete')
+            expect(logged.some(function names(line) { return line.startsWith('[discovery] could not read ' + join(rootPath, 'api') + ': ') })).toBe(true)
+        } finally {
+            await chmod(join(rootPath, 'api'), 0o755)
+        }
+    })
+
+    // The hold-back is per root: another root walked cleanly in the same pass still reconciles.
+    it('still deletes under a root walked cleanly in the same pass', async function () {
+        const second = await makeTree(handle.dir, 'other', { 'tool/package.json': PKG_JSON, 'gone/package.json': PKG_JSON })
+        upsertRoot(handle.db, root(OTHER_ROOT_ID, second))
+        discoverProjects({ db: handle.db, roots: [root(OTHER_ROOT_ID, second)], globalIgnore: [], at: T0 })
+        await rm(join(second, 'gone'), { recursive: true, force: true })
+        await chmod(join(rootPath, 'api'), 0o000)
+        try {
+            const result = discoverProjects({
+                db: handle.db,
+                roots: [root('root-1', rootPath), root(OTHER_ROOT_ID, second)],
+                globalIgnore: [],
+                at: T0 + 1000
+            })
+            expect(result.deletedProjectIds).toEqual([makeProjectId(OTHER_ROOT_ID, 'gone')])
+        } finally {
+            await chmod(join(rootPath, 'api'), 0o755)
+        }
+    })
+
     // An ignore rule added later removes the project exactly as a deleted directory would — that is the
     // documented behaviour (Sentinello keeps only what it currently sees), and it is destructive, so it
     // deserves to be visible rather than incidental.
@@ -304,6 +350,35 @@ describe('discoverProjects — re-discovery', function () {
         })
         expect(result.newProjectIds).toEqual([makeProjectId(OTHER_ROOT_ID, 'web')])
         expect(result.deletedProjectIds).toEqual([])
+    })
+})
+
+describe('discoverProjects — manifests', function () {
+    // The runner resolves exactly the manifests discovery recorded, so they have to survive the round trip
+    // through the projects row — sub-manifests included, and a non-npm project's own manager with them.
+    it('records every manifest a project owns and its package manager', async function () {
+        const tree = await makeTree(handle.dir, 'mixed', {
+            'web/package.json': PKG_JSON,
+            'web/pnpm-lock.yaml': 'lockfileVersion: 9\n',
+            'web/ios/Gemfile.lock': '',
+            'tools/Gemfile.lock': ''
+        })
+        upsertRoot(handle.db, root('root-4', tree))
+        discoverProjects({ db: handle.db, roots: [root('root-4', tree)], globalIgnore: [], at: T0 })
+        const byRel = new Map(listProjects(handle.db).map(function pair(p): [string, Project] { return [p.relPath, p] }))
+        expect(byRel.get('web')).toMatchObject({
+            packageManager: 'pnpm',
+            ecosystems: ['npm', 'RubyGems'],
+            manifests: [
+                { path: 'pnpm-lock.yaml', ecosystem: 'npm', kind: 'pnpm-lock.yaml' },
+                { path: 'ios/Gemfile.lock', ecosystem: 'RubyGems', kind: 'Gemfile.lock' }
+            ]
+        })
+        expect(byRel.get('tools')).toMatchObject({
+            packageManager: 'bundler',
+            ecosystems: ['RubyGems'],
+            manifests: [{ path: 'Gemfile.lock', ecosystem: 'RubyGems', kind: 'Gemfile.lock' }]
+        })
     })
 })
 

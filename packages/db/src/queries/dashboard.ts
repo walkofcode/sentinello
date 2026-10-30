@@ -1,7 +1,8 @@
 import { sql } from 'drizzle-orm'
-import { parseFindingCorroborations, readFixFields, SCAN_HEARTBEAT_STALE_MS, type DepTypeFilter, type NotRecheckedBecause, type ScanState, type FindingCorroboration, type FixCheck, type FixStatus, type Remediation } from '@sentinello/core'
+import { parseFindingCorroborations, parseFindingInstallations, readFixFields, SCAN_HEARTBEAT_STALE_MS, type DepTypeFilter, type FindingInstallation, type NotRecheckedBecause, type ProjectManifest, type ScanState, type FindingCorroboration, type FixCheck, type FixStatus, type Remediation } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { depTypeClause } from './dep-type'
+import { parseManifests } from './projects'
 import { activeScanRows, findingScanContexts, listLatestSourceScans, listProjectScanStates, type LatestSourceScanRow } from './scan-state'
 import { activeSourceCellClause } from './sources'
 import { advisoryIdentitySql, severityRankSql, findingMuteExclusionSql } from './advisory-identity'
@@ -198,6 +199,9 @@ export type ProjectCatalogRow = {
     rootLabel: string | null
     rootPath: string
     packageManager: string
+    // Every manifest discovery found for the project (Project.manifests): what the PM and Runtime columns
+    // read. Empty for a row discovered before 3.8, which falls back to packageManager.
+    manifests: ProjectManifest[]
     nvmrcVersion: string | null
     gitBranch: string | null
     muted: boolean
@@ -244,6 +248,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
         root_label: string | null
         root_path: string
         package_manager: string
+        manifests_json: string
         nvmrc_version: string | null
         git_branch: string | null
         muted: number
@@ -282,6 +287,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             r.label AS root_label,
             r.path AS root_path,
             p.package_manager AS package_manager,
+            p.manifests_json AS manifests_json,
             p.nvmrc_version AS nvmrc_version,
             p.git_branch AS git_branch,
             -- Compute project-scope muted state from the mutes table (with expiry semantics) so the
@@ -318,6 +324,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             rootLabel: row.root_label,
             rootPath: row.root_path,
             packageManager: row.package_manager,
+            manifests: parseManifests(row.manifests_json),
             nvmrcVersion: row.nvmrc_version,
             gitBranch: row.git_branch,
             muteId: row.mute_id,
@@ -368,7 +375,10 @@ export type CurrentFindingRow = {
     advisoryTitle: string | null
     advisoryUrl: string | null
     packageName: string
+    // The lowest affected installed version; every (manifest, version) it was matched through is listed in
+    // installations (empty on a row written before 3.8).
     installedVersion: string
+    installations: FindingInstallation[]
     vulnerableRange: string
     severity: string
     // Read through readFixFields: a row no settlement has written reads as `unverified` with its fix
@@ -417,6 +427,7 @@ export function listCurrentFindingsForProject(
         advisory_url: string | null
         package_name: string
         installed_version: string
+        installations_json: string
         vulnerable_range: string
         severity: string
         fix_available: number
@@ -434,7 +445,7 @@ export function listCurrentFindingsForProject(
     }>(sql`
         SELECT
             f.id, f.scan_id, f.project_id, f.scanner, f.source, f.ecosystem, f.advisory_id, f.advisory_title, f.advisory_url,
-            f.package_name, f.installed_version, f.vulnerable_range, f.severity, f.fix_available,
+            f.package_name, f.installed_version, f.installations_json, f.vulnerable_range, f.severity, f.fix_available,
             f.fix_version, f.fix_status, f.fix_check_json, f.remediation_json, f.dep_path_json, f.corroborations_json, f.is_prod, f.is_dev,
             f.first_detected_at, f.last_seen_at,
             (SELECT 1 FROM mutes m
@@ -474,11 +485,12 @@ export function listCurrentFindingsForProject(
             advisoryUrl: row.advisory_url,
             packageName: row.package_name,
             installedVersion: row.installed_version,
+            installations: parseFindingInstallations(row.installations_json),
             vulnerableRange: row.vulnerable_range,
             severity: row.severity,
             ...readFixFields(
                 { fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json, remediationJson: row.remediation_json },
-                scanContext(row.project_id, row.source ?? row.scanner)
+                scanContext(row.project_id, row.source ?? row.scanner, row.ecosystem)
             ),
             depPathJson: row.dep_path_json,
             corroborations: parseFindingCorroborations(row.corroborations_json),

@@ -79,6 +79,7 @@ export function seedProject(db: DrizzleDb, id: string, overrides: Record<string,
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems: ['npm'],
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,
@@ -99,6 +100,7 @@ export function finding(overrides: Partial<IncomingFinding> = {}): IncomingFindi
         advisoryUrl: 'https://example.test/CVE-2024-1',
         packageName: 'lodash',
         installedVersion: '4.17.11',
+        installations: [],
         vulnerableRange: '<4.17.21',
         severity: 'high',
         fixAvailable: true,
@@ -156,6 +158,7 @@ export function scanProject(
         mergeFindingsForScan(db, {
             projectId,
             scanner,
+            ecosystem: (opts.ecosystem || 'npm') as IncomingFinding['ecosystem'],
             scanId,
             scanFinishedAt: finishedAt,
             incoming: incoming.map(function scoped(f) {

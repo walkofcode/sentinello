@@ -1,4 +1,4 @@
-import type { FixCheck, FixCheckSource, FixStatus, FixUnevaluableReason } from '@sentinello/core'
+import { requireComparator, type FixCheck, type FixCheckSource, type FixStatus, type FixUnevaluableReason } from '@sentinello/core'
 import {
     evaluableAffected,
     evaluableContains,
@@ -12,8 +12,10 @@ import { comparatorById, formatRanges, highestVersion, type VersionComparator } 
 // What the registry had for the package, as the settlement needs it. `dataAsOf` is when that data was
 // fetched — recorded on the finding so its "checked" date never moves when the cache is refreshed later.
 // `offline` is a run that was told to make no network request, so the registry was deliberately not asked.
+// `unconfirmed` lists stated fix versions whose publication the registry could not confirm either way (Go's
+// per-version check failed, or was past its cap): with any of them, "nothing qualifies" is not a fact.
 export type RegistryView =
-    | { status: 'ok' | 'stale'; published: readonly PublishedVersion[]; dataAsOf: number }
+    | { status: 'ok' | 'stale'; published: readonly PublishedVersion[]; dataAsOf: number; unconfirmed?: readonly string[] }
     | { status: 'not_found'; dataAsOf: number }
     | { status: 'error' }
     | { status: 'offline' }
@@ -26,6 +28,9 @@ export type FixSettlement = {
 }
 
 export type SettleFixArgs = {
+    // The finding's ecosystem: its comparator orders every version here, and every piece of evidence must
+    // speak it.
+    ecosystem: string
     // Every source's and every installed copy's evidence for one finding identity.
     evidence: readonly FixEvidence[]
     // Null when the registry does not cover the finding's ecosystem yet.
@@ -37,13 +42,18 @@ export type SettleFixArgs = {
 // tri-state onto the persisted status and writes the snapshot that explains it:
 //   released      — the registry has a qualifying version; it is the fix, and the only kind of fixVersion
 //                   ever presented as one to install;
-//   none_released — the registry answered, every affected set was evaluable, and nothing qualifies;
+//   none_released — the registry answered, every affected set was evaluable, nothing qualifies, and no
+//                   stated fix version's publication is unconfirmed;
 //   unverified    — anything else. The version shown is only what a source stated, labelled as such.
 export function settleFix(args: SettleFixArgs): FixSettlement {
     const sources = sourcesOf(args.evidence)
-    const comparator = evidenceComparator(args.evidence)
+    const comparator = requireComparator(args.ecosystem)
+    const spoken = evidenceComparator(args.evidence)
+    if (spoken !== null && spoken.id !== comparator.id) {
+        throw new Error('fix evidence for ' + args.ecosystem + ' uses the ' + spoken.id + ' comparator, not ' + comparator.id)
+    }
     const statedFixes = args.evidence.flatMap(function statedOf(e) { return e.statedFix === null ? [] : [e.statedFix] })
-    const stated = comparator === null ? null : highestVersion(statedFixes, comparator)
+    const stated = highestVersion(statedFixes, comparator)
     const viaParent = args.evidence.some(function parent(e) { return e.fixViaParent })
     const registry = args.registry
 
@@ -66,6 +76,10 @@ export function settleFix(args: SettleFixArgs): FixSettlement {
     const check = { v: 1 as const, checkedAt: args.checkedAt, registry: registry.status, packageDataAsOf: registry.dataAsOf, sources }
     if (result.kind === 'released') {
         return { fixStatus: 'released', fixVersion: result.version, fixAvailable: true, fixCheck: { ...check, unevaluable: null } }
+    }
+    if (result.kind === 'none' && registry.unconfirmed !== undefined && registry.unconfirmed.length > 0) {
+        // A stated fix may exist that the registry could not confirm: unknown, and the registry is why.
+        return unverified({ registry: 'error', packageDataAsOf: registry.dataAsOf, unevaluable: null })
     }
     if (result.kind === 'none') {
         // A parent-upgrade claim from npm does not survive this: no published version of the package
@@ -160,13 +174,8 @@ export type PickReleasedFixArgs = {
 export function pickReleasedFix(args: PickReleasedFixArgs): ReleasedFixResult {
     const comparator = evidenceComparator(args.evidence)
     if (comparator === null) return { kind: 'unknown', reason: 'no_evidence' }
-    if (args.installed.length === 0) return { kind: 'unknown', reason: 'installed_unknown' }
-    let floor: string | null = null
-    for (const raw of args.installed) {
-        const v = comparator.normalize(raw)
-        if (v === null) return { kind: 'unknown', reason: 'installed_unknown' }
-        if (floor === null || comparator.gt(v, floor)) floor = v
-    }
+    const floor = highestInstalled(args.installed, comparator)
+    if (floor === null) return { kind: 'unknown', reason: 'installed_unknown' }
 
     const affected: EvaluableSet[] = []
     const patched: EvaluableSet[] = []
@@ -190,7 +199,7 @@ export function pickReleasedFix(args: PickReleasedFixArgs): ReleasedFixResult {
         if (v === null) continue
         const kind = comparator.releaseKind(v)
         if (kind === 'prerelease' || (kind === 'pseudo' && !stated.has(v))) continue
-        if (comparator.lt(v, floor as string)) continue
+        if (comparator.lt(v, floor)) continue
         if (affected.some(function hits(ev) { return evaluableContains(ev, v) })) continue
         if (!patched.every(function inside(ev) { return evaluableContains(ev, v) })) continue
         const candidate = { version: v, spelled: p.version }
@@ -202,17 +211,50 @@ export function pickReleasedFix(args: PickReleasedFixArgs): ReleasedFixResult {
     return { kind: 'released', version: chosen.spelled }
 }
 
-// Every fix version the evidence states, normalized: each source's stated fix and every `fixed` bound of
-// its affected set.
+// The highest installed copy, normalized; null when there is none, or one does not parse.
+function highestInstalled(installed: readonly string[], comparator: VersionComparator): string | null {
+    let floor: string | null = null
+    for (const raw of installed) {
+        const v = comparator.normalize(raw)
+        if (v === null) return null
+        if (floor === null || comparator.gt(v, floor)) floor = v
+    }
+    return floor
+}
+
+// Every fix version one source states, as written: its stated fix and every `fixed` bound of its affected set.
+function statedOf(e: FixEvidence): string[] {
+    const candidates = e.affected.ranges.flatMap(function fixed(r) { return r.fixed ? [r.fixed] : [] })
+    if (e.statedFix !== null) candidates.push(e.statedFix)
+    return candidates
+}
+
+// Every fix version the evidence states, normalized.
 function statedFixVersions(evidence: readonly FixEvidence[], comparator: VersionComparator): Set<string> {
     const out = new Set<string>()
     for (const e of evidence) {
-        const candidates = e.affected.ranges.flatMap(function fixed(r) { return r.fixed ? [r.fixed] : [] })
-        if (e.statedFix !== null) candidates.push(e.statedFix)
-        for (const raw of candidates) {
+        for (const raw of statedOf(e)) {
             const v = comparator.normalize(raw)
             if (v !== null) out.add(v)
         }
     }
     return out
+}
+
+// The stated fix versions that could still be the fix — they parse, are not a tagged prerelease, and are
+// not below the highest installed copy — as written, one per normalized version. What a registry that does
+// not list every version (Go's, which omits pseudo-versions) is asked about one by one. None when no
+// installed copy can be read: the picker cannot settle such a finding whatever the registry says.
+export function statedFixCandidates(evidence: readonly FixEvidence[], comparator: VersionComparator): string[] {
+    const floor = highestInstalled(evidence.flatMap(function installedOf(e) { return e.installed }), comparator)
+    if (floor === null) return []
+    const out = new Map<string, string>()
+    for (const e of evidence) {
+        for (const raw of statedOf(e)) {
+            const v = comparator.normalize(raw)
+            if (v === null || out.has(v) || comparator.releaseKind(v) === 'prerelease' || comparator.lt(v, floor)) continue
+            out.set(v, raw)
+        }
+    }
+    return [...out.values()]
 }

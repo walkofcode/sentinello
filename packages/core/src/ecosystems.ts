@@ -8,6 +8,7 @@
 // OSV sync, gemnasium parsing, resolver routing, comparator routing, and the UI matrix all import this.
 
 import { comparatorById, normalizePyName, type ComparatorId, type VersionComparator } from '@sentinello/versions'
+import type { PackageManager, ProjectManifest } from './types'
 
 // Canonical ecosystem id == the OSV feed dir == the value persisted in findings/mutes/etc. and used as
 // the config-key slug. 'npm' is JavaScript. Whether each one is offered to operators is its `status`.
@@ -36,11 +37,12 @@ export type EcosystemLanguage = 'javascript' | 'python' | 'go' | 'rust' | 'ruby'
 //
 // An ecosystem is promoted only once its matching is proven, not merely implemented — a source that answers
 // "no vulnerabilities" for the wrong reason is worse than one that is not offered. Python, Go, Rust and Ruby
-// have their own comparators, range dialects and fix derivation, proven by the generated corpus sweeps
-// (packages/scanners/src/version-fix-corpus.test.ts, packages/feeds/src/gemnasium/range-fidelity.test.ts);
-// what still keeps them in preview is the product around the matching: discovery inside a project, one
-// finding across several manifests, the marker for an ecosystem no enabled source answers for, and fix
-// verification against their own registries.
+// were promoted in 3.8, once their own comparators, range dialects and fix derivation were proven by the
+// generated corpus sweeps (packages/scanners/src/version-fix-corpus.test.ts,
+// packages/feeds/src/gemnasium/range-fidelity.test.ts) and the product around the matching was in place:
+// discovery inside a project, one finding across several manifests, the marker for an ecosystem no enabled
+// source answers for, and fix verification against their own registries. No ecosystem is in preview today;
+// the state stays for the next one.
 export type EcosystemStatus = 'stable' | 'preview'
 
 export type EcosystemDefinition = {
@@ -83,7 +85,7 @@ export const ECOSYSTEMS: EcosystemDefinition[] = [
         id: 'PyPI',
         language: 'python',
         displayName: 'Python',
-        status: 'preview',
+        status: 'stable',
         osvEcosystem: 'PyPI',
         gemnasiumPackageType: 'pypi',
         resolverKinds: ['poetry.lock', 'Pipfile.lock', 'requirements.txt', 'uv.lock'],
@@ -94,7 +96,7 @@ export const ECOSYSTEMS: EcosystemDefinition[] = [
         id: 'Go',
         language: 'go',
         displayName: 'Go',
-        status: 'preview',
+        status: 'stable',
         osvEcosystem: 'Go',
         gemnasiumPackageType: 'go',
         resolverKinds: ['go.mod', 'go.sum'],
@@ -105,7 +107,7 @@ export const ECOSYSTEMS: EcosystemDefinition[] = [
         id: 'crates.io',
         language: 'rust',
         displayName: 'Rust',
-        status: 'preview',
+        status: 'stable',
         osvEcosystem: 'crates.io',
         gemnasiumPackageType: 'cargo',
         resolverKinds: ['Cargo.lock'],
@@ -116,7 +118,7 @@ export const ECOSYSTEMS: EcosystemDefinition[] = [
         id: 'RubyGems',
         language: 'ruby',
         displayName: 'Ruby',
-        status: 'preview',
+        status: 'stable',
         osvEcosystem: 'RubyGems',
         gemnasiumPackageType: 'gem',
         resolverKinds: ['Gemfile.lock'],
@@ -194,6 +196,15 @@ export function sourcesForEcosystem(ecosystem: EcosystemId): SourceId[] {
     return out
 }
 
+// A persisted or user-supplied ecosystem id narrowed to the registry's type, failing loudly on one the
+// registry does not know. Used where a finding identity is written: an unknown id there is a defect in the
+// caller, and writing it would create a finding no cell, mute or filter can ever address.
+export function requireEcosystemId(id: string): EcosystemId {
+    const def = getEcosystem(id)
+    if (def === null) throw new Error('unknown ecosystem ' + JSON.stringify(id))
+    return def.id
+}
+
 export function getEcosystem(id: string): EcosystemDefinition | null {
     for (const eco of ECOSYSTEMS) {
         if (eco.id === id) return eco
@@ -244,4 +255,40 @@ export function ecosystemForOsvId(osvEcosystem: string): EcosystemDefinition | n
 export function cacheEcosystemKey(ecosystem: string): string {
     const def = getEcosystem(ecosystem)
     return def ? def.osvEcosystem : ecosystem
+}
+
+// The package manager each manifest or lockfile kind belongs to. A manifest no lockfile pins a manager for
+// (a package.json with none, a pyproject.toml on its own, which pip, Poetry and uv all read) is 'unknown'.
+const MANIFEST_PACKAGE_MANAGERS: Record<string, PackageManager> = {
+    'package-lock.json': 'npm',
+    'pnpm-lock.yaml': 'pnpm',
+    'yarn.lock': 'yarn',
+    'package.json': 'unknown',
+    'poetry.lock': 'poetry',
+    'Pipfile.lock': 'pipenv',
+    'Pipfile': 'pipenv',
+    'requirements.txt': 'pip',
+    'uv.lock': 'uv',
+    'pyproject.toml': 'unknown',
+    'go.mod': 'go',
+    'go.sum': 'go',
+    'Cargo.lock': 'cargo',
+    'Cargo.toml': 'cargo',
+    'Gemfile.lock': 'bundler',
+    'Gemfile': 'bundler'
+}
+
+export function packageManagerOfManifest(kind: string): PackageManager {
+    return MANIFEST_PACKAGE_MANAGERS[kind] ?? 'unknown'
+}
+
+// The managers a project's manifests name, in manifest order and each once, for the project card
+// (`pnpm · bundler`). An 'unknown' manager says nothing and is left out.
+export function projectPackageManagers(manifests: readonly ProjectManifest[]): PackageManager[] {
+    const out: PackageManager[] = []
+    for (const manifest of manifests) {
+        const manager = packageManagerOfManifest(manifest.kind)
+        if (manager !== 'unknown' && !out.includes(manager)) out.push(manager)
+    }
+    return out
 }

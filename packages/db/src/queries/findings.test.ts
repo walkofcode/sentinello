@@ -24,7 +24,7 @@ import {
     applyFixSettlement
 } from './findings'
 import { findings as findingsTable } from '../schema'
-import type { FixCheck, Remediation } from '@sentinello/core'
+import type { EcosystemId, FixCheck, Remediation } from '@sentinello/core'
 import type { IncomingFinding } from './findings'
 
 // Runs against a real SQLite file rather than ':memory:'. The client applies WAL pragmas and the
@@ -62,6 +62,7 @@ beforeEach(async function setup() {
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems: ['npm'],
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,
@@ -102,6 +103,7 @@ function incoming(advisoryId: string, overrides: Partial<IncomingFinding> = {}):
         advisoryUrl: null,
         packageName: 'lodash',
         installedVersion: '4.17.11',
+        installations: [],
         vulnerableRange: '<4.17.21',
         severity: 'high',
         fixAvailable: true,
@@ -113,16 +115,70 @@ function incoming(advisoryId: string, overrides: Partial<IncomingFinding> = {}):
     }
 }
 
-function merge(scanId: string, finishedAt: number, findings: IncomingFinding[], scanner = 'osv') {
+function merge(scanId: string, finishedAt: number, findings: IncomingFinding[], scanner = 'osv', ecosystem: EcosystemId = findings[0]?.ecosystem ?? 'npm') {
     scan(scanId, finishedAt, scanner)
     return mergeFindingsForScan(db, {
         projectId: PROJECT_ID,
         scanner,
+        ecosystem,
         scanId,
         scanFinishedAt: finishedAt,
         incoming: findings
     })
 }
+
+// SENTINEL-122: a feed source scans once per ecosystem, and each cell's merge reads and resolves only that
+// cell's open episodes. An empty Ruby result says nothing about Python.
+describe('mergeFindingsForScan — one (source, ecosystem) cell at a time', function () {
+    function open(): string[] {
+        return listFindingsForProject(db, PROJECT_ID)
+            .filter(function isOpen(f) { return f.resolvedAt === null })
+            .map(function key(f) { return f.ecosystem + ':' + f.advisoryId })
+            .sort()
+    }
+
+    it.each([
+        ['Python first', ['PyPI', 'RubyGems'] as const],
+        ['Ruby first', ['RubyGems', 'PyPI'] as const]
+    ])('keeps two ecosystems of one source apart, %s', function (_label, order) {
+        const findingOf = { PyPI: incoming('GHSA-py', { ecosystem: 'PyPI', packageName: 'django' }), RubyGems: incoming('GHSA-rb', { ecosystem: 'RubyGems', packageName: 'rack' }) }
+        const ids = new Map<string, string>()
+        for (const ecosystem of order) {
+            const result = merge('scan-1-' + ecosystem, T0, [findingOf[ecosystem]])
+            ids.set(ecosystem, result.active[0]?.id as string)
+        }
+        expect(open()).toEqual(['PyPI:GHSA-py', 'RubyGems:GHSA-rb'])
+        // A second sweep in the same order: both continue, neither resolves the other, ids are unchanged.
+        for (const ecosystem of order) {
+            const result = merge('scan-2-' + ecosystem, T0 + HOUR, [findingOf[ecosystem]])
+            expect(result.resolved).toEqual([])
+            expect(result.active[0]?.id).toBe(ids.get(ecosystem))
+        }
+        expect(open()).toEqual(['PyPI:GHSA-py', 'RubyGems:GHSA-rb'])
+    })
+
+    it('leaves an open Python finding open when a successful Ruby scan finds nothing', function () {
+        merge('scan-1', T0, [incoming('GHSA-py', { ecosystem: 'PyPI', packageName: 'django' })])
+        const ruby = merge('scan-2', T0 + HOUR, [], 'osv', 'RubyGems')
+        expect(ruby.resolved).toEqual([])
+        expect(open()).toEqual(['PyPI:GHSA-py'])
+        // Its own cell's empty scan does resolve it.
+        expect(merge('scan-3', T0 + 2 * HOUR, [], 'osv', 'PyPI').resolved.map(function id(f) { return f.advisoryId })).toEqual(['GHSA-py'])
+    })
+
+    it('refuses a finding of another cell instead of merging it against episodes it never read', function () {
+        expect(function mixed() { merge('scan-1', T0, [incoming('GHSA-py', { ecosystem: 'PyPI' })], 'osv', 'RubyGems') })
+            .toThrow("mergeFindingsForScan: a PyPI finding in the RubyGems cell's merge")
+    })
+
+    it('records every installation of the finding', function () {
+        const installations = [{ manifestPath: 'ios/Gemfile.lock', version: '2.0.1' }, { manifestPath: 'android/Gemfile.lock', version: '2.2.0' }]
+        merge('scan-1', T0, [incoming('GHSA-rb', { ecosystem: 'RubyGems', packageName: 'rack', installedVersion: '2.0.1', installations })])
+        expect(listFindingsForProject(db, PROJECT_ID)[0]?.installations).toEqual(installations)
+        merge('scan-2', T0 + HOUR, [incoming('GHSA-rb', { ecosystem: 'RubyGems', packageName: 'rack', installedVersion: '2.2.0', installations: installations.slice(1) })])
+        expect(listFindingsForProject(db, PROJECT_ID)[0]?.installations).toEqual(installations.slice(1))
+    })
+})
 
 describe('mergeFindingsForScan — opening an episode', function () {
     it('inserts a new finding and reports it active', function () {
@@ -571,11 +627,10 @@ describe('listResolvedFindingsForLibrary', function () {
     // The ecosystem filter is an optional SQL fragment: supplied it scopes to the cell, omitted it
     // matches every ecosystem. Both arms are real query text, so both are worth executing.
     it('scopes to an ecosystem when one is given', function () {
-        merge('scan-1', T0, [
-            incoming('GHSA-1'),
-            incoming('GHSA-py', { ecosystem: 'PyPI', packageName: 'lodash' })
-        ])
+        merge('scan-1', T0, [incoming('GHSA-1')])
+        merge('scan-1-py', T0, [incoming('GHSA-py', { ecosystem: 'PyPI', packageName: 'lodash' })])
         merge('scan-2', T0 + HOUR, [])
+        merge('scan-2-py', T0 + HOUR, [], 'osv', 'PyPI')
 
         expect(listResolvedFindingsForLibrary(db, 'lodash', 50, 'npm').map(function id(f) { return f.advisoryId }))
             .toEqual(['GHSA-1'])

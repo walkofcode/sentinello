@@ -4,7 +4,10 @@ import {
     comparatorForEcosystem,
     DEFAULT_ECOSYSTEM,
     ECOSYSTEMS,
+    packageManagerOfManifest,
+    projectPackageManagers,
     requireComparator,
+    requireEcosystemId,
     STABLE_ECOSYSTEMS,
     ecosystemForOsvId,
     getEcosystem,
@@ -169,7 +172,7 @@ describe('comparator lookups', function () {
 
     it('orders Go by its own comparator and Ruby by Gem::Version', function () {
         expect(getEcosystem('Go')?.comparator).toBe('go')
-        expect(getEcosystem('RubyGems')).toMatchObject({ language: 'ruby', osvEcosystem: 'RubyGems', gemnasiumPackageType: 'gem', resolverKinds: ['Gemfile.lock'], comparator: 'rubygems', status: 'preview' })
+        expect(getEcosystem('RubyGems')).toMatchObject({ language: 'ruby', osvEcosystem: 'RubyGems', gemnasiumPackageType: 'gem', resolverKinds: ['Gemfile.lock'], comparator: 'rubygems', status: 'stable' })
     })
 })
 
@@ -190,10 +193,32 @@ describe('canonicalPackageName', function () {
     })
 })
 
-// Promoting an ecosystem is the status field and nothing else; milestone 1 proves matching without one.
-describe('3.8 milestone 1', function () {
-    it('keeps every non-npm ecosystem in preview', function () {
-        expect(STABLE_ECOSYSTEMS.map(function id(e) { return e.id })).toEqual(['npm'])
+// Promoting an ecosystem is the status field and nothing else: 3.8 offers all five.
+describe('3.8', function () {
+    it('offers every ecosystem as stable', function () {
+        expect(STABLE_ECOSYSTEMS.map(function id(e) { return e.id })).toEqual(['npm', 'PyPI', 'Go', 'crates.io', 'RubyGems'])
+    })
+
+    it('maps every manifest kind to its package manager, and lists a project\'s managers once each', function () {
+        expect(ECOSYSTEMS.flatMap(function kinds(e) { return [...e.resolverKinds, ...e.manifestKinds] }).map(packageManagerOfManifest)).toEqual([
+            'npm', 'pnpm', 'yarn', 'unknown',
+            'poetry', 'pipenv', 'pip', 'uv', 'unknown', 'pipenv',
+            'go', 'go',
+            'cargo', 'cargo',
+            'bundler', 'bundler'
+        ])
+        expect(packageManagerOfManifest('setup.py')).toBe('unknown')
+        expect(projectPackageManagers([
+            { path: 'pnpm-lock.yaml', ecosystem: 'npm', kind: 'pnpm-lock.yaml' },
+            { path: 'ios/Gemfile.lock', ecosystem: 'RubyGems', kind: 'Gemfile.lock' },
+            { path: 'android/Gemfile.lock', ecosystem: 'RubyGems', kind: 'Gemfile.lock' },
+            { path: 'tools/pyproject.toml', ecosystem: 'PyPI', kind: 'pyproject.toml' }
+        ])).toEqual(['pnpm', 'bundler'])
+    })
+
+    it('narrows a known ecosystem id and refuses an unknown one', function () {
+        expect(requireEcosystemId('RubyGems')).toBe('RubyGems')
+        expect(function unknown() { requireEcosystemId('Maven') }).toThrow('unknown ecosystem "Maven"')
     })
 
     it('names the lockless manifests of each ecosystem', function () {

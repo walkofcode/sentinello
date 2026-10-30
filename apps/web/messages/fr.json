@@ -150,7 +150,7 @@
         "colBranch": "Branche",
         "colRoot": "Racine",
         "colPm": "GP",
-        "colNode": "Node",
+        "colRuntime": "Environnement d’exécution",
         "colSeverity": "Gravité",
         "colState": "État",
         "colActions": "Actions",
@@ -166,7 +166,10 @@
         "statePartial": "Analyse incomplète",
         "stateNotScannedYet": "Pas encore analysé",
         "stateSideProject": "le projet",
-        "stateSideEnvironment": "cette installation de Sentinello"
+        "stateSideEnvironment": "cette installation de Sentinello",
+        "stateSourceDisabled": "Aucune source activée pour {languages}",
+        "sourceDisabledNotice": "{count, plural, one {# projet n’a} other {# projets n’ont}} aucune source activée pour {languages}, donc rien ne {count, plural, one {l’analyse} other {les analyse}}.",
+        "sourceDisabledAction": "Activez-en une dans Paramètres → Sources"
     },
     "WhatsNew": {
         "pillLabel": "Nouveautés",
@@ -313,7 +316,9 @@
             "lastError": "Dernière erreur",
             "refreshNow": "Actualiser",
             "refreshQueued": "Actualisation demandée — elle s’exécute en arrière-plan.",
-            "previewNote": "Encore en développement et pas encore proposés : {names}.",
+            "turnOnTitle": "Aucune source activée pour {language}",
+            "turnOnBody": "{count, plural, one {# projet utilise} other {# projets utilisent}} {language} et rien ne {count, plural, one {l’analyse} other {les analyse}}. Activer une source télécharge ses avis et relance l’analyse de tous les projets.",
+            "turnOn": "Activer {source} pour {language}",
             "aboutTitle": "À propos de ces sources",
             "colSource": "Source",
             "colAdds": "Ce qu’elle apporte",
@@ -742,6 +747,8 @@
             "scanReasonSideProject": "du côté du projet : un fichier du projet empêche de le lire, et c'est là qu'il faut le corriger",
             "scanReasonSideEnvironment": "du côté de cette installation de Sentinello : l'installation n'a pas pu faire l'analyse, et c'est à l'opérateur de corriger",
             "scanReasonNotYetRun": "rien ne l'a encore examiné : la prochaine analyse le fera",
+            "sourceDisabledReason": "Aucune source activée pour {languages}",
+            "sourceDisabledAction": "Activez-en une dans Paramètres → Sources",
             "noFindingsUnknownTitle": "Aucune vulnérabilité enregistrée",
             "noFindingsUnknownBody": "Rien n'a été trouvé, mais ce projet n'a pas pu être entièrement analysé : c'est inconnu, pas sûr.",
             "noFindingsNotScannedBody": "Ce projet n'a pas encore été analysé."

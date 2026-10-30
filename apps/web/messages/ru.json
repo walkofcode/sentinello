@@ -150,7 +150,7 @@
         "colBranch": "Ветка",
         "colRoot": "Корень",
         "colPm": "PM",
-        "colNode": "Node",
+        "colRuntime": "Среда выполнения",
         "colSeverity": "Серьёзность",
         "colState": "Состояние",
         "colActions": "Действия",
@@ -166,7 +166,10 @@
         "statePartial": "Невозможно просканировать полностью",
         "stateNotScannedYet": "Ещё не сканировался",
         "stateSideProject": "проект",
-        "stateSideEnvironment": "эта установка Sentinello"
+        "stateSideEnvironment": "эта установка Sentinello",
+        "stateSourceDisabled": "Нет включённого источника для {languages}",
+        "sourceDisabledNotice": "{count, plural, one {У # проекта} few {У # проектов} many {У # проектов} other {У # проекта}} нет включённого источника для {languages}, поэтому {count, plural, one {его} other {их}} никто не сканирует.",
+        "sourceDisabledAction": "Включите источник в Настройках → Источники"
     },
     "WhatsNew": {
         "pillLabel": "Что нового",
@@ -313,7 +316,9 @@
             "lastError": "Последняя ошибка",
             "refreshNow": "Обновить сейчас",
             "refreshQueued": "Обновление запрошено — выполняется в фоне.",
-            "previewNote": "Ещё в разработке и пока не предлагаются: {names}.",
+            "turnOnTitle": "Нет включённого источника для {language}",
+            "turnOnBody": "{count, plural, one {# проект использует} few {# проекта используют} many {# проектов используют} other {# проекта используют}} {language}, и {count, plural, one {его} other {их}} никто не сканирует. Включение источника загрузит его рекомендации и заново просканирует все проекты.",
+            "turnOn": "Включить {source} для {language}",
             "aboutTitle": "Об этих источниках",
             "colSource": "Источник",
             "colAdds": "Что добавляет",
@@ -742,6 +747,8 @@
             "scanReasonSideProject": "на стороне проекта: файл в проекте мешает его прочитать, и исправить нужно его",
             "scanReasonSideEnvironment": "на стороне этой установки Sentinello: установка не смогла выполнить сканирование, исправлять должен оператор",
             "scanReasonNotYetRun": "ещё ничего не проверялось: это сделает следующее сканирование",
+            "sourceDisabledReason": "Нет включённого источника для {languages}",
+            "sourceDisabledAction": "Включите источник в Настройках → Источники",
             "noFindingsUnknownTitle": "Находок не записано",
             "noFindingsUnknownBody": "Ничего не найдено, но этот проект не удалось просканировать полностью: это «неизвестно», а не «безопасно».",
             "noFindingsNotScannedBody": "Этот проект ещё не сканировался."

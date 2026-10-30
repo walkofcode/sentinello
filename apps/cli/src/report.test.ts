@@ -26,7 +26,8 @@ function project(name: string, relPath: string): DiscoveredProject {
         packageManager: 'npm',
         nvmrcVersion: null,
         gitBranch: null,
-        ecosystems: ['npm']
+        ecosystems: ['npm'],
+        manifests: [{ path: 'package-lock.json', ecosystem: 'npm', kind: 'package-lock.json' }]
     }
 }
 
@@ -71,7 +72,7 @@ function result(
     scanState: ScanState = SCANNED
 ): ProjectScanResult {
     const fixes = new Map(findings.map(function settle(f) {
-        return [f, settleFix({ evidence: [f.fixInputs], registry: { status: 'offline' }, checkedAt: 0 })] as const
+        return [f, settleFix({ ecosystem: 'npm', evidence: [f.fixInputs], registry: { status: 'offline' }, checkedAt: 0 })] as const
     }))
     return { project: proj, findings, outcomes, fixes, remediations: new Map(), wayOutError: null, scanState }
 }
@@ -211,7 +212,7 @@ describe('summarize — fix status', function () {
     it('carries a none_released finding\'s way out into the JSON and the markdown', function () {
         const braces = finding({ packageName: 'braces', advisoryId: 'GHSA-vfj7-8cjw-p6xm', fixAvailable: false, fixVersion: null })
         const scanned = result(project('a', 'a'), [braces])
-        scanned.fixes.set(braces, settleFix({ evidence: [{ ...braces.fixInputs, statedFix: null, affected: versionSetFromSemverRange('<=3.0.3') }], registry: { status: 'ok', published: [{ version: '3.0.3', deprecated: false }], dataAsOf: 0 }, checkedAt: 0 }))
+        scanned.fixes.set(braces, settleFix({ ecosystem: 'npm', evidence: [{ ...braces.fixInputs, statedFix: null, affected: versionSetFromSemverRange('<=3.0.3') }], registry: { status: 'ok', published: [{ version: '3.0.3', deprecated: false }], dataAsOf: 0 }, checkedAt: 0 }))
         const wayOut: Remediation = {
             v: 1, package: 'braces', checkedAt: 0,
             health: { name: 'braces', latest: '3.0.3', lastPublishAt: null, maintainers: 1, weeklyDownloads: null, deprecated: null, daysSinceLastPublish: null, unmaintained: false },

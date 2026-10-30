@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { senderFor, toWebhookVulnerability, type NotificationSender } from '@sentinello/notifications'
-import type { NotificationTarget, Finding, Project, Scan } from '@sentinello/core'
+import { CAPABILITIES, type NotificationTarget, type Finding, type Project, type Scan } from '@sentinello/core'
 import {
     getDelivery,
     insertNotificationTarget,
@@ -15,6 +15,8 @@ import {
     runMigrations,
     setConfigValue,
     upsertProject,
+    seedCapabilityBaselines,
+    claimCompletedBaselines,
     upsertRoot,
     type DrizzleDb,
     type SqliteDb
@@ -78,6 +80,7 @@ function project(): Project {
         nvmrcVersion: null,
         gitBranch: 'main',
         ecosystems: ['npm'],
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,
@@ -98,6 +101,7 @@ function finding(overrides: Partial<Finding> = {}): Finding {
         advisoryUrl: 'https://example.test/1',
         packageName: 'lodash',
         installedVersion: '4.17.11',
+        installations: [],
         vulnerableRange: '<4.17.21',
         severity: 'high',
         fixStatus: 'released',
@@ -356,6 +360,7 @@ describe('notifyForCompletedScan — a project that cannot be scanned', function
             mergeFindingsForScan(db, {
                 projectId: PROJECT_ID,
                 scanner: 'npm-audit',
+                ecosystem: 'npm',
                 scanId: 'scan-npm-ok',
                 scanFinishedAt: T0,
                 incoming: [{
@@ -368,6 +373,7 @@ describe('notifyForCompletedScan — a project that cannot be scanned', function
                     advisoryUrl: 'https://example.test/1',
                     packageName: 'lodash',
                     installedVersion: '4.17.11',
+                    installations: [],
                     vulnerableRange: '<4.17.21',
                     severity: 'high',
                     fixAvailable: true,
@@ -464,26 +470,19 @@ describe('notifyForCompletedScan — matching events to findings', function () {
         expect(getDelivery(db, event?.id ?? '', TARGET_ID)).toBeNull()
     })
 
-    // ecosystem joined the identity tuple in Phase 2, so a legacy row carries NULL there. It resolves to
-    // npm — the same COALESCE the dispatch query already applies to this column, and what those rows are:
-    // everything was npm before the polyglot migration. Falling back to '' instead made the row pass the
-    // dispatch filter as npm and then match nothing, so it was re-selected on every scan and describable on
-    // none — which is exactly the state that produces an empty notification.
-    it('matches a legacy event with no ecosystem against the npm finding', async function () {
+    // ecosystem joined the identity tuple in Phase 2, so a pre-polyglot row carries NULL there until the boot
+    // backfill fills it — which it does before the scheduler runs, every boot. A finding event still without
+    // one is not guessed to be npm (SENTINEL-121): like one without an advisory, it is left undescribed and
+    // pending, never sent as an empty message and never marked delivered.
+    it('leaves a finding event with no ecosystem pending instead of guessing npm', async function () {
         await seedEventThenRedispatch('UPDATE notification_events SET ecosystem = NULL')
 
-        expect(send).toHaveBeenCalledTimes(1)
-        expect(send.mock.calls[0]?.[1].webhook.findings).toHaveLength(1)
-        expect(send.mock.calls[0]?.[1].webhook.findings[0].packageName).toBe('lodash')
+        expect(send).not.toHaveBeenCalled()
+        const [event] = listEventsForProject(db, PROJECT_ID)
+        expect(event?.firstNotifiedAt).toBeNull()
     })
 })
 
-// notifyForCompletedScan runs once per SCANNER, but selectDispatchablePairs is scoped to the PROJECT — so
-// a pass is routinely handed events belonging to a source that has not run yet, or that ran and failed to
-// deliver. This is the production failure that motivated the rule: on 2026-08-15 npm-audit's pass picked up
-// two undelivered osv events, matched neither against its own findings, sent a "found vulnerabilities in
-// woc-ide" message listing nothing, and recorded both as delivered — permanently. The two findings were
-// still open and had never been described to anyone.
 describe('notifyForCompletedScan — an event belonging to another source', function () {
     async function seedUndeliveredEventFromOsv(): Promise<void> {
         insertNotificationTarget(db, target())
@@ -513,42 +512,6 @@ describe('notifyForCompletedScan — an event belonging to another source', func
         expect(getDelivery(db, event?.id ?? '', TARGET_ID)?.firstSucceededAt).toBeNull()
     })
 
-    // The hydration lookup and the in-memory lookup have to agree on what a NULL ecosystem means, or the
-    // event passes the dispatch filter as npm (which COALESCEs it) and then matches nothing on either path.
-    it('hydrates a legacy event with no ecosystem as npm', async function () {
-        await seedUndeliveredEventFromOsv()
-        sqlite.exec('UPDATE notification_events SET ecosystem = NULL')
-        mergeFindingsForScan(db, {
-            projectId: PROJECT_ID,
-            scanner: 'osv',
-            scanId: SCAN_ID,
-            scanFinishedAt: T0,
-            incoming: [{
-                projectId: PROJECT_ID,
-                scanner: 'osv',
-                source: 'osv',
-                ecosystem: 'npm',
-                advisoryId: 'CVE-2024-1',
-                advisoryTitle: 'Prototype pollution',
-                advisoryUrl: 'https://example.test/1',
-                packageName: 'lodash',
-                installedVersion: '4.17.11',
-                vulnerableRange: '<4.17.21',
-                severity: 'high',
-                fixAvailable: true,
-                fixVersion: '4.17.21',
-                depPath: ['lodash'],
-                isProd: true,
-                isDev: false
-            }]
-        })
-
-        await notify(outcome([], { scanner: 'npm-audit', source: 'npm-audit' }))
-
-        expect(send).toHaveBeenCalledTimes(1)
-        expect(send.mock.calls[0]?.[1].webhook.findings).toHaveLength(1)
-    })
-
     it('describes the finding by hydrating it from the findings table', async function () {
         await seedUndeliveredEventFromOsv()
         // The osv finding is persisted, as it is in production — the lifecycle merge wrote it before the
@@ -556,6 +519,7 @@ describe('notifyForCompletedScan — an event belonging to another source', func
         mergeFindingsForScan(db, {
             projectId: PROJECT_ID,
             scanner: 'osv',
+            ecosystem: 'npm',
             scanId: SCAN_ID,
             scanFinishedAt: T0,
             incoming: [{
@@ -568,6 +532,7 @@ describe('notifyForCompletedScan — an event belonging to another source', func
                 advisoryUrl: 'https://example.test/1',
                 packageName: 'lodash',
                 installedVersion: '4.17.11',
+                installations: [],
                 vulnerableRange: '<4.17.21',
                 severity: 'high',
                 fixAvailable: true,
@@ -751,5 +716,35 @@ describe('normalizeFailureSignature', function () {
             expect(normalizeFailureSignature('error', 'no_lockfile', null)).toBe('error:no_lockfile')
             expect(normalizeFailureSignature('error', null, 'no_lockfile')).toBe('error: no_lockfile')
         })
+    })
+})
+
+// The silent baseline (SENTINEL-120): while 3.8's baseline is pending, a new finding in one of its languages
+// is recorded for the summary and never sent by itself; npm findings and scan failures notify as always.
+describe('notifyForCompletedScan — during the silent baseline', function () {
+    beforeEach(function pending() {
+        insertNotificationTarget(db, target())
+        // An upgraded install: the database has scanned before, so the baseline starts pending.
+        seedCapabilityBaselines(db, CAPABILITIES, T0)
+    })
+
+    it('records a Python finding for the summary and sends nothing for it', async function () {
+        await notify(outcome([finding({ ecosystem: 'PyPI', packageName: 'django' })]))
+        expect(send).not.toHaveBeenCalled()
+        expect(sqlite.prepare('SELECT baseline_of AS b FROM notification_events').get()).toEqual({ b: 'languages-3.8' })
+    })
+
+    it('still sends an npm finding and a scan failure', async function () {
+        await notify(outcome([finding()]))
+        await notify(outcome([], { status: 'error', reasonCode: 'audit_spawn_error', errorText: 'boom' }))
+        expect(send).toHaveBeenCalledTimes(2)
+        expect(sqlite.prepare('SELECT COUNT(*) AS n FROM notification_events WHERE baseline_of IS NOT NULL').get()).toEqual({ n: 0 })
+    })
+
+    // Once the sweep completed, a source turned on later notifies normally, per project.
+    it('notifies a Python finding normally once the baseline is swept', async function () {
+        claimCompletedBaselines(db, CAPABILITIES, T0)
+        await notify(outcome([finding({ ecosystem: 'PyPI', packageName: 'django' })]))
+        expect(send).toHaveBeenCalledTimes(1)
     })
 })

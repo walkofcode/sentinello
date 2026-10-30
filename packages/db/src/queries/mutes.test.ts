@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { Mute } from '@sentinello/core'
+import type { Mute, MuteWrite } from '@sentinello/core'
 import { openDb } from '../client'
 import type { DrizzleDb, SqliteDb } from '../client'
 import { runMigrations } from '../migrate'
@@ -16,6 +16,7 @@ import {
     isProjectMuted,
     listActiveMutes,
     listExpiredMutes,
+    muteWriteOf,
     type MuteMatchInput
 } from './mutes'
 import {
@@ -41,8 +42,9 @@ let db: DrizzleDb
 let sqlite: SqliteDb
 let dir: string
 
-function mute(overrides: Partial<Mute> = {}): Mute {
-    return {
+// A stored mute's shape, handed to the writers the way the mute-expiry sweep does (muteWriteOf).
+function mute(overrides: Partial<Mute> = {}): MuteWrite {
+    return muteWriteOf({
         id: 'mute-1',
         scope: 'finding',
         projectId: PROJECT_ID,
@@ -55,7 +57,7 @@ function mute(overrides: Partial<Mute> = {}): Mute {
         createdAt: T0,
         expiresAt: null,
         ...overrides
-    }
+    })
 }
 
 function match(overrides: Partial<MuteMatchInput> = {}): MuteMatchInput {
@@ -81,6 +83,7 @@ function addProject(id: string, relPath: string): void {
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems: ['npm'],
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,
@@ -267,13 +270,46 @@ describe('isMuted with a legacy pre-polyglot mute', function () {
     // A NULL ecosystem is a row written before ecosystems existed; it matches any ecosystem so
     // pre-existing mutes keep working after the upgrade.
     it('matches any ecosystem when the mute has none recorded', function () {
-        insertMute(db, mute({ ecosystem: null }))
+        insertMute(db, mute())
+        sqlite.prepare('UPDATE mutes SET ecosystem = NULL').run()
         expect(isMuted(db, match({ ecosystem: 'npm' }))).toBe(true)
         expect(isMuted(db, match({ ecosystem: 'PyPI' }))).toBe(true)
     })
 })
 
+// The writers take a mute whose identity is explicit (SENTINEL-121). A stored row is converted on its way
+// to the lift journal, and a finding mute the boot backfill should have repaired fails loudly.
+describe('muteWriteOf', function () {
+    it('keeps a finding mute with its ecosystem and a project mute without identity fields', function () {
+        expect(mute()).toMatchObject({ scope: 'finding', ecosystem: 'npm', scanner: 'osv' })
+        const project = mute({ scope: 'project', scanner: null, ecosystem: null, advisoryId: null, packageName: null })
+        expect(project).toEqual({ id: 'mute-1', scope: 'project', projectId: PROJECT_ID, reason: 'accepted risk', author: 'betty', createdAt: T0, expiresAt: null })
+        insertMute(db, project)
+        expect(listActiveMutes(db, T0)[0]).toMatchObject({ scope: 'project', scanner: null, ecosystem: null, advisoryId: null, packageName: null })
+    })
+
+    it.each([
+        ['an ecosystem', { ecosystem: null }],
+        ['a scanner', { scanner: null }],
+        ['an advisory', { advisoryId: null }],
+        ['a package', { packageName: null }]
+    ])('refuses a finding mute without %s', function (_label, overrides) {
+        expect(function convert() { mute(overrides) }).toThrow('finding mute mute-1 is missing part of its identity')
+    })
+
+    it('refuses an ecosystem the registry does not know, and a project mute with no project', function () {
+        expect(function convert() { mute({ ecosystem: 'Maven' }) }).toThrow('unknown ecosystem "Maven"')
+        expect(function convert() { mute({ scope: 'project', projectId: null }) }).toThrow('project mute mute-1 has no project')
+    })
+})
+
 describe('recordMuteLift', function () {
+    // NULL is what a project mute's identity IS; nothing invents an ecosystem for its lift.
+    it('journals a project mute with no identity fields', function () {
+        const lift = recordMuteLift(db, mute({ scope: 'project', scanner: null, ecosystem: null, advisoryId: null, packageName: null }), T0)
+        expect(lift).toMatchObject({ scope: 'project', projectId: PROJECT_ID, scanner: null, ecosystem: null, advisoryId: null, packageName: null })
+    })
+
     it('copies the mute identity onto the lift record', function () {
         const lift = recordMuteLift(db, mute(), T0 + HOUR)
         expect(lift).toMatchObject({
@@ -338,7 +374,8 @@ describe('listMuteLiftsForLibrary', function () {
     })
 
     it('includes a legacy lift with no ecosystem', function () {
-        recordMuteLift(db, mute({ id: 'm1', packageName: 'requests', ecosystem: null }), T0)
+        recordMuteLift(db, mute({ id: 'm1', packageName: 'requests' }), T0)
+        sqlite.prepare('UPDATE mute_lifts SET ecosystem = NULL').run()
         expect(listMuteLiftsForLibrary(db, 'requests', 50, 'PyPI')).toHaveLength(1)
     })
 

@@ -1,5 +1,5 @@
 import { and, eq, gt, isNull, lte, or, sql } from 'drizzle-orm'
-import type { Mute } from '@sentinello/core'
+import { requireEcosystemId, type Mute, type MuteWrite } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { mutes } from '../schema'
 
@@ -79,22 +79,46 @@ export function isProjectMuted(db: DrizzleDb, projectId: string, at: number): bo
     return Boolean(row)
 }
 
-export function insertMute(db: DrizzleDb, mute: Mute): void {
+// A finding mute names its ecosystem; a project mute has no identity fields, and they are stored NULL.
+export function insertMute(db: DrizzleDb, mute: MuteWrite): void {
     db.insert(mutes)
         .values({
             id: mute.id,
             scope: mute.scope,
             projectId: mute.projectId,
-            scanner: mute.scanner,
-            ecosystem: mute.ecosystem,
-            advisoryId: mute.advisoryId,
-            packageName: mute.packageName,
+            scanner: mute.scanner ?? null,
+            ecosystem: mute.ecosystem ?? null,
+            advisoryId: mute.advisoryId ?? null,
+            packageName: mute.packageName ?? null,
             reason: mute.reason,
             author: mute.author,
             createdAt: mute.createdAt,
             expiresAt: mute.expiresAt
         })
         .run()
+}
+
+// A stored mute as a writer input: what the mute-expiry journal records a lift from. A finding mute with a
+// missing identity field is a row the boot backfill (backfillEcosystemIdentity) should have repaired, and it
+// fails loudly here rather than being journalled under a guessed ecosystem.
+export function muteWriteOf(mute: Mute): MuteWrite {
+    const common = { id: mute.id, reason: mute.reason, author: mute.author, createdAt: mute.createdAt, expiresAt: mute.expiresAt }
+    if (mute.scope === 'project') {
+        if (mute.projectId === null) throw new Error('project mute ' + mute.id + ' has no project')
+        return { ...common, scope: 'project', projectId: mute.projectId }
+    }
+    if (mute.scanner === null || mute.ecosystem === null || mute.advisoryId === null || mute.packageName === null) {
+        throw new Error('finding mute ' + mute.id + ' is missing part of its identity')
+    }
+    return {
+        ...common,
+        scope: 'finding',
+        projectId: mute.projectId,
+        scanner: mute.scanner,
+        ecosystem: requireEcosystemId(mute.ecosystem),
+        advisoryId: mute.advisoryId,
+        packageName: mute.packageName
+    }
 }
 
 export function deleteMute(db: DrizzleDb, id: string): void {

@@ -5,12 +5,13 @@ import { tmpdir } from 'node:os'
 import {
     openDb,
     runMigrations,
+    setConfigValue,
     upsertProject,
     upsertRoot,
     type DrizzleDb,
     type SqliteDb
 } from '@sentinello/db'
-import type { Project } from '@sentinello/core'
+import { sourceEnabledKey, type EcosystemId, type Project, type SourceId } from '@sentinello/core'
 
 // Shared harness for the worker's boot/scheduling shell — the scheduler, the scan-request poller, the
 // lockfile watcher, discovery, and the two source runtimes. Every one of those modules already takes its
@@ -91,6 +92,7 @@ export function project(overrides: Partial<Project> = {}): Project {
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems: ['npm'],
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,
@@ -118,3 +120,8 @@ export async function makeTree(parent: string, name: string, spec: Record<string
 }
 
 export const PKG_JSON = JSON.stringify({ name: 'fixture', version: '1.0.0' })
+
+// Turns one (source, ecosystem) cell on: the runner runs a source only for the cells the operator enabled.
+export function enableSourceCell(db: DrizzleDb, source: SourceId, ecosystem: EcosystemId): void {
+    setConfigValue(db, sourceEnabledKey(source, ecosystem), true)
+}

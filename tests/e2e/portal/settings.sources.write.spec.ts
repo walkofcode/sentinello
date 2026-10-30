@@ -3,9 +3,10 @@ import { errorAlert, expect, test } from './test-fixtures'
 
 // Settings → Sources: the per-ecosystem switches, and the reference table that explains each source.
 //
-// Only 'stable' ecosystems are offered, and npm is the only one today, so the page renders one
-// Node.js block of three cells. Preview ecosystems have no switch at all — that is the point of
-// EcosystemStatus, so there is nothing here to assert about PyPI/Go/crates.io.
+// Only 'stable' ecosystems are offered: since 3.8 that is every one, so the page renders a Node.js block
+// of three cells (npm audit, OSV, gemnasium) and a Python, Go, Rust and Ruby block of two each (OSV,
+// gemnasium). The seeded projects are all npm, so no language has projects without a source and no
+// "Turn on" action is offered.
 //
 // The seed leaves exactly one cell active — OSV · npm, with npm-audit off because it spawns the
 // package manager and needs the registry. That is not incidental to this file, it is what makes the
@@ -20,12 +21,13 @@ test.describe('the source matrix', function () {
     test('renders one switch per (source, ecosystem) cell, named for both', async function ({ page }) {
         await page.goto('/settings/sources')
 
-        // The accessible name stays 'label · ecosystem' even while npm is the only ecosystem offered:
-        // the label alone stops identifying a cell the moment a second one is promoted, and a name
-        // that changes shape on promotion is a name every assertion here has to be rewritten around.
+        // The accessible name is 'label · ecosystem': with five languages offered, "OSV" alone names five
+        // switches.
         await expect(page.getByRole('switch', { name: OSV_NPM })).toHaveAttribute('aria-checked', 'true')
         await expect(page.getByRole('switch', { name: NPM_AUDIT_NPM })).toHaveAttribute('aria-checked', 'false')
-        await expect(page.getByRole('switch')).toHaveCount(3)
+        await expect(page.getByRole('switch')).toHaveCount(11)
+        await expect(page.getByRole('switch', { name: 'OSV · PyPI' })).toHaveAttribute('aria-checked', 'false')
+        await expect(page.getByTestId(/^turn-on-source-/)).toHaveCount(0)
     })
 
     // The controls say whether a source is on; this table is the only place that says what it IS.

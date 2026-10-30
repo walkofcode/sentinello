@@ -212,11 +212,12 @@ describe('reading the source matrix', function () {
     // A preview ecosystem is never an enabled cell. It cannot start the source on its own, and it cannot
     // add itself to a list that a stable cell has already started — which is what keeps its 200 MB export
     // from being downloaded for an ecosystem nothing will be scanned against.
-    it('excludes a preview cell from the enabled list', function () {
+    // Since 3.8 every language is offered: a Rust cell alone turns the source on.
+    it('lists every enabled cell, a Rust one alone included', function () {
         enable('crates.io')
-        expect(osvSourceEnabled(handle.db)).toBe(false)
+        expect(osvSourceEnabled(handle.db)).toBe(true)
         enable('npm')
-        expect(enabledOsvEcosystems(handle.db)).toEqual(['npm'])
+        expect(enabledOsvEcosystems(handle.db)).toEqual(['npm', 'crates.io'])
     })
 
     it('drops a cell that was turned back off', function () {
@@ -460,7 +461,7 @@ describe('startOsvRuntime', function () {
         upsertRoot(handle.db, { id: 'root-x', path: '/repo', label: null, createdAt: 1 })
         upsertProject(handle.db, {
             id: 'proj-x', rootId: 'root-x', relPath: 'app', name: 'app', alias: null,
-            packageManager: 'npm', nvmrcVersion: null, gitBranch: null, ecosystems: ['npm'],
+            packageManager: 'npm', nvmrcVersion: null, gitBranch: null, ecosystems: ['npm'], manifests: [],
             muted: false, tags: [], createdAt: 1, updatedAt: 1
         })
         insertScan(handle.db, {
@@ -621,14 +622,15 @@ describe('runSync — seed or catch up', function () {
     //
     // What is testable now, and matters more today: a preview cell is not synced at all, so enabling one
     // cannot trigger its export download.
-    it('does not sync a preview ecosystem', async function () {
+    it('catches up a seeded ecosystem and seeds a newly enabled one', async function () {
         enable('npm')
         enable('crates.io')
         markSeeded('npm')
         await runSync(handle.db, cache.db, runtime)
         expect(sync.incrementalSyncOsv).toHaveBeenCalledTimes(1)
         expect(sync.incrementalSyncOsv.mock.calls[0]?.[1]).toBe('npm')
-        expect(sync.seedOsv).not.toHaveBeenCalled()
+        expect(sync.seedOsv).toHaveBeenCalledTimes(1)
+        expect(sync.seedOsv.mock.calls[0]?.[1]).toBe('crates.io')
     })
 
     it('stops before the first ecosystem when already aborted', async function () {
@@ -951,7 +953,7 @@ describe('the OSV cache follows the gemnasium cells too', function () {
         upsertRoot(handle.db, { id: 'root-x', path: '/repo', label: null, createdAt: 1 })
         upsertProject(handle.db, {
             id: 'proj-x', rootId: 'root-x', relPath: 'app', name: 'app', alias: null,
-            packageManager: 'npm', nvmrcVersion: null, gitBranch: null, ecosystems: ['npm'],
+            packageManager: 'npm', nvmrcVersion: null, gitBranch: null, ecosystems: ['npm'], manifests: [],
             muted: false, tags: [], createdAt: 1, updatedAt: 1
         })
         insertScan(handle.db, {

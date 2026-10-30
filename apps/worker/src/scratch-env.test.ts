@@ -40,7 +40,7 @@ const savedEnv = { ...process.env }
 function project(): Project {
     return {
         id: 'project-1', rootId: 'root-1', relPath: 'app', name: 'app', alias: null, packageManager: 'npm', nvmrcVersion: null,
-        gitBranch: null, ecosystems: ['npm'], muted: false, tags: [], createdAt: T0, updatedAt: T0
+        gitBranch: null, ecosystems: ['npm'], manifests: [], muted: false, tags: [], createdAt: T0, updatedAt: T0
     }
 }
 

@@ -18,6 +18,7 @@ import { scannersForBatch, type OsvController } from './osv-runtime'
 import { type GemnasiumController } from './gemnasium-runtime'
 import { discoverProjects } from './discovery'
 import { runBatch } from './runner'
+import { onCompletedSweep } from './capability-baseline'
 import type { WorkerRuntime } from './runtime'
 
 export type SchedulerHandles = {
@@ -84,10 +85,12 @@ export async function sweepActiveProjects(input: StartSchedulerInput): Promise<v
     console.log('[scheduler] active sweep started (' + projects.length + ' project' + (projects.length === 1 ? '' : 's') + ')')
     if (projects.length === 0) {
         console.log('[scheduler] active sweep finished (0 projects, ' + formatDurationMs(Date.now() - startedAt) + ')')
+        // Nothing to scan is a completed sweep: a baseline must not wait for projects that may never come.
+        await onCompletedSweep(input.db)
         return
     }
     const parallelism = (getConfigValue<number>(input.db, CONFIG_KEYS.parallelism)) || DEFAULT_PARALLELISM
-    await runBatch({
+    const batch = await runBatch({
         db: input.db,
         sqlite: input.sqlite,
         scanners: await scannersForBatch(input),
@@ -96,6 +99,8 @@ export async function sweepActiveProjects(input: StartSchedulerInput): Promise<v
         abortSignal: input.runtime.abortController.signal
     })
     console.log('[scheduler] active sweep finished (' + projects.length + ' project' + (projects.length === 1 ? '' : 's') + ', ' + formatDurationMs(Date.now() - startedAt) + ')')
+    // Resolution of runBatch is not proof the sweep completed: an abort returns early with projects left.
+    if (batch.completed) await onCompletedSweep(input.db)
 }
 
 function logSweepError(kind: string, err: unknown): void {

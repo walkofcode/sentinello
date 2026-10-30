@@ -9,8 +9,10 @@ import {
     listProjectCatalog
 } from '@sentinello/db'
 import { ProjectsFilterView } from '@/components/home/projects-filter-view'
+import { SourceDisabledNotice } from '@/components/home/source-disabled-notice'
 import { getDb } from '@/lib/db'
 import { getFilterDefaults, parseDepTypeParam } from '@/lib/filter-defaults'
+import { projectsWithoutSource } from '@/lib/project-state'
 
 export async function generateMetadata(): Promise<Metadata> {
     const t = await getTranslations('Home')
@@ -37,8 +39,10 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Sea
     // One query for every project's scan state, so each row's "Scan now" button reflects an
     // in-flight sweep without running isScanInFlightForProject once per row.
     const inFlightProjectIds = listInFlightScanProjectIds(db, now)
+    const withoutSource = projectsWithoutSource(projects.map(function stateOf(p) { return p.scanState }))
     return (
         <div className="space-y-6">
+            <SourceDisabledNotice withoutSource={withoutSource} />
             <ProjectsFilterView
                 rows={projects}
                 inFlightProjectIds={inFlightProjectIds}

@@ -150,7 +150,7 @@
         "colBranch": "Branch",
         "colRoot": "Root",
         "colPm": "PM",
-        "colNode": "Node",
+        "colRuntime": "Runtime",
         "colSeverity": "Severity",
         "colState": "State",
         "colActions": "Actions",
@@ -166,7 +166,10 @@
         "statePartial": "Cannot be fully scanned",
         "stateNotScannedYet": "Not scanned yet",
         "stateSideProject": "the project",
-        "stateSideEnvironment": "this Sentinello install"
+        "stateSideEnvironment": "this Sentinello install",
+        "stateSourceDisabled": "No source enabled for {languages}",
+        "sourceDisabledNotice": "{count, plural, one {# project has} other {# projects have}} no source enabled for {languages}, so nothing scans {count, plural, one {it} other {them}}.",
+        "sourceDisabledAction": "Turn one on in Settings → Sources"
     },
     "WhatsNew": {
         "pillLabel": "What's new",
@@ -313,7 +316,9 @@
             "lastError": "Last error",
             "refreshNow": "Refresh now",
             "refreshQueued": "Refresh requested — it runs in the background.",
-            "previewNote": "Still in development and not offered yet: {names}.",
+            "turnOnTitle": "No source enabled for {language}",
+            "turnOnBody": "{count, plural, one {# project uses} other {# projects use}} {language} and nothing scans {count, plural, one {it} other {them}}. Turning a source on downloads its advisories and re-scans every project.",
+            "turnOn": "Turn on {source} for {language}",
             "aboutTitle": "About these sources",
             "colSource": "Source",
             "colAdds": "What it adds",
@@ -742,6 +747,8 @@
             "scanReasonSideProject": "on the project's side: a file in the project stops it from being read, and changing it there is the fix",
             "scanReasonSideEnvironment": "on this Sentinello install's side: the install could not do the scan, and it is the operator's fix",
             "scanReasonNotYetRun": "nothing has looked yet: the next scan does",
+            "sourceDisabledReason": "No source enabled for {languages}",
+            "sourceDisabledAction": "Turn one on in Settings → Sources",
             "noFindingsUnknownTitle": "No findings recorded",
             "noFindingsUnknownBody": "Nothing was found, but this project could not be fully scanned: that is unknown, not safe.",
             "noFindingsNotScannedBody": "This project has not been scanned yet."

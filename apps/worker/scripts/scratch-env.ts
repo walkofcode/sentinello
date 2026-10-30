@@ -7,7 +7,7 @@ import type { Finding, Project } from '@sentinello/core'
 import type { NpmDownloadsResult, NpmPackageResult, NpmPackageSummary } from '@sentinello/feeds'
 import type { ScannerPlugin } from '@sentinello/scanners'
 import type { ProjectScanOutcome } from '../src/runner'
-import type { PackumentRequest, RegistryClient, RegistryEntry } from '@sentinello/fixes'
+import type { PackumentRequest, RegistryClients, RegistryEntry } from '@sentinello/fixes'
 
 // The one bootstrap every scratch tool goes through (the smoke scripts, and later print-advisory and the
 // fleet rescan). A scratch run rescans real projects against a COPY of the live database; this file is
@@ -136,9 +136,9 @@ export async function openScratchEnv(options: OpenScratchEnvOptions): Promise<Sc
     const { buildAdvisoryMarkdown } = await import('@sentinello/core')
     const { toWebhookVulnerability } = await import('@sentinello/notifications')
     const { runProjectScanners } = await import('../src/runner')
-    const { createNpmRegistryClient } = await import('@sentinello/fixes')
+    const { createNpmRegistryClient, createRegistryClients } = await import('@sentinello/fixes')
     const { fetchNpmPackage, fetchNpmWeeklyDownloads } = await import('@sentinello/feeds')
-    const { createDbRegistryStore } = await import('../src/registry-store')
+    const { createDbRegistryStore, createDbRegistryStores } = await import('../src/registry-store')
     const { toExportFinding } = await import('../src/notifier')
     const { CONFIG_KEYS } = await import('../src/config-loader')
 
@@ -178,15 +178,20 @@ export async function openScratchEnv(options: OpenScratchEnvOptions): Promise<Sc
         if (result.status === 'error') failed('downloads: ' + result.reason)
         return result
     }
-    const live = createNpmRegistryClient(createDbRegistryStore(db), { fetchPackage: countedPackument, fetchDownloads: countedDownloads, concurrency: options.concurrency })
-    const registry: RegistryClient = {
-        lookup: async function recordedLookup(names) {
-            const served = await live.lookup(names)
-            for (const [name, entry] of served) snapshot.push(snapshotEntry(name, entry))
-            return served
-        },
-        weeklyDownloads: function weeklyDownloads(names) {
-            return live.weeklyDownloads(names)
+    const live = createNpmRegistryClient(createDbRegistryStore(db, 'npm'), { fetchPackage: countedPackument, fetchDownloads: countedDownloads, concurrency: options.concurrency })
+    // npm is counted and snapshotted; every other ecosystem settles against its own live registry, as the
+    // worker's does.
+    const registry: RegistryClients = {
+        ...createRegistryClients(createDbRegistryStores(db)),
+        npm: {
+            lookup: async function recordedLookup(names) {
+                const served = await live.lookup(names)
+                for (const [name, entry] of served) snapshot.push(snapshotEntry(name, entry))
+                return served
+            },
+            weeklyDownloads: function weeklyDownloads(names) {
+                return live.weeklyDownloads(names)
+            }
         }
     }
     async function recordNotification(outcome: ProjectScanOutcome): Promise<void> {

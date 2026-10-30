@@ -29,6 +29,7 @@ function row(overrides: Partial<CurrentFindingRow> = {}): CurrentFindingRow {
         advisoryUrl: null,
         packageName: 'lodash',
         installedVersion: '4.17.20',
+        installations: [],
         vulnerableRange: '<4.17.21',
         severity: 'high',
         fixAvailable: false,

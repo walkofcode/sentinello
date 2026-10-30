@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { reasonCodeLabel, type Finding, type FixCheck, type Locale, type NotificationEvent, type Remediation } from '@sentinello/core'
-import { renderBatchedFindings, renderScanFailure, renderSingleFinding, type RenderBatchedFindingsInput } from './render'
+import { reasonCodeLabel, type Capability, type Finding, type FixCheck, type Locale, type NotificationEvent, type Remediation } from '@sentinello/core'
+import { renderBatchedFindings, renderCapabilitySummary, renderScanFailure, renderSingleFinding, type RenderBatchedFindingsInput } from './render'
 
 // Notification bodies are the part of Sentinello a recipient sees without opening the portal, so the
 // interesting assertions are about what is INCLUDED and what is OMITTED — a missing branch line, a
@@ -21,6 +21,7 @@ function finding(overrides: Partial<Finding> = {}): Finding {
         advisoryUrl: null,
         packageName: 'lodash',
         installedVersion: '4.17.20',
+        installations: [],
         vulnerableRange: '<4.17.21',
         severity: 'high',
         fixStatus: 'none_released',
@@ -493,5 +494,29 @@ describe('the way out in a notification', function () {
         const out = renderBatchedFindings({ projectName: 'api', projectId: 'project-1', gitBranch: null, findings: [finding({ packageName: 'braces', remediation }), finding({ id: 'f2' })], isBaseline: false, portalBaseUrl: null })
         expect(out.markdown).toContain('\n    Way out: ' + expected)
         expect(out.markdown.match(/Way out/g)).toHaveLength(1)
+    })
+})
+
+describe('renderCapabilitySummary', function () {
+    const capability = { id: 'languages-3.8', since: '3.8.0', ecosystems: ['PyPI', 'Go', 'crates.io', 'RubyGems'] as Capability['ecosystems'] }
+
+    it('says what the new languages found and where to turn a source on', function () {
+        const message = renderCapabilitySummary({ capability, findings: 12, projects: 3, critical: 2, sourceDisabledProjects: 4, portalBaseUrl: 'https://sentinello.example/' })
+        expect(message.title).toBe('Sentinello 3.8 now checks Python/Go/Rust/Ruby')
+        expect(message.text).toBe([
+            'Sentinello 3.8 now checks Python/Go/Rust/Ruby: 12 findings across 3 projects, 2 critical',
+            '4 projects have no enabled source, turn one on in Settings → Sources',
+            'Portal: https://sentinello.example/settings/sources'
+        ].join('\n'))
+        expect(message.portalUrl).toBe('https://sentinello.example/settings/sources')
+    })
+
+    // The default install: OSV and gemnasium are opt-in, so nothing was checked — and the summary says so.
+    it('reports zero findings honestly, in the singular where it applies', function () {
+        const message = renderCapabilitySummary({ capability, findings: 0, projects: 0, critical: 0, sourceDisabledProjects: 1, portalBaseUrl: null })
+        expect(message.text).toBe('Sentinello 3.8 now checks Python/Go/Rust/Ruby: 0 findings across 0 projects, 0 critical\n1 project has no enabled source, turn one on in Settings → Sources')
+        expect(message.portalUrl).toBeNull()
+        expect(renderCapabilitySummary({ capability, findings: 1, projects: 1, critical: 1, sourceDisabledProjects: 0, portalBaseUrl: null }).text)
+            .toBe('Sentinello 3.8 now checks Python/Go/Rust/Ruby: 1 finding across 1 project, 1 critical')
     })
 })

@@ -1,5 +1,5 @@
 import { eq, inArray } from 'drizzle-orm'
-import { getEcosystem, type EcosystemId, type Project } from '@sentinello/core'
+import { getEcosystem, type EcosystemId, type Project, type ProjectManifest } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { isProjectMuted } from './mutes'
 import {
@@ -51,6 +51,7 @@ export function upsertProject(db: DrizzleDb, project: Project): void {
                 gitBranch: insertRow.gitBranch,
                 tagsJson: insertRow.tagsJson,
                 ecosystemsJson: insertRow.ecosystemsJson,
+                manifestsJson: insertRow.manifestsJson,
                 updatedAt: insertRow.updatedAt
             }
         })
@@ -123,6 +124,7 @@ function rowToProject(row: ProjectRow): Project {
         nvmrcVersion: row.nvmrcVersion,
         gitBranch: row.gitBranch,
         ecosystems: parseEcosystems(row.ecosystemsJson),
+        manifests: parseManifests(row.manifestsJson),
         muted: row.muted,
         tags: parseTags(row.tagsJson),
         createdAt: row.createdAt,
@@ -152,6 +154,23 @@ export function parseEcosystems(json: string): EcosystemId[] {
     return out
 }
 
+// Parse the persisted manifests_json the same defensive way: an entry whose fields are not all strings, or
+// whose ecosystem the registry no longer knows, is dropped rather than handed to the runner to resolve.
+export function parseManifests(json: string): ProjectManifest[] {
+    const parsed = JSON.parse(json) as unknown
+    if (!Array.isArray(parsed)) return []
+    const out: ProjectManifest[] = []
+    for (const value of parsed) {
+        const entry = value as Partial<Record<keyof ProjectManifest, unknown>> | null
+        if (typeof entry !== 'object' || entry === null) continue
+        const { path, ecosystem, kind } = entry
+        if (typeof path !== 'string' || typeof ecosystem !== 'string' || typeof kind !== 'string') continue
+        const def = getEcosystem(ecosystem)
+        if (def) out.push({ path, ecosystem: def.id, kind })
+    }
+    return out
+}
+
 function projectToInsert(project: Project): ProjectInsert {
     return {
         id: project.id,
@@ -165,6 +184,7 @@ function projectToInsert(project: Project): ProjectInsert {
         muted: project.muted,
         tagsJson: JSON.stringify(project.tags),
         ecosystemsJson: JSON.stringify(project.ecosystems),
+        manifestsJson: JSON.stringify(project.manifests),
         createdAt: project.createdAt,
         updatedAt: project.updatedAt
     }

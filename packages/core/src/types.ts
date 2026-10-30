@@ -53,6 +53,28 @@ export function parseFindingCorroborations(json: string): FindingCorroboration[]
     return out
 }
 
+// Reads a persisted installations column, degrading entry by entry like parseFindingCorroborations: it is
+// display provenance ("installed through ios/Gemfile.lock at 1.2.3"), so a corrupted column shows the
+// finding without it rather than taking down the page.
+export function parseFindingInstallations(json: string): FindingInstallation[] {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(json)
+    } catch {
+        return []
+    }
+    if (!Array.isArray(parsed)) return []
+    const out: FindingInstallation[] = []
+    for (const entry of parsed) {
+        if (!entry || typeof entry !== 'object') continue
+        const e = entry as Partial<FindingInstallation>
+        if (typeof e.manifestPath !== 'string' || e.manifestPath.length === 0) continue
+        if (typeof e.version !== 'string' || e.version.length === 0) continue
+        out.push({ manifestPath: e.manifestPath, version: e.version })
+    }
+    return out
+}
+
 // The one severity ordering, worst first. Everything that sorts, compares or filters by severity goes
 // through the helpers below rather than indexing a rank table, so no call site can get the direction
 // wrong. There used to be two rank scales pointing in OPPOSITE directions — an ascending one here
@@ -129,10 +151,33 @@ export function escalatedSeverity(own: Severity, corroborations: FindingCorrobor
     return maxSeverity([own, ...corroborations.map(function grade(c) { return c.severity })])
 }
 
-// 'unknown' represents a project that has package.json but no recognized lockfile.
-// The worker still records these so operators can see the coverage gap in the catalog;
-// the scanner returns status='unauditable' with reason='no lockfile' for them.
-export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'unknown'
+// The tool that installs a manifest's dependencies. For a project with an npm manifest the project's
+// `packageManager` is the JavaScript one, which drives the audit command npm-audit runs; for any other
+// project it is the manager of its anchor manifest. 'unknown' is a manifest no lockfile names a manager for
+// (a package.json with no recognized lockfile, a pyproject.toml on its own); the scanner records those as
+// unauditable with reason 'no_lockfile'.
+export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'pip' | 'poetry' | 'uv' | 'pipenv' | 'go' | 'cargo' | 'bundler' | 'unknown'
+
+export const PACKAGE_MANAGER_VALUES: PackageManager[] = ['npm', 'yarn', 'pnpm', 'pip', 'poetry', 'uv', 'pipenv', 'go', 'cargo', 'bundler', 'unknown']
+
+// One manifest or lockfile discovery recorded for a project: where it sits (relative to the project
+// directory, `/` separators), which ecosystem it belongs to and which file kind it is (a resolver kind
+// such as `Gemfile.lock`, or a manifest kind such as `Gemfile` found with no lockfile covering it). A
+// project owns every manifest below it that no nested project owns, so `ios/Gemfile.lock` and
+// `android/Gemfile.lock` are both its own.
+export type ProjectManifest = {
+    path: string
+    ecosystem: EcosystemId
+    kind: string
+}
+
+// One installed copy behind a finding: the manifest it was resolved from (relative to the project, as in
+// ProjectManifest.path) and the version installed there. A library installed through several manifests is
+// ONE finding listing each of them.
+export type FindingInstallation = {
+    manifestPath: string
+    version: string
+}
 
 export type ScanStatus = 'ok' | 'unauditable' | 'error' | 'timeout'
 
@@ -273,6 +318,10 @@ export type Project = {
     // one project spans many ecosystems (Phase 4). `packageManager` stays the npm-specific detail for the
     // npm-audit/nvm path; this is the polyglot view. Empty for legacy rows discovered before polyglot.
     ecosystems: EcosystemId[]
+    // Every manifest discovery found for this project, its own directory's and its sub-manifests'
+    // (ios/Gemfile.lock). The runner resolves exactly these. Empty for a row discovered before 3.8, which
+    // the runner reads as "the project's own directory".
+    manifests: ProjectManifest[]
     muted: boolean
     tags: string[]
     createdAt: number
@@ -315,6 +364,9 @@ export type Finding = {
     packageName: string
     installedVersion: string
     vulnerableRange: string
+    // Every (manifest, installed version) the finding was matched through. `installedVersion` is the lowest
+    // affected one. Empty on a row written before 3.8, which recorded only `installedVersion`.
+    installations: FindingInstallation[]
     // The worst grade any source gave this finding, which is not always the surviving source's own —
     // see `corroborations` for what each source actually said.
     severity: Severity
@@ -461,6 +513,38 @@ export type Mute = {
     createdAt: number
     expiresAt: number | null
 }
+
+// What a mute writer is handed, as opposed to the row a reader gets back (Mute). A finding mute names its
+// ecosystem explicitly — an npm mute must never silence the PyPI package of the same name, and nothing may
+// guess `npm` for it. A project mute applies across every cell and so has no identity fields at all. The
+// columns stay nullable in the database, because NULL is what a project mute IS there.
+type MuteWriteCommon = {
+    id: string
+    projectId: string | null
+    reason: string
+    author: string
+    createdAt: number
+    expiresAt: number | null
+}
+
+export type ProjectMuteWrite = MuteWriteCommon & {
+    scope: 'project'
+    projectId: string
+    scanner?: never
+    ecosystem?: never
+    advisoryId?: never
+    packageName?: never
+}
+
+export type FindingMuteWrite = MuteWriteCommon & {
+    scope: 'finding'
+    scanner: string
+    ecosystem: EcosystemId
+    advisoryId: string
+    packageName: string
+}
+
+export type MuteWrite = ProjectMuteWrite | FindingMuteWrite
 
 export type NotificationEventType = 'finding' | 'scan_failure'
 

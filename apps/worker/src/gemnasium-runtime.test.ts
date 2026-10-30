@@ -148,16 +148,17 @@ describe('reading the source matrix', function () {
     // The cell list is per-ecosystem and reads every enabled cell, not just npm's — but an ecosystem in
     // preview is never one of them, whatever its config key says. Promote it in the registry and these two
     // become 'PyPI' and ['npm', 'Go'] again with no change here.
-    it('does not count a preview cell as the source being on', function () {
+    // Since 3.8 every language is offered, so a Python cell alone turns the source on.
+    it('counts a Python cell alone as the source being on', function () {
         enable('PyPI')
-        expect(gemnasiumSourceEnabled(handle.db)).toBe(false)
-        expect(enabledGemnasiumEcosystems(handle.db)).toEqual([])
+        expect(gemnasiumSourceEnabled(handle.db)).toBe(true)
+        expect(enabledGemnasiumEcosystems(handle.db)).toEqual(['PyPI'])
     })
 
     it('lists enabled cells in registry order', function () {
         enable('Go')
         enable('npm')
-        expect(enabledGemnasiumEcosystems(handle.db)).toEqual(['npm'])
+        expect(enabledGemnasiumEcosystems(handle.db)).toEqual(['npm', 'Go'])
     })
 
     it('goes off again when the last cell is disabled', function () {
@@ -184,10 +185,10 @@ describe('createGemnasiumController — lazy lifecycle', function () {
     // The archive is one download covering every ecosystem, so any enabled cell starts the runtime — but a
     // preview cell is not an enabled cell, so it must not cause a 51 MB download for an ecosystem nothing
     // will ever be scanned against.
-    it('does not start on a preview cell alone', function () {
+    it('starts on a Python cell alone', function () {
         enable('PyPI')
         const controller = createGemnasiumController(handle.db, runtime, evidence)
-        expect(controller.getScanner()).toBeNull()
+        expect(controller.getScanner()).not.toBeNull()
     })
 
     it('starts on reload once the source is enabled', function () {
@@ -301,7 +302,7 @@ describe('startGemnasiumRuntime', function () {
         upsertRoot(handle.db, { id: 'root-x', path: '/repo', label: null, createdAt: 1 })
         upsertProject(handle.db, {
             id: 'proj-x', rootId: 'root-x', relPath: 'app', name: 'app', alias: null,
-            packageManager: 'npm', nvmrcVersion: null, gitBranch: null, ecosystems: ['npm'],
+            packageManager: 'npm', nvmrcVersion: null, gitBranch: null, ecosystems: ['npm'], manifests: [],
             muted: false, tags: [], createdAt: 1, updatedAt: 1
         })
         insertScan(handle.db, {

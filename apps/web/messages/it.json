@@ -150,7 +150,7 @@
         "colBranch": "Ramo",
         "colRoot": "Radice",
         "colPm": "PM",
-        "colNode": "Node",
+        "colRuntime": "Ambiente di esecuzione",
         "colSeverity": "Gravità",
         "colState": "Stato",
         "colActions": "Azioni",
@@ -166,7 +166,10 @@
         "statePartial": "Non scansionabile del tutto",
         "stateNotScannedYet": "Non ancora scansionato",
         "stateSideProject": "il progetto",
-        "stateSideEnvironment": "questa installazione di Sentinello"
+        "stateSideEnvironment": "questa installazione di Sentinello",
+        "stateSourceDisabled": "Nessuna fonte abilitata per {languages}",
+        "sourceDisabledNotice": "{count, plural, one {# progetto non ha} other {# progetti non hanno}} alcuna fonte abilitata per {languages}, quindi {count, plural, one {non viene scansionato} other {non vengono scansionati}}.",
+        "sourceDisabledAction": "Attivane una in Impostazioni → Fonti"
     },
     "WhatsNew": {
         "pillLabel": "Novità",
@@ -313,7 +316,9 @@
             "lastError": "Ultimo errore",
             "refreshNow": "Aggiorna ora",
             "refreshQueued": "Aggiornamento richiesto — viene eseguito in background.",
-            "previewNote": "Ancora in sviluppo e non ancora disponibili: {names}.",
+            "turnOnTitle": "Nessuna fonte abilitata per {language}",
+            "turnOnBody": "{count, plural, one {# progetto usa} other {# progetti usano}} {language} e niente {count, plural, one {lo} other {li}} scansiona. Attivare una fonte ne scarica gli avvisi e scansiona di nuovo tutti i progetti.",
+            "turnOn": "Attiva {source} per {language}",
             "aboutTitle": "Informazioni su queste fonti",
             "colSource": "Fonte",
             "colAdds": "Cosa aggiunge",
@@ -742,6 +747,8 @@
             "scanReasonSideProject": "dal lato del progetto: un file del progetto ne impedisce la lettura, e la soluzione è modificarlo lì",
             "scanReasonSideEnvironment": "dal lato di questa installazione di Sentinello: l'installazione non è riuscita a eseguire la scansione, e la soluzione spetta all'operatore",
             "scanReasonNotYetRun": "nessuno lo ha ancora esaminato: lo farà la prossima scansione",
+            "sourceDisabledReason": "Nessuna fonte abilitata per {languages}",
+            "sourceDisabledAction": "Attivane una in Impostazioni → Fonti",
             "noFindingsUnknownTitle": "Nessuna vulnerabilità registrata",
             "noFindingsUnknownBody": "Non è stato trovato nulla, ma questo progetto non è stato scansionato del tutto: è sconosciuto, non sicuro.",
             "noFindingsNotScannedBody": "Questo progetto non è ancora stato scansionato."

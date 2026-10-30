@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { getTranslations } from 'next-intl/server'
-import { getConfigValue, getSourceEnabled } from '@sentinello/db'
+import { getConfigValue, getSourceEnabled, listProjectScanStates } from '@sentinello/db'
 import {
     DEFAULT_ECOSYSTEM,
     STABLE_ECOSYSTEMS,
@@ -13,6 +13,7 @@ import {
 import { SourceReferenceTable } from '@/components/settings/source-reference-table'
 import { SourcesForm, type SourceCellVM, type LanguageRowVM } from '@/components/settings/sources-form'
 import { getDb } from '@/lib/db'
+import { projectsWithoutSource } from '@/lib/project-state'
 
 export async function generateMetadata(): Promise<Metadata> {
     const t = await getTranslations('Settings')
@@ -25,6 +26,9 @@ export default async function SourcesSettingsPage() {
     // never drift on ecosystem/source identity. Each cell carries its persisted enabled flag (read through
     // getSourceEnabled, which applies the per-cell key, legacy-key fallback, and per-source default) and,
     // for cache-backed sources, the worker's last sync-status snapshot.
+    // Per language, the projects nothing scans because no source is enabled for it: what the "Turn on"
+    // actions are offered for. Read from the same scan states the dashboard and project pages show.
+    const withoutSource = projectsWithoutSource(listProjectScanStates(db).values()).ecosystems
     const rows: LanguageRowVM[] = STABLE_ECOSYSTEMS.map(function toRow(eco) {
         const cells: SourceCellVM[] = SOURCES.filter(function supports(source) {
             return sourceSupportsEcosystem(source.id, eco.id)
@@ -56,7 +60,8 @@ export default async function SourcesSettingsPage() {
             ecosystem: eco.id,
             language: eco.language,
             displayName: eco.displayName,
-            cells
+            cells,
+            projectsWithoutSource: withoutSource.find(function same(entry) { return entry.ecosystem === eco.id })?.projects ?? 0
         }
     })
     return (

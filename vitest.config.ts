@@ -30,10 +30,18 @@ export default defineConfig({
         // better-sqlite3 is a native binding and the DB suites open real files; forks keep each
         // test file in its own process so a native handle can never leak across suites.
         pool: 'forks',
-        // No unit test may reach the real npm registry: a scan settles every npm finding against it, so
-        // anything that drives the runner without injecting a registry would otherwise fetch live
-        // packuments. Port 9 (discard) refuses at once, which settles the finding `unverified`.
-        env: { SENTINELLO_NPM_REGISTRY_URL: 'http://127.0.0.1:9', SENTINELLO_NPM_DOWNLOADS_URL: 'http://127.0.0.1:9' },
+        // No unit test may reach a real package registry: a scan settles every npm, PyPI, crates.io, Go and
+        // RubyGems finding against its own, so anything that drives the runner without injecting the
+        // registry clients would otherwise fetch live data. Port 9 (discard) refuses at once, which
+        // settles the finding `unverified`.
+        env: {
+            SENTINELLO_NPM_REGISTRY_URL: 'http://127.0.0.1:9',
+            SENTINELLO_NPM_DOWNLOADS_URL: 'http://127.0.0.1:9',
+            SENTINELLO_PYPI_URL: 'http://127.0.0.1:9',
+            SENTINELLO_CRATES_INDEX_URL: 'http://127.0.0.1:9',
+            SENTINELLO_GOPROXY_URL: 'http://127.0.0.1:9',
+            SENTINELLO_RUBYGEMS_URL: 'http://127.0.0.1:9'
+        },
         coverage: {
             provider: 'v8',
             reporter: ['text', 'lcov'],

@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { senderFor, type NotificationSender } from '@sentinello/notifications'
 import {
     claimPendingSignals,
+    enqueueScanRequest,
     getConfigValue,
     getNotificationTargetById,
     getRootById,
@@ -13,6 +14,7 @@ import {
     insertNotificationTarget,
     listNotificationTargets,
     listRoots,
+    selectInFlightScanRequests,
     setConfigValue,
     setTargetProjects,
     setTargetRoots,
@@ -45,6 +47,7 @@ import {
     updateNotificationTargetAction,
     updateRootLabelAction,
     updateScheduleAction,
+    turnOnSourceForEcosystemAction,
     updateSourceCellAction,
     upsertNotificationTargetAction,
     upsertRootAction
@@ -684,6 +687,7 @@ describe('sendHistoricalToTargetAction', function () {
     it('inserts a placeholder delivery for every existing event', async function () {
         scanProject(handle.db, 'project-1', [finding()])
         upsertFindingEvent(handle.db, {
+            baselineOf: null,
             projectId: 'project-1',
             source: 'npm-audit',
             ecosystem: 'npm',
@@ -851,21 +855,16 @@ describe('updateSourceCellAction', function () {
         expect(signalKinds()).toEqual([])
     })
 
-    // Withdrawing Python/Go/Rust to preview left a way through the invariant. An operator who had
-    // enabled osv for Python under an earlier build still carries that config key; the cell can never
-    // run again, but it stays in the VISIBILITY set so its old findings remain readable. Counting that
-    // set here let them switch off the last npm cell, be told it saved, and be left unable to scan
-    // anything — the invariant reporting success while producing the state it exists to forbid.
-    it('does not let a withdrawn ecosystem stand in for the last runnable cell', async function () {
+    // The invariant counts the cells that can scan. Python, Go, Rust and Ruby are offered since 3.8, so an
+    // OSV cell for Python is one of them, and turning off the last npm cell beside it is allowed.
+    it('counts a cell of a promoted language as a source that stays on', async function () {
         setConfigValue(handle.db, sourceEnabledKey('npm-audit', 'npm'), false)
         await updateSourceCellAction({ source: 'osv', ecosystem: 'PyPI', enabled: true })
         await updateSourceCellAction({ source: 'osv', ecosystem: 'npm', enabled: true })
 
-        expect(
-            await rejection(updateSourceCellAction({ source: 'osv', ecosystem: 'npm', enabled: false }))
-        ).toContain('At least one vulnerability source must stay enabled')
+        expect(await updateSourceCellAction({ source: 'osv', ecosystem: 'npm', enabled: false })).toEqual({ ok: true })
 
-        expect(getConfigValue(handle.db, sourceEnabledKey('osv', 'npm'))).toBe(true)
+        expect(getConfigValue(handle.db, sourceEnabledKey('osv', 'npm'))).toBe(false)
     })
 
     it('rejects an ecosystem outside the registry', async function () {
@@ -891,6 +890,57 @@ describe('updateSourceCellAction', function () {
         await updateSourceCellAction({ source: 'osv', ecosystem: 'npm', enabled: true })
 
         expect(bustedPaths()).toEqual(['/settings/sources'])
+    })
+})
+
+// "Turn on OSV for Python": the one click that gets a language nothing scans scanned.
+describe('turnOnSourceForEcosystemAction', function () {
+    function pendingSweeps(): number {
+        return selectInFlightScanRequests(handle.db, Date.now()).filter(function sweep(r) {
+            return r.status === 'pending' && r.projectId === null && r.rootId === null
+        }).length
+    }
+
+    // The cell is written exactly as the switch writes it, then OSV is told to download the language's
+    // export now rather than at the next 03:17 cron, and a full sweep is queued so the projects are scanned
+    // even when that export was already on disk.
+    it('enables the OSV cell, asks the worker to sync it, and queues a full sweep', async function () {
+        expect(await turnOnSourceForEcosystemAction({ source: 'osv', ecosystem: 'PyPI' })).toEqual({ ok: true })
+
+        expect(getConfigValue(handle.db, sourceEnabledKey('osv', 'PyPI'))).toBe(true)
+        expect(signalKinds()).toEqual(['reload-sources', 'refresh-osv'])
+        expect(pendingSweeps()).toBe(1)
+        expect(bustedPaths()).toEqual(['/settings/sources', '/'])
+    })
+
+    // gemnasium's cache is one download covering every language: the runtime starting (reload-sources) is
+    // all the sync there is, and a refresh would re-download the whole database for nothing.
+    it('enables a gemnasium cell without a re-download, and still queues the sweep', async function () {
+        await turnOnSourceForEcosystemAction({ source: 'gemnasium', ecosystem: 'RubyGems' })
+
+        expect(getConfigValue(handle.db, sourceEnabledKey('gemnasium', 'RubyGems'))).toBe(true)
+        expect(signalKinds()).toEqual(['reload-sources'])
+        expect(pendingSweeps()).toBe(1)
+    })
+
+    // A sweep still waiting is claimed after the worker drains the signals, so it already scans with the
+    // cell on: turning on Python and then Ruby queues one sweep, not two. A single-project request is no
+    // such sweep.
+    it('does not queue a second sweep while one is waiting', async function () {
+        enqueueScanRequest(handle.db, { projectId: 'project-1' }, T0)
+        await turnOnSourceForEcosystemAction({ source: 'osv', ecosystem: 'PyPI' })
+        await turnOnSourceForEcosystemAction({ source: 'osv', ecosystem: 'RubyGems' })
+
+        expect(pendingSweeps()).toBe(1)
+    })
+
+    it('rejects what the switch rejects', async function () {
+        await expect(turnOnSourceForEcosystemAction({ source: 'npm-audit', ecosystem: 'PyPI' })).rejects.toThrow('does not answer for ecosystem PyPI')
+        await expect(turnOnSourceForEcosystemAction({ source: 'osv', ecosystem: 'CocoaPods' })).rejects.toThrow('Unknown ecosystem: CocoaPods')
+        expect(await rejection(turnOnSourceForEcosystemAction({ source: '', ecosystem: 'PyPI' }))).toContain('source')
+
+        expect(signalKinds()).toEqual([])
+        expect(pendingSweeps()).toBe(0)
     })
 })
 

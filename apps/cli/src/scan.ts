@@ -243,7 +243,8 @@ export async function scanProject(
         findings: [...survivors.values()],
         evidence,
         graph: resolved.npmGraph,
-        registry: setup.registry,
+        // npm only for now: the CLI checks no other ecosystem's registry yet, so those settle skipped.
+        registry: setup.registry === null ? null : { npm: setup.registry },
         checkedAt: setup.settledAt
     })
     const fixes = new Map<RawFinding, FixSettlement>()
@@ -277,9 +278,12 @@ export function cliScanState(
 ): ScanState {
     const own = resolved.results.filter(function inRun(result) { return result.ecosystem === setup.ecosystem })
     return projectScanState({
-        expectedSources: scanners.map(function name(scanner) { return scanner.name }),
-        latestScans: outcomes.map(function latest(o) { return { source: o.scanner, status: o.status, reasonCode: o.reasonCode, finishedAt: 0 } }),
+        // One cell per enabled scanner, all for the run's ecosystem; the run chose its sources itself, so no
+        // ecosystem it audits is missing one.
+        expectedCells: scanners.map(function cell(scanner) { return { source: scanner.name, ecosystem: setup.ecosystem } }),
+        latestScans: outcomes.map(function latest(o) { return { source: o.scanner, ecosystem: setup.ecosystem, status: o.status, reasonCode: o.reasonCode, finishedAt: 0 } }),
         detectedEcosystems: own.map(function ecosystem(result) { return result.ecosystem }),
+        sourceDisabled: [],
         coverage: own.map(function covered(result) {
             return { ecosystem: result.ecosystem, status: result.status, reasonCode: result.status === 'ok' ? null : result.reasonCode }
         })

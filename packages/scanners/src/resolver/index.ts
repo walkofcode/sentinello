@@ -1,4 +1,4 @@
-import { access } from 'node:fs/promises'
+import { statSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { getEcosystem, STABLE_ECOSYSTEMS, type EcosystemDefinition } from '@sentinello/core'
 import type { DetectedLockfile } from '../types'
@@ -50,15 +50,21 @@ export async function detectManifests(projectPath: string): Promise<DetectedMani
 // The same, for one directory inside a project — the project's own directory, or one below it. `ecosystems`
 // is the set to look for; discovery passes the stable ones.
 export async function detectManifestsIn(dir: string, projectPath: string, ecosystems: readonly EcosystemDefinition[]): Promise<DetectedManifest[]> {
+    return Promise.resolve(detectManifestsInSync(dir, projectPath, ecosystems))
+}
+
+// The synchronous form, for project discovery, whose walk is synchronous end to end. It IS the rule set:
+// the async form above returns its answer, so what a directory holds is decided in one place.
+export function detectManifestsInSync(dir: string, projectPath: string, ecosystems: readonly EcosystemDefinition[]): DetectedManifest[] {
     const out: DetectedManifest[] = []
     for (const eco of ecosystems) {
-        const kind = await firstPresent(dir, eco.resolverKinds)
+        const kind = firstPresent(dir, eco.resolverKinds)
         if (kind !== null) {
             out.push({ kind, ecosystem: eco.id, absolutePath: join(dir, kind) })
             continue
         }
-        const manifest = await firstPresent(dir, eco.manifestKinds)
-        if (manifest !== null && !await coveredByLock(eco, manifest, dir, projectPath)) {
+        const manifest = firstPresent(dir, eco.manifestKinds)
+        if (manifest !== null && !coveredByLock(eco, manifest, dir, projectPath)) {
             out.push({ kind: manifest, ecosystem: eco.id, absolutePath: join(dir, manifest) })
         }
     }
@@ -70,11 +76,11 @@ export async function detectManifestsIn(dir: string, projectPath: string, ecosys
 // member's Cargo.toml is covered by a Cargo.lock in any directory above it — up to the owning project's
 // directory and never above it, because a lock outside the project is another project's. Bundler and the
 // Python tools lock beside the manifest, so for them "no lockfile beside it" is the whole test.
-async function coveredByLock(eco: EcosystemDefinition, manifest: string, dir: string, projectPath: string): Promise<boolean> {
+function coveredByLock(eco: EcosystemDefinition, manifest: string, dir: string, projectPath: string): boolean {
     if (manifest !== 'Cargo.toml') return false
     const root = resolve(projectPath)
     for (let current = dirname(resolve(dir)); isWithin(root, current); current = dirname(current)) {
-        if (await firstPresent(current, eco.resolverKinds) !== null) return true
+        if (firstPresent(current, eco.resolverKinds) !== null) return true
         if (current === root) break
     }
     return false
@@ -85,9 +91,9 @@ function isWithin(root: string, path: string): boolean {
     return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
-async function firstPresent(dir: string, kinds: readonly string[]): Promise<string | null> {
+function firstPresent(dir: string, kinds: readonly string[]): string | null {
     for (const kind of kinds) {
-        if (await fileExists(join(dir, kind))) return kind
+        if (fileExists(join(dir, kind))) return kind
     }
     return null
 }
@@ -167,10 +173,11 @@ function wrapNpm(ecosystem: string, graph: ResolvedGraph | null, kind: string): 
     return { status: 'ok', ecosystem, graph }
 }
 
-async function fileExists(path: string): Promise<boolean> {
+// A directory that happens to carry a manifest's name is not a manifest, and one that cannot be stat'ed
+// (missing, unreadable parent, gone mid-walk) is not present.
+function fileExists(path: string): boolean {
     try {
-        await access(path)
-        return true
+        return statSync(path).isFile()
     } catch {
         return false
     }

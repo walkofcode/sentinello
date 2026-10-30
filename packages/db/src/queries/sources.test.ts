@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { LEGACY_SOURCE_CONFIG_KEYS, sourceEnabledKey } from '@sentinello/core'
+import { LEGACY_SOURCE_CONFIG_KEYS, sourceEnabledKey, type EcosystemId } from '@sentinello/core'
 import { openDb } from '../client'
 import type { DrizzleDb, SqliteDb } from '../client'
 import { runMigrations } from '../migrate'
@@ -47,6 +47,7 @@ beforeEach(async function setup() {
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems: ['npm'],
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,
@@ -73,14 +74,6 @@ describe('getSourceEnabled defaults', function () {
     it('defaults to the npm ecosystem when none is given', function () {
         setConfigValue(db, sourceEnabledKey('osv', 'npm'), true)
         expect(getSourceEnabled(db, 'osv')).toBe(true)
-    })
-
-    // A preview ecosystem cannot be switched on, and a stored key saying otherwise is not honoured — an
-    // ecosystem withdrawn because its matching reports clean for the wrong reasons must not come back
-    // through a config value left behind by an earlier build.
-    it('refuses a preview ecosystem however the config reads', function () {
-        setConfigValue(db, sourceEnabledKey('osv', 'PyPI'), true)
-        expect(getSourceEnabled(db, 'osv', 'PyPI')).toBe(false)
     })
 
     it('keeps ecosystems independent', function () {
@@ -156,27 +149,12 @@ describe('getActiveSourceCells', function () {
 
 // The counterpart to getActiveSourceCells, and the distinction is load-bearing: "visible" keeps a
 // withdrawn ecosystem's findings readable, "runnable" is what the always-a-source-on invariant counts.
-// Conflating them lets a leftover preview cell stand in for coverage that cannot exist.
+// Conflating them lets a leftover preview cell stand in for coverage that cannot exist; no ecosystem is in
+// preview since 3.8, so sources-preview.test.ts withdraws one to prove it.
 describe('getRunnableSourceCells', function () {
     it('agrees with getActiveSourceCells while every enabled cell is stable', function () {
         setConfigValue(db, sourceEnabledKey('osv', 'npm'), true)
         expect(getRunnableSourceCells(db)).toEqual(getActiveSourceCells(db))
-    })
-
-    it('drops a preview-ecosystem cell that the visibility set deliberately keeps', function () {
-        setConfigValue(db, sourceEnabledKey('osv', 'PyPI'), true)
-        expect(getActiveSourceCells(db)).toContainEqual({ source: 'osv', ecosystem: 'PyPI' })
-        expect(getRunnableSourceCells(db)).not.toContainEqual({ source: 'osv', ecosystem: 'PyPI' })
-    })
-
-    // The whole point. An operator upgrading from a build that offered Python keeps that config key;
-    // if it counted as remaining coverage, the invariant would wave through disabling the last cell
-    // that can actually scan.
-    it('is empty when only preview cells remain, so the invariant still bites', function () {
-        setConfigValue(db, sourceEnabledKey('osv', 'PyPI'), true)
-        setConfigValue(db, sourceEnabledKey('npm-audit', 'npm'), false)
-        expect(getActiveSourceCells(db)).not.toEqual([])
-        expect(getRunnableSourceCells(db)).toEqual([])
     })
 })
 
@@ -201,7 +179,7 @@ describe('getActiveSources', function () {
 // Asserted through a real query rather than by matching SQL text: what matters is which findings the
 // operator can see, and a substring check would pass even if the clause were wired in wrong.
 describe('activeSourceCellClause', function () {
-    function seedFinding(scanId: string, source: string, ecosystem: string, advisoryId: string): void {
+    function seedFinding(scanId: string, source: string, ecosystem: EcosystemId, advisoryId: string): void {
         insertScan(db, {
             id: scanId,
             projectId: PROJECT_ID,
@@ -219,6 +197,7 @@ describe('activeSourceCellClause', function () {
         mergeFindingsForScan(db, {
             projectId: PROJECT_ID,
             scanner: source,
+            ecosystem,
             scanId,
             scanFinishedAt: T0,
             incoming: [
@@ -232,6 +211,7 @@ describe('activeSourceCellClause', function () {
                     advisoryUrl: null,
                     packageName: 'lodash',
                     installedVersion: '4.17.11',
+                    installations: [],
                     vulnerableRange: '<4.17.21',
                     severity: 'high',
                     fixAvailable: true,

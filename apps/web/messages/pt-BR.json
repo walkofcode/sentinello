@@ -150,7 +150,7 @@
         "colBranch": "Ramo",
         "colRoot": "Raiz",
         "colPm": "GP",
-        "colNode": "Node",
+        "colRuntime": "Ambiente de execução",
         "colSeverity": "Severidade",
         "colState": "Estado",
         "colActions": "Ações",
@@ -166,7 +166,10 @@
         "statePartial": "Não pode ser escaneado por completo",
         "stateNotScannedYet": "Ainda não escaneado",
         "stateSideProject": "o projeto",
-        "stateSideEnvironment": "esta instalação do Sentinello"
+        "stateSideEnvironment": "esta instalação do Sentinello",
+        "stateSourceDisabled": "Nenhuma fonte habilitada para {languages}",
+        "sourceDisabledNotice": "{count, plural, one {# projeto não tem} other {# projetos não têm}} nenhuma fonte habilitada para {languages}, então nada {count, plural, one {o} other {os}} verifica.",
+        "sourceDisabledAction": "Ative uma em Configurações → Fontes"
     },
     "WhatsNew": {
         "pillLabel": "Novidades",
@@ -313,7 +316,9 @@
             "lastError": "Último erro",
             "refreshNow": "Atualizar agora",
             "refreshQueued": "Atualização solicitada — roda em segundo plano.",
-            "previewNote": "Ainda em desenvolvimento e ainda não oferecidos: {names}.",
+            "turnOnTitle": "Nenhuma fonte habilitada para {language}",
+            "turnOnBody": "{count, plural, one {# projeto usa} other {# projetos usam}} {language} e nada {count, plural, one {o} other {os}} verifica. Ativar uma fonte baixa seus avisos e verifica todos os projetos novamente.",
+            "turnOn": "Ativar {source} para {language}",
             "aboutTitle": "Sobre estas fontes",
             "colSource": "Fonte",
             "colAdds": "O que acrescenta",
@@ -742,6 +747,8 @@
             "scanReasonSideProject": "do lado do projeto: um arquivo do projeto impede que ele seja lido, e a correção é alterá-lo ali",
             "scanReasonSideEnvironment": "do lado desta instalação do Sentinello: a instalação não conseguiu fazer o escaneamento, e a correção cabe ao operador",
             "scanReasonNotYetRun": "nada o verificou ainda: o próximo escaneamento fará isso",
+            "sourceDisabledReason": "Nenhuma fonte habilitada para {languages}",
+            "sourceDisabledAction": "Ative uma em Configurações → Fontes",
             "noFindingsUnknownTitle": "Nenhuma descoberta registrada",
             "noFindingsUnknownBody": "Nada foi encontrado, mas este projeto não pôde ser escaneado por completo: isso é desconhecido, não seguro.",
             "noFindingsNotScannedBody": "Este projeto ainda não foi escaneado."

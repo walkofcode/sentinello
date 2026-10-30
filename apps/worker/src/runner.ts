@@ -1,8 +1,9 @@
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { ulid } from 'ulid'
-import { DEFAULT_ECOSYSTEM, type Finding, type FindingCorroboration, type Project, type Scan } from '@sentinello/core'
+import { ECOSYSTEMS, requireEcosystemId, type EcosystemId, type Finding, type FindingCorroboration, type FindingInstallation, type Project, type Scan, type SourceCell } from '@sentinello/core'
 import {
     applyFindingCorroborations,
+    getRunnableSourceCells,
     insertScan,
     mergeFindingsForScan,
     getRootById,
@@ -18,6 +19,7 @@ import {
 import {
     detectManifests,
     graphForEcosystem,
+    splitInstalled,
     mergeResolvedGraphs,
     reconcileAgainstReported,
     type CorroborationEvent,
@@ -26,17 +28,18 @@ import {
     type EcosystemCoverage,
     type FixEvidence,
     type RawFinding,
+    type DetectedManifest,
     type ResolvedGraph,
     type ResolverResult,
     type ScannerPlugin
 } from '@sentinello/scanners'
 import { errText } from '@sentinello/feeds'
-import { createNpmRegistryClient, fixEvidenceKey, type RegistryClient } from '@sentinello/fixes'
+import { createRegistryClients, fixEvidenceKey, type RegistryClients } from '@sentinello/fixes'
 import { CONFIG_KEYS } from './config-loader'
 import { readGitBranch } from './discovery'
 import { verifyFixes } from './fix-verification'
 import { notifyForCompletedScan } from './notifier'
-import { createDbRegistryStore } from './registry-store'
+import { createDbRegistryStores } from './registry-store'
 
 const SCANNER_TIMEOUT_MS = 90_000
 
@@ -73,27 +76,39 @@ export type ProjectScanOutcome = {
     findings: Finding[]
 }
 
-export async function runBatch(input: RunBatchInput): Promise<ProjectScanOutcome[]> {
+export type BatchResult = {
+    outcomes: ProjectScanOutcome[]
+    // Whether every project of the batch was processed and the batch was not aborted. Resolving is not
+    // proof of it: a worker loop stops early on abort with projects left in the queue. A project whose scans
+    // failed still counts as processed. The silent baseline completes only on a completed sweep.
+    completed: boolean
+}
+
+export async function runBatch(input: RunBatchInput): Promise<BatchResult> {
     const outcomes: ProjectScanOutcome[] = []
     const queue = input.projects.slice()
+    const processed = { count: 0 }
     const workerCount = Math.max(1, Math.min(input.parallelism, queue.length))
-    // One registry client for the whole batch: its concurrency limit and in-flight map are per worker,
+    // One set of registry clients (one per ecosystem) for the whole batch: each one's concurrency limit and
+    // in-flight map are per worker,
     // not per project, so parallel project scans share both.
-    const registry = createNpmRegistryClient(createDbRegistryStore(input.db), { abortSignal: input.abortSignal })
+    const registry = createRegistryClients(createDbRegistryStores(input.db), { abortSignal: input.abortSignal })
     const workers: Promise<void>[] = []
     for (let i = 0; i < workerCount; i++) {
-        workers.push(workerLoop(input, registry, queue, outcomes))
+        workers.push(workerLoop(input, registry, queue, outcomes, processed))
     }
     await Promise.all(workers)
     walCheckpoint(input.sqlite)
-    return outcomes
+    const aborted = input.abortSignal !== undefined && input.abortSignal.aborted
+    return { outcomes, completed: !aborted && processed.count === input.projects.length }
 }
 
 async function workerLoop(
     input: RunBatchInput,
-    registry: RegistryClient,
+    registry: RegistryClients,
     queue: Project[],
-    outcomes: ProjectScanOutcome[]
+    outcomes: ProjectScanOutcome[],
+    processed: { count: number }
 ): Promise<void> {
     while (true) {
         const project = queue.shift()
@@ -101,6 +116,7 @@ async function workerLoop(
         if (input.abortSignal && input.abortSignal.aborted) return
         const projectOutcomes = await runProjectScanners({ db: input.db, scanners: input.scanners, project, abortSignal: input.abortSignal, registry })
         for (const outcome of projectOutcomes) outcomes.push(outcome)
+        processed.count += 1
     }
 }
 
@@ -113,9 +129,9 @@ export type RunProjectScansInput = {
     // Called once per outcome after settlement. Defaults to the real notifier (honouring dryRunNotify);
     // the scratch tools pass a recording one that never reaches a sender.
     notify?: (outcome: ProjectScanOutcome) => Promise<void>
-    // The registry fix settlement reads through. Defaults to the cache-first npm client on this DB; the
-    // scratch tools wrap it to record every answer it serves.
-    registry?: RegistryClient
+    // The registries fix settlement reads through, one client per ecosystem. Defaults to the cache-first
+    // clients on this DB; the scratch tools wrap them to record every answer they serve.
+    registry?: RegistryClients
 }
 
 // Runs every scanner against one project, in order, and returns one outcome per scanner. The dedup set
@@ -123,27 +139,47 @@ export type RunProjectScansInput = {
 // findings the authoritative scanner (npm-audit) already surfaced.
 export async function runProjectScanners(input: RunProjectScansInput): Promise<ProjectScanOutcome[]> {
     const project = input.project
+    const runnable = getRunnableSourceCells(input.db)
     const root = getRootById(input.db, project.rootId)
     if (!root) {
-        const outcome = makeErrorOutcome(project, 'project root not found in DB')
-        insertScan(input.db, outcome.scan)
-        return [outcome]
+        // Nothing can be read, so every cell the project expects records the failure: each reads failed on
+        // its own, never as not yet run.
+        const ecosystems: string[] = project.ecosystems.length > 0 ? project.ecosystems : ['npm']
+        const outcomes: ProjectScanOutcome[] = []
+        for (const scanner of input.scanners) {
+            for (const ecosystem of ecosystems) {
+                if (!cellRunnable(runnable, scanner.name, ecosystem)) continue
+                const outcome = makeErrorOutcome(project, 'project root not found in DB', requireEcosystemId(ecosystem), undefined, scanner.name)
+                insertScan(input.db, outcome.scan)
+                outcomes.push(outcome)
+            }
+        }
+        return outcomes
     }
     const projectPath = resolve(root.path, project.relPath)
     // Re-read the branch at scan start. Discovery already records it, but sweeps and scans are
     // independent — a developer switching branches between the two would otherwise leave the portal
     // (and the notification) attributing findings to the wrong branch. Cheap: one file read.
     refreshGitBranch(input.db, project, projectPath, root.path)
-    // Resolve EVERY detected ecosystem's graph ONCE per project (Phase 4 — one project spans JS + Python +
-    // Go + Rust). Each resolver result is classified ok/partial/unauditable so coverage is honest. The
-    // advisory-feed sources (OSV, gemnasium) answer for all ecosystems, so they get the merged graph and
-    // group by ecosystem internally; npm-audit gets only the JavaScript graph and is the sole scanner that
-    // touches the Node toolchain (nvm). Each scanner still resolves/merges findings scoped to its own name.
-    const manifests = await detectManifests(projectPath)
+    // Resolve every manifest discovery recorded for the project ONCE per scan — its own directory's and every
+    // sub-manifest (ios/Gemfile.lock) — each classified ok/partial/unauditable so coverage is honest. A row
+    // discovered before 3.8 recorded none, and is read from its own directory until the next sweep records
+    // them. Then each source runs once per (source, ecosystem) cell the project has and the operator enabled
+    // (decision SENTINEL-117): one scan row per cell, stamped with its real ecosystem, and a lifecycle merge
+    // scoped to that cell, so OSV failing on Python neither hides nor resolves what it found for Ruby.
+    // npm-audit runs only for a project with an npm manifest, and is the sole scanner that touches the Node
+    // toolchain (nvm).
+    const manifests = recordedManifests(project, projectPath) ?? await detectManifests(projectPath)
     const resolverResults = await resolveProjectGraphs(projectPath, manifests)
-    const mergedGraph = mergeResolvedGraphs(resolverResults)
     const npmGraph = graphForEcosystem(resolverResults, 'npm')
     const coverage = resolverResults.map(toCoverage)
+    // The project's ecosystems: what its manifests hold now, and what discovery recorded for it — an
+    // ecosystem whose lockfile vanished since still runs, and records no_lockfile instead of "not yet run".
+    // A row with neither is read as npm, the only thing a pre-polyglot row can be.
+    const present = new Set<string>(project.ecosystems)
+    for (const r of resolverResults) present.add(r.ecosystem)
+    if (present.size === 0) present.add('npm')
+    const detected = ECOSYSTEMS.filter(function inProject(eco) { return present.has(eco.id) }).map(function id(eco) { return eco.id })
     const outcomes: ProjectScanOutcome[] = []
     // (ecosystem|package) → advisory key (lower-cased id or alias) → the finding that survived under it.
     // The outer key is the ECOSYSTEM-SCOPED package identity (findingPackageIdentity), never the bare
@@ -156,12 +192,16 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
     // later source agrees with one of them.
     const corroborations: CorroborationEvent[] = []
     for (const scanner of input.scanners) {
-        if (input.abortSignal && input.abortSignal.aborted) break
-        const isNpmAudit = scanner.name === NPM_AUDIT_SCANNER_NAME
-        const graphForScanner = isNpmAudit ? npmGraph : mergedGraph
-        const coverageForScanner = isNpmAudit ? undefined : coverage
-        const outcome = await runOneScanner(input, project, projectPath, scanner, reportedByPackage, corroborations, graphForScanner, coverageForScanner, coverage)
-        outcomes.push(outcome)
+        for (const ecosystem of detected) {
+            if (input.abortSignal && input.abortSignal.aborted) break
+            if (!cellRunnable(runnable, scanner.name, ecosystem)) continue
+            const isNpmAudit = scanner.name === NPM_AUDIT_SCANNER_NAME
+            const cell = cellResults(resolverResults, ecosystem)
+            const graphForCell = isNpmAudit ? npmGraph : mergeResolvedGraphs(cell)
+            const coverageForCell = isNpmAudit ? undefined : cell.map(toCoverage)
+            const outcome = await runOneScanner(input, project, projectPath, scanner, ecosystem, reportedByPackage, corroborations, graphForCell, coverageForCell, coverage)
+            outcomes.push(outcome)
+        }
     }
     recordCorroborations(input.db, outcomes, corroborations)
     // Fix settlement also waits for every source: the fix has to clear every source's affected set and
@@ -174,7 +214,7 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
     //     line still says no fixed version is released).
     const settledFindings = outcomes.flatMap(function findingsOf(o) { return o.findings })
     const evidence = evidenceByFinding(reportedByPackage)
-    const registry = input.registry ?? createNpmRegistryClient(createDbRegistryStore(input.db), { abortSignal: input.abortSignal })
+    const registry = input.registry ?? createRegistryClients(createDbRegistryStores(input.db), { abortSignal: input.abortSignal })
     try {
         const { wayOutError } = await verifyFixes({ db: input.db, findings: settledFindings, evidence, graph: npmGraph, registry, checkedAt: Date.now() })
         if (wayOutError !== null) console.error('[runner] way-out guidance failed for project ' + project.id + ': ' + wayOutError)
@@ -197,6 +237,39 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
         }
     }
     return outcomes
+}
+
+// The manifests discovery recorded for the project, as the resolver takes them; null for a row recorded
+// before 3.8, which is read from its own directory instead.
+function recordedManifests(project: Project, projectPath: string): DetectedManifest[] | null {
+    if (project.manifests.length === 0) return null
+    return project.manifests.map(function toDetected(m): DetectedManifest {
+        return { kind: m.kind, ecosystem: m.ecosystem, absolutePath: join(projectPath, m.path) }
+    })
+}
+
+function cellRunnable(runnable: readonly SourceCell[], source: string, ecosystem: string): boolean {
+    return runnable.some(function matches(cell) { return cell.source === source && cell.ecosystem === ecosystem })
+}
+
+// One ecosystem's resolver results: every manifest of it the project holds (two Gemfile.locks are two).
+function cellResults(results: readonly ResolverResult[], ecosystem: string): ResolverResult[] {
+    return results.filter(function of(r) { return r.ecosystem === ecosystem })
+}
+
+// Where each copy of a package a finding names was installed. The matcher records it for the feed sources;
+// npm-audit reports a package and its installed versions only, so they are found in the npm graph.
+function installationsFor(raw: RawFinding, graph: ResolvedGraph | null): FindingInstallation[] {
+    if (raw.installations) return raw.installations
+    if (graph === null) return []
+    const versions = splitInstalled(raw.installedVersion)
+    const out: FindingInstallation[] = []
+    for (const pkg of graph.byName(raw.packageName)) {
+        if (!versions.includes(pkg.version)) continue
+        if (out.some(function same(i) { return i.manifestPath === pkg.manifestPath && i.version === pkg.version })) continue
+        out.push({ manifestPath: pkg.manifestPath, version: pkg.version })
+    }
+    return out
 }
 
 function defaultNotifier(db: DrizzleDb): (outcome: ProjectScanOutcome) => Promise<void> {
@@ -284,7 +357,7 @@ function withCoverage(rawJson: string, coverage: EcosystemCoverage[]): string {
     if (rawJson === '') return JSON.stringify({ coverage })
     const summary = summaryObject(rawJson)
     if (summary !== null) {
-        if (Array.isArray(summary.coverage)) return rawJson
+        // A feed source records the coverage of the one cell it ran for; the row records the project's.
         const merged = JSON.stringify({ ...summary, coverage })
         if (merged.length <= RAW_JSON_MAX_BYTES) return merged
     }
@@ -327,6 +400,7 @@ async function runOneScanner(
     project: Project,
     projectPath: string,
     scanner: ScannerPlugin,
+    ecosystem: EcosystemId,
     reportedByPackage: Map<string, Map<string, ReportedAdvisory>>,
     corroborations: CorroborationEvent[],
     resolvedGraph: ResolvedGraph | null,
@@ -341,6 +415,7 @@ async function runOneScanner(
     try {
         scanResult = await scanner.scan(projectPath, {
             timeoutMs: SCANNER_TIMEOUT_MS,
+            ecosystem,
             useNvm,
             abortSignal: input.abortSignal,
             resolvedGraph,
@@ -348,7 +423,7 @@ async function runOneScanner(
         })
     } catch (err) {
         const message = err instanceof Error && err.message || String(err)
-        const outcome = makeErrorOutcome(project, 'scanner threw: ' + message, startedAt, scanner.name)
+        const outcome = makeErrorOutcome(project, 'scanner threw: ' + message, ecosystem, startedAt, scanner.name)
         outcome.scan.rawJson = withCoverage(outcome.scan.rawJson, projectCoverage)
         insertScan(input.db, outcome.scan)
         return outcome
@@ -360,10 +435,9 @@ async function runOneScanner(
         startedAt,
         finishedAt,
         scanner: scanner.name,
-        // For today's sources source === scanner name; ecosystem is npm (the only ecosystem scanned until
-        // the polyglot resolvers land in Phases 3–4, when a scanner run is split per (source, ecosystem)).
+        // For today's sources source === scanner name; the scan belongs to one (source, ecosystem) cell.
         source: scanner.name,
-        ecosystem: DEFAULT_ECOSYSTEM,
+        ecosystem,
         status: scanResult.status,
         reasonCode: scanResult.reasonCode,
         durationMs: scanResult.durationMs,
@@ -377,14 +451,15 @@ async function runOneScanner(
             projectId: project.id,
             scanner: scanner.name,
             source: scanner.name,
-            // The matcher engine stamps the package's real ecosystem; npm-audit findings have none, so
-            // they default to the npm ecosystem.
-            ecosystem: raw.ecosystem ?? DEFAULT_ECOSYSTEM,
+            // The matcher stamps the package's own ecosystem, which is the cell's; npm-audit's findings carry
+            // none and its only cell is npm. The merge refuses a finding of another cell.
+            ecosystem: raw.ecosystem === undefined ? ecosystem : requireEcosystemId(raw.ecosystem),
             advisoryId: raw.advisoryId,
             advisoryTitle: raw.advisoryTitle,
             advisoryUrl: raw.advisoryUrl,
             packageName: raw.packageName,
             installedVersion: raw.installedVersion,
+            installations: installationsFor(raw, resolvedGraph),
             vulnerableRange: raw.vulnerableRange,
             severity: raw.severity,
             fixAvailable: raw.fixAvailable,
@@ -397,7 +472,8 @@ async function runOneScanner(
     // Lifecycle merge: on a successful scan, upsert each finding by identity, refreshing the open
     // episode's last_seen_at + mutable fields, opening new episodes for previously-unseen
     // identities, and closing (resolved_at) episodes that have disappeared. Scoped to this scanner so
-    // a second scanner's pass never resolves the first scanner's findings. For error/timeout/unauditable
+    // a second scanner's pass never resolves the first scanner's findings, and to this cell's ecosystem so
+    // one ecosystem's scan never resolves another's (SENTINEL-122). For error/timeout/unauditable
     // scans we record the scan row but leave findings alone so the UI keeps its last-known view and a
     // transient failure never mass-resolves an entire project.
     const merged = input.db.transaction(function mergeLifecycle(tx): Finding[] {
@@ -406,6 +482,7 @@ async function runOneScanner(
         const result = mergeFindingsForScan(tx, {
             projectId: project.id,
             scanner: scanner.name,
+            ecosystem,
             scanId: scan.id,
             scanFinishedAt: scan.finishedAt,
             incoming
@@ -417,7 +494,7 @@ async function runOneScanner(
     return { project, scan, findings: merged }
 }
 
-function makeErrorOutcome(project: Project, errorText: string, startedAt?: number, scanner = 'npm-audit'): ProjectScanOutcome {
+function makeErrorOutcome(project: Project, errorText: string, ecosystem: EcosystemId, startedAt: number | undefined, scanner: string): ProjectScanOutcome {
     const at = Date.now()
     const start = startedAt || at
     const scan: Scan = {
@@ -427,7 +504,7 @@ function makeErrorOutcome(project: Project, errorText: string, startedAt?: numbe
         finishedAt: at,
         scanner,
         source: scanner,
-        ecosystem: DEFAULT_ECOSYSTEM,
+        ecosystem,
         status: 'error',
         reasonCode: 'audit_unknown_failure',
         durationMs: at - start,

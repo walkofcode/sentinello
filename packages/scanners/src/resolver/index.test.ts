@@ -100,15 +100,14 @@ describe('detectManifests', function () {
         expect(await detectManifests(dir)).toEqual([])
     })
 
-    // One manifest per OFFERED ecosystem. A preview ecosystem's manifest is passed over entirely, so no
-    // graph, no coverage row and no scan is ever attributed to it.
-    it('detects one manifest per offered ecosystem and skips previews', async function () {
+    // One manifest per offered ecosystem — since 3.8, all five.
+    it('detects one manifest per offered ecosystem', async function () {
         await write('package-lock.json', NPM_LOCK)
         await write('requirements.txt', 'a==1.0.0\n')
         await write('go.mod', 'require github.com/a/b v1.0.0\n')
         await write('Cargo.lock', CARGO_LOCK)
         const found = await detectManifests(dir)
-        expect(found.map(function eco(m) { return m.ecosystem })).toEqual(['npm'])
+        expect(found.map(function eco(m) { return m.ecosystem })).toEqual(['npm', 'PyPI', 'Go', 'crates.io'])
     })
 
     // Only the first match per ecosystem, in registry preference order — a repo carrying both a

@@ -1,8 +1,9 @@
 import {
     buildAdvisoryMarkdown,
     labelScanState,
+    requireEcosystemId,
     resolveExportPrompt,
-    DEFAULT_ECOSYSTEM,
+    CAPABILITIES,
     type ExportFinding,
     type Finding,
     type LabelledScanState,
@@ -26,6 +27,7 @@ import {
     getConfigValue,
     getProjectScanState,
     findingScanContexts,
+    pendingBaselineCapabilities,
     type DispatchablePair,
     type FindingScanContextLookup,
     type DrizzleDb
@@ -57,12 +59,19 @@ export async function notifyForCompletedScan(input: NotifyForCompletedScanInput)
     const at = Date.now()
     const project = getProjectById(input.db, input.outcome.project.id)
     if (!project) return
-    // Step 1: UPSERT discovery rows for current findings + (if not ok) a scan-failure row.
+    // Step 1: UPSERT discovery rows for current findings + (if not ok) a scan-failure row. While a
+    // capability's baseline is pending, a new finding event in one of its ecosystems is recorded silently
+    // (baseline_of): it is told in that capability's one summary when the sweep completes, never by itself.
+    // npm events and scan failures are never held back.
+    const silentBaselines = pendingBaselineCapabilities(input.db, CAPABILITIES)
     for (const finding of input.outcome.findings) {
+        const ecosystem = requireEcosystemId(finding.ecosystem)
+        const baseline = silentBaselines.find(function covers(c) { return c.ecosystems.includes(ecosystem) })
         upsertFindingEvent(input.db, {
             projectId: finding.projectId,
             source: finding.source,
-            ecosystem: finding.ecosystem,
+            ecosystem,
+            baselineOf: baseline ? baseline.id : null,
             advisoryId: finding.advisoryId,
             packageName: finding.packageName,
             severity: finding.severity,
@@ -323,14 +332,12 @@ function matchEventsToFindings(
 ): MatchedEvent[] {
     const out: MatchedEvent[] = []
     for (const event of events) {
-        if (event.advisoryId === null || event.packageName === null) continue
-        // event.scanner carries the persisted source identity for finding events (matches finding.source).
-        // A legacy event with no ecosystem resolves to npm, the same COALESCE the dispatch query applies
-        // (notification-deliveries.ts) and the same fallback every findings read path uses — everything was
-        // npm before the polyglot migration, so that is what those rows are. This used to fall back to ''
-        // instead, which cannot equal any real ecosystem: the event passed the dispatch filter as npm and
-        // then failed to match as '', leaving it selected on every scan and describable on none.
-        const key = identityTupleKey(event.projectId, event.scanner, event.ecosystem ?? DEFAULT_ECOSYSTEM, event.advisoryId, event.packageName)
+        // event.scanner carries the persisted source identity for finding events (matches finding.source). A
+        // finding event always has its ecosystem: written explicitly since 3.8, and filled for every legacy
+        // row by the boot backfill before the scheduler runs. One without is not describable, like one
+        // without an advisory or package.
+        if (event.advisoryId === null || event.packageName === null || event.ecosystem === null) continue
+        const key = identityTupleKey(event.projectId, event.scanner, event.ecosystem, event.advisoryId, event.packageName)
         const fromThisScan = findingsByKey.get(key)
         if (fromThisScan) {
             out.push({ event, finding: fromThisScan })
@@ -339,7 +346,7 @@ function matchEventsToFindings(
         const persisted = findFindingByIdentity(db, {
             projectId: event.projectId,
             source: event.scanner,
-            ecosystem: event.ecosystem ?? DEFAULT_ECOSYSTEM,
+            ecosystem: event.ecosystem,
             advisoryId: event.advisoryId,
             packageName: event.packageName
         }, scanContext)

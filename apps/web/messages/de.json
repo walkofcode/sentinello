@@ -150,7 +150,7 @@
         "colBranch": "Branch",
         "colRoot": "Wurzel",
         "colPm": "PM",
-        "colNode": "Node",
+        "colRuntime": "Laufzeit",
         "colSeverity": "Schweregrad",
         "colState": "Status",
         "colActions": "Aktionen",
@@ -166,7 +166,10 @@
         "statePartial": "Nicht vollständig scanbar",
         "stateNotScannedYet": "Noch nicht gescannt",
         "stateSideProject": "das Projekt",
-        "stateSideEnvironment": "diese Sentinello-Installation"
+        "stateSideEnvironment": "diese Sentinello-Installation",
+        "stateSourceDisabled": "Keine Quelle für {languages} aktiviert",
+        "sourceDisabledNotice": "{count, plural, one {# Projekt hat} other {# Projekte haben}} keine aktivierte Quelle für {languages}, daher {count, plural, one {wird es} other {werden sie}} nicht gescannt.",
+        "sourceDisabledAction": "Aktiviere eine unter Einstellungen → Quellen"
     },
     "WhatsNew": {
         "pillLabel": "Neuigkeiten",
@@ -313,7 +316,9 @@
             "lastError": "Letzter Fehler",
             "refreshNow": "Jetzt aktualisieren",
             "refreshQueued": "Aktualisierung angefordert — sie läuft im Hintergrund.",
-            "previewNote": "Noch in Entwicklung und noch nicht verfügbar: {names}.",
+            "turnOnTitle": "Keine Quelle für {language} aktiviert",
+            "turnOnBody": "{count, plural, one {# Projekt nutzt} other {# Projekte nutzen}} {language}, und nichts scannt {count, plural, one {es} other {sie}}. Wenn du eine Quelle aktivierst, werden ihre Hinweise heruntergeladen und alle Projekte erneut gescannt.",
+            "turnOn": "{source} für {language} aktivieren",
             "aboutTitle": "Über diese Quellen",
             "colSource": "Quelle",
             "colAdds": "Was sie ergänzt",
@@ -742,6 +747,8 @@
             "scanReasonSideProject": "auf Seiten des Projekts: Eine Datei im Projekt verhindert, dass es gelesen wird, und sie dort zu ändern ist die Lösung",
             "scanReasonSideEnvironment": "auf Seiten dieser Sentinello-Installation: Die Installation konnte den Scan nicht durchführen, die Lösung liegt beim Betreiber",
             "scanReasonNotYetRun": "noch hat nichts nachgesehen: Der nächste Scan tut es",
+            "sourceDisabledReason": "Keine Quelle für {languages} aktiviert",
+            "sourceDisabledAction": "Aktiviere eine unter Einstellungen → Quellen",
             "noFindingsUnknownTitle": "Keine Befunde erfasst",
             "noFindingsUnknownBody": "Es wurde nichts gefunden, aber dieses Projekt konnte nicht vollständig gescannt werden: Das ist unbekannt, nicht sicher.",
             "noFindingsNotScannedBody": "Dieses Projekt wurde noch nicht gescannt."

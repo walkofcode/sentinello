@@ -52,6 +52,7 @@ function addProject(id: string, ecosystems: EcosystemId[] = ['npm']): void {
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems,
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,
@@ -59,8 +60,8 @@ function addProject(id: string, ecosystems: EcosystemId[] = ['npm']): void {
     })
 }
 
-function enable(source: 'npm-audit' | 'osv' | 'gemnasium', on = true): void {
-    setConfigValue(db, sourceEnabledKey(source, 'npm'), on)
+function enable(source: 'npm-audit' | 'osv' | 'gemnasium', on = true, ecosystem: EcosystemId = 'npm'): void {
+    setConfigValue(db, sourceEnabledKey(source, ecosystem), on)
 }
 
 // ULID-shaped ids that sort in insertion order, so a finished_at tie still has a defined winner.
@@ -95,7 +96,7 @@ function ok(source: string, at: number, overrides: Partial<Scan> & { coverage?: 
 }
 
 // A finding row exactly as a scan left it: settled (fix_status + fix_check_json) or legacy (neither).
-function finding(id: string, scanId: string, settled: boolean, overrides: { source?: string; projectId?: string } = {}): void {
+function finding(id: string, scanId: string, settled: boolean, overrides: { source?: string; projectId?: string; ecosystem?: EcosystemId } = {}): void {
     const source = overrides.source ?? 'npm-audit'
     const check = JSON.stringify({ v: 1, checkedAt: T0, registry: 'ok', packageDataAsOf: T0, unevaluable: null, sources: [] })
     sqlite
@@ -103,9 +104,9 @@ function finding(id: string, scanId: string, settled: boolean, overrides: { sour
             'INSERT INTO findings (id, scan_id, project_id, scanner, source, ecosystem, advisory_id, package_name,' +
                 ' installed_version, vulnerable_range, severity, fix_available, fix_version, fix_status, fix_check_json,' +
                 ' first_detected_at, last_seen_at)' +
-                " VALUES (?, ?, ?, ?, ?, 'npm', ?, 'lodash', '4.17.11', '<4.17.21', 'high', 1, '4.17.21', ?, ?, ?, ?)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, 'lodash', '4.17.11', '<4.17.21', 'high', 1, '4.17.21', ?, ?, ?, ?)"
         )
-        .run(id, scanId, overrides.projectId ?? PROJECT_ID, source, source, 'GHSA-' + id, settled ? 'released' : null, settled ? check : null, T0, T0)
+        .run(id, scanId, overrides.projectId ?? PROJECT_ID, source, source, overrides.ecosystem ?? 'npm', 'GHSA-' + id, settled ? 'released' : null, settled ? check : null, T0, T0)
 }
 
 beforeEach(async function setup() {
@@ -165,7 +166,7 @@ describe('scan state — listLatestSourceScans', function () {
     })
 
     it('reads a legacy row by its scanner name', function () {
-        sqlite.prepare("INSERT INTO scans (id, project_id, started_at, finished_at, scanner, source, status, reason_code, duration_ms, raw_json) VALUES ('legacy', ?, ?, ?, 'npm-audit', NULL, 'ok', 'ok', 0, '')").run(PROJECT_ID, T0, T0)
+        sqlite.prepare("INSERT INTO scans (id, project_id, started_at, finished_at, scanner, source, ecosystem, status, reason_code, duration_ms, raw_json) VALUES ('legacy', ?, ?, ?, 'npm-audit', NULL, 'npm', 'ok', 'ok', 0, '')").run(PROJECT_ID, T0, T0)
         expect(listLatestSourceScans(db, [PROJECT_ID])[0]?.source).toBe('npm-audit')
     })
 
@@ -298,21 +299,53 @@ describe('scan state — getProjectEcosystemCoverage', function () {
     })
 })
 
-describe('scan state — expected sources', function () {
-    it('expects the runnable sources of the project ecosystems, in source order', function () {
+describe('scan state — expected cells', function () {
+    it('expects the runnable cells of the project ecosystems, in source order', function () {
         enable('gemnasium')
         enable('osv')
-        expect(expectedScanInputs(db, [PROJECT_ID]).get(PROJECT_ID)?.expectedSources).toEqual(['npm-audit', 'osv', 'gemnasium'])
+        expect(expectedScanInputs(db, [PROJECT_ID]).get(PROJECT_ID)?.expectedCells).toEqual([
+            { source: 'npm-audit', ecosystem: 'npm' },
+            { source: 'osv', ecosystem: 'npm' },
+            { source: 'gemnasium', ecosystem: 'npm' }
+        ])
+    })
+
+    it('expects one cell per ecosystem of a polyglot project', function () {
+        addProject('poly', ['npm', 'RubyGems'])
+        enable('osv', true, 'RubyGems')
+        enable('osv', true, 'PyPI')
+        expect(expectedScanInputs(db, ['poly']).get('poly')).toMatchObject({
+            expectedCells: [{ source: 'npm-audit', ecosystem: 'npm' }, { source: 'osv', ecosystem: 'RubyGems' }],
+            sourceDisabled: []
+        })
     })
 
     it('expects nothing from a source enabled only for an ecosystem the project does not have', function () {
         addProject('py-only', ['PyPI'])
-        expect(expectedScanInputs(db, ['py-only']).get('py-only')?.expectedSources).toEqual([])
+        expect(expectedScanInputs(db, ['py-only']).get('py-only')?.expectedCells).toEqual([])
     })
 
     it('reads a project with no recorded ecosystems as npm', function () {
         addProject('legacy', [])
-        expect(expectedScanInputs(db, ['legacy']).get('legacy')?.expectedSources).toEqual(['npm-audit'])
+        expect(expectedScanInputs(db, ['legacy']).get('legacy')?.expectedCells).toEqual([{ source: 'npm-audit', ecosystem: 'npm' }])
+    })
+
+    // The default install: OSV and gemnasium are opt-in, so nothing answers for Python.
+    it('marks a detected ecosystem no runnable cell answers for, and reads a PyPI-only project as cannot scan', function () {
+        addProject('py-only', ['PyPI'])
+        expect(expectedScanInputs(db, ['py-only']).get('py-only')?.sourceDisabled).toEqual([{ kind: 'ecosystem', id: 'PyPI' }])
+        expect(getProjectScanState(db, 'py-only')).toEqual({
+            state: 'cannot_scan',
+            reasons: [{ source: null, ecosystem: 'PyPI', reasonCode: 'ecosystem_source_disabled', side: 'environment' }]
+        })
+        enable('osv', true, 'PyPI')
+        expect(expectedScanInputs(db, ['py-only']).get('py-only')?.sourceDisabled).toEqual([])
+        expect(getProjectScanState(db, 'py-only')).toEqual({ state: 'not_scanned_yet', reasons: [] })
+    })
+
+    it('never marks an ecosystem the registry does not offer', function () {
+        sqlite.prepare("UPDATE projects SET ecosystems_json = '[\"npm\",\"Maven\"]' WHERE id = ?").run(PROJECT_ID)
+        expect(expectedScanInputs(db, [PROJECT_ID]).get(PROJECT_ID)?.sourceDisabled).toEqual([])
     })
 
     it('normalizes every project when none is named', function () {
@@ -371,10 +404,24 @@ describe('scan state — expected sources', function () {
 
     it('reads an ecosystem detected since the latest scan as not yet run', function () {
         addProject('polyglot', ['npm', 'PyPI'])
+        enable('osv', true, 'PyPI')
         ok('npm-audit', T0, { projectId: 'polyglot', coverage: [{ ecosystem: 'npm', status: 'ok' }] })
         expect(getProjectScanState(db, 'polyglot')).toEqual({
             state: 'partial',
-            reasons: [{ source: null, ecosystem: 'PyPI', reasonCode: 'not_yet_run', side: null }]
+            reasons: [
+                { source: 'osv', ecosystem: null, reasonCode: 'not_yet_run', side: null },
+                { source: null, ecosystem: 'PyPI', reasonCode: 'not_yet_run', side: null }
+            ]
+        })
+    })
+
+    // OSV and gemnasium are opt-in: on a default install nothing answers for the Python half of a project.
+    it('reads a detected ecosystem with no enabled source as source-disabled, never as not yet run', function () {
+        addProject('polyglot', ['npm', 'PyPI'])
+        ok('npm-audit', T0, { projectId: 'polyglot', coverage: [{ ecosystem: 'npm', status: 'ok' }, { ecosystem: 'PyPI', status: 'ok' }] })
+        expect(getProjectScanState(db, 'polyglot')).toEqual({
+            state: 'partial',
+            reasons: [{ source: null, ecosystem: 'PyPI', reasonCode: 'ecosystem_source_disabled', side: 'environment' }]
         })
     })
 
@@ -416,7 +463,7 @@ describe('scan state — project cannot be scanned in the catalog and the dashbo
         failed('npm-audit', T0, 'no_lockfile', { rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'unauditable', reasonCode: 'no_lockfile' }] }) })
         ok('npm-audit', T0, { projectId: 'partial-project', coverage: [{ ecosystem: 'npm', status: 'ok' }] })
         failed('npm-audit', T0, 'no_lockfile', { projectId: 'muted-project' })
-        insertMute(db, { id: 'mute-1', scope: 'project', projectId: 'muted-project', scanner: null, ecosystem: null, advisoryId: null, packageName: null, reason: 'retired', author: 'betty', createdAt: T0, expiresAt: null })
+        insertMute(db, { id: 'mute-1', scope: 'project', projectId: 'muted-project', reason: 'retired', author: 'betty', createdAt: T0, expiresAt: null })
         const summary = getDashboardSummary(db, T0)
         expect(summary.projectsCannotBeScanned).toBe(1)
         expect(summary.projectsCannotBeFullyScanned).toBe(1)
@@ -427,8 +474,8 @@ describe('scan state — project cannot be scanned in the catalog and the dashbo
 
 describe('scan state — not re-checked findings', function () {
     it('has no context for a source that never scanned the project', function () {
-        expect(findingScanContexts(db, [PROJECT_ID])(PROJECT_ID, 'npm-audit')).toBeNull()
-        expect(findingScanContexts(db, [PROJECT_ID])('nope', 'npm-audit')).toBeNull()
+        expect(findingScanContexts(db, [PROJECT_ID])(PROJECT_ID, 'npm-audit', 'npm')).toBeNull()
+        expect(findingScanContexts(db, [PROJECT_ID])('nope', 'npm-audit', 'npm')).toBeNull()
     })
 
     it('gives the source latest scan, its last ok scan and the project state', function () {
@@ -436,9 +483,9 @@ describe('scan state — not re-checked findings', function () {
         failed('npm-audit', T0 + HOUR)
         const lookup = findingScanContexts(db, [PROJECT_ID])
         const expected = { latestStatus: 'unauditable', latestReasonCode: 'no_lockfile', lastOkScanAt: T0, projectState: 'cannot_scan' }
-        expect(lookup(PROJECT_ID, 'npm-audit')).toEqual(expected)
+        expect(lookup(PROJECT_ID, 'npm-audit', 'npm')).toEqual(expected)
         // The project state is computed once and reused for the project's other rows.
-        expect(lookup(PROJECT_ID, 'npm-audit')).toEqual(expected)
+        expect(lookup(PROJECT_ID, 'npm-audit', 'npm')).toEqual(expected)
     })
 
     it('marks both a settled and a legacy row retained after a failed scan', function () {
@@ -480,6 +527,51 @@ describe('scan state — not re-checked findings', function () {
     })
 })
 
+// SENTINEL-117: one source, two ecosystems, one failing. Each cell is read, retained and annotated on its own,
+// whichever finished last.
+describe('scan state — a source failing for one ecosystem and answering for another', function () {
+    it.each([
+        ['Python written first', ['PyPI', 'RubyGems'] as const],
+        ['Ruby written first', ['RubyGems', 'PyPI'] as const]
+    ])('reads Python failed and not re-checked and Ruby ok, after retention, %s', function (_label, order) {
+        addProject('poly', ['PyPI', 'RubyGems'])
+        enable('osv', true, 'PyPI')
+        enable('osv', true, 'RubyGems')
+        const coverage = [{ ecosystem: 'PyPI', status: 'ok' }, { ecosystem: 'RubyGems', status: 'ok' }]
+        const first = new Map<string, Scan>()
+        for (const ecosystem of order) first.set(ecosystem, ok('osv', T0, { projectId: 'poly', ecosystem, coverage }))
+        finding('py-row', (first.get('PyPI') as Scan).id, true, { source: 'osv', projectId: 'poly', ecosystem: 'PyPI' })
+        finding('rb-row', (first.get('RubyGems') as Scan).id, true, { source: 'osv', projectId: 'poly', ecosystem: 'RubyGems' })
+        for (const ecosystem of order) {
+            if (ecosystem === 'PyPI') failed('osv', T0 + HOUR, 'osv_db_unavailable', { projectId: 'poly', ecosystem, status: 'error', rawJson: JSON.stringify({ coverage }) })
+            else ok('osv', T0 + HOUR, { projectId: 'poly', ecosystem, coverage })
+        }
+        const at = T0 + 2 * HOUR
+        function read(): unknown {
+            const lookup = findingScanContexts(db, ['poly'])
+            const rows = new Map(listCurrentFindingsForProject(db, 'poly', at).map(function r(row) { return [row.id, row] }))
+            return {
+                state: getProjectScanState(db, 'poly'),
+                python: lookup('poly', 'osv', 'PyPI'),
+                ruby: lookup('poly', 'osv', 'RubyGems'),
+                pythonRow: rows.get('py-row')?.notRecheckedBecause,
+                rubyRow: rows.get('rb-row')?.notRecheckedBecause
+            }
+        }
+        const before = read()
+        expect(before).toEqual({
+            state: { state: 'partial', reasons: [{ source: 'osv', ecosystem: null, reasonCode: 'osv_db_unavailable', side: 'environment' }] },
+            python: { latestStatus: 'error', latestReasonCode: 'osv_db_unavailable', lastOkScanAt: T0, projectState: 'partial' },
+            ruby: { latestStatus: 'ok', latestReasonCode: 'ok', lastOkScanAt: T0 + HOUR, projectState: 'partial' },
+            pythonRow: { reasonCode: 'osv_db_unavailable', side: 'environment', projectState: 'partial', lastOkScanAt: T0 },
+            rubyRow: null
+        })
+        // Each cell keeps its latest and its latest ok scan: nothing here is prunable, whatever its age.
+        expect(listPrunableScanIds(db, at, 0, 1000)).toEqual([])
+        expect(read()).toEqual(before)
+    })
+})
+
 // Retention keeps the newest 100 scans per project. A source switched off for a while is out-scanned by the
 // others; its latest failure must survive anyway, or the state would read its older ok as current.
 describe('scan state — retention', function () {
@@ -494,7 +586,7 @@ describe('scan state — retention', function () {
         function read(): unknown {
             return {
                 state: getProjectScanState(db, PROJECT_ID),
-                context: findingScanContexts(db, [PROJECT_ID])(PROJECT_ID, 'osv'),
+                context: findingScanContexts(db, [PROJECT_ID])(PROJECT_ID, 'osv', 'npm'),
                 annotation: listCurrentFindingsForProject(db, PROJECT_ID, at).find(function osv(row) { return row.id === 'osv-row' })?.notRecheckedBecause
             }
         }

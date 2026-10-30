@@ -1,7 +1,9 @@
+import Link from 'next/link'
 import { getTranslations } from 'next-intl/server'
 import { AlertTriangle } from 'lucide-react'
 import { groupScanReasons, type Locale, type ScanState } from '@sentinello/core'
 import { Badge } from '@/components/ui/badge'
+import { languageNames } from '@/lib/project-state'
 
 type Props = {
     scanState: ScanState
@@ -11,8 +13,9 @@ type Props = {
 // "Project cannot be scanned" / "Project cannot be fully scanned", above the findings, with every reason
 // and whose side it is on: the project's (a file in it stops it from being read) or this install's (the
 // operator's fix). A reason several sources share — no lockfile stops npm audit, OSV and the npm
-// dependency read alike — is listed once, naming them all. Nothing is shown for a fully scanned project,
-// nor for one never scanned, which the header already says.
+// dependency read alike — is listed once, naming them all. A language no enabled source answers for reads
+// "No source enabled for Python" and points at Settings → Sources, where one click turns a source on.
+// Nothing is shown for a fully scanned project, nor for one never scanned, which the header already says.
 export async function ScanStateBanner({ scanState, locale }: Props) {
     if (scanState.state !== 'cannot_scan' && scanState.state !== 'partial') return null
     const t = await getTranslations('Detail')
@@ -34,6 +37,17 @@ export async function ScanStateBanner({ scanState, locale }: Props) {
                     let whose = t('project.scanReasonNotYetRun')
                     if (group.side === 'project') whose = t('project.scanReasonSideProject')
                     else if (group.side === 'environment') whose = t('project.scanReasonSideEnvironment')
+                    if (group.reasonCode === 'ecosystem_source_disabled') {
+                        return (
+                            <li key={group.reasonCode} className="flex flex-wrap items-center gap-2 text-xs">
+                                <span className="font-medium">{t('project.sourceDisabledReason', { languages: languageNames(group.subjects) })}</span>
+                                <span className="text-muted-foreground">— {whose}</span>
+                                <Link href="/settings/sources" className="font-medium underline underline-offset-4 hover:opacity-80">
+                                    {t('project.sourceDisabledAction')}
+                                </Link>
+                            </li>
+                        )
+                    }
                     return (
                         <li key={group.reasonCode + '|' + (group.side ?? '')} className="flex flex-wrap items-center gap-2 text-xs">
                             <span className="font-medium">{group.label}</span>

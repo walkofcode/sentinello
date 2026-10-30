@@ -1,4 +1,4 @@
-import { describeFix, describeScanReasons, PLAIN_FIX_STYLE, scanStateHeadline, reasonSide, summarizeRemediation, reasonCodeLabel, REASON_CODE_VALUES, SCAN_STATE_SIDE_SHORT, type Finding, type LabelledScanState, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
+import { describeFix, describeScanReasons, getEcosystem, type Capability, PLAIN_FIX_STYLE, scanStateHeadline, reasonSide, summarizeRemediation, reasonCodeLabel, REASON_CODE_VALUES, SCAN_STATE_SIDE_SHORT, type Finding, type LabelledScanState, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
 import type { RenderedMessage } from './types'
 
 const REASON_CODE_SET = new Set<string>(REASON_CODE_VALUES)
@@ -193,4 +193,35 @@ function buildProjectUrl(baseUrl: string | null, projectId: string): string | nu
 
 function stripMarkdown(input: string): string {
     return input.replace(/\*/g, '')
+}
+
+export type RenderCapabilitySummaryInput = {
+    capability: Capability
+    findings: number
+    projects: number
+    critical: number
+    sourceDisabledProjects: number
+    portalBaseUrl: string | null
+}
+
+// The one message a silent baseline sends each target in place of a message per finding: what the new
+// capability found across the target's scope, and how many projects it could not check because no source
+// is enabled for their language. On a default install (OSV and gemnasium opt-in) the findings are zero and
+// it says so plainly rather than staying silent.
+export function renderCapabilitySummary(input: RenderCapabilitySummaryInput): RenderedMessage {
+    const languages = input.capability.ecosystems.map(function name(id) { return (getEcosystem(id) as { displayName: string }).displayName }).join('/')
+    const title = 'Sentinello ' + input.capability.since.replace(/\.0$/, '') + ' now checks ' + languages
+    const lines: string[] = []
+    lines.push('*' + title + ':* ' + plural(input.findings, 'finding') + ' across ' + plural(input.projects, 'project') + ', ' + input.critical + ' critical')
+    if (input.sourceDisabledProjects > 0) {
+        lines.push(plural(input.sourceDisabledProjects, 'project') + ' ' + (input.sourceDisabledProjects === 1 ? 'has' : 'have') + ' no enabled source, turn one on in Settings → Sources')
+    }
+    const portalUrl = input.portalBaseUrl ? input.portalBaseUrl.replace(/\/+$/, '') + '/settings/sources' : null
+    if (portalUrl) lines.push('*Portal:* ' + portalUrl)
+    const markdown = lines.join('\n')
+    return { title, text: stripMarkdown(markdown), markdown, portalUrl }
+}
+
+function plural(count: number, noun: string): string {
+    return count + ' ' + noun + (count === 1 ? '' : 's')
 }

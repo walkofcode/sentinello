@@ -37,6 +37,7 @@ let dir: string
 
 function seedEvent(): string {
     return upsertFindingEvent(db, {
+        baselineOf: null,
         projectId: PROJECT_ID,
         source: 'osv',
         ecosystem: DEFAULT_ECOSYSTEM,
@@ -73,6 +74,7 @@ beforeEach(async function setup() {
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems: ['npm'],
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,

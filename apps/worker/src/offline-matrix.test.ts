@@ -5,8 +5,8 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { getRegistryPackages, openDb, runMigrations, schema, upsertProject, upsertRegistryPackage, upsertRoot, type DrizzleDb, type SqliteDb } from '@sentinello/db'
-import { buildAdvisoryMarkdown, parseFixCheck, type FixCheck, type Project } from '@sentinello/core'
+import { getRegistryPackages, openDb, runMigrations, schema, setConfigValue, upsertProject, upsertRegistryPackage, upsertRoot, type DrizzleDb, type SqliteDb } from '@sentinello/db'
+import { buildAdvisoryMarkdown, parseFixCheck, sourceEnabledKey, type FixCheck, type Project } from '@sentinello/core'
 import type { NpmPackageSummary } from '@sentinello/feeds'
 import { versionSetFromSemverRange, type RawFinding, type ScannerPlugin, type ScanResult } from '@sentinello/scanners'
 import { toExportFinding } from './notifier'
@@ -31,7 +31,7 @@ const previousUrl = process.env.SENTINELLO_NPM_REGISTRY_URL
 
 const project: Project = {
     id: 'project-1', rootId: 'root-1', relPath: 'app', name: 'app', alias: null, packageManager: 'npm', nvmrcVersion: null,
-    gitBranch: null, ecosystems: ['npm'], muted: false, tags: [], createdAt: 0, updatedAt: 0
+    gitBranch: null, ecosystems: ['npm'], manifests: [], muted: false, tags: [], createdAt: 0, updatedAt: 0
 }
 
 // braces as the request found it: every source says <=3.0.3, none states a fix.
@@ -94,6 +94,8 @@ beforeEach(async function setup() {
     runMigrations(db, { migrationsFolder: MIGRATIONS })
     upsertRoot(db, { id: 'root-1', path: join(dir, 'repo'), label: null, createdAt: 0 })
     upsertProject(db, project)
+    // The runner runs a source only for the cells the operator enabled.
+    setConfigValue(db, sourceEnabledKey('osv', 'npm'), true)
 })
 
 afterEach(async function teardown() {

@@ -14,12 +14,13 @@ import {
     openDb,
     RAW_JSON_MAX_BYTES,
     runMigrations,
+    setConfigValue,
     upsertProject,
     upsertRoot,
     type DrizzleDb,
     type SqliteDb
 } from '@sentinello/db'
-import { describeFix, PLAIN_FIX_STYLE, type Project } from '@sentinello/core'
+import { describeFix, PLAIN_FIX_STYLE, sourceEnabledKey, type Project } from '@sentinello/core'
 import { versionSetFromSemverRange, type RawFinding, type ScanContext, type ScannerPlugin, type ScanResult } from '@sentinello/scanners'
 import type { RegistryClient, RegistryEntry } from '@sentinello/fixes'
 
@@ -80,6 +81,7 @@ function project(overrides: Partial<Project> = {}): Project {
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems: ['npm'],
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,
@@ -135,8 +137,18 @@ function fakeScanner(name: string, result: ScanResult | (() => Promise<ScanResul
     }
 }
 
-function batch(scanners: ScannerPlugin[], projects: Project[], abortSignal?: AbortSignal) {
-    return runBatch({ db, sqlite, scanners, projects, parallelism: 4, abortSignal })
+// A feed scanner answering per cell, as the real ones do: each run is handed one ecosystem.
+function perCell(name: string, byEcosystem: Record<string, RawFinding[]>): ScannerPlugin {
+    return {
+        name,
+        async scan(_path: string, ctx: ScanContext): Promise<ScanResult> {
+            return okResult(byEcosystem[ctx.ecosystem as string] ?? [])
+        }
+    }
+}
+
+async function batch(scanners: ScannerPlugin[], projects: Project[], abortSignal?: AbortSignal) {
+    return (await runBatch({ db, sqlite, scanners, projects, parallelism: 4, abortSignal })).outcomes
 }
 
 beforeEach(async function setup() {
@@ -149,11 +161,36 @@ beforeEach(async function setup() {
     runMigrations(db, { migrationsFolder: MIGRATIONS })
     upsertRoot(db, { id: ROOT_ID, path: projectDir, label: null, createdAt: T0 })
     upsertProject(db, project())
+    // The runner runs a source only for the cells the operator enabled; the fakes stand in for all three.
+    setConfigValue(db, sourceEnabledKey('osv', 'npm'), true)
+    setConfigValue(db, sourceEnabledKey('gemnasium', 'npm'), true)
 })
 
 afterEach(async function teardown() {
     sqlite.close()
     await rm(dir, { recursive: true, force: true })
+})
+
+describe('runBatch — a project with nothing recorded', function () {
+    // A row from before polyglot discovery, in a directory with no manifest: read as npm, so its npm cell
+    // records what it finds (no lockfile) rather than never running.
+    it('runs the npm cells of a project with no recorded ecosystem', async function () {
+        const outcomes = await batch([fakeScanner('osv', okResult([]))], [project({ ecosystems: [] })])
+        expect(outcomes.map(function cell(o) { return o.scan.ecosystem })).toEqual(['npm'])
+    })
+})
+
+describe('runBatch — completion', function () {
+    it('completes when every project was processed', async function () {
+        expect((await runBatch({ db, sqlite, scanners: [], projects: [project()], parallelism: 1 })).completed).toBe(true)
+    })
+
+    // The silent baseline closes only on a completed sweep: an aborted one has projects left.
+    it('does not complete when aborted', async function () {
+        const abort = new AbortController()
+        abort.abort()
+        expect((await runBatch({ db, sqlite, scanners: [], projects: [project()], parallelism: 1, abortSignal: abort.signal })).completed).toBe(false)
+    })
 })
 
 describe('runBatch — basics', function () {
@@ -188,11 +225,13 @@ describe('runBatch — basics', function () {
     })
 
     it('keeps an ecosystem the scanner stamped', async function () {
+        setConfigValue(db, sourceEnabledKey('osv', 'PyPI'), true)
         const outcomes = await batch(
-            [fakeScanner('osv', okResult([rawFinding({ ecosystem: 'PyPI', packageName: 'django' })]))],
-            [project()]
+            [perCell('osv', { PyPI: [rawFinding({ ecosystem: 'PyPI', packageName: 'django' })] })],
+            [project({ ecosystems: ['npm', 'PyPI'] })]
         )
-        expect(outcomes[0]?.findings[0]?.ecosystem).toBe('PyPI')
+        const python = outcomes.find(function cell(o) { return o.scan.ecosystem === 'PyPI' })
+        expect(python?.findings[0]?.ecosystem).toBe('PyPI')
     })
 
     it('scans every project in the batch', async function () {
@@ -206,7 +245,7 @@ describe('runBatch — basics', function () {
     })
 
     it('works when parallelism exceeds the number of projects', async function () {
-        const outcomes = await runBatch({
+        const { outcomes } = await runBatch({
             db,
             sqlite,
             scanners: [fakeScanner('osv', okResult([]))],
@@ -217,7 +256,7 @@ describe('runBatch — basics', function () {
     })
 
     it('still runs when parallelism is zero or negative', async function () {
-        const outcomes = await runBatch({
+        const { outcomes } = await runBatch({
             db,
             sqlite,
             scanners: [fakeScanner('osv', okResult([]))],
@@ -242,15 +281,15 @@ describe('runBatch — several scanners', function () {
     it('runs scanners in the order given', async function () {
         const order: string[] = []
         const a: ScannerPlugin = {
-            name: 'first',
-            async scan() { order.push('first'); return okResult([]) }
+            name: 'gemnasium',
+            async scan() { order.push('gemnasium'); return okResult([]) }
         }
         const b: ScannerPlugin = {
-            name: 'second',
-            async scan() { order.push('second'); return okResult([]) }
+            name: 'osv',
+            async scan() { order.push('osv'); return okResult([]) }
         }
         await batch([a, b], [project()])
-        expect(order).toEqual(['first', 'second'])
+        expect(order).toEqual(['gemnasium', 'osv'])
     })
 
     // The dedup rule: a later scanner's finding is suppressed when an earlier one already reported
@@ -373,12 +412,14 @@ describe('runBatch — several scanners', function () {
     // Dedup is keyed on the ecosystem-scoped package identity, so a PyPI package must not be
     // collapsed into a same-named npm package that happens to share an alias.
     it('does not collapse the same package name across ecosystems', async function () {
+        setConfigValue(db, sourceEnabledKey('osv', 'npm'), false)
+        setConfigValue(db, sourceEnabledKey('osv', 'PyPI'), true)
         const outcomes = await batch(
             [
                 fakeScanner('npm-audit', okResult([rawFinding({ packageName: 'requests', ecosystem: 'npm' })])),
-                fakeScanner('osv', okResult([rawFinding({ packageName: 'requests', ecosystem: 'PyPI' })]))
+                perCell('osv', { PyPI: [rawFinding({ packageName: 'requests', ecosystem: 'PyPI' })] })
             ],
-            [project()]
+            [project({ ecosystems: ['npm', 'PyPI'] })]
         )
         const byScanner = new Map(outcomes.map(function e(o) { return [o.scan.scanner, o] }))
         expect(byScanner.get('osv')?.findings).toHaveLength(1)
@@ -460,6 +501,22 @@ describe('runBatch — failures', function () {
         expect(outcomes[0]?.scan.status).toBe('error')
         expect(outcomes[0]?.scan.errorText).toContain('root not found')
         expect(listScansForProject(db, PROJECT_ID)).toHaveLength(1)
+    })
+
+    // Every cell the project expects reads failed on its own — and only the cells the operator enabled.
+    it('records the missing root once per runnable cell, reading a project with no ecosystems as npm', async function () {
+        setConfigValue(db, sourceEnabledKey('gemnasium', 'npm'), false)
+        setConfigValue(db, sourceEnabledKey('osv', 'RubyGems'), true)
+        upsertProject(db, project({ id: 'project-2' }))
+        const outcomes = await batch(
+            [fakeScanner('osv', okResult([])), fakeScanner('gemnasium', okResult([]))],
+            [project({ rootId: 'no-such-root', ecosystems: ['npm', 'RubyGems'] }), project({ id: 'project-2', rootId: 'no-such-root', ecosystems: [] })]
+        )
+        expect(outcomes.map(function cell(o) { return o.project.id + ' ' + o.scan.source + '/' + o.scan.ecosystem }).sort()).toEqual([
+            'project-1 osv/RubyGems',
+            'project-1 osv/npm',
+            'project-2 osv/npm'
+        ])
     })
 
     it('records an error scan when a scanner throws', async function () {
@@ -564,7 +621,7 @@ describe('runBatch — abort', function () {
         const controller = new AbortController()
         controller.abort()
         const scanner = fakeScanner('osv', okResult([]))
-        const outcomes = await runBatch({
+        const { outcomes } = await runBatch({
             db,
             sqlite,
             scanners: [scanner],
@@ -745,9 +802,11 @@ describe('runBatch — coverage on every scan row', function () {
         expect(storedRawJson()).toEqual({ source: 'npm-audit', findingCount: 0, coverage: [] })
     })
 
-    it('keeps the coverage a feed source already wrote', async function () {
-        await batch([fakeScanner('osv', { ...okResult([]), rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'partial' }] }) })], [project()])
-        expect(storedRawJson()).toEqual({ coverage: [{ ecosystem: 'npm', status: 'partial' }] })
+    // A feed source records the coverage of the one cell it ran for; the row records the whole project's.
+    it('records the project coverage over the cell coverage a feed source wrote', async function () {
+        await writeBarePackageJson()
+        await batch([fakeScanner('osv', { ...okResult([]), rawJson: JSON.stringify({ source: 'osv', coverage: [{ ecosystem: 'npm', status: 'partial' }] }) })], [project()])
+        expect(storedRawJson()).toEqual({ source: 'osv', coverage: NO_LOCKFILE })
     })
 
     // The raw audit output a failed scan keeps for debugging is kept beside the coverage, never instead of it.
@@ -801,6 +860,12 @@ describe('runBatch — coverage on every scan row', function () {
 })
 
 describe('runProjectScanners — lockfile loss and recovery', function () {
+    // npm audit alone, as on a default install: no other cell is expected to answer.
+    beforeEach(function npmAuditOnly() {
+        setConfigValue(db, sourceEnabledKey('osv', 'npm'), false)
+        setConfigValue(db, sourceEnabledKey('gemnasium', 'npm'), false)
+    })
+
     // The scenario the "not re-checked" annotation exists for: a project scanned and settled, then its
     // lockfile goes, then it comes back. A failed scan leaves every earlier finding as it was — settled or
     // not — so each must say it was not re-checked, until a successful scan re-settles it.
@@ -862,12 +927,35 @@ describe('runProjectScanners — lockfile loss and recovery', function () {
     }
 
     async function scan(): Promise<void> {
-        await runProjectScanners({ db, scanners: [audit], project: project(), registry, notify: async function quiet() {} })
+        await runProjectScanners({ db, scanners: [audit], project: project(), registry: { npm: registry }, notify: async function quiet() {} })
     }
 
     function current() {
         return new Map(listCurrentFindingsForProject(db, PROJECT_ID, Date.now()).map(function byPackage(f) { return [f.packageName, f] }))
     }
+
+    // npm audit names a package and its installed versions only; where each copy was installed is read
+    // from the npm graph, every copy once.
+    it('records where each npm audit finding was installed, from the lockfile', async function () {
+        const { mkdir, writeFile } = await import('node:fs/promises')
+        await mkdir(appDir(), { recursive: true })
+        await writeFile(join(appDir(), 'package.json'), JSON.stringify({ name: 'app' }), 'utf8')
+        await writeFile(join(appDir(), 'package-lock.json'), JSON.stringify({
+            lockfileVersion: 3,
+            packages: {
+                '': { name: 'app', dependencies: { lodash: '4.17.11', tool: '1.0.0' } },
+                'node_modules/lodash': { version: '4.17.11' },
+                'node_modules/tool': { version: '1.0.0', dependencies: { lodash: '4.17.11' } },
+                'node_modules/tool/node_modules/lodash': { version: '4.17.11' },
+                'node_modules/minimist': { version: '1.2.8' }
+            }
+        }), 'utf8')
+        const outcomes = await runProjectScanners({ db, scanners: [{ name: 'npm-audit', async scan() { return okResult([LODASH, MINIMIST]) } }], project: project(), registry: { npm: registry }, notify: async function quiet() {} })
+        const byName = new Map(outcomes[0]?.findings.map(function n(f) { return [f.packageName, f] }))
+        expect(byName.get('lodash')?.installations).toEqual([{ manifestPath: 'package-lock.json', version: '4.17.11' }])
+        // 1.2.5 is not what the lockfile holds: no installation is claimed for it.
+        expect(byName.get('minimist')?.installations).toEqual([])
+    })
 
     it('annotates settled and legacy rows after the loss, and clears them on recovery', async function () {
         await writeApp(true)

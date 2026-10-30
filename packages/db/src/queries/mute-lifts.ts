@@ -2,7 +2,7 @@ import { and, desc, eq, isNull, or } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import type { DrizzleDb } from '../client'
 import { muteLifts } from '../schema'
-import type { Mute } from '@sentinello/core'
+import type { MuteWrite } from '@sentinello/core'
 
 export type MuteLift = {
     id: string
@@ -20,17 +20,18 @@ export type MuteLift = {
 
 type MuteLiftRow = typeof muteLifts.$inferSelect
 
-export function recordMuteLift(db: DrizzleDb, mute: Mute, at: number): MuteLift {
+// The lift mirrors the mute's identity: a finding mute's explicit ecosystem, NULLs for a project mute.
+export function recordMuteLift(db: DrizzleDb, mute: MuteWrite, at: number): MuteLift {
     const row = {
         id: ulid(),
         muteId: mute.id,
         liftedAt: at,
         scope: mute.scope,
         projectId: mute.projectId,
-        scanner: mute.scanner,
-        ecosystem: mute.ecosystem,
-        advisoryId: mute.advisoryId,
-        packageName: mute.packageName,
+        scanner: mute.scanner ?? null,
+        ecosystem: mute.ecosystem ?? null,
+        advisoryId: mute.advisoryId ?? null,
+        packageName: mute.packageName ?? null,
         reason: mute.reason,
         author: mute.author
     }

@@ -1,6 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm'
 import { ulid } from 'ulid'
-import type { NotificationEvent, Severity } from '@sentinello/core'
+import type { EcosystemId, NotificationEvent, Severity } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { notificationEvents } from '../schema'
 import { findingIdentityKey, scanFailureIdentityKey } from '../identity'
@@ -13,12 +13,17 @@ export type UpsertFindingEventInput = {
     // dedupe identity_key hashes and what lands in the event's `scanner` column (which carries the
     // persisted source identity for finding events — see the NotificationEvent type in @sentinello/core).
     source: string
-    ecosystem: string
+    // Required and explicit (SENTINEL-121): a finding identity never falls back to npm.
+    ecosystem: EcosystemId
     advisoryId: string
     packageName: string
     severity: Severity
     firstScanId: string
     at: number
+    // The capability whose silent baseline records this event (notification_events.baseline_of), or null.
+    // Written when the event is first recorded and never afterwards: whether a finding was told in the
+    // baseline summary or one by one is decided once, when it is first seen.
+    baselineOf: string | null
 }
 
 export type UpsertScanFailureEventInput = {
@@ -58,7 +63,8 @@ export function upsertFindingEvent(db: DrizzleDb, input: UpsertFindingEventInput
         severity: input.severity,
         failureSignature: null,
         firstScanId: input.firstScanId,
-        at: input.at
+        at: input.at,
+        baselineOf: input.baselineOf
     })
 }
 
@@ -80,7 +86,9 @@ export function upsertScanFailureEvent(db: DrizzleDb, input: UpsertScanFailureEv
         severity: null,
         failureSignature: input.failureSignature,
         firstScanId: input.firstScanId,
-        at: input.at
+        at: input.at,
+        // Scan failures always notify, during a baseline too.
+        baselineOf: null
     })
 }
 
@@ -115,6 +123,7 @@ type UpsertInternalInput = {
     failureSignature: string | null
     firstScanId: string
     at: number
+    baselineOf: string | null
 }
 
 function upsertByIdentityKey(db: DrizzleDb, input: UpsertInternalInput): UpsertResult {
@@ -156,7 +165,8 @@ function upsertByIdentityKey(db: DrizzleDb, input: UpsertInternalInput): UpsertR
             firstScanId: input.firstScanId,
             firstSeenAt: input.at,
             firstNotifiedAt: null,
-            lastSeenAt: input.at
+            lastSeenAt: input.at,
+            baselineOf: input.baselineOf
         })
         .run()
     return { eventId: id, isNew: true }

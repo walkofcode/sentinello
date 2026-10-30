@@ -7,7 +7,7 @@ import { osvNormalizerVersion, type Remediation } from '@sentinello/core'
 import { createOsvScanner, discoverProjectsInTree, type OsvAdvisory } from '@sentinello/scanners'
 import { createNpmRegistryClient } from '@sentinello/fixes'
 import { startStubRegistry, type StubRegistry } from '../../../tests/fixtures/registry-stub'
-import { closeWorkerTestDb, openWorkerTestDb, seedProject, seedRoot, type WorkerTestDb } from '../../worker/src/worker-test-db.fixture'
+import { closeWorkerTestDb, enableSourceCell, openWorkerTestDb, seedProject, seedRoot, type WorkerTestDb } from '../../worker/src/worker-test-db.fixture'
 import { runProjectScanners } from '../../worker/src/runner'
 import { loadCacheForPackages } from './cache/lookup'
 import { advisoryFilePath, readCacheMeta, writeCacheMeta } from './cache/meta'
@@ -73,6 +73,8 @@ async function scanWithWorker(): Promise<Map<string, Settled>> {
         }
     })
     seedRoot(worker.db, PROJECTS)
+    // The worker runs a source only for the cells the operator enabled.
+    enableSourceCell(worker.db, 'osv', 'npm')
     const project = seedProject(worker.db, { relPath: PROJECT, name: PROJECT })
     const outcomes = await runProjectScanners({ db: worker.db, scanners: [osv], project, notify: async function quiet() {} })
     const out = new Map<string, Settled>()

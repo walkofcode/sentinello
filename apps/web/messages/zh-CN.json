@@ -150,7 +150,7 @@
         "colBranch": "分支",
         "colRoot": "根目录",
         "colPm": "包管理器",
-        "colNode": "Node",
+        "colRuntime": "运行时",
         "colSeverity": "严重程度",
         "colState": "状态",
         "colActions": "操作",
@@ -166,7 +166,10 @@
         "statePartial": "无法完整扫描",
         "stateNotScannedYet": "尚未扫描",
         "stateSideProject": "项目方",
-        "stateSideEnvironment": "此 Sentinello 安装方"
+        "stateSideEnvironment": "此 Sentinello 安装方",
+        "stateSourceDisabled": "{languages} 未启用任何来源",
+        "sourceDisabledNotice": "{count} 个项目的 {languages} 未启用任何来源，因此不会被扫描。",
+        "sourceDisabledAction": "请在“设置 → 来源”中启用一个"
     },
     "WhatsNew": {
         "pillLabel": "新功能",
@@ -313,7 +316,9 @@
             "lastError": "上次错误",
             "refreshNow": "立即刷新",
             "refreshQueued": "已请求刷新 — 在后台运行。",
-            "previewNote": "仍在开发中，尚未提供：{names}。",
+            "turnOnTitle": "{language} 未启用任何来源",
+            "turnOnBody": "{count} 个项目使用 {language}，但没有任何来源扫描它们。启用一个来源会下载其公告并重新扫描所有项目。",
+            "turnOn": "为 {language} 启用 {source}",
             "aboutTitle": "关于这些来源",
             "colSource": "来源",
             "colAdds": "补充了什么",
@@ -742,6 +747,8 @@
             "scanReasonSideProject": "项目方的问题：项目中的某个文件导致无法读取，修改该文件即可解决",
             "scanReasonSideEnvironment": "此 Sentinello 安装方的问题：安装无法执行扫描，需由运维人员解决",
             "scanReasonNotYetRun": "尚无任何检查：下一次扫描会进行",
+            "sourceDisabledReason": "{languages} 未启用任何来源",
+            "sourceDisabledAction": "请在“设置 → 来源”中启用一个",
             "noFindingsUnknownTitle": "没有记录的发现",
             "noFindingsUnknownBody": "没有发现任何问题，但此项目无法完整扫描：这是未知，而非安全。",
             "noFindingsNotScannedBody": "此项目尚未扫描。"

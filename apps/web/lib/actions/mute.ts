@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { ulid } from 'ulid'
 import { deleteMute, insertMute, listActiveMutes } from '@sentinello/db'
-import { DEFAULT_ECOSYSTEM, type Mute, type MuteScope } from '@sentinello/core'
+import { requireEcosystemId, type MuteScope, type MuteWrite } from '@sentinello/core'
 import { getDb } from '@/lib/db'
 import { libraryHref } from '@/lib/library-href'
 
@@ -13,8 +13,8 @@ export type MuteFormInput = {
     // The finding's persisted source identity (finding.source), written into the back-compat
     // mutes.scanner column — NOT the plugin/provenance scanner name. See issue-016.
     source: string | null
-    // EcosystemId of the muted finding (finding scope). Optional for now — defaults to the npm ecosystem
-    // when the caller has none; ecosystem-aware UI passes the real value.
+    // EcosystemId of the muted finding: required for finding scope, so an npm mute never silences the PyPI
+    // package of the same name and nothing guesses npm for it (SENTINEL-121).
     ecosystem?: string | null
     advisoryId: string | null
     packageName: string | null
@@ -24,8 +24,8 @@ export type MuteFormInput = {
 
 export async function muteAction(input: MuteFormInput): Promise<void> {
     if (input.scope === 'finding') {
-        if (!input.source || !input.advisoryId || !input.packageName) {
-            throw new Error('finding-scope mutes require source, advisoryId, and packageName')
+        if (!input.source || !input.ecosystem || !input.advisoryId || !input.packageName) {
+            throw new Error('finding-scope mutes require source, ecosystem, advisoryId, and packageName')
         }
     }
     if (input.reason.trim().length === 0) {
@@ -33,29 +33,34 @@ export async function muteAction(input: MuteFormInput): Promise<void> {
     }
     const db = getDb()
     const author = process.env.ME_NAME || 'anonymous'
-    const mute: Mute = {
-        id: ulid(),
-        scope: input.scope,
-        projectId: input.scope === 'project' ? input.projectId : input.projectId,
-        scanner: input.scope === 'project' ? null : input.source,
-        ecosystem: input.scope === 'project' ? null : (input.ecosystem ?? DEFAULT_ECOSYSTEM),
-        advisoryId: input.scope === 'project' ? null : input.advisoryId,
-        packageName: input.scope === 'project' ? null : input.packageName,
-        reason: input.reason.trim(),
-        author,
-        createdAt: Date.now(),
-        expiresAt: input.expiresAt
-    }
+    const common = { id: ulid(), reason: input.reason.trim(), author, createdAt: Date.now(), expiresAt: input.expiresAt }
+    const mute: MuteWrite = input.scope === 'project'
+        ? { ...common, scope: 'project', projectId: requireProjectId(input.projectId) }
+        : {
+            ...common,
+            scope: 'finding',
+            projectId: input.projectId,
+            scanner: input.source as string,
+            ecosystem: requireEcosystemId(input.ecosystem as string),
+            advisoryId: input.advisoryId as string,
+            packageName: input.packageName as string
+        }
     insertMute(db, mute)
     if (input.projectId) revalidatePath('/projects/' + input.projectId)
     revalidatePath('/projects')
     revalidatePath('/')
 }
 
+// A project mute applies to one project; one without a project would silence nothing in particular.
+function requireProjectId(projectId: string | null): string {
+    if (!projectId) throw new Error('project-scope mutes require a projectId')
+    return projectId
+}
+
 export type MuteLibraryAdvisory = {
     // Persisted source identity (finding.source), written into mutes.scanner — not the plugin name.
     source: string
-    ecosystem?: string
+    ecosystem: string
     advisoryId: string
 }
 
@@ -91,7 +96,7 @@ export async function muteLibraryAction(input: MuteLibraryInput): Promise<{ crea
                 m.scope === 'finding' &&
                 (m.projectId === null || m.projectId === input.projectId) &&
                 m.scanner === adv.source &&
-                (m.ecosystem === null || m.ecosystem === (adv.ecosystem ?? DEFAULT_ECOSYSTEM)) &&
+                (m.ecosystem === null || m.ecosystem === adv.ecosystem) &&
                 m.advisoryId === adv.advisoryId &&
                 m.packageName === input.packageName
             )
@@ -100,12 +105,12 @@ export async function muteLibraryAction(input: MuteLibraryInput): Promise<{ crea
             skipped += 1
             continue
         }
-        const mute: Mute = {
+        const mute: MuteWrite = {
             id: ulid(),
             scope: 'finding',
             projectId: input.projectId,
             scanner: adv.source,
-            ecosystem: adv.ecosystem ?? DEFAULT_ECOSYSTEM,
+            ecosystem: requireEcosystemId(adv.ecosystem),
             advisoryId: adv.advisoryId,
             packageName: input.packageName,
             reason,
@@ -126,7 +131,7 @@ export type MuteLibraryEverywhereRow = {
     projectId: string
     // Persisted source identity (finding.source), written into mutes.scanner — not the plugin name.
     source: string
-    ecosystem?: string
+    ecosystem: string
     advisoryId: string
 }
 
@@ -165,7 +170,7 @@ export async function muteLibraryEverywhereAction(
                 m.scope === 'finding' &&
                 (m.projectId === null || m.projectId === row.projectId) &&
                 m.scanner === row.source &&
-                (m.ecosystem === null || m.ecosystem === (row.ecosystem ?? DEFAULT_ECOSYSTEM)) &&
+                (m.ecosystem === null || m.ecosystem === row.ecosystem) &&
                 m.advisoryId === row.advisoryId &&
                 m.packageName === input.packageName
             )
@@ -174,12 +179,12 @@ export async function muteLibraryEverywhereAction(
             skipped += 1
             continue
         }
-        const mute: Mute = {
+        const mute: MuteWrite = {
             id: ulid(),
             scope: 'finding',
             projectId: row.projectId,
             scanner: row.source,
-            ecosystem: row.ecosystem ?? DEFAULT_ECOSYSTEM,
+            ecosystem: requireEcosystemId(row.ecosystem),
             advisoryId: row.advisoryId,
             packageName: input.packageName,
             reason,
@@ -195,7 +200,7 @@ export async function muteLibraryEverywhereAction(
     // both segments, so revalidating a bare package path would miss the page actually being viewed.
     const bustedEcosystems = new Set<string>()
     for (const row of input.rows) {
-        const eco = row.ecosystem ?? DEFAULT_ECOSYSTEM
+        const eco = row.ecosystem
         if (bustedEcosystems.has(eco)) continue
         bustedEcosystems.add(eco)
         revalidatePath(libraryHref(eco, input.packageName))

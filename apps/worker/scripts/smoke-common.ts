@@ -166,7 +166,7 @@ async function seedFixtureProject(env: ScratchEnv): Promise<Project> {
     upsertRoot(env.db, { id: 'fixture-root', path: join(FIXTURES, 'projects'), label: 'fixtures', createdAt: at })
     const project: Project = {
         id: 'fixture-fix-status', rootId: 'fixture-root', relPath: 'fix-status', name: 'fix-status', alias: null, packageManager: 'npm',
-        nvmrcVersion: null, gitBranch: null, ecosystems: ['npm'], muted: false, tags: [], createdAt: at, updatedAt: at
+        nvmrcVersion: null, gitBranch: null, ecosystems: ['npm'], manifests: [], muted: false, tags: [], createdAt: at, updatedAt: at
     }
     upsertProject(env.db, project)
     // The read model shows only enabled source cells; the fixture's findings come from OSV (and, in the

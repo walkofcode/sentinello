@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ScanState } from '@sentinello/core'
 import type { ProjectCatalogRow } from '@sentinello/db'
-import { isProjectHealthy, scanStateBadge, scanStateReasonsText } from './project-state'
+import { isProjectHealthy, languageNames, projectsWithoutSource, scanStateBadge, scanStateReasonsText, sourceDisabledEcosystems } from './project-state'
 
 function row(scanState: ScanState): ProjectCatalogRow {
     return { scanState } as ProjectCatalogRow
@@ -22,7 +22,24 @@ const PARTIAL: ScanState = {
         { source: null, ecosystem: 'npm', reasonCode: 'not_yet_run', side: null }
     ]
 }
+// A Python and Ruby project on an install with OSV and gemnasium off: nothing is expected to scan it.
+const NO_SOURCE: ScanState = {
+    state: 'cannot_scan',
+    reasons: [
+        { source: null, ecosystem: 'PyPI', reasonCode: 'ecosystem_source_disabled', side: 'environment' },
+        { source: null, ecosystem: 'RubyGems', reasonCode: 'ecosystem_source_disabled', side: 'environment' }
+    ]
+}
+// An npm and Python project: npm audit answered for npm, nothing is enabled for Python.
+const NPM_AND_NO_PYTHON: ScanState = {
+    state: 'partial',
+    reasons: [{ source: null, ecosystem: 'PyPI', reasonCode: 'ecosystem_source_disabled', side: 'environment' }]
+}
 const SIDES = { project: 'the project', environment: 'this install' }
+
+function sourceDisabled(languages: string): string {
+    return 'No source enabled for ' + languages
+}
 
 describe('isProjectHealthy', function () {
     it('is healthy only when the project was fully scanned and nothing was found', function () {
@@ -48,8 +65,55 @@ describe('the State column — cannot be scanned', function () {
     })
 
     it('lists the reasons once each, with whose side they are on, in the reader locale', function () {
-        expect(scanStateReasonsText(CANNOT, 'en', SIDES)).toBe('No lockfile (the project)')
-        expect(scanStateReasonsText(PARTIAL, 'en', SIDES)).toBe('OSV database not downloaded yet (this install) · npm: Has not run yet')
-        expect(scanStateReasonsText(CANNOT, 'es', { project: 'el proyecto', environment: 'esta instalación' })).toBe('Sin lockfile (el proyecto)')
+        expect(scanStateReasonsText(CANNOT, 'en', SIDES, sourceDisabled)).toBe('No lockfile (the project)')
+        expect(scanStateReasonsText(PARTIAL, 'en', SIDES, sourceDisabled)).toBe('OSV database not downloaded yet (this install) · npm: Has not run yet')
+        expect(scanStateReasonsText(CANNOT, 'es', { project: 'el proyecto', environment: 'esta instalación' }, sourceDisabled)).toBe('Sin lockfile (el proyecto)')
+    })
+
+    // "No source enabled for ecosystem" would leave the reader guessing which one: the language is named,
+    // once for every language the project has no source for.
+    it('names the languages no enabled source answers for', function () {
+        expect(scanStateReasonsText(NO_SOURCE, 'en', SIDES, sourceDisabled)).toBe('No source enabled for Python, Ruby (this install)')
+        expect(scanStateReasonsText(NPM_AND_NO_PYTHON, 'en', SIDES, sourceDisabled)).toBe('No source enabled for Python (this install)')
+    })
+
+    // A project with no enabled source is never healthy: it is unknown, not clean.
+    it('never reads a project no source answers for as healthy', function () {
+        expect(isProjectHealthy(row(NO_SOURCE), 0)).toBe(false)
+        expect(scanStateBadge(NO_SOURCE)).toBe('cannotScan')
+        expect(scanStateBadge(NPM_AND_NO_PYTHON)).toBe('partial')
+    })
+})
+
+describe('languageNames', function () {
+    it('names ecosystems by language, and keeps an id the registry does not know', function () {
+        expect(languageNames(['PyPI', 'Go', 'crates.io', 'RubyGems', 'npm'])).toBe('Python, Go, Rust, Ruby, Node.js')
+        expect(languageNames(['CocoaPods'])).toBe('CocoaPods')
+        expect(languageNames([])).toBe('')
+    })
+})
+
+describe('projects with no enabled source', function () {
+    it('lists the ecosystems a project has no enabled source for', function () {
+        expect(sourceDisabledEcosystems(NO_SOURCE)).toEqual(['PyPI', 'RubyGems'])
+        expect(sourceDisabledEcosystems(PARTIAL)).toEqual([])
+        expect(sourceDisabledEcosystems(SCANNED)).toEqual([])
+    })
+
+    // The count is of projects, each once however many languages it lacks a source for; the per-language
+    // counts are in registry order, whatever order the projects came in.
+    it('counts the projects and, per language, how many it leaves unscanned', function () {
+        expect(projectsWithoutSource([SCANNED, NPM_AND_NO_PYTHON, CANNOT, NO_SOURCE, PARTIAL])).toEqual({
+            projects: 2,
+            ecosystems: [
+                { ecosystem: 'PyPI', projects: 2 },
+                { ecosystem: 'RubyGems', projects: 1 }
+            ]
+        })
+    })
+
+    it('counts nothing on an install where every project has a source', function () {
+        expect(projectsWithoutSource([SCANNED, CANNOT, PARTIAL])).toEqual({ projects: 0, ecosystems: [] })
+        expect(projectsWithoutSource([])).toEqual({ projects: 0, ecosystems: [] })
     })
 })

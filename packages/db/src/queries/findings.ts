@@ -1,6 +1,6 @@
 import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import { ulid } from 'ulid'
-import { escalatedSeverity, parseFindingCorroborations, parseRemediation, readFixFields, type FixCheck, type FixFields, type FixStatus, type Finding, type FindingCorroboration, type FindingScanContext, type Remediation } from '@sentinello/core'
+import { escalatedSeverity, parseFindingCorroborations, parseFindingInstallations, parseRemediation, readFixFields, type EcosystemId, type FixCheck, type FixFields, type FixStatus, type Finding, type FindingCorroboration, type FindingInstallation, type FindingScanContext, type Remediation } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { findings } from '../schema'
 import { sumCount } from './count'
@@ -15,14 +15,17 @@ type FindingInsert = typeof findings.$inferInsert
 export type IncomingFinding = {
     projectId: string
     scanner: string
-    // Persisted source identity (SourceId; === scanner for today's sources) + the package's EcosystemId.
+    // Persisted source identity (SourceId; === scanner for today's sources) + the package's EcosystemId,
+    // always explicit: a finding identity never falls back to npm.
     source: string
-    ecosystem: string
+    ecosystem: EcosystemId
     advisoryId: string
     advisoryTitle: string | null
     advisoryUrl: string | null
     packageName: string
+    // The lowest affected installed version; every (manifest, version) is in `installations`.
     installedVersion: string
+    installations: FindingInstallation[]
     vulnerableRange: string
     severity: Finding['severity']
     // The fix the source STATES. Written unsettled (fix_status NULL) and settled by applyFixSettlement
@@ -36,10 +39,12 @@ export type IncomingFinding = {
 
 export type MergeFindingsInput = {
     projectId: string
-    // The scanner this scan belongs to. The merge is scoped to (projectId, scanner): it only ever
-    // refreshes / resolves episodes whose scanner matches, so running multiple scanners against the
-    // same project is independent — an 'osv' scan never resolves 'npm-audit' findings, and vice versa.
+    // The cell this scan belongs to. The merge is scoped to (projectId, scanner, ecosystem): it only ever
+    // refreshes / resolves episodes of that cell, so the cells scanning one project are independent — an
+    // 'osv' scan never resolves 'npm-audit' findings, and OSV's Ruby scan never resolves OSV's Python
+    // findings (SENTINEL-122): an empty Ruby result says nothing about Python.
     scanner: string
+    ecosystem: EcosystemId
     scanId: string
     scanFinishedAt: number
     incoming: IncomingFinding[]
@@ -77,6 +82,7 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             and(
                 eq(findings.projectId, input.projectId),
                 eq(findings.scanner, input.scanner),
+                eq(findings.ecosystem, input.ecosystem),
                 isNull(findings.resolvedAt)
             )
         )
@@ -96,6 +102,9 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
     const resolved: Finding[] = []
     const seenIdentityKeys = new Set<string>()
     for (const inc of input.incoming) {
+        // A finding of another cell would be merged against episodes this merge never read, and resolve
+        // nothing it should: a defect in the caller, not something to persist quietly.
+        if (inc.ecosystem !== input.ecosystem) throw new Error('mergeFindingsForScan: a ' + inc.ecosystem + ' finding in the ' + input.ecosystem + ' cell\'s merge')
         const key = identityKey(inc.source, inc.ecosystem, inc.advisoryId, inc.packageName)
         seenIdentityKeys.add(key)
         const bucket = openByIdentity.get(key)
@@ -108,6 +117,7 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
                     advisoryTitle: inc.advisoryTitle,
                     advisoryUrl: inc.advisoryUrl,
                     installedVersion: inc.installedVersion,
+                    installationsJson: JSON.stringify(inc.installations),
                     vulnerableRange: inc.vulnerableRange,
                     severity: inc.severity,
                     fixAvailable: inc.fixAvailable,
@@ -129,6 +139,7 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
                 advisoryTitle: inc.advisoryTitle,
                 advisoryUrl: inc.advisoryUrl,
                 installedVersion: inc.installedVersion,
+                installationsJson: JSON.stringify(inc.installations),
                 vulnerableRange: inc.vulnerableRange,
                 severity: inc.severity,
                 fixAvailable: inc.fixAvailable,
@@ -160,6 +171,7 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             advisoryUrl: inc.advisoryUrl,
             packageName: inc.packageName,
             installedVersion: inc.installedVersion,
+            installationsJson: JSON.stringify(inc.installations),
             vulnerableRange: inc.vulnerableRange,
             severity: inc.severity,
             // Left empty here and rewritten by applyFindingCorroborations at the end of the project
@@ -191,6 +203,7 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             advisoryUrl: inc.advisoryUrl,
             packageName: inc.packageName,
             installedVersion: inc.installedVersion,
+            installations: inc.installations,
             vulnerableRange: inc.vulnerableRange,
             severity: inc.severity,
             corroborations: [],
@@ -315,22 +328,23 @@ export function listResolvedFindingsForLibrary(
     limit = 50,
     ecosystem?: string
 ): ResolvedLibraryFinding[] {
-    // Scope to the (ecosystem, packageName) cell when the caller knows the ecosystem; COALESCE keeps
-    // un-backfilled legacy rows reachable under 'npm'.
-    const ecosystemFilter = ecosystem ? sql`AND COALESCE(f.ecosystem, 'npm') = ${ecosystem}` : sql``
+    // Scope to the (ecosystem, packageName) cell when the caller knows the ecosystem. findings.ecosystem is
+    // NOT NULL and written explicitly, so no legacy fallback is needed.
+    const ecosystemFilter = ecosystem ? sql`AND f.ecosystem = ${ecosystem}` : sql``
     const rows = db.all<{
         id: string
         scan_id: string
         project_id: string
         scanner: string
         source: string | null
-        // Not nullable — see schema.ts:150. Only source is.
+        // Not nullable (schema.ts findings.ecosystem). Only source is.
         ecosystem: string
         advisory_id: string
         advisory_title: string | null
         advisory_url: string | null
         package_name: string
         installed_version: string
+        installations_json: string
         vulnerable_range: string
         severity: string
         corroborations_json: string
@@ -369,6 +383,7 @@ export function listResolvedFindingsForLibrary(
             advisoryUrl: row.advisory_url,
             packageName: row.package_name,
             installedVersion: row.installed_version,
+            installations: parseFindingInstallations(row.installations_json),
             vulnerableRange: row.vulnerable_range,
             severity: row.severity as Finding['severity'],
             corroborations: parseFindingCorroborations(row.corroborations_json),
@@ -410,7 +425,7 @@ export function findFindingByIdentity(
         )
         .get()
     if (!row) return null
-    return rowToFindingInContext(row, scanContext(row.projectId, row.source ?? row.scanner))
+    return rowToFindingInContext(row, scanContext(row.projectId, row.source ?? row.scanner, row.ecosystem))
 }
 
 // In-memory dedup key for the lifecycle merge. First component is the persisted source identity, not
@@ -431,8 +446,7 @@ function rowToFindingInContext(row: FindingRow, scanContext: FindingScanContext 
         projectId: row.projectId,
         scanner: row.scanner,
         // source falls back for the brief pre-backfill window on legacy rows, where source === scanner.
-        // ecosystem needs no such fallback: the column is NOT NULL DEFAULT 'npm' (schema.ts:150), so the
-        // migration already backfilled every pre-polyglot row.
+        // ecosystem needs no such fallback: the column is NOT NULL and every writer names it.
         source: row.source ?? row.scanner,
         ecosystem: row.ecosystem,
         advisoryId: row.advisoryId,
@@ -440,6 +454,7 @@ function rowToFindingInContext(row: FindingRow, scanContext: FindingScanContext 
         advisoryUrl: row.advisoryUrl,
         packageName: row.packageName,
         installedVersion: row.installedVersion,
+        installations: parseFindingInstallations(row.installationsJson),
         vulnerableRange: row.vulnerableRange,
         severity: row.severity,
         corroborations: parseFindingCorroborations(row.corroborationsJson),

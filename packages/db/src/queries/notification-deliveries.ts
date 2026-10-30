@@ -1,8 +1,8 @@
-import { and, eq, isNotNull, isNull, or, sql } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import type { DepTypeFilter, NotificationDelivery, NotificationEvent, NotificationTarget } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
-import { mutes, notificationDeliveries, notificationEvents, notificationTargets } from '../schema'
+import { notificationDeliveries, notificationEvents, notificationTargets } from '../schema'
 import { listTargetRootIds } from './notification-target-roots'
 import { listTargetProjectIds } from './notification-target-projects'
 
@@ -23,20 +23,11 @@ export type DispatchablePair = {
 //    has explicitly requested historical backfill, in which case backfillForNewTarget() has already
 //    inserted a placeholder delivery row with first_attempted_at = NULL for the pair; those rows are
 //    allowed through this gate so the operator's opt-in to backfill is honored.
-//  - for finding events: event.severity is in target.severity_filter_json (a JSON array)
-//  - for scan_failure events: severity filter is bypassed (operational signals always pass)
+//  - the event is not a silent-baseline event (baseline_of IS NULL): those are told once, in their
+//    capability's summary (capability-baselines.ts)
 //  - no successful delivery row exists for (event_id, target_id)
-//  - the event is not currently muted:
-//    * scope='project' mutes match on project_id only and apply to ALL event types (including
-//      scan_failure) — muting a project silences both its findings and its scan-failure notifications.
-//    * scope='finding' mutes match the full finding-identity tuple (projectId, source-identity,
-//      ecosystem, advisoryId, packageName) and apply ONLY to finding events; the source axis is the
-//      `scanner` column (which carries the persisted source identity), and ecosystem keeps an npm mute
-//      from silencing a same-named package in another ecosystem (a NULL mute.ecosystem is a legacy row
-//      that still matches any ecosystem). scan_failure rows have null advisory_id/package_name so they
-//      structurally cannot match a finding-scope mute. The global finding mute form
-//      (project_id IS NULL) matches across any project.
-//    * a mute is active when expires_at IS NULL OR expires_at > at.
+//  - the target's policy would tell it about the event: severity filter, prod/dev filter, cell scope,
+//    root/project scope and active mutes — eventEligibleForTargetSql, below, states each rule
 export function selectDispatchablePairs(db: DrizzleDb, projectId: string, at: number): DispatchablePair[] {
     const rows = db
         .select({
@@ -74,97 +65,9 @@ export function selectDispatchablePairs(db: DrizzleDb, projectId: string, at: nu
                         isNull(notificationDeliveries.firstAttemptedAt)
                     )
                 ),
-                // Severity filter — only applies to finding events; scan_failures bypass.
-                sql`(${notificationEvents.eventType} = 'scan_failure' OR EXISTS (
-                    SELECT 1 FROM json_each(${notificationTargets.severityFilterJson})
-                    WHERE json_each.value = ${notificationEvents.severity}
-                ))`,
-                // Environment filter (target.env_filter ∈ {'all','prod','dev'}). Scan-failure events
-                // always bypass — they have no underlying finding row to classify. For finding events
-                // we EXISTS-join the findings table on the full finding-identity tuple
-                // (project_id, source, ecosystem, advisory_id, package_name): a finding matches the
-                // target's env when ANY of its rows for that identity has is_prod=1 (target 'prod') or
-                // is_dev=1 AND is_prod=0 (target 'dev'). Same prod/dev semantics as
-                // packages/db/src/queries/dep-type.ts. The source axis is the persisted source identity —
-                // findings carry it in `source` (COALESCE to scanner for un-backfilled legacy rows), the
-                // event carries it in `scanner` — and `ecosystem` is required so an npm finding can't
-                // satisfy the env filter for a same-named PyPI finding (and vice versa).
-                sql`(
-                    ${notificationEvents.eventType} = 'scan_failure'
-                    OR ${notificationTargets.envFilter} = 'all'
-                    OR EXISTS (
-                        SELECT 1 FROM findings f
-                        WHERE f.project_id = ${notificationEvents.projectId}
-                          AND COALESCE(f.source, f.scanner) = ${notificationEvents.scanner}
-                          AND f.ecosystem = COALESCE(${notificationEvents.ecosystem}, 'npm')
-                          AND f.advisory_id = ${notificationEvents.advisoryId}
-                          AND f.package_name = ${notificationEvents.packageName}
-                          AND (
-                              (${notificationTargets.envFilter} = 'prod' AND f.is_prod = 1)
-                              OR (${notificationTargets.envFilter} = 'dev' AND f.is_dev = 1 AND f.is_prod = 0)
-                          )
-                    )
-                )`,
-                // Per-target (source, ecosystem) cell scope. Scan-failure events bypass (no source/
-                // ecosystem identity). mode 'all' (the default for every pre-Phase-5 target) fires for
-                // every cell; mode 'selected' fires only when the event's (scanner-as-source, ecosystem)
-                // is one of the listed cells. ecosystem COALESCEs to 'npm' for un-backfilled legacy events.
-                sql`(
-                    ${notificationEvents.eventType} = 'scan_failure'
-                    OR json_extract(${notificationTargets.sourceScopeJson}, '$.mode') = 'all'
-                    OR EXISTS (
-                        SELECT 1 FROM json_each(${notificationTargets.sourceScopeJson}, '$.cells')
-                        WHERE json_extract(json_each.value, '$.source') = ${notificationEvents.scanner}
-                          AND json_extract(json_each.value, '$.ecosystem') = COALESCE(${notificationEvents.ecosystem}, 'npm')
-                    )
-                )`,
-                // Per-target scope. Zero rows in BOTH notification_target_roots and
-                // notification_target_projects means "everything" (the default). Otherwise the
-                // event passes if its project belongs to a root the operator assigned (root scope,
-                // bound via projects.root_id) OR the event's project id is in the explicit project
-                // allow-list. Root and project scope are additive.
-                sql`(
-                    (
-                        NOT EXISTS (
-                            SELECT 1 FROM notification_target_roots tr
-                            WHERE tr.target_id = ${notificationTargets.id}
-                        )
-                        AND NOT EXISTS (
-                            SELECT 1 FROM notification_target_projects tp
-                            WHERE tp.target_id = ${notificationTargets.id}
-                        )
-                    )
-                    OR EXISTS (
-                        SELECT 1 FROM notification_target_roots tr
-                        INNER JOIN projects p ON p.id = ${notificationEvents.projectId}
-                        WHERE tr.target_id = ${notificationTargets.id}
-                          AND tr.root_id = p.root_id
-                    )
-                    OR EXISTS (
-                        SELECT 1 FROM notification_target_projects tp
-                        WHERE tp.target_id = ${notificationTargets.id}
-                          AND tp.project_id = ${notificationEvents.projectId}
-                    )
-                )`,
-                // Mute filter — project-scope mutes apply to ALL event types (findings + scan failures);
-                // finding-scope mutes apply only to finding events (scan failures have null advisory/package
-                // identity, so they cannot structurally match a finding-scope mute).
-                sql`NOT EXISTS (
-                    SELECT 1 FROM ${mutes} m
-                    WHERE (m.expires_at IS NULL OR m.expires_at > ${at})
-                      AND (
-                        (m.scope = 'project' AND m.project_id = ${notificationEvents.projectId})
-                        OR (
-                            ${notificationEvents.eventType} = 'finding'
-                            AND m.scope = 'finding'
-                            AND (m.project_id IS NULL OR m.project_id = ${notificationEvents.projectId})
-                            AND m.scanner = ${notificationEvents.scanner}
-                            AND (m.ecosystem IS NULL OR m.ecosystem = ${notificationEvents.ecosystem})
-                            AND m.advisory_id = ${notificationEvents.advisoryId}
-                            AND m.package_name = ${notificationEvents.packageName}
-                        )
-                      )
-                )`
+                // Silent-baseline events are told in their capability's one summary, never one by one.
+                isNull(notificationEvents.baselineOf),
+                eventEligibleForTargetSql('notification_events', 'notification_targets', at)
             )
         )
         .all()
@@ -190,6 +93,98 @@ export function selectDispatchablePairs(db: DrizzleDb, projectId: string, at: nu
             )
         }
     })
+}
+
+// Whether target `t` would be told about event `e` at `at`, by the target's policy alone: its severity
+// filter, its prod/dev filter, its (source, ecosystem) cell scope, its root/project scope, and the mutes
+// active at `at`. The one statement of that rule, shared by dispatch (selectDispatchablePairs), the
+// operator's historical backfill (backfillForNewTarget) and the silent baseline's per-target counts
+// (capability-baselines.ts), so a summary counts exactly what the target would have been sent one by one.
+// What is NOT in it is each caller's own: enabled targets, delivery state, the creation-time gate and
+// baseline suppression. `e` and `t` are the SQL names the caller gave notification_events and
+// notification_targets.
+//
+//  - severity: finding events only; scan_failure events always pass (operational signals).
+//  - prod/dev (target.env_filter ∈ {'all','prod','dev'}): scan failures bypass, having no finding row to
+//    classify. A finding event matches when ANY of its findings rows (same identity tuple: project, source
+//    — the event carries it in `scanner` — ecosystem, advisory, package) is prod (target 'prod') or dev and
+//    not prod (target 'dev'), the semantics of packages/db/src/queries/dep-type.ts. The ecosystem is part of
+//    the tuple so an npm finding never satisfies the filter for a same-named PyPI one.
+//  - cell scope: mode 'all' fires for every cell; mode 'selected' only for the event's (source, ecosystem).
+//    Scan failures bypass.
+//  - root/project scope: zero rows in both scope tables means everything; otherwise the event's project
+//    belongs to a listed root OR is a listed project (additive).
+//  - mutes: project-scope mutes silence every event of the project, scan failures included; finding-scope
+//    mutes match the finding identity tuple (a NULL mute ecosystem is a legacy row and matches any) and
+//    only finding events; a mute with no project is global. Active while expires_at IS NULL or > at.
+export function eventEligibleForTargetSql(e: string, t: string, at: number): SQL {
+    const ev = sql.raw(e)
+    const tg = sql.raw(t)
+    return sql`(
+        (
+            ${ev}.event_type = 'scan_failure'
+            OR EXISTS (
+                SELECT 1 FROM json_each(${tg}.severity_filter_json)
+                WHERE json_each.value = ${ev}.severity
+            )
+        )
+        AND (
+            ${ev}.event_type = 'scan_failure'
+            OR ${tg}.env_filter = 'all'
+            OR EXISTS (
+                SELECT 1 FROM findings f
+                WHERE f.project_id = ${ev}.project_id
+                  AND COALESCE(f.source, f.scanner) = ${ev}.scanner
+                  AND f.ecosystem = ${ev}.ecosystem
+                  AND f.advisory_id = ${ev}.advisory_id
+                  AND f.package_name = ${ev}.package_name
+                  AND (
+                      (${tg}.env_filter = 'prod' AND f.is_prod = 1)
+                      OR (${tg}.env_filter = 'dev' AND f.is_dev = 1 AND f.is_prod = 0)
+                  )
+            )
+        )
+        AND (
+            ${ev}.event_type = 'scan_failure'
+            OR json_extract(${tg}.source_scope_json, '$.mode') = 'all'
+            OR EXISTS (
+                SELECT 1 FROM json_each(${tg}.source_scope_json, '$.cells')
+                WHERE json_extract(json_each.value, '$.source') = ${ev}.scanner
+                  AND json_extract(json_each.value, '$.ecosystem') = ${ev}.ecosystem
+            )
+        )
+        AND (
+            (
+                NOT EXISTS (SELECT 1 FROM notification_target_roots tr WHERE tr.target_id = ${tg}.id)
+                AND NOT EXISTS (SELECT 1 FROM notification_target_projects tp WHERE tp.target_id = ${tg}.id)
+            )
+            OR EXISTS (
+                SELECT 1 FROM notification_target_roots tr
+                INNER JOIN projects p ON p.id = ${ev}.project_id
+                WHERE tr.target_id = ${tg}.id AND tr.root_id = p.root_id
+            )
+            OR EXISTS (
+                SELECT 1 FROM notification_target_projects tp
+                WHERE tp.target_id = ${tg}.id AND tp.project_id = ${ev}.project_id
+            )
+        )
+        AND NOT EXISTS (
+            SELECT 1 FROM mutes m
+            WHERE (m.expires_at IS NULL OR m.expires_at > ${at})
+              AND (
+                (m.scope = 'project' AND m.project_id = ${ev}.project_id)
+                OR (
+                    ${ev}.event_type = 'finding'
+                    AND m.scope = 'finding'
+                    AND (m.project_id IS NULL OR m.project_id = ${ev}.project_id)
+                    AND m.scanner = ${ev}.scanner
+                    AND (m.ecosystem IS NULL OR m.ecosystem = ${ev}.ecosystem)
+                    AND m.advisory_id = ${ev}.advisory_id
+                    AND m.package_name = ${ev}.package_name
+                )
+              )
+        )
+    )`
 }
 
 export function getDelivery(
@@ -293,69 +288,8 @@ export function backfillForNewTarget(db: DrizzleDb, targetId: string, at: number
             SELECT 1 FROM notification_deliveries d
             WHERE d.event_id = e.id AND d.target_id = ${targetId}
         )
-        AND (
-            e.event_type = 'scan_failure'
-            OR EXISTS (
-                SELECT 1 FROM json_each(t.severity_filter_json)
-                WHERE json_each.value = e.severity
-            )
-        )
-        AND (
-            e.event_type = 'scan_failure'
-            OR t.env_filter = 'all'
-            OR EXISTS (
-                SELECT 1 FROM findings f
-                WHERE f.project_id = e.project_id
-                  AND COALESCE(f.source, f.scanner) = e.scanner
-                  AND f.ecosystem = COALESCE(e.ecosystem, 'npm')
-                  AND f.advisory_id = e.advisory_id
-                  AND f.package_name = e.package_name
-                  AND (
-                      (t.env_filter = 'prod' AND f.is_prod = 1)
-                      OR (t.env_filter = 'dev' AND f.is_dev = 1 AND f.is_prod = 0)
-                  )
-            )
-        )
-        AND (
-            e.event_type = 'scan_failure'
-            OR json_extract(t.source_scope_json, '$.mode') = 'all'
-            OR EXISTS (
-                SELECT 1 FROM json_each(t.source_scope_json, '$.cells')
-                WHERE json_extract(json_each.value, '$.source') = e.scanner
-                  AND json_extract(json_each.value, '$.ecosystem') = COALESCE(e.ecosystem, 'npm')
-            )
-        )
-        AND NOT EXISTS (
-            SELECT 1 FROM mutes m
-            WHERE (m.expires_at IS NULL OR m.expires_at > ${at})
-              AND (
-                (m.scope = 'project' AND m.project_id = e.project_id)
-                OR (
-                    e.event_type = 'finding'
-                    AND m.scope = 'finding'
-                    AND (m.project_id IS NULL OR m.project_id = e.project_id)
-                    AND m.scanner = e.scanner
-                    AND (m.ecosystem IS NULL OR m.ecosystem = e.ecosystem)
-                    AND m.advisory_id = e.advisory_id
-                    AND m.package_name = e.package_name
-                )
-              )
-        )
-        AND (
-            (
-                NOT EXISTS (SELECT 1 FROM notification_target_roots tr WHERE tr.target_id = ${targetId})
-                AND NOT EXISTS (SELECT 1 FROM notification_target_projects tp WHERE tp.target_id = ${targetId})
-            )
-            OR EXISTS (
-                SELECT 1 FROM notification_target_roots tr
-                INNER JOIN projects p ON p.id = e.project_id
-                WHERE tr.target_id = ${targetId} AND tr.root_id = p.root_id
-            )
-            OR EXISTS (
-                SELECT 1 FROM notification_target_projects tp
-                WHERE tp.target_id = ${targetId} AND tp.project_id = e.project_id
-            )
-        )
+        AND e.baseline_of IS NULL
+        AND ${eventEligibleForTargetSql('e', 't', at)}
     `)
     // better-sqlite3 returns RunResult with .changes; drizzle's wrapper exposes it on the result. It is
     // always a number — declaring it optional here and then re-checking was the cast second-guessing

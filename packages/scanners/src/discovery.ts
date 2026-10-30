@@ -1,13 +1,33 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { basename, dirname, join, relative, resolve } from 'node:path'
+import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from 'node:fs'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import ignoreFactory from 'ignore'
-import { STABLE_ECOSYSTEMS, type EcosystemId, type PackageManager } from '@sentinello/core'
+import {
+    packageManagerOfManifest,
+    requireEcosystemId,
+    STABLE_ECOSYSTEMS,
+    type EcosystemDefinition,
+    type EcosystemId,
+    type PackageManager,
+    type ProjectManifest
+} from '@sentinello/core'
+import { detectManifestsInSync, type DetectedManifest } from './resolver'
 
-// Project discovery: walk a directory tree and report every directory that carries at least one
-// ecosystem's manifest. Shared by the worker (which walks mounted /roots on a schedule and reconciles the
+// Project discovery: walk a directory tree and report every project in it, with every manifest it owns.
+// Shared by the worker (which walks mounted /roots on a schedule and reconciles the
 // result into SQLite) and the CLI (which walks wherever the user is standing and reconciles nothing).
 // Neither the walk nor its ignore rules should ever differ between the two products, which is why this
 // lives here rather than being implemented twice.
+//
+// Where a project begins (decision #3 of the 3.8 plan):
+//   1. A directory with a package.json is a project, detected exactly as before 3.8, and no project nests
+//      under it.
+//   2. Below any project, every non-npm manifest at any depth belongs to the nearest enclosing project
+//      (ios/Gemfile.lock, scripts/requirements.txt), outside the directories in MANIFEST_SKIP.
+//   3. A directory with a non-npm manifest and no enclosing project is a project anchored there.
+//   4. Below such a non-npm project the walk still looks for package.json directories, and each is its own
+//      project owning its own subtree.
+// So a repo-root requirements.txt can never swallow the npm projects beside it: they keep their ids, and
+// the worker, which hard-deletes a project that stops being discovered, never sees them disappear.
 //
 // It sits in @sentinello/scanners rather than @sentinello/core because it reads the filesystem: core is
 // imported by the Next.js portal, and pulling `node:fs` into that dependency graph is how a package that
@@ -23,6 +43,11 @@ const LOCKFILE_TO_PM: Record<string, PackageManager> = {
 // projects, and walking it would report thousands of phantom projects; `.git` holds no manifests at all.
 const ALWAYS_SKIP = new Set(['node_modules', '.git'])
 
+// Never searched for a project's sub-manifests: installed dependencies, virtualenvs and build output, all
+// of which carry manifests the project did not write. They are still walked for package.json directories
+// when no npm project encloses them, because before 3.8 they were, and npm discovery does not change.
+const MANIFEST_SKIP = new Set(['node_modules', 'vendor', '.venv', 'venv', 'target', 'Pods', 'build', 'dist'])
+
 const SENTINELLO_IGNORE_FILENAME = '.sentinelloignore'
 const GITIGNORE_FILENAME = '.gitignore'
 
@@ -33,12 +58,16 @@ export type DiscoveredProject = {
     relPath: string
     // Directory basename — the project's display name before any user alias.
     name: string
-    // The JavaScript lockfile's package manager, or 'unknown' for a package.json with no recognized lock
-    // (or a directory with no JavaScript at all). Drives which audit command the npm-audit scanner runs.
+    // For a package.json project, the JavaScript lockfile's package manager, or 'unknown' with no recognized
+    // lock; it drives which audit command the npm-audit scanner runs. For any other project, the manager of
+    // its anchor manifest (the first one in its own directory).
     packageManager: PackageManager
     nvmrcVersion: string | null
     gitBranch: string | null
+    // The distinct ecosystems of `manifests`, in registry order.
     ecosystems: EcosystemId[]
+    // Every manifest the project owns: its own directory's first, then its sub-manifests by directory.
+    manifests: ProjectManifest[]
 }
 
 export type DiscoverySkipSource = 'gitignore' | 'sentinelloignore' | 'excludes'
@@ -46,6 +75,13 @@ export type DiscoverySkipSource = 'gitignore' | 'sentinelloignore' | 'excludes'
 export type DiscoverySkip = {
     path: string
     source: DiscoverySkipSource
+}
+
+// A directory the walk could not read. Its subtree is missing from the result, so a caller that deletes
+// what it no longer sees must not trust this walk to say what is gone.
+export type DiscoveryError = {
+    path: string
+    message: string
 }
 
 export type DiscoveryOptions = {
@@ -61,6 +97,10 @@ export type DiscoveryOptions = {
     // Called for each directory skipped because of an ignore rule. The CLI and worker both surface this,
     // because "Sentinello found nothing" is otherwise indistinguishable from "Sentinello skipped it".
     onSkip?: (skip: DiscoverySkip) => void
+    // Called for each directory that could not be read. The walk carries on without it.
+    onError?: (error: DiscoveryError) => void
+    // The ecosystems to look for; the stable ones by default. Tests pass preview ones to exercise them.
+    ecosystems?: readonly EcosystemDefinition[]
 }
 
 type IgnoreLayer = {
@@ -86,6 +126,7 @@ export function discoverProjectsInTree(options: DiscoveryOptions): DiscoveredPro
     const excludeMatcher = ignoreFactory()
     if (options.excludes && options.excludes.length > 0) excludeMatcher.add(options.excludes)
     const layers: IgnoreLayer[] = []
+    const ecosystems = options.ecosystems ?? STABLE_ECOSYSTEMS
     walk({
         rootPath,
         currentDir: rootPath,
@@ -95,8 +136,15 @@ export function discoverProjectsInTree(options: DiscoveryOptions): DiscoveredPro
         hasExcludes: Boolean(options.excludes && options.excludes.length > 0),
         layers,
         onSkip: options.onSkip,
+        onError: options.onError,
+        ecosystems,
+        npmOn: ecosystems.some(isNpm),
+        subEcosystems: ecosystems.filter(function nonNpm(eco) { return !isNpm(eco) }),
+        owner: null,
+        manifestsOff: false,
         out
     })
+    for (const project of out) finishProject(project, ecosystems)
     return out
 }
 
@@ -109,32 +157,129 @@ type WalkState = {
     hasExcludes: boolean
     layers: IgnoreLayer[]
     onSkip: ((skip: DiscoverySkip) => void) | undefined
+    onError: ((error: DiscoveryError) => void) | undefined
+    ecosystems: readonly EcosystemDefinition[]
+    // Whether npm is looked for at all, and the other ecosystems, which are looked for below projects too.
+    npmOn: boolean
+    subEcosystems: readonly EcosystemDefinition[]
+    // The nearest enclosing project, which owns any sub-manifest found here.
+    owner: Owner | null
+    // Inside a MANIFEST_SKIP directory of the owner: nothing here is the owner's, or anchors a project.
+    manifestsOff: boolean
     out: DiscoveredProject[]
 }
 
+type Owner = {
+    project: DiscoveredProject
+    npm: boolean
+}
+
 function walk(state: WalkState): void {
-    const project = detectProject(state.rootPath, state.currentDir)
-    if (project) {
-        state.out.push(project)
-        // Do not descend into a project's children — projects do not nest. A monorepo root is therefore one
-        // project, which is also how `pnpm audit` sees it.
-        return
-    }
+    const owner = claimDirectory(state)
+    // A project starts its own subtree, so the skip directories count from it.
+    const manifestsOff = owner === state.owner && state.manifestsOff
+    // Projects do not nest under an npm project — a monorepo root is ONE project, which is also how
+    // `pnpm audit` sees it — so below one the walk only looks for sub-manifests, and with no ecosystem
+    // besides npm to look for there is nothing below it to find.
+    if (owner?.npm && state.subEcosystems.length === 0) return
     if (state.maxDepth !== null && state.depth >= state.maxDepth) return
     // An ignore file in this directory governs its descendants, so push the layer before reading entries.
     const localLayer = loadIgnoreLayer(state.currentDir)
     const layers = localLayer ? state.layers.concat([localLayer]) : state.layers
-    for (const entry of safeReaddir(state.currentDir)) {
+    for (const entry of readEntries(state.currentDir, state.onError)) {
         if (!entry.isDirectory()) continue
         if (ALWAYS_SKIP.has(entry.name)) continue
+        const childManifestsOff = manifestsOff || MANIFEST_SKIP.has(entry.name)
+        // Below an npm project only sub-manifests are looked for, and a skipped directory holds none.
+        if (owner?.npm && childManifestsOff) continue
         const childPath = join(state.currentDir, entry.name)
         const skip = classifySkip(childPath, state.rootPath, layers, state.excludeMatcher, state.hasExcludes)
         if (skip) {
-            if (state.onSkip) state.onSkip({ path: childPath, source: skip })
+            // Inside an npm project a skip can only hide a sub-manifest, never a project, and reporting every
+            // ignored dist/ or coverage/ there would bury the skips that do hide one.
+            if (state.onSkip && !owner?.npm) state.onSkip({ path: childPath, source: skip })
             continue
         }
-        walk({ ...state, currentDir: childPath, depth: state.depth + 1, layers })
+        walk({ ...state, currentDir: childPath, depth: state.depth + 1, layers, owner, manifestsOff: childManifestsOff })
     }
+}
+
+// Decides what this directory is: a new project (rules 1 and 3), part of the enclosing one (rule 2), or
+// neither. Returns the project that owns the directory's subtree.
+function claimDirectory(state: WalkState): Owner | null {
+    const dir = state.currentDir
+    const owner = state.owner
+    // The walk never enters a skipped directory below an npm project, so everything it reaches there is the
+    // project's.
+    if (owner?.npm) {
+        attachManifests(owner.project, dir, state.subEcosystems)
+        return owner
+    }
+    if (state.npmOn && existsFile(join(dir, 'package.json'))) {
+        return startProject(state, dir, true, detectManifestsInSync(dir, dir, state.ecosystems))
+    }
+    if (state.manifestsOff) return owner
+    if (owner) {
+        attachManifests(owner.project, dir, state.subEcosystems)
+        return owner
+    }
+    const found = detectManifestsInSync(dir, dir, state.subEcosystems)
+    if (found.length === 0) return null
+    return startProject(state, dir, false, found)
+}
+
+function startProject(state: WalkState, dir: string, npm: boolean, found: DetectedManifest[]): Owner {
+    const project: DiscoveredProject = {
+        absolutePath: dir,
+        relPath: relative(state.rootPath, dir) || '.',
+        name: basenameOf(dir),
+        // An npm project's manager stays the JavaScript one; any other is its anchor manifest's.
+        packageManager: npm ? detectPackageManager(dir) : packageManagerOfManifest(found[0]!.kind),
+        nvmrcVersion: readNvmrcVersion(dir),
+        gitBranch: readGitBranch(dir, state.rootPath),
+        ecosystems: [],
+        manifests: []
+    }
+    state.out.push(project)
+    addManifests(project, found)
+    return { project, npm }
+}
+
+function attachManifests(project: DiscoveredProject, dir: string, ecosystems: readonly EcosystemDefinition[]): void {
+    addManifests(project, detectManifestsInSync(dir, project.absolutePath, ecosystems))
+}
+
+function addManifests(project: DiscoveredProject, found: DetectedManifest[]): void {
+    for (const manifest of found) {
+        project.manifests.push({
+            path: relative(project.absolutePath, manifest.absolutePath).split(sep).join('/'),
+            ecosystem: requireEcosystemId(manifest.ecosystem),
+            kind: manifest.kind
+        })
+    }
+}
+
+// Orders the manifests independently of directory read order (which differs between filesystems): the
+// project's own first, then by directory, keeping registry order within one directory. Then derives the
+// ecosystems from them.
+function finishProject(project: DiscoveredProject, ecosystems: readonly EcosystemDefinition[]): void {
+    project.manifests.sort(function byDirectory(a, b) {
+        return manifestDir(a.path).localeCompare(manifestDir(b.path))
+    })
+    project.ecosystems = ecosystems
+        .filter(function present(eco) {
+            return project.manifests.some(function ofEco(m) { return m.ecosystem === eco.id })
+        })
+        .map(function id(eco) { return eco.id })
+}
+
+function manifestDir(path: string): string {
+    const slash = path.lastIndexOf('/')
+    return slash === -1 ? '' : path.slice(0, slash)
+}
+
+function isNpm(eco: EcosystemDefinition): boolean {
+    return eco.id === 'npm'
 }
 
 // Returns which rule source excluded this path, or null when it is not excluded. Explicit excludes are
@@ -199,48 +344,15 @@ function readIgnoreFile(path: string): string | null {
     }
 }
 
-function safeReaddir(dir: string) {
+// A directory that cannot be read is walked as empty so the rest of the tree is still discovered, and
+// reported, because its projects are then missing from the result rather than gone.
+function readEntries(dir: string, onError: ((error: DiscoveryError) => void) | undefined): Dirent[] {
     try {
         return readdirSync(dir, { withFileTypes: true })
-    } catch {
+    } catch (error) {
+        if (onError) onError({ path: dir, message: String(error) })
         return []
     }
-}
-
-function detectProject(rootPath: string, dir: string): DiscoveredProject | null {
-    // A project is any directory carrying at least one ecosystem's manifest.
-    const ecosystems = detectEcosystems(dir)
-    if (ecosystems.length === 0) return null
-    const relPath = relative(rootPath, dir) || '.'
-    return {
-        absolutePath: dir,
-        relPath,
-        name: basenameOf(dir),
-        packageManager: detectPackageManager(dir),
-        nvmrcVersion: readNvmrcVersion(dir),
-        gitBranch: readGitBranch(dir, rootPath),
-        ecosystems
-    }
-}
-
-// The set of ecosystems whose manifests exist in this directory, bound to the central registry. npm is
-// keyed on `package.json` (a JS project may have no lockfile yet but is still an npm project — the scanner
-// records the coverage gap); every other ecosystem is keyed on the presence of any of its resolver kinds.
-export function detectEcosystems(dir: string): EcosystemId[] {
-    const out: EcosystemId[] = []
-    for (const eco of STABLE_ECOSYSTEMS) {
-        if (eco.id === 'npm') {
-            if (existsFile(join(dir, 'package.json'))) out.push(eco.id)
-            continue
-        }
-        for (const kind of eco.resolverKinds) {
-            if (existsFile(join(dir, kind))) {
-                out.push(eco.id)
-                break
-            }
-        }
-    }
-    return out
 }
 
 function existsFile(path: string): boolean {

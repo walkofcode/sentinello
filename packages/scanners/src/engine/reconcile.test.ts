@@ -276,3 +276,72 @@ describe('reconcileAgainstReported — fix evidence', function () {
         expect(survivor?.evidence).toEqual([own.fixInputs, osv.fixInputs, copy.fixInputs])
     })
 })
+
+// One library installed through several manifests is ONE finding listing each installation (decision #4):
+// the matcher emits one finding per installed copy, and the copies fold here.
+describe('reconcileAgainstReported — one finding across several manifests', function () {
+    function rack(manifestPath: string, version: string, fixVersion: string | null, overrides: Partial<RawFinding> = {}): RawFinding {
+        return finding({
+            packageName: 'rack',
+            ecosystem: 'RubyGems',
+            installedVersion: version,
+            installations: [{ manifestPath, version }],
+            fixVersion,
+            fixAvailable: fixVersion !== null,
+            depPath: ['rack@' + version],
+            fixInputs: { ...finding().fixInputs, installed: [version], statedFix: fixVersion },
+            ...overrides
+        })
+    }
+
+    it('lists every installation, reports the lowest affected version and the fix covering all of them', function () {
+        const seen = reported()
+        const ios = rack('ios/Gemfile.lock', '2.2.3', '2.2.6.4')
+        const android = rack('android/Gemfile.lock', '2.0.8', '2.0.9.3', { isProd: false, isDev: true })
+        const result = reconcileAgainstReported([ios, android], seen, 'osv')
+        expect(result.kept).toHaveLength(1)
+        expect(result.corroborations).toEqual([])
+        expect(result.kept[0]).toMatchObject({
+            installedVersion: '2.0.8',
+            installations: [{ manifestPath: 'ios/Gemfile.lock', version: '2.2.3' }, { manifestPath: 'android/Gemfile.lock', version: '2.0.8' }],
+            fixVersion: '2.2.6.4',
+            fixAvailable: true,
+            isProd: true,
+            isDev: true,
+            depPath: ['rack@2.2.3', 'rack@2.0.8']
+        })
+        expect(result.kept[0]?.corroborations).toBeUndefined()
+        expect(seen.get('RubyGems|rack')?.get('ghsa-1')?.evidence).toEqual([ios.fixInputs, android.fixInputs])
+    })
+
+    // Gem::Version, not semver: 2.10 is above 2.9, and a four-part version is a version.
+    it('orders the copies by the ecosystem comparator', function () {
+        const result = reconcileAgainstReported([rack('a/Gemfile.lock', '2.10.0', '2.10.1', { isProd: false, isDev: true }), rack('b/Gemfile.lock', '2.9.0.1', '2.9.0.2')], reported(), 'osv')
+        expect(result.kept[0]).toMatchObject({ installedVersion: '2.9.0.1', fixVersion: '2.10.1', isProd: true, isDev: true })
+    })
+
+    it('states no fix when some copy has none, and lists one installation once', function () {
+        const first = rack('Gemfile.lock', '2.0.8', '2.0.9.3')
+        const result = reconcileAgainstReported([first, rack('Gemfile.lock', '2.0.8', null), rack('Gemfile.lock', '2.0.8', '2.0.9.3')], reported(), 'osv')
+        expect(result.kept[0]).toMatchObject({ fixVersion: null, fixAvailable: false, installations: [{ manifestPath: 'Gemfile.lock', version: '2.0.8' }], depPath: ['rack@2.0.8'] })
+    })
+
+    it('never mutates the resolved package chain it was given', function () {
+        const chain = ['app@1.0.0', 'rack@2.2.3']
+        reconcileAgainstReported([rack('ios/Gemfile.lock', '2.2.3', '2.2.6.4', { depPath: chain }), rack('android/Gemfile.lock', '2.0.8', '2.0.9.3')], reported(), 'osv')
+        expect(chain).toEqual(['app@1.0.0', 'rack@2.2.3'])
+    })
+
+    it('folds a copy that carries no installations list', function () {
+        const result = reconcileAgainstReported([finding(), finding({ installedVersion: '1.1.0' })], reported(), 'npm-audit')
+        expect(result.kept[0]?.installations).toEqual([])
+    })
+
+    // Another source agreeing is still a corroboration, not an installation.
+    it('keeps a second source a corroboration', function () {
+        const seen = reported()
+        reconcileAgainstReported([rack('Gemfile.lock', '2.0.8', '2.0.9.3')], seen, 'osv')
+        const result = reconcileAgainstReported([rack('Gemfile.lock', '2.0.8', '2.0.9.3')], seen, 'gemnasium')
+        expect(result.corroborations).toHaveLength(1)
+    })
+})

@@ -15,12 +15,11 @@ export {
 } from './resolver'
 export type { DepScope, DetectedManifest, LockEdge, LockEdgeKind, LockNode, LockRoot, LockRootKind, NodeGraph, ResolvedGraph, ResolvedPackage, ResolverResult } from './resolver'
 export {
-    detectEcosystems,
     detectPackageManager,
     discoverProjectsInTree,
     readGitBranch
 } from './discovery'
-export type { DiscoveredProject, DiscoveryOptions, DiscoverySkip, DiscoverySkipSource } from './discovery'
+export type { DiscoveredProject, DiscoveryError, DiscoveryOptions, DiscoverySkip, DiscoverySkipSource } from './discovery'
 export { createOsvScanner, matchPackages, OSV_SCANNER_NAME } from './osv'
 export type { OsvAdvisory, OsvLookup, OsvRange, OsvScannerDeps } from './osv'
 export { createGemnasiumScanner, GEMNASIUM_SCANNER_NAME } from './gemnasium'
@@ -39,6 +38,7 @@ export {
     isNoPatchedSentinel,
     versionSetFromSemverRange,
     patchedVersionSet,
+    splitInstalled,
     NO_PATCHED_VERSION_SENTINEL,
     type AffectedSet,
     type EvaluableAffected,

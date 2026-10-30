@@ -1,5 +1,5 @@
 import cron, { type ScheduledTask } from 'node-cron'
-import { DEFAULT_ECOSYSTEM, ECOSYSTEMS, GEMNASIUM_SCANNER_NAME, sourceStatusKey, type EcosystemId, type GemnasiumAdvisoryRow, type SourceStatus } from '@sentinello/core'
+import { ECOSYSTEMS, GEMNASIUM_SCANNER_NAME, sourceStatusKey, type EcosystemId, type GemnasiumAdvisoryRow, type SourceStatus } from '@sentinello/core'
 import {
     GEMNASIUM_META_KEYS,
     GEMNASIUM_NORMALIZER_VERSION,
@@ -250,6 +250,10 @@ function mirrorStatus(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb): void 
 // status under the canonical npm-cell key as the source's status slot; Phase 5's matrix reads this single
 // status for every enabled gemnasium cell rather than expecting a per-cell row that doesn't exist. (OSV
 // differs: each OSV ecosystem is a separate download, so it mirrors a status per enabled cell.)
+// The one cell key gemnasium's single status lives under — a fixed slot named explicitly, not a fallback
+// for a missing ecosystem.
+const GEMNASIUM_STATUS_SLOT: EcosystemId = 'npm'
+
 function writeStatus(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb, syncStartedAt: number | null): void {
     const status: SourceStatus = {
         seedComplete: getGemnasiumMeta<boolean>(gemnasiumDb, GEMNASIUM_META_KEYS.seedComplete) === true,
@@ -259,7 +263,7 @@ function writeStatus(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb, syncSta
         syncStartedAt,
         lastError: getGemnasiumMeta<string>(gemnasiumDb, GEMNASIUM_META_KEYS.lastError)
     }
-    setConfigValue(mainDb, sourceStatusKey('gemnasium', DEFAULT_ECOSYSTEM), status)
+    setConfigValue(mainDb, sourceStatusKey('gemnasium', GEMNASIUM_STATUS_SLOT), status)
 }
 
 // Takes the real row type rather than restating its shape inline — see the OSV twin for why.

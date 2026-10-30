@@ -112,6 +112,7 @@ function addProject(id: string, rootId: string, relPath: string): void {
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems: ['npm'],
+        manifests: [],
         muted: false,
         tags: [],
         createdAt: T0,
@@ -125,6 +126,7 @@ function addFinding(overrides: Partial<IncomingFinding> = {}): void {
     mergeFindingsForScan(db, {
         projectId: PROJECT_ID,
         scanner: 'osv',
+        ecosystem: overrides.ecosystem ?? 'npm',
         scanId: 'scan-1',
         scanFinishedAt: T0,
         incoming: [{
@@ -137,6 +139,7 @@ function addFinding(overrides: Partial<IncomingFinding> = {}): void {
             advisoryUrl: null,
             packageName: 'lodash',
             installedVersion: '4.17.11',
+            installations: [],
             vulnerableRange: '<4.17.21',
             severity: 'high',
             fixAvailable: true,

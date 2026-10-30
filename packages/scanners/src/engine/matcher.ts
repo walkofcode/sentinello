@@ -201,6 +201,7 @@ function buildFinding(
         // The installed package's ecosystem is authoritative for the finding's identity.
         ecosystem: pkg.ecosystem,
         installedVersion: pkg.version,
+        installations: [{ manifestPath: pkg.manifestPath, version: pkg.version }],
         vulnerableRange,
         severity,
         fixAvailable: fixVersion !== null,

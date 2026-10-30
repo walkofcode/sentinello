@@ -129,17 +129,19 @@ export function countScansForProject(db: DrizzleDb, projectId: string): number {
 //     listVulnTrendForProject's sparkline and the latest scan of every source that still runs, which
 //     carries the coverage getProjectEcosystemCoverage reads (./scan-state) — what lets the UI say
 //     "this Python scan was partial" rather than reading a coverage gap as a clean bill of health.
-//  3. It is not its source's latest scan of the project. The scan state and the "not re-checked"
-//     annotation read each source's latest row (listLatestSourceScans); with only an older ok row left, a
-//     source whose latest scan failed would read as having answered — "scanned" resurrected and the
-//     annotation gone, with no successful recheck. A source the operator disabled for a while is out-scanned
-//     by the others and would otherwise lose exactly that row before it is re-enabled.
-//  4. It is not its source's latest ok scan of the project. A project that has failed to scan for
-//     months says its retained findings were "last scanned successfully {date}" from that row; pruning
-//     it would turn the date into a false "never scanned successfully".
+//  3. It is not its cell's latest scan of the project — the cell being (source, ecosystem), since a feed
+//     source writes one scan per ecosystem it runs. The scan state and the "not re-checked" annotation
+//     read each cell's latest row (listLatestSourceScans); with only an older ok row left, a cell whose
+//     latest scan failed would read as having answered — "scanned" resurrected and the annotation gone,
+//     with no successful recheck. Kept per source instead, OSV's Ruby scan would out-date its failed Python
+//     scan and prune it. A cell the operator disabled for a while is out-scanned by the others and would
+//     otherwise lose exactly that row before it is re-enabled.
+//  4. It is not its cell's latest ok scan of the project. A project that has failed to scan for months
+//     says its retained findings were "last scanned successfully {date}" from that row; pruning it would
+//     turn the date into a false "never scanned successfully".
 //
-//     3 and 4 keep at most two rows per (project, source), whatever their age, both ordered as the
-//     reader orders them (finished_at, then id).
+//     3 and 4 keep at most two rows per (project, source, ecosystem), whatever their age, both ordered as
+//     the reader orders them (finished_at, then id).
 //  5. Nothing references it. foreign_keys is ON (client.ts) and findings.scan_id,
 //     findings.resolved_scan_id and notification_events.first_scan_id are all NO ACTION, so a
 //     referenced row does not merely deserve keeping — deleting it THROWS.
@@ -154,11 +156,11 @@ export function listPrunableScanIds(db: DrizzleDb, cutoffAt: number, keepPerProj
             SELECT id, project_id, finished_at, status,
                    ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY finished_at DESC) AS rn,
                    ROW_NUMBER() OVER (
-                       PARTITION BY project_id, COALESCE(source, scanner)
+                       PARTITION BY project_id, COALESCE(source, scanner), ecosystem
                        ORDER BY finished_at DESC, id DESC
-                   ) AS source_rn,
+                   ) AS cell_rn,
                    ROW_NUMBER() OVER (
-                       PARTITION BY project_id, COALESCE(source, scanner), status = 'ok'
+                       PARTITION BY project_id, COALESCE(source, scanner), ecosystem, status = 'ok'
                        ORDER BY finished_at DESC, id DESC
                    ) AS status_rn
             FROM scans
@@ -167,7 +169,7 @@ export function listPrunableScanIds(db: DrizzleDb, cutoffAt: number, keepPerProj
         FROM ranked r
         WHERE r.rn > ${keepPerProject}
           AND r.finished_at < ${cutoffAt}
-          AND r.source_rn > 1
+          AND r.cell_rn > 1
           AND NOT (r.status = 'ok' AND r.status_rn = 1)
           -- NOT IN, deliberately, and NOT NOT EXISTS. There is no index on findings.resolved_scan_id
           -- or on notification_events.first_scan_id, so NOT EXISTS degenerates into a full scan per

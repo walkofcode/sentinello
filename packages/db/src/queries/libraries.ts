@@ -58,7 +58,7 @@ export function listLibraries(db: DrizzleDb, at: number, depType: DepTypeFilter 
     const sourceFilter = activeSourceCellClause(db)
     const rows = db
         .all<{
-            // The SELECT below already COALESCEs this, so the mapper needs no second fallback.
+            // NOT NULL and written explicitly, so the mapper needs no fallback.
             ecosystem: string
             package_name: string
             distinct_advisories: number
@@ -67,7 +67,7 @@ export function listLibraries(db: DrizzleDb, at: number, depType: DepTypeFilter 
         }>(
             sql`
             SELECT
-                COALESCE(f.ecosystem, 'npm') AS ecosystem,
+                f.ecosystem AS ecosystem,
                 f.package_name AS package_name,
                 COUNT(DISTINCT ${advisoryIdentitySql('f')}) AS distinct_advisories,
                 COUNT(DISTINCT f.project_id) AS distinct_projects,
@@ -121,7 +121,7 @@ export function listLibraryUsage(
     // A library is (ecosystem, packageName); when the detail page passes the ecosystem we scope to that
     // cell so a same-named package in another ecosystem never bleeds into this view. COALESCE keeps
     // un-backfilled legacy rows (ecosystem NULL) reachable under 'npm'.
-    const ecosystemFilter = ecosystem ? sql`AND COALESCE(f.ecosystem, 'npm') = ${ecosystem}` : sql``
+    const ecosystemFilter = ecosystem ? sql`AND f.ecosystem = ${ecosystem}` : sql``
     const rows = db.all<{
         project_id: string
         project_name: string
@@ -152,7 +152,7 @@ export function listLibraryUsage(
             p.name AS project_name,
             f.scanner AS scanner,
             COALESCE(f.source, f.scanner) AS source,
-            COALESCE(f.ecosystem, 'npm') AS ecosystem,
+            f.ecosystem AS ecosystem,
             f.installed_version AS installed_version,
             f.vulnerable_range AS vulnerable_range,
             f.advisory_id AS advisory_id,
@@ -208,7 +208,7 @@ export function listLibraryUsage(
             severity: row.severity,
             ...readFixFields(
                 { fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json, remediationJson: row.remediation_json },
-                scanContext(row.project_id, row.source)
+                scanContext(row.project_id, row.source, row.ecosystem)
             ),
             isProd: row.is_prod === 1,
             isDev: row.is_dev === 1,
