@@ -2,6 +2,7 @@ import { sql, type SQL } from 'drizzle-orm'
 import {
     DEFAULT_ECOSYSTEM,
     SOURCE_IDS,
+    installedThrough,
     projectScanState,
     type ExpectedCell,
     type FindingInstallation,
@@ -333,7 +334,9 @@ export function getProjectScanState(db: DrizzleDb, projectId: string): ScanState
 // ecosystem: OSV failing on Python says nothing about an OSV Ruby finding its successful Ruby scan just
 // re-checked. Null for a cell with no scan of the project. `row` is the finding's own lifecycle facts: with
 // them an open row its cell's ok scan kept without seeing (a manifest it lives in went unread) reads as not
-// re-checked too; without them only a failed scan does.
+// re-checked too, and an open row's last successful check is the last scan that saw it, whatever ok scans
+// kept it unseen since (SENTINEL-146); without them only a failed scan reads as not re-checked, as of the
+// cell's last ok scan.
 export type FindingScanContextLookup = (projectId: string, source: string, ecosystem: string, row?: FindingRowFacts) => FindingScanContext | null
 
 export type FindingRowFacts = {
@@ -356,27 +359,39 @@ export function findingScanContexts(db: DrizzleDb, projectIds: readonly string[]
             state = projectScanState(project.inputs)
             states.set(id, state)
         }
+        const lastOkScanAt = lastCheckedAt(latest, row)
         if (row !== undefined && keptUnseen(latest, row)) {
-            return { latestStatus: latest.status, latestReasonCode: latest.reasonCode, lastOkScanAt: row.lastSeenAt, projectState: state.state, unreadReasonCode: unreadReasonCode(project.coverage, ecosystem, row.installations) }
+            return { latestStatus: latest.status, latestReasonCode: latest.reasonCode, lastOkScanAt, projectState: state.state, unreadReasonCode: unreadReasonCode(project.coverage, ecosystem, row.installations) }
         }
-        return { latestStatus: latest.status, latestReasonCode: latest.reasonCode, lastOkScanAt: latest.lastOkScanAt, projectState: state.state }
+        return { latestStatus: latest.status, latestReasonCode: latest.reasonCode, lastOkScanAt, projectState: state.state }
     }
 }
 
 // An ok scan refreshes last_seen_at on every row of its cell it sees and resolves every other one it could
 // see (mergeFindingsForScan), so an open row older than its cell's latest ok scan is one that scan kept
 // without seeing: a manifest the row lives in went unread.
-function keptUnseen(latest: LatestSourceScanRow, row: FindingRowFacts): row is FindingRowFacts & { lastSeenAt: number } {
+function keptUnseen(latest: LatestSourceScanRow, row: FindingRowFacts): boolean {
     return latest.status === 'ok' && row.resolvedAt === null && row.lastSeenAt !== null && row.lastSeenAt < latest.finishedAt
 }
 
-// Why the row went unread: the coverage reason of the unread manifest it lives in, else of the first unread
-// manifest of its ecosystem (a row written before 3.8 names no manifest), else a partial graph — the row was
-// not seen, whatever the latest scan recorded about it.
+// When the row was last checked successfully. An ok scan refreshes last_seen_at on every row it sees, so an
+// open row whose last_seen_at predates its cell's last ok scan was kept unseen by that scan, and every one
+// since: its last check is its last_seen_at, through any later scan, failed ones included (SENTINEL-146). A
+// cell with no ok scan of the project reads as never checked, as before. A resolved row, a row with no
+// last_seen_at (before the lifecycle backfill) or no facts passed: the cell's last ok scan.
+function lastCheckedAt(latest: LatestSourceScanRow, row: FindingRowFacts | undefined): number | null {
+    if (latest.lastOkScanAt === null || row === undefined || row.resolvedAt !== null || row.lastSeenAt === null) return latest.lastOkScanAt
+    return Math.min(row.lastSeenAt, latest.lastOkScanAt)
+}
+
+// Why the row went unread: the coverage reason of the unread manifest its copy lives behind (installedThrough:
+// the manifest its directory holds now, so a lockfile that left its bare manifest behind reads no_lockfile),
+// else of the first unread manifest of its ecosystem (a row written before 3.8 names no manifest), else a
+// partial graph — the row was not seen, whatever the latest scan recorded about it.
 function unreadReasonCode(coverage: readonly EcosystemCoverageRow[] | null, ecosystem: string, installations: readonly FindingInstallation[]): string {
     const unread = (coverage ?? []).filter(function gap(c) { return c.ecosystem === ecosystem && c.status === 'unauditable' })
     const own = unread.find(function holds(c) {
-        return installations.some(function at(i) { return i.manifestPath === c.manifestPath })
+        return c.manifestPath !== null && installations.some(function at(i) { return installedThrough(i, [c.manifestPath as string]) })
     })
     return (own ?? unread[0])?.reasonCode ?? 'partial_dependency_graph'
 }

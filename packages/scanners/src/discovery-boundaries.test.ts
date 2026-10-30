@@ -357,6 +357,15 @@ describe('rediscoverProject — one project, read as the whole walk reads it', f
         expect(again.project?.manifests.map(function path(m) { return m.path })).toEqual(['requirements.txt', 'ios/Gemfile.lock'])
     })
 
+    // SENTINEL-147: `..service` is a child directory, not a way out of the root.
+    it('re-reads a project whose directory name begins with two dots', async function () {
+        const root = await makeTree({ '..service/pyproject.toml': '[project]\nname = "svc"\n', '..service/uv.lock': '' })
+        const whole = discoverProjectsInTree({ rootPath: root })
+        expect(whole.map(function rel(p) { return p.relPath })).toEqual(['..service'])
+        expect(rediscoverProject({ rootPath: root, projectPath: join(root, '..service') })).toEqual({ project: whole[0], errors: [] })
+        expect(rediscoverProject({ rootPath: join(root, '..service'), projectPath: root })).toEqual({ project: null, errors: [] })
+    })
+
     it('reports a directory below the project it could not read', async function () {
         const { chmod } = await import('node:fs/promises')
         const root = await makeTree({ 'app/package.json': PKG, 'app/native/ios/Gemfile.lock': '' })
@@ -399,5 +408,14 @@ describe('withUnreadManifests', function () {
         expect(kept.manifests.map(function path(m) { return m.path })).toEqual(['package-lock.json', 'native/Cargo.lock', 'native/ios/Gemfile.lock'])
         expect(kept.ecosystems).toEqual(['npm', 'crates.io', 'RubyGems'])
         expect(project.manifests).toHaveLength(1)
+    })
+
+    // SENTINEL-147: a directory named `..ios` below the unreadable one is still below it.
+    it('keeps a manifest in a directory whose name begins with two dots, and nothing outside the unreadable one', function () {
+        const dotted = [...recorded, { path: 'native/..ios/Gemfile.lock', ecosystem: 'RubyGems' as const, kind: 'Gemfile.lock' }]
+        const kept = withUnreadManifests(project, dotted, [{ path: '/r/app/native/..ios', message: 'EACCES' }])
+        expect(kept.manifests.map(function path(m) { return m.path })).toEqual(['package-lock.json', 'native/..ios/Gemfile.lock'])
+        const parent = withUnreadManifests(project, dotted, [{ path: '/r/app/native', message: 'EACCES' }])
+        expect(parent.manifests.map(function path(m) { return m.path })).toEqual(['package-lock.json', 'native/Cargo.lock', 'native/..ios/Gemfile.lock', 'native/ios/Gemfile.lock'])
     })
 })

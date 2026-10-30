@@ -75,6 +75,22 @@ export function parseFindingInstallations(json: string): FindingInstallation[] {
     return out
 }
 
+// The directory a manifest path (relative to the project, `/`-separated) sits in; '' for the project's own.
+export function manifestDirOf(path: string): string {
+    const slash = path.lastIndexOf('/')
+    return slash === -1 ? '' : path.slice(0, slash)
+}
+
+// Whether an installed copy lives behind one of these manifests (ProjectManifest paths of one ecosystem). A
+// copy belongs to its manifest's directory, not to the file: discovery records at most one manifest per
+// ecosystem in a directory, so whatever manifest that directory holds now is the one the copy was installed
+// through — the same file, the bare manifest a removed lockfile left (ios/Gemfile.lock → ios/Gemfile), or
+// another lock kind replacing it. A directory with no manifest of the ecosystem left no longer holds the copy.
+export function installedThrough(installation: FindingInstallation, manifestPaths: readonly string[]): boolean {
+    const dir = manifestDirOf(installation.manifestPath)
+    return manifestPaths.some(function sameDir(path) { return manifestDirOf(path) === dir })
+}
+
 // The one severity ordering, worst first. Everything that sorts, compares or filters by severity goes
 // through the helpers below rather than indexing a rank table, so no call site can get the direction
 // wrong. There used to be two rank scales pointing in OPPOSITE directions — an ascending one here

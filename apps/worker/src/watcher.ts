@@ -1,7 +1,8 @@
-import { basename, dirname, relative, resolve } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
 import { existsSync } from 'node:fs'
 import chokidar from 'chokidar'
 import { STABLE_ECOSYSTEMS } from '@sentinello/core'
+import { isWithin } from '@sentinello/scanners'
 import {
     enqueueScanRequest,
     listProjects,
@@ -143,8 +144,7 @@ function findProjectForDir(db: DrizzleDb, roots: Root[], absoluteDir: string): {
         })
         if (!root) continue
         const expected = resolve(root.path, project.relPath)
-        const rel = relative(expected, absoluteDir)
-        if (rel.startsWith('..')) continue
+        if (!isWithin(expected, absoluteDir)) continue
         if (best === null || expected.length > best.depth) best = { projectId: project.id, name: project.name, depth: expected.length }
     }
     return best === null ? null : { projectId: best.projectId, name: best.name }

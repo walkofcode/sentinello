@@ -695,6 +695,43 @@ describe('scan state — a row an ok scan kept because its manifest went unread'
         expect(bare('ruby', 'osv', 'RubyGems', { lastSeenAt: T0, resolvedAt: null, installations: [] })?.unreadReasonCode).toBe('partial_dependency_graph')
     })
 
+    // SENTINEL-146: t0 saw the row, t1 kept it unseen, t2 failed outright. The row was last checked at t0, not
+    // at t1, the cell's last ok scan; the failure's own reason stands.
+    it('keeps the last scan that saw the row through a later failed scan, on every read path', function () {
+        setUp()
+        failed('osv', T0 + 2 * HOUR, 'osv_db_unavailable', { projectId: 'ruby', ecosystem: 'RubyGems' })
+        const rows = new Map(listCurrentFindingsForProject(db, 'ruby', T0 + 3 * HOUR).map(function r(row) { return [row.id, row] }))
+        expect(rows.get('ios-row')?.notRecheckedBecause).toEqual({ reasonCode: 'osv_db_unavailable', side: 'environment', projectState: 'cannot_scan', lastOkScanAt: T0 })
+        // The row the t1 scan saw was last checked then.
+        expect(rows.get('android-row')?.notRecheckedBecause).toMatchObject({ reasonCode: 'osv_db_unavailable', lastOkScanAt: T0 + HOUR })
+        const usage = new Map(listLibraryUsage(db, 'lodash', T0 + 3 * HOUR).map(function u(row) { return [row.lastSeenAt, row.notRecheckedBecause?.lastOkScanAt] }))
+        expect(usage).toEqual(new Map([[T0, T0], [T0 + HOUR, T0 + HOUR]]))
+        const lookup = findingScanContexts(db, ['ruby'])
+        expect(lookup('ruby', 'osv', 'RubyGems', { lastSeenAt: T0, resolvedAt: null, installations: [] })?.lastOkScanAt).toBe(T0)
+        // Without the row's facts, or for a resolved row, the cell's last ok scan.
+        expect(lookup('ruby', 'osv', 'RubyGems')?.lastOkScanAt).toBe(T0 + HOUR)
+        expect(lookup('ruby', 'osv', 'RubyGems', { lastSeenAt: T0, resolvedAt: T0 + HOUR, installations: [] })?.lastOkScanAt).toBe(T0 + HOUR)
+    })
+
+    // SENTINEL-138: ios/Gemfile.lock is gone and ios/Gemfile is what the directory holds now. The row installed
+    // through the lockfile reads that manifest's reason, not the first unread one of the ecosystem.
+    it('names the reason of the manifest the copy\'s directory holds now', function () {
+        addProject('ruby', ['RubyGems'])
+        enable('osv', true, 'RubyGems')
+        const first = ok('osv', T0, { projectId: 'ruby', ecosystem: 'RubyGems' })
+        finding('ios-row', first.id, true, { source: 'osv', projectId: 'ruby', ecosystem: 'RubyGems', installationsJson: JSON.stringify([{ manifestPath: 'ios/Gemfile.lock', version: '2.0.8' }]) })
+        ok('osv', T0 + HOUR, {
+            projectId: 'ruby',
+            ecosystem: 'RubyGems',
+            coverage: [
+                { ecosystem: 'RubyGems', manifestPath: 'android/Gemfile.lock', status: 'ok' },
+                { ecosystem: 'RubyGems', manifestPath: 'Gemfile.lock', status: 'unauditable', reasonCode: 'unsupported_lockfile' },
+                { ecosystem: 'RubyGems', manifestPath: 'ios/Gemfile', status: 'unauditable', reasonCode: 'no_lockfile' }
+            ]
+        })
+        expect(listCurrentFindingsForProject(db, 'ruby', T0 + 2 * HOUR)[0]?.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'partial', lastOkScanAt: T0 })
+    })
+
     it('leaves a resolved row, a row with no last-seen time and a lookup without row facts alone', function () {
         setUp()
         const lookup = findingScanContexts(db, ['ruby'])

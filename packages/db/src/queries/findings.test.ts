@@ -17,6 +17,7 @@ import {
     listFindingsForProject,
     listFindingsForScan,
     listFindingsResolvedInScan,
+    listOpenFindingEcosystems,
     listResolvedFindingsForLibrary,
     listResolvedFindingsForProject,
     mergeFindingsForScan,
@@ -167,6 +168,53 @@ describe('mergeFindingsForScan — manifests the scan could not read', function 
         merge('s1', T0, [rack([{ manifestPath: 'ios/Gemfile.lock', version: '2.2.0' }, { manifestPath: 'web/Gemfile.lock', version: '2.0.1' }], '2.0.1')])
         const seen = merge('s2', T0 + HOUR, [rack([ANDROID], '2.1.0')], 'osv', 'RubyGems', ['ios/Gemfile.lock']).active[0]!
         expect(seen).toMatchObject({ installedVersion: '2.1.0', installations: [ANDROID, { manifestPath: 'ios/Gemfile.lock', version: '2.2.0' }] })
+    })
+
+    // SENTINEL-138: the lockfile is gone and its bare manifest is what ios/ holds now; the copy lives behind it.
+    it('keeps a copy behind the manifest its directory holds now, and lets it go once the directory holds none', function () {
+        const opened = merge('s1', T0, [rack([IOS])]).active[0]!
+        expect(merge('s2', T0 + HOUR, [], 'osv', 'RubyGems', ['ios/Gemfile']).resolved).toEqual([])
+        expect(listFindingsForProject(db, PROJECT_ID)[0]).toMatchObject({ id: opened.id, resolvedAt: null, installations: [IOS] })
+        expect(merge('s3', T0 + 2 * HOUR, [], 'osv', 'RubyGems', ['web/Gemfile']).resolved.map(function id(r) { return r.id })).toEqual([opened.id])
+    })
+
+    it('adds a copy behind the manifest its directory holds now back to a finding seen elsewhere', function () {
+        merge('s1', T0, [rack([ANDROID, IOS], '2.0.8')])
+        const seen = merge('s2', T0 + HOUR, [rack([ANDROID], '2.1.0')], 'osv', 'RubyGems', ['ios/Gemfile']).active[0]!
+        expect(seen).toMatchObject({ installedVersion: '2.0.8', installations: [ANDROID, IOS] })
+    })
+
+    // SENTINEL-145: the evidence that omitted a manifest cannot clear what the row said about the copy there.
+    it('keeps the scope and chains of the row while it keeps a copy, and takes this scan\'s once nothing is kept', function () {
+        const PROD = { manifestPath: 'prod/uv.lock', version: '3.2.0' }
+        const TOOLS = { manifestPath: 'tools/uv.lock', version: '3.2.0' }
+        function django(installations: typeof PROD[], scope: { isProd: boolean; isDev: boolean }, depPath: string[]): IncomingFinding {
+            return incoming('GHSA-django-1', { ecosystem: 'PyPI', packageName: 'django', installedVersion: '3.2.0', installations, depPath, ...scope })
+        }
+        merge('s1', T0, [django([PROD, TOOLS], { isProd: true, isDev: true }, ['app > django', 'tools > django'])])
+        const kept = merge('s2', T0 + HOUR, [django([TOOLS], { isProd: false, isDev: true }, ['tools > django', 'tools > lint > django'])], 'osv', 'PyPI', ['prod/uv.lock']).active[0]!
+        expect(kept).toMatchObject({ installations: [TOOLS, PROD], isProd: true, isDev: true, depPath: ['tools > django', 'tools > lint > django', 'app > django'] })
+        expect(listFindingsForProject(db, PROJECT_ID)[0]).toMatchObject({ isProd: true, isDev: true, depPath: ['tools > django', 'tools > lint > django', 'app > django'] })
+        // Every manifest read again: what this scan saw is the whole truth.
+        const read = merge('s3', T0 + 2 * HOUR, [django([TOOLS], { isProd: false, isDev: true }, ['tools > django'])], 'osv', 'PyPI', []).active[0]!
+        expect(read).toMatchObject({ installations: [TOOLS], isProd: false, isDev: true, depPath: ['tools > django'] })
+    })
+
+    it('takes this scan\'s scope when a manifest went unread but the row had no copy behind it', function () {
+        merge('s1', T0, [rack([ANDROID])])
+        const seen = merge('s2', T0 + HOUR, [{ ...rack([ANDROID], '2.1.0'), isProd: false, isDev: true, depPath: ['dev > rack'] }], 'osv', 'RubyGems', ['ios/Gemfile.lock']).active[0]!
+        expect(seen).toMatchObject({ isProd: false, isDev: true, depPath: ['dev > rack'] })
+    })
+})
+
+describe('listOpenFindingEcosystems', function () {
+    it('lists each ecosystem with an open finding once, whatever its source, and none only resolved', function () {
+        merge('s1', T0, [incoming('GHSA-a', { ecosystem: 'RubyGems', packageName: 'rack' }), incoming('GHSA-b', { ecosystem: 'RubyGems', packageName: 'rails' })])
+        merge('s2', T0, [incoming('GHSA-c', { ecosystem: 'PyPI', packageName: 'django', scanner: 'gemnasium', source: 'gemnasium' })], 'gemnasium')
+        merge('s3', T0, [incoming('GHSA-d', { ecosystem: 'Go', packageName: 'x' })])
+        merge('s4', T0 + HOUR, [], 'osv', 'Go')
+        expect(listOpenFindingEcosystems(db, PROJECT_ID).sort()).toEqual(['PyPI', 'RubyGems'])
+        expect(listOpenFindingEcosystems(db, 'no-such-project')).toEqual([])
     })
 })
 

@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from 'no
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import ignoreFactory from 'ignore'
 import {
+    manifestDirOf,
     packageManagerOfManifest,
     requireEcosystemId,
     STABLE_ECOSYSTEMS,
@@ -355,18 +356,13 @@ function addManifests(project: DiscoveredProject, found: DetectedManifest[]): vo
 // ecosystems from them.
 function finishProject(project: DiscoveredProject, ecosystems: readonly EcosystemDefinition[]): void {
     project.manifests.sort(function byDirectory(a, b) {
-        return manifestDir(a.path).localeCompare(manifestDir(b.path))
+        return manifestDirOf(a.path).localeCompare(manifestDirOf(b.path))
     })
     project.ecosystems = ecosystems
         .filter(function present(eco) {
             return project.manifests.some(function ofEco(m) { return m.ecosystem === eco.id })
         })
         .map(function id(eco) { return eco.id })
-}
-
-function manifestDir(path: string): string {
-    const slash = path.lastIndexOf('/')
-    return slash === -1 ? '' : path.slice(0, slash)
 }
 
 function isNpm(eco: EcosystemDefinition): boolean {
@@ -388,7 +384,7 @@ function classifySkip(
         // in scope — deriving the base from the ignore-layer stack would silently match `deep/one` against
         // just `one` in any tree whose root carries no ignore file.
         const rel = relative(rootPath, absolutePath)
-        if (rel && !rel.startsWith('..') && (excludeMatcher.ignores(rel) || excludeMatcher.ignores(rel + '/'))) {
+        if (rel && isWithin(rootPath, absolutePath) && (excludeMatcher.ignores(rel) || excludeMatcher.ignores(rel + '/'))) {
             return 'excludes'
         }
     }

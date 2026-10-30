@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { sourceEnabledKey, type EcosystemId } from '@sentinello/core'
 import {
     getProjectById,
+    getRootById,
     getProjectScanState,
     getSourceEnabled,
     listCurrentFindingsForProject,
@@ -22,9 +23,12 @@ import { createWorkerRuntime } from './runtime'
 // Milestone 2's multi-manifest corrections, end to end through the real discovery, runner and OSV scanner on
 // trees built at runtime:
 //   - SENTINEL-137: a readable manifest never hides an unreadable sibling of the same ecosystem;
-//   - SENTINEL-138: an ok scan of a cell resolves nothing it could not read;
+//   - SENTINEL-138: an ok scan of a cell resolves nothing it could not read — the same file, the bare manifest
+//     a removed lockfile left, or another manifest replacing it in the same directory;
 //   - SENTINEL-139: a scan the watcher asks for scans the lockfile that was just added;
-//   - SENTINEL-140: an incomplete discovery walk keeps the manifests it could not see.
+//   - SENTINEL-140: an incomplete discovery walk keeps the manifests it could not see;
+//   - SENTINEL-144: an ecosystem whose manifests are all gone resolves what it found;
+//   - SENTINEL-145: a copy kept behind an unread manifest still constrains the settled fix.
 //
 // chokidar is stubbed as in watcher.test.ts: the double hands back the registered handlers so a test can
 // deliver an event synchronously. Everything downstream of the event is real.
@@ -47,18 +51,22 @@ vi.mock('chokidar', function mockChokidar() {
 })
 
 const { discoverProjects } = await import('./discovery')
-const { runBatch } = await import('./runner')
+const { runBatch, runProjectScanners } = await import('./runner')
 const { startLockfileWatcher } = await import('./watcher')
 const { pollOnce } = await import('./scan-request-poller')
 
 const LOCK = JSON.stringify({ name: 'app', lockfileVersion: 3, packages: { '': { name: 'app', dependencies: { lodash: '4.17.11' } }, 'node_modules/lodash': { version: '4.17.11' } } })
 
-function gemfileLock(rack: string): string {
-    return ['GEM', '  remote: https://rubygems.org/', '  specs:', '    rack (' + rack + ')', '', 'PLATFORMS', '  ruby', '', 'DEPENDENCIES', '  rack', '', 'BUNDLED WITH', '   2.4.10', ''].join('\n')
+function gemfileLock(version: string, gem = 'rack'): string {
+    return ['GEM', '  remote: https://rubygems.org/', '  specs:', '    ' + gem + ' (' + version + ')', '', 'PLATFORMS', '  ruby', '', 'DEPENDENCIES', '  ' + gem, '', 'BUNDLED WITH', '   2.4.10', ''].join('\n')
 }
 
 // A lockfile left mid-merge: no gem can be read from it, so it resolves unauditable.
 const CONFLICTED = '<<<<<<< HEAD\nGEM\n=======\n>>>>>>> theirs\n'
+
+function uvLock(django: string): string {
+    return UV_LOCK.replace('version = "3.2.0"', 'version = "' + django + '"')
+}
 
 const UV_LOCK = [
     'version = 1',
@@ -95,7 +103,11 @@ function advisory(advisoryId: string, fixed: string): OsvAdvisory {
 
 const ADVISORIES: Record<string, Record<string, OsvAdvisory>> = {
     npm: { lodash: advisory('GHSA-lodash-1', '4.17.21') },
-    RubyGems: { rack: advisory('GHSA-rack-1', '2.2.6.4') },
+    RubyGems: {
+        rack: advisory('GHSA-rack-1', '2.2.6.4'),
+        // Two affected branches: 1.5.0 fixes the first, 2.5.0 the second.
+        puma: { ...advisory('GHSA-puma-1', '1.5.0'), ranges: [{ type: 'ECOSYSTEM', introduced: '1.0.0', fixed: '1.5.0', lastAffected: null }, { type: 'ECOSYSTEM', introduced: '2.0.0', fixed: '2.5.0', lastAffected: null }] }
+    },
     PyPI: { django: advisory('GHSA-django-1', '3.2.20') }
 }
 
@@ -336,3 +348,191 @@ describe('SENTINEL-140 — a discovery walk that cannot read a directory keeps w
         }
     })
 })
+
+describe('SENTINEL-138 — a lockfile removed, its manifest kept', function () {
+    // ios/Gemfile.lock goes; ios/Gemfile stays, so ios/ is still a Ruby directory whose dependencies could not be
+    // read. A readable Android sibling keeps the Ruby cell's scan ok throughout.
+    it.each([['android'], ['ios']])('keeps rack open while %s/Gemfile has no lockfile, and resolves it once the lock says it is fixed', async function (vulnerable) {
+        const safe = vulnerable === 'ios' ? 'android' : 'ios'
+        enable('npm', 'RubyGems')
+        const root = await tree({
+            'package.json': JSON.stringify({ name: 'app' }),
+            'package-lock.json': LOCK,
+            [vulnerable + '/Gemfile']: "gem 'rack'\n",
+            [vulnerable + '/Gemfile.lock']: gemfileLock('2.0.8'),
+            [safe + '/Gemfile.lock']: gemfileLock('2.2.8')
+        })
+        discover(root)
+        const id = projectId('code', '.')
+        await sweep()
+        const first = open(id, 'rack')
+        expect(first).toMatchObject({ installations: [{ manifestPath: vulnerable + '/Gemfile.lock', version: '2.0.8' }], notRecheckedBecause: null })
+        const lodash = open(id, 'lodash')
+
+        await rm(join(root.path, vulnerable, 'Gemfile.lock'))
+        await sweep()
+        expect(getProjectById(handle.db, id)?.manifests.map(function path(m) { return m.path })).toContain(vulnerable + '/Gemfile')
+        expect(open(id, 'rack')).toMatchObject({
+            id: first?.id,
+            installations: [{ manifestPath: vulnerable + '/Gemfile.lock', version: '2.0.8' }],
+            notRecheckedBecause: { reasonCode: 'no_lockfile', side: 'project', projectState: 'partial', lastOkScanAt: first?.lastSeenAt }
+        })
+        expect(open(id, 'lodash')).toMatchObject({ id: lodash?.id, notRecheckedBecause: null })
+
+        await writeFile(join(root.path, vulnerable, 'Gemfile.lock'), gemfileLock('2.0.8'))
+        await sweep()
+        expect(open(id, 'rack')).toMatchObject({ id: first?.id, notRecheckedBecause: null })
+
+        await writeFile(join(root.path, vulnerable, 'Gemfile.lock'), gemfileLock('2.2.8'))
+        await sweep()
+        expect(open(id, 'rack')).toBeUndefined()
+        expect(open(id, 'lodash')?.id).toBe(lodash?.id)
+    })
+
+    it('keeps the copy behind ios/Gemfile on a finding the Android lock still shows', async function () {
+        enable('RubyGems')
+        const root = await tree({
+            'package.json': JSON.stringify({ name: 'app' }),
+            'ios/Gemfile': "gem 'rack'\n",
+            'ios/Gemfile.lock': gemfileLock('2.0.8'),
+            'android/Gemfile.lock': gemfileLock('2.1.0')
+        })
+        discover(root)
+        const id = projectId('code', '.')
+        await sweep()
+        const both = [{ manifestPath: 'android/Gemfile.lock', version: '2.1.0' }, { manifestPath: 'ios/Gemfile.lock', version: '2.0.8' }]
+
+        await rm(join(root.path, 'ios', 'Gemfile.lock'))
+        await sweep()
+        expect(open(id, 'rack')).toMatchObject({ installedVersion: '2.0.8' })
+        expect(sortedInstallations(open(id, 'rack')?.installations)).toEqual(both)
+
+        // The Gemfile goes too: nothing of ios/ is installed any more, and the Android copy is the whole finding.
+        await rm(join(root.path, 'ios'), { recursive: true })
+        await sweep()
+        expect(open(id, 'rack')).toMatchObject({ installedVersion: '2.1.0', installations: [{ manifestPath: 'android/Gemfile.lock', version: '2.1.0' }] })
+    })
+})
+
+describe('SENTINEL-138 — a manifest replaced by another in its directory', function () {
+    it('keeps django open while the requirements.txt that replaced svc/uv.lock cannot be read, and resolves it once it can', async function () {
+        enable('PyPI')
+        const root = await tree({
+            'package.json': JSON.stringify({ name: 'app' }),
+            'svc/uv.lock': uvLock('3.2.0'),
+            'web/uv.lock': uvLock('3.2.20')
+        })
+        discover(root)
+        const id = projectId('code', '.')
+        await sweep()
+        const first = open(id, 'django')
+        expect(first).toMatchObject({ installations: [{ manifestPath: 'svc/uv.lock', version: '3.2.0' }] })
+
+        await rm(join(root.path, 'svc', 'uv.lock'))
+        await writeFile(join(root.path, 'svc', 'requirements.txt'), 'django>=3.2\n')
+        await sweep()
+        expect(open(id, 'django')).toMatchObject({ id: first?.id, notRecheckedBecause: { reasonCode: 'ambiguous_dependency_spec', side: 'project', projectState: 'partial', lastOkScanAt: first?.lastSeenAt } })
+
+        await writeFile(join(root.path, 'svc', 'requirements.txt'), 'django==3.2.20\n')
+        await sweep()
+        expect(open(id, 'django')).toBeUndefined()
+    })
+})
+
+describe('SENTINEL-144 — an ecosystem whose manifests are all removed', function () {
+    async function rubyInNpm(): Promise<{ root: Root; id: string }> {
+        enable('npm', 'RubyGems')
+        const root = await tree({
+            'package.json': JSON.stringify({ name: 'app' }),
+            'package-lock.json': LOCK,
+            'ios/Gemfile': "gem 'rack'\n",
+            'ios/Gemfile.lock': gemfileLock('2.0.8')
+        })
+        discover(root)
+        const id = projectId('code', '.')
+        await sweep()
+        expect(open(id, 'rack')).toBeDefined()
+        return { root, id }
+    }
+
+    it('resolves rack once ios/ is gone, on a scan between sweeps', async function () {
+        const { root, id } = await rubyInNpm()
+        const lodash = open(id, 'lodash')
+        await rm(join(root.path, 'ios'), { recursive: true })
+        await sweep()
+        expect(open(id, 'rack')).toBeUndefined()
+        expect(getProjectById(handle.db, id)?.ecosystems).toEqual(['npm'])
+        expect(open(id, 'lodash')).toMatchObject({ id: lodash?.id, notRecheckedBecause: null })
+        expect(getProjectScanState(handle.db, id).state).toBe('scanned')
+    })
+
+    it('resolves rack when a sweep\'s discovery dropped the ecosystem before the scan', async function () {
+        const { root, id } = await rubyInNpm()
+        await rm(join(root.path, 'ios'), { recursive: true })
+        discover(root)
+        expect(getProjectById(handle.db, id)?.ecosystems).toEqual(['npm'])
+        await sweep()
+        expect(open(id, 'rack')).toBeUndefined()
+    })
+
+    it('keeps running the Ruby cell until it has resolved rack', async function () {
+        const { root, id } = await rubyInNpm()
+        await rm(join(root.path, 'ios'), { recursive: true })
+        const rack = open(id, 'rack')
+        setConfigValue(handle.db, sourceEnabledKey('osv', 'RubyGems'), false)
+        await sweep()
+        // Hidden while its source is off, and still open: no Ruby cell could run.
+        expect(listFindingsForProject(handle.db, id).find(function f(r) { return r.id === rack?.id })?.resolvedAt).toBeNull()
+        expect(getProjectById(handle.db, id)?.ecosystems).toEqual(['npm'])
+        enable('RubyGems')
+        await sweep()
+        expect(open(id, 'rack')).toBeUndefined()
+    })
+
+    it('keeps rack while ios/ cannot be read', async function () {
+        const { root, id } = await rubyInNpm()
+        const rack = open(id, 'rack')
+        await chmod(join(root.path, 'ios'), 0o000)
+        try {
+            await sweep()
+            expect(open(id, 'rack')?.id).toBe(rack?.id)
+        } finally {
+            await chmod(join(root.path, 'ios'), 0o755)
+        }
+    })
+})
+
+describe('SENTINEL-145 — a copy kept behind an unread manifest constrains the fix', function () {
+    // puma 1.0.0 is in the first affected branch, 2.0.0 in the second: only 2.5.0 is at or above both copies.
+    it('settles the fix above the kept copy, not just above the copy the scan read', async function () {
+        enable('RubyGems')
+        const root = await tree({
+            'package.json': JSON.stringify({ name: 'app' }),
+            'android/Gemfile.lock': gemfileLock('1.0.0', 'puma'),
+            'ios/Gemfile.lock': gemfileLock('2.0.0', 'puma')
+        })
+        discover(root)
+        const id = projectId('code', '.')
+        const registry = {
+            RubyGems: {
+                async published(stated: ReadonlyMap<string, readonly string[]>) {
+                    const published = ['1.0.0', '1.5.0', '2.0.0', '2.5.0'].map(function release(version) { return { version, deprecated: false } })
+                    return new Map([...stated.keys()].map(function view(name) { return [name, { status: 'ok' as const, published, dataAsOf: T0 }] as const }))
+                }
+            }
+        }
+        async function scan(): Promise<void> {
+            const project = getProjectById(handle.db, id)!
+            expect(getRootById(handle.db, project.rootId)).not.toBeNull()
+            await runProjectScanners({ db: handle.db, scanners: [osv], project, registry, notify: async function quiet() {} })
+        }
+        await scan()
+        expect(open(id, 'puma')).toMatchObject({ installedVersion: '1.0.0', fixStatus: 'released', fixVersion: '2.5.0' })
+
+        await writeFile(join(root.path, 'ios', 'Gemfile.lock'), CONFLICTED)
+        await scan()
+        expect(open(id, 'puma')).toMatchObject({ installedVersion: '1.0.0', fixStatus: 'released', fixVersion: '2.5.0' })
+        expect(sortedInstallations(open(id, 'puma')?.installations)).toEqual([{ manifestPath: 'android/Gemfile.lock', version: '1.0.0' }, { manifestPath: 'ios/Gemfile.lock', version: '2.0.0' }])
+    })
+})
+

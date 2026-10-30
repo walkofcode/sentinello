@@ -197,9 +197,11 @@ export const NOT_YET_RUN_LABELS: Record<Locale, string> = {
     'ru': 'Ещё не запускался'
 }
 
-// Why a finding still listed was not re-checked: its source's latest scan of the project failed, so the
-// row is what an earlier scan left behind. Read-time only, never stored. `lastOkScanAt` is when that
-// source last scanned the project successfully, or null when it never did.
+// Why a finding still listed was not re-checked: its source's latest scan of the project failed, or was ok
+// but could not read a manifest the row lives behind, so the row is what an earlier scan left behind.
+// Read-time only, never stored. `lastOkScanAt` is when the row was last checked successfully: the last ok
+// scan that saw it (its last_seen_at) when the findings query passed the row's facts, else the source's last
+// ok scan of the project; null when it never scanned it successfully.
 export type NotRecheckedBecause = {
     reasonCode: FailureReasonCode
     side: ScanStateSide
@@ -207,11 +209,12 @@ export type NotRecheckedBecause = {
     lastOkScanAt: number | null
 }
 
-// What a findings query knows about the row's source: its latest scan of the project and the last ok one.
-// `unreadReasonCode` is set when that latest scan was ok but did not see the row because a manifest it may
-// live in could not be read (the lifecycle merge keeps such a row open rather than resolve it): the coverage
-// reason of that manifest. Null or absent otherwise. For such a row `lastOkScanAt` is the last scan that did
-// see it, not the ok scan that could not.
+// What a findings query knows about the row's source: its latest scan of the project, and when the row was
+// last checked successfully (`lastOkScanAt`, the same contract as NotRecheckedBecause's: for an open row read
+// with its facts, the last ok scan that saw it — never a later ok scan that kept it unseen, whether or not a
+// failed scan followed). `unreadReasonCode` is set when that latest scan was ok but did not see the row
+// because a manifest it may live behind could not be read (the lifecycle merge keeps such a row open rather
+// than resolve it): the coverage reason of that manifest. Null or absent otherwise.
 export type FindingScanContext = {
     latestStatus: string | null
     latestReasonCode: string | null

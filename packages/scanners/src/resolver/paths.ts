@@ -15,8 +15,9 @@ export function isInsideProject(projectPath: string, fromDir: string, localPath:
     return isWithin(resolve(projectPath), resolve(fromDir, localPath))
 }
 
-// Whether `path` is `dir` or below it. Both absolute.
+// Whether `path` is `dir` or below it. Both absolute. Only a `..` path component leaves `dir`: a child
+// directory may well be named `..service`.
 export function isWithin(dir: string, path: string): boolean {
     const rel = relative(dir, path)
-    return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+    return rel !== '..' && !rel.startsWith('..' + sep) && !isAbsolute(rel)
 }

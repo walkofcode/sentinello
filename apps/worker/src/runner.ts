@@ -5,6 +5,7 @@ import {
     applyFindingCorroborations,
     getRunnableSourceCells,
     insertScan,
+    listOpenFindingEcosystems,
     mergeFindingsForScan,
     getRootById,
     setProjectGitBranch,
@@ -30,7 +31,8 @@ import {
     type DetectedManifest,
     type ResolvedGraph,
     type ResolverResult,
-    type ScannerPlugin
+    type ScannerPlugin,
+    type ScanResult
 } from '@sentinello/scanners'
 import { errText } from '@sentinello/feeds'
 import { createRegistryClients, fixEvidenceKey, type RegistryClients } from '@sentinello/fixes'
@@ -162,11 +164,10 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
     refreshGitBranch(input.db, project, projectPath, root.path)
     // Which manifests the project owns is re-read now, by the discovery rules, not taken from the last sweep:
     // a scan the watcher or the operator asked for between sweeps has to see the lockfile that was just added
-    // (SENTINEL-139). The ecosystems recorded before it still run this once, so one whose manifests are all
-    // gone records that it could not be read, and the findings it left read as not re-checked, not as current.
+    // (SENTINEL-139). The ecosystems recorded before it still run this once.
     const recordedEcosystems = project.ecosystems.slice()
     const globalIgnore = getConfigValue<string[]>(input.db, CONFIG_KEYS.globalIgnore) || DEFAULT_GLOBAL_IGNORE
-    refreshProjectInventory(input.db, project, root.path, globalIgnore, Date.now())
+    const inventoryRead = refreshProjectInventory(input.db, project, root.path, globalIgnore, Date.now())
     // Resolve every manifest the project owns ONCE per scan — its own directory's and every sub-manifest
     // (ios/Gemfile.lock) — each classified ok/partial/unauditable so coverage is honest, one entry per
     // manifest. Then each source runs once per (source, ecosystem) cell the project has and the operator
@@ -178,12 +179,15 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
     const resolverResults = resolved.map(function result(r) { return r.result })
     const npmGraph = graphForEcosystem(resolverResults, 'npm')
     const coverage = resolved.map(toCoverage)
-    // The project's ecosystems: what its manifests hold now, and what was recorded for it before this scan —
-    // an ecosystem whose lockfile vanished since still runs, and records no_lockfile instead of "not yet run".
-    // A row with neither is read as npm, the only thing a pre-polyglot row can be.
+    // The project's ecosystems: what its manifests hold now, what was recorded for it before this scan, and
+    // every ecosystem it still has open findings in. An ecosystem whose manifests are all gone runs once more,
+    // and again on every scan until nothing of it is open, so what it found is resolved even when that one run
+    // failed or was aborted (SENTINEL-144). A row with none of them is read as npm, the only thing a
+    // pre-polyglot row can be.
     const present = new Set<string>(recordedEcosystems)
     for (const e of project.ecosystems) present.add(e)
     for (const r of resolverResults) present.add(r.ecosystem)
+    for (const e of listOpenFindingEcosystems(input.db, project.id)) present.add(e)
     if (present.size === 0) present.add('npm')
     const detected = ECOSYSTEMS.filter(function inProject(eco) { return present.has(eco.id) }).map(function id(eco) { return eco.id })
     const outcomes: ProjectScanOutcome[] = []
@@ -209,7 +213,11 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
             // nothing about one that could not: what lives there is not resolved by its absence. npm-audit runs
             // its own audit of the project rather than this graph, and answers for it whole.
             const unreadManifests = isNpmAudit ? [] : unreadOf(cell)
-            const outcome = await runOneScanner(input, project, projectPath, scanner, ecosystem, reportedByPackage, corroborations, graphForCell, coverageForCell, coverage, unreadManifests)
+            // The project was read now and holds no manifest of this ecosystem at all — an incomplete walk keeps
+            // those it could not see (withUnreadManifests), so this is a removal: nothing of it is installed, and
+            // no source has anything to look up. The scan answers so itself, whatever the source's state.
+            const nothingInstalled = inventoryRead && cell.length === 0
+            const outcome = await runOneScanner(input, project, projectPath, scanner, ecosystem, reportedByPackage, corroborations, graphForCell, coverageForCell, coverage, unreadManifests, nothingInstalled)
             outcomes.push(outcome)
         }
     }
@@ -223,7 +231,7 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
     //   - a way-out failure keeps the settlements and leaves those findings without guidance (their Fix
     //     line still says no fixed version is released).
     const settledFindings = outcomes.flatMap(function findingsOf(o) { return o.findings })
-    const evidence = evidenceByFinding(reportedByPackage)
+    const evidence = withRetainedCopies(evidenceByFinding(reportedByPackage), settledFindings)
     const registry = input.registry ?? createRegistryClients(createDbRegistryStores(input.db), { abortSignal: input.abortSignal })
     try {
         const { wayOutError } = await verifyFixes({ db: input.db, findings: settledFindings, evidence, graph: npmGraph, registry, checkedAt: Date.now() })
@@ -309,6 +317,26 @@ function evidenceByFinding(reportedByPackage: Map<string, Map<string, ReportedAd
     const out = new Map<string, FixEvidence[]>()
     for (const byKey of reportedByPackage.values()) {
         for (const reported of byKey.values()) out.set(fixEvidenceKey(reported), reported.evidence)
+    }
+    return out
+}
+
+// A finding the merge kept a copy of behind a manifest this scan could not read (decision #51) is settled
+// against that copy too: the fix must be at or above every installed copy (pickReleasedFix's floor), and this
+// scan's evidence lists only the copies it read. The retained version joins the finding's own source's
+// statement — that source matched the copy against the same advisory when it last read it — as one more
+// copy's entry, the shape a second copy of one source already takes (SENTINEL-145).
+function withRetainedCopies(evidence: Map<string, FixEvidence[]>, findings: readonly Finding[]): Map<string, FixEvidence[]> {
+    const out = new Map(evidence)
+    for (const finding of findings) {
+        const key = fixEvidenceKey(finding)
+        // Every finding a merge returned is a survivor this scan registered (reconcileAgainstReported), with its
+        // own source's statement first.
+        const list = out.get(key) as FixEvidence[]
+        const seen = new Set(list.flatMap(function installedOf(e) { return e.installed }))
+        const retained = [...new Set(finding.installations.map(function version(i) { return i.version }))].filter(function unseen(v) { return !seen.has(v) })
+        if (retained.length === 0) continue
+        out.set(key, [...list, { ...(list[0] as FixEvidence), installed: retained }])
     }
     return out
 }
@@ -430,15 +458,16 @@ async function runOneScanner(
     resolvedGraph: ResolvedGraph | null,
     coverage: EcosystemCoverage[] | undefined,
     projectCoverage: EcosystemCoverage[],
-    unreadManifests: readonly string[]
+    unreadManifests: readonly string[],
+    nothingInstalled: boolean
 ): Promise<ProjectScanOutcome> {
     const startedAt = Date.now()
     // nvm/Node tooling is JavaScript-only: only the npm-audit scanner ever invokes it. Feed sources are
     // toolchain-free, so a project's .nvmrc must not make them try to switch Node versions.
     const useNvm = scanner.name === NPM_AUDIT_SCANNER_NAME && project.nvmrcVersion !== null
-    let scanResult
+    let scanResult: ScanResult
     try {
-        scanResult = await scanner.scan(projectPath, {
+        scanResult = nothingInstalled ? nothingInstalledResult(scanner.name) : await scanner.scan(projectPath, {
             timeoutMs: SCANNER_TIMEOUT_MS,
             ecosystem,
             useNvm,
@@ -518,6 +547,12 @@ async function runOneScanner(
     // Notification is deliberately NOT fired here — see the comment at the notify loop in
     // runProjectScanners for why it has to wait until every source has had its say.
     return { project, scan, findings: merged }
+}
+
+// The answer for an ecosystem the project no longer holds any manifest of: an ok scan of no packages, which
+// resolves every finding the cell left open (SENTINEL-144).
+function nothingInstalledResult(source: string): ScanResult {
+    return { status: 'ok', reasonCode: 'ok', findings: [], rawJson: JSON.stringify({ source, packageCount: 0, findingCount: 0 }), errorText: null, durationMs: 0 }
 }
 
 function makeErrorOutcome(project: Project, errorText: string, ecosystem: EcosystemId, startedAt: number | undefined, scanner: string): ProjectScanOutcome {

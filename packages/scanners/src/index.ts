@@ -13,6 +13,7 @@ export {
     mergeResolvedGraphs,
     graphForEcosystem
 } from './resolver'
+export { isWithin } from './resolver/paths'
 export type { DepScope, DetectedManifest, LockEdge, LockEdgeKind, LockNode, LockRoot, LockRootKind, NodeGraph, ResolvedGraph, ResolvedPackage, ResolverResult } from './resolver'
 export {
     detectPackageManager,

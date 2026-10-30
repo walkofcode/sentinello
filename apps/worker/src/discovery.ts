@@ -132,19 +132,21 @@ export function discoverProjects(input: DiscoveryInput): DiscoveryResult {
 // a uv.lock added beside a bare pyproject.toml, an ios/Gemfile.lock added to an npm project. Mutates the
 // in-memory project the scan goes on to use. A directory that no longer anchors a project keeps its recorded
 // inventory: whether the project is gone is the next discovery pass's call, and its scan then says what it
-// could not read.
-export function refreshProjectInventory(db: DrizzleDb, project: Project, rootPath: string, globalIgnore: string[], at: number): void {
+// could not read. Returns whether the inventory was read now — false for such a directory — which is what lets
+// the runner read an ecosystem with no manifest left as one with nothing installed (SENTINEL-144).
+export function refreshProjectInventory(db: DrizzleDb, project: Project, rootPath: string, globalIgnore: string[], at: number): boolean {
     const projectPath = resolve(rootPath, project.relPath)
     const rediscovery = rediscoverProject({ rootPath, projectPath, excludes: globalIgnore })
-    if (rediscovery.project === null) return
+    if (rediscovery.project === null) return false
     for (const error of rediscovery.errors) console.log('[discovery] could not read ' + error.path + ': ' + error.message)
     const now = withUnreadManifests(rediscovery.project, project.manifests, rediscovery.errors)
-    if (sameInventory(project, now)) return
+    if (sameInventory(project, now)) return true
     project.packageManager = now.packageManager
     project.nvmrcVersion = now.nvmrcVersion
     project.ecosystems = now.ecosystems
     project.manifests = now.manifests
     setProjectInventory(db, project.id, project, at)
+    return true
 }
 
 function sameInventory(project: Project, now: DiscoveredProject): boolean {
