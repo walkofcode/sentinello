@@ -27,6 +27,30 @@ const ROWS: Row[] = [
         disableKey: 'rows.npmDownloads.disable'
     },
     {
+        destination: 'pypi.org',
+        purposeKey: 'rows.pypi.purpose',
+        whenKey: 'rows.pypi.when',
+        disableKey: 'rows.pypi.disable'
+    },
+    {
+        destination: 'proxy.golang.org',
+        purposeKey: 'rows.goproxy.purpose',
+        whenKey: 'rows.goproxy.when',
+        disableKey: 'rows.goproxy.disable'
+    },
+    {
+        destination: 'index.crates.io',
+        purposeKey: 'rows.crates.purpose',
+        whenKey: 'rows.crates.when',
+        disableKey: 'rows.crates.disable'
+    },
+    {
+        destination: 'rubygems.org',
+        purposeKey: 'rows.rubygems.purpose',
+        whenKey: 'rows.rubygems.when',
+        disableKey: 'rows.rubygems.disable'
+    },
+    {
         destination: 'osv-vulnerabilities.storage.googleapis.com/<ecosystem>',
         purposeKey: 'rows.osv.purpose',
         whenKey: 'rows.osv.when',

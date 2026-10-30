@@ -1,7 +1,7 @@
 {
     "Meta": {
         "title": "Sentinello — surveillance CVE en alerte précoce pour tout votre parc de projets",
-        "description": "Surveillance des vulnérabilités de dépendances pour les projets Node.js, auto-hébergée et open source. Pointez-la vers vos dépôts et obtenez une seule file de triage pour les CVE connues de chaque projet.",
+        "description": "Surveillance des vulnérabilités de dépendances pour les projets Node.js, Python, Go, Rust et Ruby, auto-hébergée et open source. Pointez-la vers vos dépôts et obtenez une seule file de triage pour les CVE connues de chaque projet.",
         "tagline": "Alerte précoce des CVE pour tout votre parc de projets",
         "tabTitle": "Sentinello — surveillance CVE multilangage"
     },
@@ -38,7 +38,7 @@
     },
     "Hero": {
         "title": "Un système d'alerte précoce pour les dépendances que vous ne surveillez plus.",
-        "subtitle": "À l’ère de l’IA, vous livrez plus de projets que vous ne pouvez en maintenir. Sentinello surveille chacun d’eux et révèle les CVE connues dans leurs dépendances Node.js — pour qu’un projet oublié ne devienne jamais un incident.",
+        "subtitle": "À l’ère de l’IA, vous livrez plus de projets que vous ne pouvez en maintenir. Sentinello surveille chacun d’eux et révèle les CVE connues dans leurs dépendances (Node.js, Python, Go, Rust et Ruby) — pour qu’un projet oublié ne devienne jamais un incident.",
         "commandCaption": "Lancez-le en une seule commande :",
         "ctaPrimary": "Lire le démarrage rapide",
         "ctaSecondary": "Mettre une étoile sur GitHub",
@@ -86,7 +86,7 @@
         "title": "Fonctionnalités",
         "subtitle": "Tout dans un portail auto-hébergé — aucun service externe, aucune donnée ne quitte votre réseau.",
         "queueTitle": "File de triage unique",
-        "queueBody": "Voyez et triez les CVE de tout votre parc de projets à un seul endroit — au lieu d'un npm audit éparpillé sur une dizaine de copies.",
+        "queueBody": "Voyez et triez les CVE de tout votre parc de projets, dans tous les langages, à un seul endroit — au lieu de résultats d'audit éparpillés sur une dizaine de copies.",
         "browseTitle": "Parcourir par projet ou par bibliothèque",
         "browseBody": "Plongez dans n'importe quel dépôt pour ses résultats, ses versions de correction et son historique — ou basculez vers un paquet vulnérable pour voir tous les projets qu'il affecte et le mettre en sourdine partout d'un coup.",
         "exportTitle": "Export d'avis",
@@ -94,7 +94,9 @@
         "scanningTitle": "Analyse continue",
         "scanningBody": "Un processus en arrière-plan réanalyse selon une planification, pour que les nouveaux avis apparaissent sans que vous ayez à penser à vérifier.",
         "sourcesTitle": "Sources multiples",
-        "sourcesBody": "Au-delà de npm audit : comparaison avec OSV et gemnasium de GitLab pour une couverture CVE plus large et la détection de paquets malveillants connus.",
+        "sourcesBody": "npm audit pour Node.js, plus OSV et gemnasium de GitLab pour tous les langages : une couverture CVE plus large et la détection de paquets malveillants connus.",
+        "ecosystemsTitle": "Python · Go · Rust · Ruby",
+        "ecosystemsBody": "En plus de Node.js, il analyse les projets Python, Go, Rust et Ruby à partir de leurs lockfiles (requirements.txt, poetry.lock, uv.lock, go.mod, Cargo.lock, Gemfile.lock), lus hors ligne, sans exécuter pip, go, cargo ni bundler.",
         "notificationsTitle": "Notifications et webhooks",
         "notificationsBody": "Recevez des alertes d'échecs et de résultats via Slack, Telegram ou un simple webhook — ciblées par root ou par projet, dans la langue de votre choix. Payloads JSON ou texte brut pour un agent d'auto-correction.",
         "selfContainedTitle": "Une image, un fichier",
@@ -166,6 +168,9 @@
         "row_scope": "Portée",
         "npm_scope": "Le seul projet dans lequel vous vous trouvez.",
         "ours_scope": "Tous les projets d'un dossier, en une passe et un seul rapport.",
+        "row_languages": "Langages",
+        "npm_languages": "Projets npm uniquement.",
+        "ours_languages": "Lockfiles Node.js, Python, Go, Rust et Ruby, lus hors ligne. Rien n’est installé ni exécuté pour eux.",
         "row_sources": "Sources d'avis",
         "npm_sources": "Le flux d'avis de votre registre.",
         "ours_sources": "Celui-ci, plus OSV et GitLab gemnasium. Les doublons sont supprimés : chaque source supplémentaire n'ajoute que des découvertes inédites.",

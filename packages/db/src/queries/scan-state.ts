@@ -363,8 +363,26 @@ export function findingScanContexts(db: DrizzleDb, projectIds: readonly string[]
         if (row !== undefined && keptUnseen(latest, row)) {
             return { latestStatus: latest.status, latestReasonCode: latest.reasonCode, lastOkScanAt, projectState: state.state, unreadReasonCode: unreadReasonCode(project.coverage, ecosystem, row.installations) }
         }
+        const kept = row === undefined ? [] : keptCopies(latest, row, project.coverage, ecosystem)
+        if (kept.length > 0) {
+            return { latestStatus: latest.status, latestReasonCode: latest.reasonCode, lastOkScanAt, projectState: state.state, unreadReasonCode: kept[0]!.reasonCode ?? 'partial_dependency_graph', unreadManifests: kept.map(function path(c) { return c.manifestPath as string }) }
+        }
         return { latestStatus: latest.status, latestReasonCode: latest.reasonCode, lastOkScanAt, projectState: state.state }
     }
+}
+
+// The unread manifests an open row the latest ok scan DID see still has copies behind (SENTINEL-145): the
+// merge keeps a copy whose manifest went unread on a row the scan saw through another one, and the row's
+// last_seen_at is that scan's, so only the coverage can say the kept copies were not re-checked. A copy
+// belongs to its manifest's directory (installedThrough); discovery records one manifest per ecosystem
+// there, so an unauditable one holding the copy's slot is one the scan could not read.
+function keptCopies(latest: LatestSourceScanRow, row: FindingRowFacts, coverage: readonly EcosystemCoverageRow[] | null, ecosystem: string): EcosystemCoverageRow[] {
+    if (latest.status !== 'ok' || row.resolvedAt !== null) return []
+    return (coverage ?? []).filter(function holdsKeptCopy(c) {
+        if (c.ecosystem !== ecosystem || c.status !== 'unauditable' || c.manifestPath === null) return false
+        const manifestPath = c.manifestPath
+        return row.installations.some(function at(i) { return installedThrough(i, [manifestPath]) })
+    })
 }
 
 // An ok scan refreshes last_seen_at on every row of its cell it sees and resolves every other one it could

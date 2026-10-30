@@ -45,17 +45,11 @@ const feeds = vi.hoisted(function makeFeedsDouble() {
     }
 })
 
-vi.mock('@sentinello/feeds', function mockFeeds() {
+vi.mock('@sentinello/feeds', async function mockFeeds(importOriginal) {
+    const actual = await importOriginal<typeof import('@sentinello/feeds')>()
     return {
-        // Reproduces the real helper (strip directories, strip the extension) so path→id mapping in the
-        // incremental path is exercised rather than stubbed away.
-        advisoryIdFromPath: function advisoryIdFromPath(path: string) {
-            const file = path.split('/').pop()
-            if (!file) return null
-            const dot = file.lastIndexOf('.')
-            const id = dot > 0 ? file.slice(0, dot) : file
-            return id.length > 0 ? id : null
-        },
+        // The real path→row mapping, so the incremental path's deletes are exercised rather than stubbed away.
+        gemnasiumPathIdentity: actual.gemnasiumPathIdentity,
         errText: function errText(err: unknown) {
             return err instanceof Error && err.message || String(err)
         },
@@ -344,21 +338,27 @@ describe('syncGemnasium — the incremental path', function () {
         expect(countGemnasiumAdvisories(db)).toBe(1)
     })
 
-    // Clearing before rewriting is what stops a package dropped from an advisory lingering as a phantom.
-    it('clears a changed advisory prior rows before rewriting it', async function () {
-        upsertGemnasiumAdvisories(db, [row({ packageName: 'left-pad' })])
+    // Clearing before rewriting is what stops an advisory a file no longer yields lingering as a phantom — and
+    // a file holds ONE package's advisory, so nothing else is cleared: not the same CVE under another npm
+    // package's file, and not its PyPI rows (an npm file changing used to delete every ecosystem's rows of the
+    // id until the next full rebuild).
+    it('clears only the changed file\'s row before rewriting it', async function () {
+        upsertGemnasiumAdvisories(db, [row(), row({ packageName: 'left-pad' }), row({ ecosystem: 'PyPI', packageName: 'django' })])
         feeds.fetchGemnasiumChangedPaths.mockResolvedValue({
             status: 'ok',
             changed: ['npm/lodash/CVE-2024-1.yml'],
-            deleted: [],
+            deleted: ['pypi/Django/CVE-2024-9.yml'],
             toSha: 'sha-new'
         })
-        feeds.fetchGemnasiumFileRows.mockResolvedValue([row({ packageName: 'lodash' })])
+        // The file no longer yields a row (retracted upstream for lodash).
+        feeds.fetchGemnasiumFileRows.mockResolvedValue([])
 
         await syncGemnasium(db)
 
-        expect(lookupGemnasiumByPackages(db, 'npm', ['left-pad']).get('left-pad')).toBeUndefined()
-        expect(countGemnasiumAdvisories(db)).toBe(1)
+        expect(lookupGemnasiumByPackages(db, 'npm', ['lodash']).get('lodash')).toBeUndefined()
+        expect(lookupGemnasiumByPackages(db, 'npm', ['left-pad']).get('left-pad')).toHaveLength(1)
+        expect(lookupGemnasiumByPackages(db, 'PyPI', ['django']).get('django')).toHaveLength(1)
+        expect(countGemnasiumAdvisories(db)).toBe(2)
     })
 
     it('applies several changed files in one pass', async function () {

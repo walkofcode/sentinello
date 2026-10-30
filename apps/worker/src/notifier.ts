@@ -26,6 +26,7 @@ import {
     getRootById,
     getConfigValue,
     getProjectScanState,
+    getScanEcosystem,
     findingScanContexts,
     pendingBaselineCapabilities,
     type DispatchablePair,
@@ -37,12 +38,13 @@ import {
     redactTarget,
     renderBatchedFindings,
     renderScanFailure,
-    senderFor,
+    type NotificationSender,
     type RenderedMessage,
     type WebhookPayloadContext
 } from '@sentinello/notifications'
 import { CONFIG_KEYS } from './config-loader'
 import type { ProjectScanOutcome } from './runner'
+import { sendByKind } from './transport'
 
 // The notifier orchestrates the ledger UPSERT + per-(event, target) dispatch flow described by
 // the notification_deliveries lifecycle rules. It does NOT decide WHAT to
@@ -53,6 +55,9 @@ export type NotifyForCompletedScanInput = {
     db: DrizzleDb
     outcome: ProjectScanOutcome
     dryRun: boolean
+    // The transport every message goes out through. Defaults to each target's real sender; the live-copy
+    // verification passes a recording one (SENTINEL-123).
+    send?: NotificationSender
 }
 
 export async function notifyForCompletedScan(input: NotifyForCompletedScanInput): Promise<void> {
@@ -122,6 +127,7 @@ export async function notifyForCompletedScan(input: NotifyForCompletedScanInput)
             scanContext,
             scanErrorText: input.outcome.scan.errorText,
             dryRun: input.dryRun,
+            send: input.send ?? sendByKind,
             at
         })
     }
@@ -148,6 +154,7 @@ type DispatchGroupInput = {
     scanContext: FindingScanContextLookup
     scanErrorText: string | null
     dryRun: boolean
+    send: NotificationSender
     at: number
 }
 
@@ -212,6 +219,7 @@ async function dispatchGroup(input: DispatchGroupInput): Promise<void> {
             events: matchedEvents,
             message,
             dryRun: input.dryRun,
+            send: input.send,
             at: input.at
         })
     }
@@ -223,6 +231,7 @@ async function dispatchGroup(input: DispatchGroupInput): Promise<void> {
             event: failureEvent,
             errorText: input.scanErrorText,
             portalBaseUrl: input.portalBaseUrl,
+            ecosystem: getScanEcosystem(input.db, failureEvent.firstScanId),
             locale: input.notificationLocale
         })
         if (input.group.target.kind === 'webhook') {
@@ -243,6 +252,7 @@ async function dispatchGroup(input: DispatchGroupInput): Promise<void> {
             events: [failureEvent],
             message,
             dryRun: input.dryRun,
+            send: input.send,
             at: input.at
         })
     }
@@ -254,6 +264,7 @@ type PostAndRecordInput = {
     events: NotificationEvent[]
     message: ReturnType<typeof renderBatchedFindings>
     dryRun: boolean
+    send: NotificationSender
     at: number
 }
 
@@ -267,8 +278,7 @@ async function postAndRecord(input: PostAndRecordInput): Promise<void> {
     for (const event of input.events) {
         recordAttempt(input.db, event.id, input.target.id, input.at)
     }
-    const sender = senderFor(input.target)
-    const result = await sender(input.target, input.message)
+    const result = await input.send(input.target, input.message)
     if (result.ok) {
         const successAt = Date.now()
         for (const event of input.events) {
@@ -369,15 +379,19 @@ function webhookProject(project: NonNullable<ReturnType<typeof getProjectById>>)
         id: project.id,
         name: project.name,
         relPath: project.relPath,
-        packageManager: project.packageManager
+        packageManager: project.packageManager,
+        ecosystems: [...project.ecosystems],
+        manifests: [...project.manifests]
     }
 }
 
 // Exported for the scratch tools' recording notifier, which renders exactly what this one would send.
 export function toExportFinding(f: Finding): ExportFinding {
     return {
+        ecosystem: f.ecosystem,
         packageName: f.packageName,
         installedVersion: f.installedVersion,
+        installations: f.installations,
         fixAvailable: f.fixAvailable,
         fixVersion: f.fixVersion,
         fixStatus: f.fixStatus,

@@ -229,7 +229,7 @@
         "schedule": {
             "metaTitle": "计划任务 · 设置",
             "scanEvery": "扫描间隔",
-            "cadenceHelp": "工作进程会按此频率遍历每个已配置的根目录，并对发现的每个项目运行 npm audit。",
+            "cadenceHelp": "工作进程会按此频率遍历每个已配置的根目录，并将发现的每个项目与已启用的来源进行匹配。",
             "saveButton": "保存计划任务",
             "startHour": "开始时间",
             "startHourHelp": "对于超过 1 小时的间隔，固定每天扫描开始的时间（worker 本地时间）。",
@@ -304,7 +304,7 @@
         "sources": {
             "metaTitle": "来源 · 设置",
             "title": "漏洞来源",
-            "description": "Sentinello 会将你项目的 Node.js 依赖与下列来源进行匹配。至少须保持启用一个。",
+            "description": "Sentinello 会将你在所有受支持语言中的依赖与下列来源进行匹配。至少须保持启用一个。",
             "enabled": "已启用",
             "disabled": "已禁用",
             "seeded": "已是最新",
@@ -327,10 +327,10 @@
             "npmAuditAdds": "GitHub 公告数据库，通过项目自身的包管理器获取。",
             "npmAuditDownloads": "不下载任何内容。扫描期间查询 registry.npmjs.org。",
             "npmAuditRuns": "每次扫描时。",
-            "osvAdds": "npm audit 遗漏的 CVE，以及与确切受影响版本对应的已知恶意软件包。",
+            "osvAdds": "所有语言的公告（对 Node.js 而言，即 npm audit 遗漏的 CVE），以及与确切受影响版本对应的已知恶意软件包。",
             "osvDownloads": "从 osv-vulnerabilities.storage.googleapis.com 下载约 {mb} MB。需要 {freeMb} MB 可用空间。可重建，并与你的发现分开存储。",
             "osvRuns": "每日约 03:17，以及每次刷新时。匹配本身在离线状态下进行。",
-            "gemnasiumAdds": "在 npm audit 和 OSV 之外独立整理的公告，严重程度由 CVSS 向量计算得出。",
+            "gemnasiumAdds": "在 OSV（以及 Node.js 的 npm audit）之外，为所有语言独立整理的公告，严重程度由 CVSS 向量计算得出。",
             "gemnasiumDownloads": "从 gitlab.com 下载约 {mb} MB。需要 {freeMb} MB 可用空间。可重建，并与你的发现分开存储。",
             "gemnasiumRuns": "每日约 03:42，以及每次刷新时。匹配本身在离线状态下进行。"
         },
@@ -493,6 +493,7 @@
             "verdictBlocked": "{escape} ≥ {version} 去掉了 {target}，但没有任何已发布的 {blockedBy} 允许它（最新版 {latest} 要求 {range}）",
             "verdictNoEscape": "{packages} 的所有已发布版本都未去掉 {target}",
             "verdictUnknown": "未知 — {at} 处的注册表信息不足",
+            "verdictNpmOnly": "未知 — 解决办法仅针对 npm 计算；请用该生态系统自己的工具检查父包升级",
             "verdictDirect": "{target} 是直接依赖 — 唯一的解决途径是替换它",
             "morePaths": "另有 {count, plural, other {# 条路径}}",
             "morePathsAtLeast": "另有至少 {count, plural, other {# 条路径}}",
@@ -532,6 +533,10 @@
         },
         "notRecheckedCannotScan": "未重新检查 — 项目无法扫描：{reason}",
         "notRecheckedPartial": "未重新检查 — 项目无法完整扫描：{reason}",
+        "notRecheckedCopies": "{manifests} 中的副本未重新检查 — 项目无法完整扫描：{reason}",
+        "chainUnknown": "依赖链未知",
+        "chainUnknownHint": "锁文件没有记录依赖关系图，因此无法得知是什么引入了此包。这并不表示没有解决办法。",
+        "installedThrough": "位于 {manifests}",
         "lastScannedSuccessfully": "上次成功扫描于 {date}",
         "neverScannedSuccessfully": "从未成功扫描"
     },
@@ -620,11 +625,11 @@
         "title": "Sentinello",
         "intro": "集中监控你所有项目组合中的依赖漏洞——自托管，运行在你自己的基础设施上。",
         "notDoTitle": "Sentinello 不会做什么",
-        "notDoBody": "Sentinello 完全运行在你自己的基础设施上。它不会读取你的源代码——它通过定位项目的依赖清单文件和锁文件（<code>package.json</code>、<code>package-lock.json</code>、<code>pnpm-lock.yaml</code>、<code>yarn.lock</code>）来发现项目——不会向任何地方上传任何内容，不会有遥测数据离开你的机器，没有中心账户，也不涉及任何 LLM 或 AI。默认就是普通的 <code>npm audit</code>；可选的 OSV 和 gemnasium 来源（设置 → 来源，默认关闭）仅通过 HTTPS 获取公开的公告数据。",
+        "notDoBody": "Sentinello 完全运行在你自己的基础设施上。它从不读取你的应用代码——它通过定位每个受支持生态系统的依赖清单文件和锁文件来发现项目（Node.js 为 <code>package.json</code> 及其锁文件；Python 为 <code>requirements.txt</code>、<code>pyproject.toml</code>、<code>Pipfile</code> 及其锁文件；Go 为 <code>go.mod</code>；Rust 为 <code>Cargo.toml</code> 和 <code>Cargo.lock</code>；Ruby 为 <code>Gemfile</code> 和 <code>Gemfile.lock</code>）——它读取的任何内容都不会离开你的机器，不发送遥测数据，没有中心账户，也不涉及任何 LLM 或 AI。默认对 Node.js 就是普通的 <code>npm audit</code>；可选的 OSV 和 gemnasium 来源（设置 → 来源，默认关闭）仅通过 HTTPS 获取公开的公告数据。",
         "whoTitle": "由谁构建",
         "whoBody": "由 <company>Walk of Code LLC</company> 和 Sebastian Arena（<linkedin>LinkedIn</linkedin>）构建。",
         "advisoryTitle": "通告数据来自哪里",
-        "advisoryBody": "漏洞数据源自 GitHub Advisory Database，通过 <code>npm audit</code> 经由 npm registry 的通告端点获取。你还可以额外启用 OSV 和 GitLab 的 gemnasium（设置 → 来源），以将你的 Node.js 软件包与这些公开的公告数据库进行匹配——捕获 npm audit 遗漏的公告并标记已知的恶意软件包。两者都会从锁文件离线解析依赖，并与本地缓存的公告副本进行匹配，因此扫描期间不会有任何逐项目的请求离开你的机器；含糊不清的清单文件会被报告为部分或无法审计，而不会被视为干净。在判断一条公告影响哪些版本时，Sentinello 只读取 gemnasium 自身的机器可读版本范围，以及该记录所列的修复版本。npm 范围由 npm 自身的 semver 实现解释；无法读取的上限会被忽略，而不会让原本有效的区间静默失效。若某条记录的范围不选中任何版本，或使用了 Sentinello 未实现的语法，则该记录会被丢弃而不做猜测，也不会去查询其他来源来填补空缺。Python、Go 和 Rust 已经实现但尚未开放：修复版本推导和 OSV 的 PyPI 名称匹配仍不正确，而一个出于错误原因回答“没有漏洞”的来源，比根本不提供更糟糕。",
+        "advisoryBody": "Sentinello 支持 Node.js、Python、Go、Rust 和 Ruby。对于 Node.js，漏洞数据默认源自 GitHub Advisory Database，通过 <code>npm audit</code> 经由 npm registry 的通告端点获取。OSV 和 GitLab 的 gemnasium（设置 → 来源）覆盖全部五种：对 Node.js，它们补充 npm audit 遗漏的公告并标记已知的恶意软件包；对 Python、Go、Rust 和 Ruby，它们是仅有的来源。两者默认关闭，因此这四种语言的项目在你启用其中一个之前会显示“… 未启用任何来源”。两者都会从锁文件离线解析依赖，并与本地缓存的公告副本进行匹配，因此扫描期间不会有任何逐项目的请求离开你的机器；含糊不清的清单文件或没有锁文件的清单文件会被报告为部分或无法审计，而不会被视为干净。在判断一条公告影响哪些版本时，Sentinello 只读取 gemnasium 自身的机器可读版本范围，以及该记录所列的修复版本。每个生态系统的版本都按其自身规则比较：npm 使用 npm 自身的 semver 实现，crates.io 使用 semver，Python 使用 PEP 440，Go 使用模块版本规则，RubyGems 使用其自身的版本排序。在 OSV 事件范围中，无法读取的上限会被忽略，而不会让原本有效的区间静默失效。若某条记录的范围不选中任何版本，或使用了 Sentinello 未实现的语法，则该记录会被丢弃而不做猜测，也不会去查询其他来源来填补空缺。修复版本会在各生态系统自己的注册表中核实。",
         "sendsTitle": "Sentinello 会发送出去什么",
         "tableDestination": "目标",
         "tablePurpose": "用途",
@@ -647,7 +652,7 @@
                 "disable": "无法关闭——可用 SENTINELLO_NPM_DOWNLOADS_URL 指向其他地址。无法访问时，显示最后已知的下载量；若没有，则显示为未知"
             },
             "osv": {
-                "purpose": "下载 npm 生态系统的公开 OSV 公告导出",
+                "purpose": "为每个启用了 OSV 的生态系统（npm、PyPI、Go、crates.io、RubyGems）下载公开的 OSV 公告导出",
                 "when": "每日约 03:17 以及手动刷新时 — 仅在启用 OSV 时",
                 "disable": "设置 → 来源（默认关闭），或 SENTINELLO_OSV_FEED_URL=off"
             },
@@ -670,6 +675,26 @@
                 "purpose": "发送你已配置告警的漏洞信息——项目名称、git 分支、包与版本、严重程度、公告 ID，以及返回本门户的链接",
                 "when": "当扫描产生新漏洞、已修复漏洞或扫描失败时",
                 "disable": "设置 → 通知——在你添加之前不存在任何通知目标"
+            },
+            "pypi": {
+                "purpose": "核实有发现项的 Python 包的修复版本确实已发布且未被撤回（yanked）",
+                "when": "每次扫描后，仅针对 Python 发现项，针对过去 24 小时内没有成功答案的包；失败的请求不会保存，因此可能更早重试",
+                "disable": "仅在为 Python 启用了来源时运行（设置 → 来源）；可用 SENTINELLO_PYPI_URL 指向镜像。无法访问时，会复用之前的答案并标明获取日期；没有时，修复版本显示为“未在注册表中核实”"
+            },
+            "goproxy": {
+                "purpose": "核实有发现项的 Go 模块的修复版本确实已发布：读取模块的版本列表；当公告给出的版本不在列表中时，再单独核实该版本",
+                "when": "每次扫描后，仅针对 Go 发现项，针对过去 24 小时内没有成功答案的模块；失败的请求不会保存，因此可能更早重试",
+                "disable": "仅在为 Go 启用了来源时运行（设置 → 来源）；可用 SENTINELLO_GOPROXY_URL 指向其他模块代理。无法访问时，会复用之前的答案并标明获取日期；没有时，修复版本显示为“未在注册表中核实”"
+            },
+            "crates": {
+                "purpose": "通过稀疏索引中该 crate 的文件，核实有发现项的 Rust crate 的修复版本确实已发布且未被撤回（yanked）",
+                "when": "每次扫描后，仅针对 Rust 发现项，针对过去 24 小时内没有成功答案的 crate；失败的请求不会保存，因此可能更早重试",
+                "disable": "仅在为 Rust 启用了来源时运行（设置 → 来源）；可用 SENTINELLO_CRATES_INDEX_URL 指向镜像。无法访问时，会复用之前的答案并标明获取日期；没有时，修复版本显示为“未在注册表中核实”"
+            },
+            "rubygems": {
+                "purpose": "核实有发现项的 Ruby gem 的修复版本确实已发布且未被撤回（yanked）",
+                "when": "每次扫描后，仅针对 Ruby 发现项，针对过去 24 小时内没有成功答案的 gem；失败的请求不会保存，因此可能更早重试",
+                "disable": "仅在为 Ruby 启用了来源时运行（设置 → 来源）；可用 SENTINELLO_RUBYGEMS_URL 指向镜像。无法访问时，会复用之前的答案并标明获取日期；没有时，修复版本显示为“未在注册表中核实”"
             }
         },
         "dataLivesTitle": "你的数据存放在哪里",
@@ -693,7 +718,11 @@
             "gemnasiumFeedUrl": "GitLab gemnasium 公告归档的 URL，仅在启用 gemnasium 来源时使用；设为 off 可禁用所有 gemnasium 网络访问。",
             "gemnasiumDbPath": "可重建的 gemnasium 公告缓存的位置；默认位于主数据库旁边。",
             "npmRegistryUrl": "每次扫描后用来核实修复版本、并读取出路所需包元数据的 npm 注册表；如使用镜像，可指向镜像。无法访问时，如果之前获取的包元数据仍然可用，就会复用它来评估当前的发现项，并标明获取日期；没有可用的元数据时，修复版本显示为未经注册表核实。",
-            "npmDownloadsUrl": "npm 下载量 API，用于读取出路中显示的每周下载量。无法访问时，显示最后已知的下载量；若没有，则显示为未知。"
+            "npmDownloadsUrl": "npm 下载量 API，用于读取出路中显示的每周下载量。无法访问时，显示最后已知的下载量；若没有，则显示为未知。",
+            "pypiUrl": "每次扫描后用来核实 Python 发现项修复版本的 PyPI，仅在为 Python 启用了来源时使用；如使用镜像，可指向镜像。无法访问时，会复用之前的答案并标明获取日期；没有时，修复版本显示为未经注册表核实。",
+            "goproxyUrl": "每次扫描后用来核实 Go 发现项修复版本的 Go 模块代理，仅在为 Go 启用了来源时使用；如使用其他代理，可指向它。无法访问时，会复用之前的答案并标明获取日期；没有时，修复版本显示为未经注册表核实。",
+            "cratesIndexUrl": "每次扫描后用来核实 Rust 发现项修复版本的 crates.io 稀疏索引，仅在为 Rust 启用了来源时使用；如使用镜像，可指向镜像。无法访问时，会复用之前的答案并标明获取日期；没有时，修复版本显示为未经注册表核实。",
+            "rubygemsUrl": "每次扫描后用来核实 Ruby 发现项修复版本的 RubyGems，仅在为 Ruby 启用了来源时使用；如使用镜像，可指向镜像。无法访问时，会复用之前的答案并标明获取日期；没有时，修复版本显示为未经注册表核实。"
         },
         "builtWithTitle": "技术栈",
         "reportingTitle": "报告 Sentinello 中的漏洞",

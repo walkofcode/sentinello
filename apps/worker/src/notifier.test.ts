@@ -320,7 +320,7 @@ describe('notifyForCompletedScan — a project that cannot be scanned', function
 
         expect(send).toHaveBeenCalledTimes(1)
         const message = send.mock.calls[0]?.[1]
-        expect(message?.title).toBe('[CANNOT BE SCANNED] app — No lockfile')
+        expect(message?.title).toBe('[CANNOT BE SCANNED] app (Node.js) — No lockfile')
         expect(message?.webhook.scanState).toEqual({
             state: 'cannot_scan',
             reasons: [
@@ -402,7 +402,7 @@ describe('notifyForCompletedScan — a project that cannot be scanned', function
             await retryAfterLockfileLoss(false)
 
             const message = findingsMessage()
-            expect(message?.text).toContain('lodash@4.17.11 (CVE-2024-1) — ' + NOT_RECHECKED)
+            expect(message?.text).toContain('lodash@4.17.11 (Node.js, CVE-2024-1) — ' + NOT_RECHECKED)
             expect(message?.text).not.toContain('rescan pending')
             expect(message?.webhook.advisoryText).toContain('- **Fix:** ' + NOT_RECHECKED)
             expect(message?.webhook.advisoryText).not.toContain('rescan pending')
@@ -426,7 +426,7 @@ describe('notifyForCompletedScan — a project that cannot be scanned', function
             await retryAfterLockfileLoss(true)
 
             const vulnerability = toWebhookVulnerability(findingsMessage()?.webhook.findings[0])
-            expect(vulnerability.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: T0 })
+            expect(vulnerability.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: T0, manifests: null })
             expect(vulnerability.recommendedVersion).toBe('4.17.21')
         })
     })

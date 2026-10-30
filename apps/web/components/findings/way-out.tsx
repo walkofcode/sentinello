@@ -1,29 +1,32 @@
 'use client'
 
 import { useFormatter, useTranslations } from 'next-intl'
-import type { Alternative, AlternativeOption, ChainVerdict, NotRecheckedBecause, Remediation, RemediationChain, RemediationHealth } from '@sentinello/core'
+import { computesWayOut, WAY_OUT_NPM_ONLY, type Alternative, type AlternativeOption, type ChainVerdict, type NotRecheckedBecause, type Remediation, type RemediationChain, type RemediationHealth } from '@sentinello/core'
 import { Badge } from '@/components/ui/badge'
 import { NotRechecked } from './version-chain'
 
 // The "Way out" disclosure under a finding whose package has no fixed version released: the package's
 // health, one verdict per dependency path, whether only dev tooling reaches it, and the curated
 // alternatives. Everything here was computed and proven at scan time; this only renders it. A way out kept
-// from an earlier scan, on a row its source could not re-check since, says so first.
-export function WayOut({ remediation, notRecheckedBecause = null }: { remediation: Remediation; notRecheckedBecause?: NotRecheckedBecause | null }) {
+// from an earlier scan, on a row its source could not re-check since, says so first. An ecosystem whose way
+// out is not computed (every one but npm) has no health or alternatives to show: only its verdict, which
+// says why.
+export function WayOut({ ecosystem, remediation, notRecheckedBecause = null }: { ecosystem: string; remediation: Remediation; notRecheckedBecause?: NotRecheckedBecause | null }) {
     const t = useTranslations('Findings.wayOut')
+    const computed = computesWayOut(ecosystem)
     return (
         <details className="mt-1 text-xs">
             <summary className="cursor-pointer font-medium text-foreground">{t('title')}</summary>
             <div className="mt-1 flex flex-col gap-1.5 border-l-2 border-muted pl-2">
                 {notRecheckedBecause ? <p>{t('asOfLastScan')} <NotRechecked reason={notRecheckedBecause} /></p> : null}
-                <HealthLine health={remediation.health} />
+                {computed ? <HealthLine health={remediation.health} /> : null}
                 <ul className="flex flex-col gap-1">
                     {remediation.chains.map(function chainItem(chain) {
                         return <ChainLine key={(chain.importer ?? '') + '|' + chain.path.join('>')} chain={chain} target={remediation.package} />
                     })}
                     {remediation.moreChains > 0 ? <li className="text-muted-foreground">{t(remediation.moreChainsAtLeast ? 'morePathsAtLeast' : 'morePaths', { count: remediation.moreChains })}</li> : null}
                 </ul>
-                <p className="text-muted-foreground">{devOnlyText(t, remediation.devOnly)}</p>
+                {computed ? <p className="text-muted-foreground">{devOnlyText(t, remediation.devOnly)}</p> : null}
                 {remediation.alternatives.map(function altItem(a) {
                     return <AlternativeLine key={a.replaces} alternative={a} />
                 })}
@@ -85,7 +88,7 @@ function verdictText(t: T, v: ChainVerdict, target: string): string {
         return t('verdictBlocked', { escape: v.escapePackage, version: v.escapeVersion, target, blockedBy: v.blockedBy, latest: v.blockedByLatest ?? '—', range: v.blockedRange })
     }
     if (v.kind === 'noEscape') return t('verdictNoEscape', { packages: v.packages.join(', '), target })
-    if (v.kind === 'unknown') return t('verdictUnknown', { at: v.at })
+    if (v.kind === 'unknown') return v.reason === WAY_OUT_NPM_ONLY ? t('verdictNpmOnly') : t('verdictUnknown', { at: v.at })
     return t('verdictDirect', { target })
 }
 

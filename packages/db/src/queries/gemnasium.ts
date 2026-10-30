@@ -102,18 +102,19 @@ export function deleteGemnasiumAdvisoriesExcept(db: GemnasiumDrizzleDb, keepRowK
     return stale.length
 }
 
-// Removes every row belonging to the given advisory ids, across all ecosystems. Used by the incremental
-// sync: an advisory file that changed upstream has its rows cleared and rewritten from the new content, so
-// a package dropped from the advisory's affected set does not linger. One advisory maps to 0..N rows (one
-// per affected package), which is why this deletes by advisoryId rather than by rowKey.
-export function deleteGemnasiumAdvisories(db: GemnasiumDrizzleDb, advisoryIds: string[]): number {
-    if (advisoryIds.length === 0) return 0
+// Removes the given (advisory, ecosystem, package) rows. Used by the incremental sync: an advisory file that
+// changed or was deleted upstream holds exactly one such row (gemnasiumPathIdentity), cleared and rewritten
+// from the new content. Never by advisory id alone: one CVE has files under several packages and ecosystems,
+// and an npm file changing must not delete the PyPI rows of the same CVE.
+export function deleteGemnasiumRows(db: GemnasiumDrizzleDb, rows: readonly { advisoryId: string; ecosystem: string; packageName: string }[]): number {
+    if (rows.length === 0) return 0
+    const keys = rows.map(function key(r) { return gemnasiumRowKeyFor(r.advisoryId, r.ecosystem, r.packageName) })
     const CHUNK = 500
     let deleted = 0
     db.transaction(function txn(tx) {
-        for (let i = 0; i < advisoryIds.length; i += CHUNK) {
-            const slice = advisoryIds.slice(i, i + CHUNK)
-            const result = tx.delete(gemnasiumAdvisories).where(inArray(gemnasiumAdvisories.advisoryId, slice)).run()
+        for (let i = 0; i < keys.length; i += CHUNK) {
+            const slice = keys.slice(i, i + CHUNK)
+            const result = tx.delete(gemnasiumAdvisories).where(inArray(gemnasiumAdvisories.rowKey, slice)).run()
             deleted += result.changes
         }
     })

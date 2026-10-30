@@ -337,6 +337,15 @@ describe('normalizeOsvRecord — range extraction', function () {
         expect(rows[0]?.ranges).toEqual([{ type: 'ECOSYSTEM', introduced: '1.0.0', fixed: null, lastAffected: null }, refusedRange('<not-a-version', 'ECOSYSTEM')])
     })
 
+    // The live-cache diff's shape (19 GHSA npm records): an ECOSYSTEM-typed CalVer fix with a leading zero
+    // that semver cannot read. v7 left the interval open with nothing to say a bound was lost, so a released
+    // fix read as none released; it is kept as a refused part, the affected set incomplete.
+    it('keeps a CalVer fix of an npm ECOSYSTEM range as a refused part', function () {
+        const ranges = [{ type: 'ECOSYSTEM', events: [{ introduced: '0' }, { fixed: '2026.03.28' }] }]
+        const rows = normalizeOsvRecord(record({ affected: affected({ ranges }) }), 'npm')
+        expect(rows[0]?.ranges).toEqual([{ type: 'ECOSYSTEM', introduced: '0', fixed: null, lastAffected: null }, refusedRange('<2026.03.28', 'ECOSYSTEM')])
+    })
+
     it('emits an open-ended range for a trailing introduced with no bound', function () {
         const rows = normalizeOsvRecord(
             record({

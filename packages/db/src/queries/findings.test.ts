@@ -584,7 +584,7 @@ describe('legacy row fallbacks', function () {
             return { latestStatus: 'unauditable', latestReasonCode: 'no_lockfile', lastOkScanAt: T0, projectState: 'cannot_scan' }
         })
         expect(asked).toEqual([PROJECT_ID + '|npm-audit'])
-        expect(found?.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: T0 })
+        expect(found?.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: T0, manifests: null })
     })
 })
 

@@ -1,0 +1,15 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    fake-gem (1.0.0)
+    fake-gem-nofix (2.0.0)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  fake-gem
+  fake-gem-nofix
+
+BUNDLED WITH
+   2.5.4

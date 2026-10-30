@@ -1,6 +1,6 @@
 // The one fix logic the worker and the CLI share. settleProject is the entry point: everything else here is
 // what it is built from, exported for the callers that test or wire one part of it.
-export { settleProject, fixEvidenceKey, npmOnlyWayOut, WAY_OUT_NPM_ONLY, type FixIdentity, type ProjectSettlement, type SettleProjectInput } from './project'
+export { settleProject, fixEvidenceKey, npmOnlyWayOut, type FixIdentity, type ProjectSettlement, type SettleProjectInput } from './project'
 export { createRegistryClients, publicationFor, type RegistryClients, type RegistryClientsOptions, type RegistryStoreFor } from './registry-clients'
 export {
     createPublishedRegistryClient,

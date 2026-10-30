@@ -334,6 +334,12 @@ describe('listLibraryUsage', function () {
         })
     })
 
+    // The library export lists every manifest a copy is in, and the chain, unknown when it is empty.
+    it('carries the installations and the dependency chain', function () {
+        scanProject('project-1', [finding({ installations: [{ manifestPath: 'package-lock.json', version: '4.17.11' }], depPath: ['app>lodash'] })])
+        expect(listLibraryUsage(db, 'lodash', AT)[0]).toMatchObject({ installations: [{ manifestPath: 'package-lock.json', version: '4.17.11' }], depPath: ['app>lodash'] })
+    })
+
     it('reports the installed version and range', function () {
         scanProject('project-1', [finding()])
         expect(listLibraryUsage(db, 'lodash', AT)[0]).toMatchObject({

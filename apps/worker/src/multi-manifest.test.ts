@@ -9,6 +9,7 @@ import {
     getSourceEnabled,
     listCurrentFindingsForProject,
     listFindingsForProject,
+    listLibraryUsage,
     listProjects,
     listRecentScanRequests,
     projectId,
@@ -28,7 +29,8 @@ import { createWorkerRuntime } from './runtime'
 //   - SENTINEL-139: a scan the watcher asks for scans the lockfile that was just added;
 //   - SENTINEL-140: an incomplete discovery walk keeps the manifests it could not see;
 //   - SENTINEL-144: an ecosystem whose manifests are all gone resolves what it found;
-//   - SENTINEL-145: a copy kept behind an unread manifest still constrains the settled fix.
+//   - SENTINEL-145: a copy kept behind an unread manifest still constrains the settled fix, and reads as not
+//     re-checked on a row the scan saw through its other copies.
 //
 // chokidar is stubbed as in watcher.test.ts: the double hands back the registered handlers so a test can
 // deliver an event synchronously. Everything downstream of the event is real.
@@ -195,7 +197,7 @@ describe('SENTINEL-138 — a manifest that cannot be read leaves its findings op
         await sweep()
         const kept = open(id, 'rack')
         expect(kept?.id).toBe(first?.id)
-        expect(kept?.notRecheckedBecause).toEqual({ reasonCode: 'ambiguous_dependency_spec', side: 'project', projectState: 'partial', lastOkScanAt: first?.lastSeenAt })
+        expect(kept?.notRecheckedBecause).toEqual({ reasonCode: 'ambiguous_dependency_spec', side: 'project', projectState: 'partial', lastOkScanAt: first?.lastSeenAt, manifests: null })
         expect(getProjectScanState(handle.db, id)).toEqual({ state: 'partial', reasons: [{ source: null, ecosystem: 'RubyGems', reasonCode: 'ambiguous_dependency_spec', side: 'project' }] })
         // The npm cell was read in full and re-checked its own finding.
         expect(open(id, 'lodash')).toMatchObject({ id: lodash?.id, notRecheckedBecause: null })
@@ -375,7 +377,7 @@ describe('SENTINEL-138 — a lockfile removed, its manifest kept', function () {
         expect(open(id, 'rack')).toMatchObject({
             id: first?.id,
             installations: [{ manifestPath: vulnerable + '/Gemfile.lock', version: '2.0.8' }],
-            notRecheckedBecause: { reasonCode: 'no_lockfile', side: 'project', projectState: 'partial', lastOkScanAt: first?.lastSeenAt }
+            notRecheckedBecause: { reasonCode: 'no_lockfile', side: 'project', projectState: 'partial', lastOkScanAt: first?.lastSeenAt, manifests: null }
         })
         expect(open(id, 'lodash')).toMatchObject({ id: lodash?.id, notRecheckedBecause: null })
 
@@ -431,7 +433,7 @@ describe('SENTINEL-138 — a manifest replaced by another in its directory', fun
         await rm(join(root.path, 'svc', 'uv.lock'))
         await writeFile(join(root.path, 'svc', 'requirements.txt'), 'django>=3.2\n')
         await sweep()
-        expect(open(id, 'django')).toMatchObject({ id: first?.id, notRecheckedBecause: { reasonCode: 'ambiguous_dependency_spec', side: 'project', projectState: 'partial', lastOkScanAt: first?.lastSeenAt } })
+        expect(open(id, 'django')).toMatchObject({ id: first?.id, notRecheckedBecause: { reasonCode: 'ambiguous_dependency_spec', side: 'project', projectState: 'partial', lastOkScanAt: first?.lastSeenAt, manifests: null } })
 
         await writeFile(join(root.path, 'svc', 'requirements.txt'), 'django==3.2.20\n')
         await sweep()
@@ -502,6 +504,35 @@ describe('SENTINEL-144 — an ecosystem whose manifests are all removed', functi
     })
 })
 
+describe('SENTINEL-148 — a directory that can be searched but not listed', function () {
+    // ios/ at 0111: its Gemfile.lock can be stat'ed and read, its listing fails. The lock is the directory's one
+    // Ruby manifest, so the bare Gemfile recorded before it is not restored beside it, and the copy the lock
+    // shows is read, never kept as unread.
+    it('keeps one Ruby manifest in ios/ and one current copy, over repeated scans and a version change', async function () {
+        enable('RubyGems')
+        const root = await tree({ 'package.json': JSON.stringify({ name: 'app' }), 'ios/Gemfile': "gem 'rack'\n" })
+        discover(root)
+        const id = projectId('code', '.')
+        function rubyManifests(): string[] | undefined {
+            return getProjectById(handle.db, id)?.manifests.filter(function ruby(m) { return m.ecosystem === 'RubyGems' }).map(function path(m) { return m.path })
+        }
+        expect(rubyManifests()).toEqual(['ios/Gemfile'])
+
+        await writeFile(join(root.path, 'ios', 'Gemfile.lock'), gemfileLock('2.0.8'))
+        await chmod(join(root.path, 'ios'), 0o111)
+        try {
+            for (const version of ['2.0.8', '2.0.8', '2.1.0']) {
+                await writeFile(join(root.path, 'ios', 'Gemfile.lock'), gemfileLock(version))
+                await sweep()
+                expect(rubyManifests()).toEqual(['ios/Gemfile.lock'])
+                expect(open(id, 'rack')).toMatchObject({ installedVersion: version, installations: [{ manifestPath: 'ios/Gemfile.lock', version }], notRecheckedBecause: null })
+            }
+        } finally {
+            await chmod(join(root.path, 'ios'), 0o755)
+        }
+    })
+})
+
 describe('SENTINEL-145 — a copy kept behind an unread manifest constrains the fix', function () {
     // puma 1.0.0 is in the first affected branch, 2.0.0 in the second: only 2.5.0 is at or above both copies.
     it('settles the fix above the kept copy, not just above the copy the scan read', async function () {
@@ -533,6 +564,17 @@ describe('SENTINEL-145 — a copy kept behind an unread manifest constrains the 
         await scan()
         expect(open(id, 'puma')).toMatchObject({ installedVersion: '1.0.0', fixStatus: 'released', fixVersion: '2.5.0' })
         expect(sortedInstallations(open(id, 'puma')?.installations)).toEqual([{ manifestPath: 'android/Gemfile.lock', version: '1.0.0' }, { manifestPath: 'ios/Gemfile.lock', version: '2.0.0' }])
+        // The scan saw puma through Android, so the row's last_seen_at is that scan's; the iOS copy it kept
+        // was not re-checked, and every reader says so, naming the manifest and no date of its own.
+        const kept = { reasonCode: 'ambiguous_dependency_spec', side: 'project', projectState: 'partial', lastOkScanAt: null, manifests: ['ios/Gemfile.lock'] }
+        expect(open(id, 'puma')?.notRecheckedBecause).toEqual(kept)
+        expect(listLibraryUsage(handle.db, 'puma', Date.now(), 'all', 'RubyGems')[0]?.notRecheckedBecause).toEqual(kept)
+
+        // iOS reads again: every copy is re-checked, and nothing says otherwise.
+        await writeFile(join(root.path, 'ios', 'Gemfile.lock'), gemfileLock('2.0.0', 'puma'))
+        await scan()
+        expect(open(id, 'puma')).toMatchObject({ fixVersion: '2.5.0', notRecheckedBecause: null })
+        expect(listLibraryUsage(handle.db, 'puma', Date.now(), 'all', 'RubyGems')[0]?.notRecheckedBecause).toBeNull()
     })
 })
 

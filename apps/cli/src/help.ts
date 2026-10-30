@@ -17,26 +17,39 @@ USAGE
   sentinello [path] [options]
   npx sentinello
 
-  Walks [path] (default: the current directory) for JavaScript projects, checks their
-  dependencies against npm audit, OSV, and GitLab gemnasium, and writes a markdown
+  Walks [path] (default: the current directory) for projects, checks their
+  dependencies against npm audit, OSV and GitLab gemnasium, and writes a markdown
   advisory with a remediation prompt an agent can act on.
 
   Piped, it writes the markdown to stdout:   npx sentinello | claude -p "$(cat -)"
   In a terminal, it writes a dated .md file and prints a summary.
   For the advisory and nothing else:         npx sentinello --out - > advisory.md
 
+ECOSYSTEMS
+  A project is read from its lockfile (the first one present, per ecosystem):
+    npm        package-lock.json, pnpm-lock.yaml, yarn.lock (Yarn 2+)
+    PyPI       poetry.lock, Pipfile.lock, requirements.txt (its == pins), uv.lock
+    Go         go.mod (go.sum only where there is no go.mod)
+    crates.io  Cargo.lock
+    RubyGems   Gemfile.lock
+  A package.json, pyproject.toml, Pipfile, Cargo.toml or Gemfile with no lockfile
+  is reported as "cannot be scanned — No lockfile", never as clean.
+
 SCOPE
   --depth <n|all>       How many directory levels to descend. Default: all.
-                        Descent always stops at the first directory holding a manifest,
-                        so a monorepo root is one project rather than many.
+                        Descent stops at the first package.json, so a monorepo root is
+                        one project rather than many; other manifests below a project
+                        belong to it (ios/Gemfile.lock).
   --exclude <glob>      Exclude paths. Repeatable, or comma-separated.
                         .gitignore and .sentinelloignore are always honoured.
   --dep-type <type>     all | prod | dev. Default: all.
 
 SOURCES
   --source <list>       npm-audit, osv, gemnasium. Default: all three.
+                        npm audit covers npm only; OSV and GitLab gemnasium cover every
+                        ecosystem above. Only the ecosystems found are downloaded.
   --offline             Make no network request: use the cached advisories as-is, skip
-                        npm audit, and do not check fixes against the npm registry.
+                        npm audit, and do not check fixes against any registry.
   --cache-dir <path>    Where the advisory cache lives.
                         Default: $XDG_CACHE_HOME/sentinello or ~/.cache/sentinello.
   --feed-wait <secs>    How long to keep retrying a feed that declines a download.
@@ -81,11 +94,14 @@ CONFIG
   depth, exclude, sources, depType, prompt, failOn, out, and feedWait. Flags always win.
 
 FIXES
-  Each npm finding's fix is checked against the npm registry (registry.npmjs.org, and
-  api.npmjs.org for download counts), as the Sentinello portal checks it: a published
-  fix reads "upgrade to", none reads "No fixed version released" with the way out.
-  Only package names are sent. Answers are cached for 24 hours.
+  Each finding's fix is checked against its ecosystem's registry, as the Sentinello
+  portal checks it: registry.npmjs.org (and api.npmjs.org for download counts),
+  pypi.org, proxy.golang.org, index.crates.io and rubygems.org. A published fix reads
+  "upgrade to"; none reads "No fixed version released", with the way out for npm.
+  Only package names are sent. Answers are cached for 24 hours. Point a check at a
+  mirror with SENTINELLO_NPM_REGISTRY_URL, SENTINELLO_PYPI_URL, SENTINELLO_GOPROXY_URL,
+  SENTINELLO_CRATES_INDEX_URL or SENTINELLO_RUBYGEMS_URL.
 
 Sentinello stores nothing about your code. The only thing written to the cache
-directory is public data: advisories from OSV and GitLab, and npm registry metadata.
+directory is public data: advisories from OSV and GitLab, and registry metadata.
 `

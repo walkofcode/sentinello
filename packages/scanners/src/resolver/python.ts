@@ -405,8 +405,9 @@ function exactPin(raw: string): string | null {
     return null
 }
 
+// requirements.txt and Pipfile.lock record no dependency graph, so the chain is unknown (no depPaths).
 function pkg(name: string, version: string, scope: DepScope, manifestPath: string): ResolvedPackage {
-    return { ecosystem: PYPI_ECOSYSTEM, name: normalizePyName(name), version, scope, depPaths: [name], manifestPath }
+    return { ecosystem: PYPI_ECOSYSTEM, name: normalizePyName(name), version, scope, depPaths: [], manifestPath }
 }
 
 function unauditable(reasonCode: 'unsupported_lockfile' | 'ambiguous_dependency_spec', details: string[]): ResolverResult {

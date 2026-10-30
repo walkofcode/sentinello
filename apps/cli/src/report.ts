@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import {
+    DEFAULT_ECOSYSTEM,
     DEFAULT_EXPORT_PROMPT,
     buildAdvisoryMarkdown,
     buildExportFilename,
@@ -8,6 +9,7 @@ import {
     meetsSeverityFloor,
     type ExportFinding,
     type ExportScope,
+    type FindingInstallation,
     type ScanState,
     type Severity
 } from '@sentinello/core'
@@ -28,9 +30,9 @@ export type ProjectSummary = {
     relPath: string
     findingCount: number
     counts: SeverityCounts
-    // Scanners that could not answer for this project, with the reason. Surfaced so "0 findings" is never
-    // confused with "nothing could be checked".
-    unauditable: { scanner: string; reasonCode: string; errorText: string | null }[]
+    // Scanners that could not answer for this project, with the ecosystem and the reason. Surfaced so "0
+    // findings" is never confused with "nothing could be checked".
+    unauditable: { scanner: string; ecosystem: string; reasonCode: string; errorText: string | null }[]
     // Whether the project could be scanned at all, and why not: a project that cannot be scanned is never
     // counted clean, whatever its finding count.
     scanState: ScanState
@@ -74,12 +76,16 @@ export function summarize(results: readonly ProjectScanResult[], options: CliOpt
             total[finding.severity]++
             projectFindings++
             totalFindings++
-            // Settled against the npm registry exactly as the worker settles it; only a `released` fix is
-            // rendered as "upgrade to". scanProject settles every finding it keeps, so the entry is there.
+            // Settled against its ecosystem's registry exactly as the worker settles it; only a `released`
+            // fix is rendered as "upgrade to". scanProject settles every finding it keeps, so the entry is there.
             const fix = result.fixes.get(finding) as FixSettlement
             findings.push({
+                // npm-audit builds its findings without an ecosystem; it only ever reports npm packages.
+                ecosystem: finding.ecosystem ?? DEFAULT_ECOSYSTEM,
                 packageName: finding.packageName,
                 installedVersion: finding.installedVersion,
+                // scanProject records the installations of every finding it keeps.
+                installations: result.installations.get(finding) as FindingInstallation[],
                 fixAvailable: fix.fixAvailable,
                 fixVersion: fix.fixVersion,
                 fixStatus: fix.fixStatus,
@@ -109,7 +115,7 @@ export function summarize(results: readonly ProjectScanResult[], options: CliOpt
                     return o.status !== 'ok'
                 })
                 .map(function toEntry(o) {
-                    return { scanner: o.scanner, reasonCode: o.reasonCode, errorText: o.errorText }
+                    return { scanner: o.scanner, ecosystem: o.ecosystem, reasonCode: o.reasonCode, errorText: o.errorText }
                 }),
             scanState: result.scanState
         })

@@ -5,20 +5,20 @@ import {
     GEMNASIUM_SEED_DOWNLOAD_BYTES
 } from '@sentinello/core'
 import {
-    advisoryIdFromPath,
     errText,
     fetchGemnasiumChangedPaths,
     fetchGemnasiumFileRows,
     fetchGemnasiumHeadSha,
     gemnasiumFeedDisabled,
+    gemnasiumPathIdentity,
     streamGemnasiumArchive
 } from '@sentinello/feeds'
 import {
     GEMNASIUM_META_KEYS,
     GEMNASIUM_NORMALIZER_VERSION,
     countGemnasiumAdvisories,
-    deleteGemnasiumAdvisories,
     deleteGemnasiumAdvisoriesExcept,
+    deleteGemnasiumRows,
     gemnasiumRowKeyFor,
     getGemnasiumMeta,
     resolveGemnasiumDbPath,
@@ -106,18 +106,14 @@ async function incrementalSyncGemnasium(
     }
     let upserted = 0
     try {
-        const deletedIds: string[] = []
-        for (const path of changed.deleted) {
-            const id = advisoryIdFromPath(path)
-            if (id) deletedIds.push(id)
-        }
-        // Clear the rows of every touched advisory before rewriting them, so a package dropped from an
-        // advisory's affected set disappears instead of lingering as a phantom finding.
-        for (const path of changed.changed) {
-            const id = advisoryIdFromPath(path)
-            if (id) deletedIds.push(id)
-        }
-        deleteGemnasiumAdvisories(db, deletedIds)
+        // Clear the row of every touched file before rewriting it, so an advisory a file no longer yields (or a
+        // deleted file) disappears instead of lingering as a phantom finding — and only that file's row: the
+        // same advisory id under another package or ecosystem lives in another file.
+        const touched = [...changed.deleted, ...changed.changed].flatMap(function identity(path) {
+            const found = gemnasiumPathIdentity(path)
+            return found === null ? [] : [found]
+        })
+        deleteGemnasiumRows(db, touched)
         for (const path of changed.changed) {
             if (abortSignal && abortSignal.aborted) throw new Error('aborted')
             const rows = await fetchGemnasiumFileRows(path, toSha, { abortSignal })

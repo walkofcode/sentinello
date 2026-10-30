@@ -19,7 +19,8 @@ export type DepScope = {
 // is the package's node ids (an npm lock path already spells its chain). For the other lockfiles that carry
 // a graph (Cargo.lock, poetry.lock, uv.lock, Gemfile.lock) it is the shortest chain from a root to the
 // package, each step written `name@version` (their node ids may also carry the source). Where the lockfile
-// has no graph it is the package alone.
+// has no graph (requirements.txt, Pipfile.lock, go.mod, go.sum) it is empty: the chain is unknown, and every
+// surface says so rather than show the package alone as if it were a chain.
 export type ResolvedPackage = {
     ecosystem: string
     name: string

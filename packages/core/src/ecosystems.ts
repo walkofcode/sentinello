@@ -65,6 +65,13 @@ export type EcosystemDefinition = {
     manifestKinds: string[]
     // The VersionComparator every reader of this ecosystem's versions orders them with.
     comparator: ComparatorId
+    // Whether the way out of a finding with no fixed version released is computed (parent upgrades proven
+    // against each release's dependency closure, package health, curated alternatives). It needs the
+    // registry's per-version dependency metadata, which only npm's client reads (SENTINEL-119); every other
+    // ecosystem's way out is one `unknown` verdict saying so, and no surface shows a health block for it.
+    wayOut: boolean
+    // The registry its fix versions are checked against, as a sentence names it: "not on the npm registry".
+    registryName: string
 }
 
 export const ECOSYSTEMS: EcosystemDefinition[] = [
@@ -79,7 +86,9 @@ export const ECOSYSTEMS: EcosystemDefinition[] = [
         gemnasiumPackageType: 'npm',
         resolverKinds: ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock'],
         manifestKinds: ['package.json'],
-        comparator: 'semver'
+        comparator: 'semver',
+        wayOut: true,
+        registryName: 'the npm registry'
     },
     {
         id: 'PyPI',
@@ -90,7 +99,9 @@ export const ECOSYSTEMS: EcosystemDefinition[] = [
         gemnasiumPackageType: 'pypi',
         resolverKinds: ['poetry.lock', 'Pipfile.lock', 'requirements.txt', 'uv.lock'],
         manifestKinds: ['pyproject.toml', 'Pipfile'],
-        comparator: 'pep440'
+        comparator: 'pep440',
+        wayOut: false,
+        registryName: 'PyPI'
     },
     {
         id: 'Go',
@@ -101,7 +112,9 @@ export const ECOSYSTEMS: EcosystemDefinition[] = [
         gemnasiumPackageType: 'go',
         resolverKinds: ['go.mod', 'go.sum'],
         manifestKinds: [],
-        comparator: 'go'
+        comparator: 'go',
+        wayOut: false,
+        registryName: 'the Go module proxy'
     },
     {
         id: 'crates.io',
@@ -112,7 +125,9 @@ export const ECOSYSTEMS: EcosystemDefinition[] = [
         gemnasiumPackageType: 'cargo',
         resolverKinds: ['Cargo.lock'],
         manifestKinds: ['Cargo.toml'],
-        comparator: 'semver'
+        comparator: 'semver',
+        wayOut: false,
+        registryName: 'the crates.io index'
     },
     {
         id: 'RubyGems',
@@ -123,7 +138,9 @@ export const ECOSYSTEMS: EcosystemDefinition[] = [
         gemnasiumPackageType: 'gem',
         resolverKinds: ['Gemfile.lock'],
         manifestKinds: ['Gemfile'],
-        comparator: 'rubygems'
+        comparator: 'rubygems',
+        wayOut: false,
+        registryName: 'rubygems.org'
     }
 ]
 
@@ -203,6 +220,12 @@ export function requireEcosystemId(id: string): EcosystemId {
     const def = getEcosystem(id)
     if (def === null) throw new Error('unknown ecosystem ' + JSON.stringify(id))
     return def.id
+}
+
+// Whether a finding of this ecosystem gets a computed way out (EcosystemDefinition.wayOut); false for an id
+// the registry does not know.
+export function computesWayOut(ecosystem: string): boolean {
+    return getEcosystem(ecosystem)?.wayOut === true
 }
 
 export function getEcosystem(id: string): EcosystemDefinition | null {

@@ -18,13 +18,13 @@ import {
     type DrizzleDb,
     type SqliteDb
 } from '@sentinello/db'
-import { buildAdvisoryMarkdown, sourceEnabledKey, type Finding, type Project } from '@sentinello/core'
+import { buildAdvisoryMarkdown, sourceEnabledKey, WAY_OUT_NPM_ONLY, type Finding, type Project } from '@sentinello/core'
 import type { NpmPackageSummary } from '@sentinello/feeds'
 import { versionSetFromSemverRange, type FixEvidence, type RawFinding, type ScanContext, type ScannerPlugin, type ScanResult } from '@sentinello/scanners'
 import { toWebhookVulnerability } from '@sentinello/notifications'
 import { toExportFinding } from './notifier'
 import { runProjectScanners, type ProjectScanOutcome } from './runner'
-import { createPublishedRegistryClient, createMemoryRegistryStore, fixEvidenceKey, settleProject, WAY_OUT_NPM_ONLY, type PublicationClient, type RegistryClient, type RegistryClients, type RegistryEntry } from '@sentinello/fixes'
+import { createPublishedRegistryClient, createMemoryRegistryStore, fixEvidenceKey, settleProject, type PublicationClient, type RegistryClient, type RegistryClients, type RegistryEntry } from '@sentinello/fixes'
 import { verifyFixes } from './fix-verification'
 
 // Pass-throughs, so a test can see how often and in what order the adapter calls them.

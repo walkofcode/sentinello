@@ -166,7 +166,8 @@ function addModule(path: string, version: string, manifestPath: string, out: Res
         name: path,
         version,
         scope: { isProd: true, isDev: false, isOptional: false },
-        depPaths: [key],
+        // go.mod and go.sum record no dependency graph: the chain is unknown.
+        depPaths: [],
         manifestPath
     })
 }

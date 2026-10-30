@@ -20,7 +20,7 @@ function check(overrides: Partial<FixCheck> = {}): FixCheck {
 }
 
 function facts(overrides: Partial<FixFacts> = {}): FixFacts {
-    return { packageName: 'braces', fixStatus: 'unverified', fixVersion: null, fixAvailable: false, fixCheck: check(), ...overrides }
+    return { ecosystem: 'npm', packageName: 'braces', fixStatus: 'unverified', fixVersion: null, fixAvailable: false, fixCheck: check(), ...overrides }
 }
 
 describe('parseFixCheck', function () {
@@ -84,7 +84,7 @@ describe('readFixFields', function () {
     // re-checked (latest scan ok) does not.
     it('says a retained row was not re-checked, settled or not', function () {
         const context = { latestStatus: 'unauditable', latestReasonCode: 'no_lockfile', lastOkScanAt: DATA_AT, projectState: 'cannot_scan' as const }
-        const reason = { reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: DATA_AT }
+        const reason = { reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: DATA_AT, manifests: null }
         expect(readFixFields({ fixStatus: 'released', fixVersion: '3.0.4', fixAvailable: true, fixCheckJson: json, remediationJson: null }, context))
             .toEqual({ fixStatus: 'released', fixVersion: '3.0.4', fixAvailable: true, fixCheck: check(), remediation: null, notRecheckedBecause: reason })
         expect(readFixFields({ fixStatus: null, fixVersion: '3.0.4', fixAvailable: true, fixCheckJson: null, remediationJson: null }, context).notRecheckedBecause).toEqual(reason)
@@ -110,6 +110,10 @@ describe('describeFix', function () {
         ['stated, run offline', facts({ fixVersion: '3.0.4', fixCheck: check({ registry: 'offline' }) }), 'advisory names 3.0.4 as the fix · not checked against the registry (offline)'],
         ['stated, registry down', facts({ fixVersion: '3.0.4', fixCheck: check({ registry: 'error' }) }), 'advisory names 3.0.4 as the fix · not checked against the registry (registry not reachable)'],
         ['none stated, not on registry', facts({ fixCheck: check({ registry: 'not_found' }) }), 'no fix stated by the advisory · not checked against the registry (not on the npm registry)'],
+        // Each ecosystem's fix is checked against its own registry, and the reason names that one.
+        ['a PyPI package not on PyPI', facts({ ecosystem: 'PyPI', fixCheck: check({ registry: 'not_found' }) }), 'no fix stated by the advisory · not checked against the registry (not on PyPI)'],
+        ['a Go module not on the proxy', facts({ ecosystem: 'Go', fixCheck: check({ registry: 'not_found' }) }), 'no fix stated by the advisory · not checked against the registry (not on the Go module proxy)'],
+        ['an ecosystem the registry does not know', facts({ ecosystem: 'Hex', fixCheck: check({ registry: 'not_found' }) }), 'no fix stated by the advisory · not checked against the registry (not on the registry)'],
         ['via parent', facts({ fixAvailable: true, fixCheck: check({ registry: 'skipped' }) }), 'npm reports npm audit fix resolves it (no version of this package stated) · not checked against the registry'],
         ['incomplete range', facts({ fixCheck: check({ unevaluable: 'affected_incomplete' }) }), 'no fix stated by the advisory · not checked against the registry (affected range could not be evaluated)'],
         ['unreadable install', facts({ fixCheck: check({ unevaluable: 'installed_unknown' }) }), 'no fix stated by the advisory · not checked against the registry (installed version could not be read)'],
@@ -124,7 +128,7 @@ describe('describeFix', function () {
 describe('describeFix — not re-checked', function () {
     const LAST_OK = Date.UTC(2026, 8, 30, 9)
     function retained(projectState: NotRecheckedBecause['projectState'], lastOkScanAt: number | null): NotRecheckedBecause {
-        return { reasonCode: 'no_lockfile', side: 'project', projectState, lastOkScanAt }
+        return { reasonCode: 'no_lockfile', side: 'project', projectState, lastOkScanAt, manifests: null }
     }
 
     it.each([
@@ -144,8 +148,14 @@ describe('describeFix — not re-checked', function () {
     })
 
     it('names the side-less wording for an environment failure too', function () {
-        expect(describeNotRechecked({ reasonCode: 'pm_missing', side: 'environment', projectState: 'cannot_scan', lastOkScanAt: null }))
+        expect(describeNotRechecked({ reasonCode: 'pm_missing', side: 'environment', projectState: 'cannot_scan', lastOkScanAt: null, manifests: null }))
             .toBe('not re-checked — the project cannot be scanned: Package manager not on PATH (never scanned successfully)')
+    })
+
+    it('names the kept copies\' manifests, and no date, for a row the latest scan saw through its other copies', function () {
+        const kept: NotRecheckedBecause = { reasonCode: 'no_lockfile', side: 'project', projectState: 'partial', lastOkScanAt: null, manifests: ['ios/Gemfile', 'macos/Gemfile'] }
+        expect(describeFix(facts({ fixStatus: 'released', fixVersion: '2.5.0', fixAvailable: true, notRecheckedBecause: kept }), PLAIN_FIX_STYLE))
+            .toBe('upgrade to 2.5.0 · copies in ios/Gemfile, macos/Gemfile not re-checked — the project cannot be fully scanned: No lockfile')
     })
 })
 

@@ -91,9 +91,12 @@ export type OsvAdvisoryLink = Pick<OsvAdvisoryRow, 'advisoryId' | 'aliases' | 'w
 //     (`[0, 0.0.0-20210101000000-abcdef123456)`) is no longer read as inverted and deleted; and PyPI package
 //     names are PEP 503-canonical, so they meet the resolver's. An event the comparator cannot read is kept
 //     as a refused part of the row's ranges (VersionRange.refused), which matches nothing and keeps the
-//     affected set incomplete, instead of vanishing. npm reads exactly as it did at v7: its ranges are
-//     SEMVER-typed, which OSV's schema requires to be valid SemVer, and the semver comparator reads every
-//     such version, so no npm event is refused.
+//     affected set incomplete, instead of vanishing. npm too: most npm ranges are SEMVER-typed and read
+//     as at v7, but some GHSA npm records use ECOSYSTEM-typed ranges with CalVer fixes the semver
+//     comparator cannot read (`fixed: 2026.03.28`). v7 silently left those intervals open, so a released
+//     fix read as "no fixed version released"; v8 keeps a refused part and settles them `unknown`. The
+//     live-cache diff found 19 such npm advisories and no other npm change, so npm is bumped too and its
+//     export is downloaded again once (about 200 MB).
 //
 // PER ECOSYSTEM, because each ecosystem's cache is its own download: a change that only re-derives PyPI
 // rows must re-seed PyPI and nothing else, and npm's export alone is over 200 MB. Every store keys the
@@ -102,7 +105,7 @@ export type OsvAdvisoryLink = Pick<OsvAdvisoryRow, 'advisoryId' | 'aliases' | 'w
 // Lives beside the row type it describes so every store — the portal's SQLite cache and the CLI's ndjson
 // cache alike — invalidates on exactly the same signal.
 export const OSV_NORMALIZER_VERSIONS: Record<EcosystemId, number> = {
-    npm: 7,
+    npm: 8,
     PyPI: 8,
     Go: 8,
     'crates.io': 8,

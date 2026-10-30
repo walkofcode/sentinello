@@ -13,7 +13,7 @@ import {
 import type { GemnasiumAdvisoryRow } from '@sentinello/core'
 import {
     countGemnasiumAdvisories,
-    deleteGemnasiumAdvisories,
+    deleteGemnasiumRows,
     deleteGemnasiumAdvisoriesExcept,
     GEMNASIUM_META_KEYS,
     gemnasiumRowKeyFor,
@@ -201,42 +201,33 @@ describe('countGemnasiumAdvisories', function () {
     })
 })
 
-describe('deleteGemnasiumAdvisories', function () {
-    // The incremental sync clears an advisory's rows and rewrites them from the new file, so a package
-    // dropped from the advisory's affected set does not linger. That means deleting by advisory id,
-    // not by row key — one id can own rows in several ecosystems.
-    it('removes every row of an advisory across ecosystems', function () {
+describe('deleteGemnasiumRows', function () {
+    // The incremental sync clears the one row a changed or deleted file holds. One CVE has files under several
+    // packages and ecosystems, so a row is (advisory, ecosystem, package), never the advisory id alone.
+    it('removes exactly the named rows, never the same advisory elsewhere', function () {
         upsertGemnasiumAdvisories(db, [
             advisory({ advisoryId: 'CVE-1', ecosystem: 'npm', packageName: 'a' }),
             advisory({ advisoryId: 'CVE-1', ecosystem: 'PyPI', packageName: 'b' }),
-            advisory({ advisoryId: 'CVE-2', ecosystem: 'npm', packageName: 'c' })
+            advisory({ advisoryId: 'CVE-1', ecosystem: 'npm', packageName: 'c' })
         ])
-        expect(deleteGemnasiumAdvisories(db, ['CVE-1'])).toBe(2)
-        expect(countGemnasiumAdvisories(db)).toBe(1)
+        expect(deleteGemnasiumRows(db, [{ advisoryId: 'CVE-1', ecosystem: 'npm', packageName: 'a' }])).toBe(1)
+        expect(countGemnasiumAdvisories(db)).toBe(2)
+        expect(lookupGemnasiumByPackages(db, 'PyPI', ['b']).get('b')).toHaveLength(1)
         expect(lookupGemnasiumByPackages(db, 'npm', ['c']).get('c')).toHaveLength(1)
     })
 
-    it('does nothing for an empty id list', function () {
+    it('does nothing for an empty list, and reports zero for a row that is not cached', function () {
         upsertGemnasiumAdvisories(db, [advisory()])
-        expect(deleteGemnasiumAdvisories(db, [])).toBe(0)
+        expect(deleteGemnasiumRows(db, [])).toBe(0)
+        expect(deleteGemnasiumRows(db, [{ advisoryId: 'CVE-nope', ecosystem: 'npm', packageName: 'lodash' }])).toBe(0)
         expect(countGemnasiumAdvisories(db)).toBe(1)
     })
 
-    it('reports zero for an advisory that is not cached', function () {
-        upsertGemnasiumAdvisories(db, [advisory({ advisoryId: 'CVE-1' })])
-        expect(deleteGemnasiumAdvisories(db, ['CVE-nope'])).toBe(0)
-        expect(countGemnasiumAdvisories(db)).toBe(1)
-    })
-
-    it('handles more ids than one delete chunk', function () {
+    it('handles more rows than one delete chunk', function () {
         const rows: GemnasiumAdvisoryRow[] = []
-        const ids: string[] = []
-        for (let i = 0; i < 600; i++) {
-            rows.push(advisory({ advisoryId: 'CVE-' + i, packageName: 'pkg' + i }))
-            ids.push('CVE-' + i)
-        }
+        for (let i = 0; i < 600; i++) rows.push(advisory({ advisoryId: 'CVE-' + i, packageName: 'pkg' + i }))
         upsertGemnasiumAdvisories(db, rows)
-        expect(deleteGemnasiumAdvisories(db, ids)).toBe(600)
+        expect(deleteGemnasiumRows(db, rows)).toBe(600)
         expect(countGemnasiumAdvisories(db)).toBe(0)
     })
 })

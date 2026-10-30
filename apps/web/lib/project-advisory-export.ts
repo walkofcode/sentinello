@@ -92,8 +92,10 @@ export function buildProjectAdvisoryParts(
     const findings: ExportFinding[] = merged.map(function toExport(m): ExportFinding {
         const advisoryIds = [...new Set(m.identities.map(function idOf(i) { return i.advisoryId }))]
         return {
+            ecosystem: m.ecosystem,
             packageName: m.packageName,
             installedVersion: m.installedVersion,
+            installations: m.installations,
             fixAvailable: m.fixAvailable,
             fixVersion: m.fixVersion,
             fixStatus: m.fixStatus,

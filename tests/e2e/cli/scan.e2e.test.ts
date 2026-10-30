@@ -8,9 +8,8 @@ import { promisify } from 'node:util'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createRowWriter } from '../../../apps/cli/src/cache/store'
 import { advisoryFilePath, writeCacheMeta } from '../../../apps/cli/src/cache/meta'
-import { startStubRegistry, type StubRegistry } from '../../fixtures/registry-stub'
-import { OSV_NORMALIZER_VERSION } from '@sentinello/core'
-import type { OsvAdvisoryRow } from '@sentinello/core'
+import { startStubRegistry, type PublishedRegistries, type StubRegistry } from '../../fixtures/registry-stub'
+import { osvNormalizerVersion, type EcosystemId, type OsvAdvisoryRow } from '@sentinello/core'
 
 // Drives the REAL bundled binary — the same dist/cli.cjs npm publishes — as a subprocess. That is
 // the point: an in-process test cannot catch a packaging fault (a dependency that failed to bundle,
@@ -18,10 +17,11 @@ import type { OsvAdvisoryRow } from '@sentinello/core'
 //
 // The run is hermetic by construction. Both feed URLs are set to 'off', which makes planSync skip
 // every source, and most scans pass --source osv,gemnasium so npm audit is never spawned. The advisory
-// cache is pre-seeded from the frozen fixture, so findings are exact and permanent. The fix check reads
-// the npm registry, and npm audit reads the configured one (npm_config_registry), so every run points
-// both at a loopback stub over recorded packuments: this suite never reaches the live registry, and it
-// counts every request the CLI and its npm child make.
+// cache is pre-seeded from the frozen fixtures, so findings are exact and permanent. The fix check reads
+// each ecosystem's registry, and npm audit reads the configured one (npm_config_registry), so every run
+// points all of them at one loopback stub — recorded npm packuments, and synthetic PyPI, crates.io index,
+// Go proxy and rubygems.org answers: this suite never reaches a live registry, and it counts every request
+// the CLI and its npm child make.
 
 const execFileAsync = promisify(execFile)
 
@@ -31,7 +31,10 @@ const CLI_BIN = join(REPO_ROOT, 'apps', 'cli', 'dist', 'cli.cjs')
 const FIXTURE_PROJECT = join(REPO_ROOT, 'tests', 'fixtures', 'projects', 'npm-basic')
 const FIXTURE_NO_FIX_PROJECT = join(REPO_ROOT, 'tests', 'fixtures', 'projects', 'npm-no-fix')
 const FIXTURE_NO_LOCKFILE_PROJECT = join(REPO_ROOT, 'tests', 'fixtures', 'projects', 'npm-no-lockfile')
-const FIXTURE_ADVISORIES = join(REPO_ROOT, 'tests', 'fixtures', 'advisories', 'osv-npm.ndjson')
+const FIXTURE_POLYGLOT_PROJECT = join(REPO_ROOT, 'tests', 'fixtures', 'projects', 'polyglot')
+const ADVISORIES_DIR = join(REPO_ROOT, 'tests', 'fixtures', 'advisories')
+const PUBLISHED_REGISTRIES = join(REPO_ROOT, 'tests', 'fixtures', 'registry', 'polyglot', 'published.json')
+const CLI_PACKAGE_JSON = join(REPO_ROOT, 'apps', 'cli', 'package.json')
 const REGISTRY_LAYERS = [
     join(REPO_ROOT, 'apps', 'worker', 'test', 'fixtures', 'registry', 'base'),
     join(REPO_ROOT, 'tests', 'fixtures', 'registry', 'npm-basic')
@@ -51,7 +54,18 @@ type RunResult = { code: number; stdout: string; stderr: string }
 async function runCli(args: string[], cache: string = cacheDir): Promise<RunResult> {
     try {
         const { stdout, stderr } = await execFileAsync('node', [CLI_BIN, ...args], {
-            env: { ...process.env, ...OFFLINE_ENV, SENTINELLO_CACHE_DIR: cache, SENTINELLO_NPM_REGISTRY_URL: stub.url, SENTINELLO_NPM_DOWNLOADS_URL: stub.url, npm_config_registry: stub.url },
+            env: {
+                ...process.env,
+                ...OFFLINE_ENV,
+                SENTINELLO_CACHE_DIR: cache,
+                SENTINELLO_NPM_REGISTRY_URL: stub.url,
+                SENTINELLO_NPM_DOWNLOADS_URL: stub.url,
+                npm_config_registry: stub.url,
+                SENTINELLO_PYPI_URL: stub.urls.pypi,
+                SENTINELLO_CRATES_INDEX_URL: stub.urls.crates,
+                SENTINELLO_GOPROXY_URL: stub.urls.goproxy,
+                SENTINELLO_RUBYGEMS_URL: stub.urls.rubygems
+            },
             maxBuffer: 32 * 1024 * 1024
         })
         return { code: 0, stdout, stderr }
@@ -71,36 +85,34 @@ beforeAll(async function seedCache() {
         throw new Error('CLI bundle missing at ' + CLI_BIN + ' — run `pnpm --filter sentinello build` first')
     }
 
-    stub = await startStubRegistry(REGISTRY_LAYERS)
+    stub = await startStubRegistry(REGISTRY_LAYERS, JSON.parse(await readFile(PUBLISHED_REGISTRIES, 'utf8')) as PublishedRegistries)
     cacheDir = await seededCache()
 })
 
-// An advisory cache seeded from the frozen fixture, with no registry cache yet.
-async function seededCache(): Promise<string> {
+// An advisory cache seeded from the frozen fixtures of the given ecosystems (tests/fixtures/advisories/
+// osv-<ecosystem>.ndjson), with no registry cache yet.
+async function seededCache(ecosystems: readonly EcosystemId[] = ['npm']): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), 'sentinello-cli-e2e-'))
+    const osv: Record<string, { normalizerVersion: number; recordCount: number; refreshedAt: number }> = {}
+    for (const ecosystem of ecosystems) {
+        // Seed through the real writer, so the cache is byte-identical to one a live sync would produce.
+        const text = await readFile(join(ADVISORIES_DIR, 'osv-' + ecosystem + '.ndjson'), 'utf8')
+        const rows: OsvAdvisoryRow[] = text
+            .split('\n')
+            .filter(function nonEmpty(line) {
+                return line.trim().length > 0
+            })
+            .map(function parse(line) {
+                return JSON.parse(line) as OsvAdvisoryRow
+            })
 
-    // Seed through the real writer, so the cache is byte-identical to one a live sync would produce.
-    const text = await readFile(FIXTURE_ADVISORIES, 'utf8')
-    const rows: OsvAdvisoryRow[] = text
-        .split('\n')
-        .filter(function nonEmpty(line) {
-            return line.trim().length > 0
-        })
-        .map(function parse(line) {
-            return JSON.parse(line) as OsvAdvisoryRow
-        })
+        const writer = createRowWriter(advisoryFilePath(dir, 'osv', ecosystem))
+        await writer.write(rows)
+        const count = await writer.commit()
+        osv[ecosystem] = { normalizerVersion: osvNormalizerVersion(ecosystem), recordCount: count, refreshedAt: Date.UTC(2026, 0, 1) }
+    }
 
-    const writer = createRowWriter(advisoryFilePath(dir, 'osv', 'npm'))
-    await writer.write(rows)
-    const count = await writer.commit()
-
-    await writeCacheMeta(dir, {
-        schemaVersion: 1,
-        sources: {
-            osv: { npm: { normalizerVersion: OSV_NORMALIZER_VERSION, recordCount: count, refreshedAt: Date.UTC(2026, 0, 1) } },
-            gemnasium: {}
-        }
-    })
+    await writeCacheMeta(dir, { schemaVersion: 1, sources: { osv, gemnasium: {} } })
     return dir
 }
 
@@ -358,6 +370,115 @@ describe('--offline makes no request from any source', function () {
         } finally {
             await rm(project, { recursive: true, force: true })
         }
+    })
+})
+
+// tests/fixtures/projects/polyglot: one project holding requirements.txt, go.mod, Cargo.lock and
+// Gemfile.lock. Each ecosystem's advisories are its own frozen OSV export, and each finding's fix is settled
+// against its own registry's stub (tests/fixtures/registry/polyglot/published.json): every advisory there
+// either states a fix that registry publishes, or affects everything it publishes but a yanked release.
+describe('a polyglot project', function () {
+    type Finding = {
+        ecosystem: string
+        packageName: string
+        advisoryId: string
+        installedVersion: string
+        fixStatus: string
+        fixVersion: string | null
+        fixCheck: { registry: string }
+        depPath: string[]
+        installations: { manifestPath: string; version: string }[]
+        remediation: { chains: { verdict: { kind: string; reason?: string } }[] } | null
+    }
+
+    let polyglotCache: string
+
+    beforeAll(async function freshCache() {
+        polyglotCache = await seededCache(['PyPI', 'Go', 'crates.io', 'RubyGems'])
+    })
+
+    afterAll(async function dropCache() {
+        await rm(polyglotCache, { recursive: true, force: true })
+    })
+
+    async function scanPolyglot(extraArgs: string[] = []): Promise<RunResult> {
+        return await runCli([FIXTURE_POLYGLOT_PROJECT, '--source', 'osv', '--no-prompt', '--out', '-', ...extraArgs], polyglotCache)
+    }
+
+    it('finds each ecosystem\'s advisory and settles every fix against its own registry', async function () {
+        const before = stub.publishedRequests.length
+        const result = await scanPolyglot(['--json'])
+        expect(result.code).toBe(0)
+        const doc = JSON.parse(result.stdout)
+        const byId = new Map<string, Finding>(doc.findings.map(function entry(f: Finding) { return [f.advisoryId, f] as const }))
+        expect([...byId.keys()].sort()).toEqual([
+            'GHSA-FIXTURE-gem',
+            'GHSA-FIXTURE-gem-nofix',
+            'GO-FIXTURE-0001',
+            'PYSEC-FIXTURE-0001',
+            'PYSEC-FIXTURE-0002',
+            'RUSTSEC-FIXTURE-0001'
+        ])
+        // The installed fake-py-lib 1.0.0 is below the third PyPI advisory's range, which must not match.
+        expect(byId.has('PYSEC-FIXTURE-0003')).toBe(false)
+        expect(byId.get('PYSEC-FIXTURE-0001')).toMatchObject({ ecosystem: 'PyPI', packageName: 'fake-py-lib', fixStatus: 'released', fixVersion: '1.1.0', fixCheck: { registry: 'ok' } })
+        expect(byId.get('GO-FIXTURE-0001')).toMatchObject({ ecosystem: 'Go', packageName: 'example.invalid/fakemod', fixStatus: 'released', fixCheck: { registry: 'ok' } })
+        expect(byId.get('RUSTSEC-FIXTURE-0001')).toMatchObject({ ecosystem: 'crates.io', packageName: 'fake-crate', fixStatus: 'released', fixVersion: '1.0.1', fixCheck: { registry: 'ok' } })
+        expect(byId.get('GHSA-FIXTURE-gem')).toMatchObject({ ecosystem: 'RubyGems', packageName: 'fake-gem', fixStatus: 'released', fixVersion: '1.0.1', fixCheck: { registry: 'ok' } })
+        // Everything published is affected but a yanked release, which is never a fix.
+        expect(byId.get('PYSEC-FIXTURE-0002')).toMatchObject({ fixStatus: 'none_released', fixVersion: null, fixCheck: { registry: 'ok' } })
+        expect(byId.get('GHSA-FIXTURE-gem-nofix')).toMatchObject({ fixStatus: 'none_released', fixVersion: null, fixCheck: { registry: 'ok' } })
+        for (const finding of byId.values()) expect(finding.fixStatus, finding.advisoryId).not.toBe('unverified')
+        // Each registry was asked, through its own stub.
+        const asked = stub.publishedRequests.slice(before)
+        for (const prefix of ['/_pypi/', '/_goproxy/', '/_crates/', '/_rubygems/']) {
+            expect(asked.some(function under(path) { return path.startsWith(prefix) }), prefix).toBe(true)
+        }
+        expect(doc.projects).toHaveLength(1)
+        expect(doc.projects[0].scanState.state).toBe('scanned')
+    })
+
+    // requirements.txt records no dependency graph; Gemfile.lock does. The way out is computed for npm only,
+    // so a non-npm finding with no released fix says so, and never that there is no way out.
+    it('shows a requirements.txt finding\'s chain as unknown and a Gemfile.lock finding\'s real chain', async function () {
+        const json = JSON.parse((await scanPolyglot(['--json'])).stdout)
+        const byId = new Map<string, Finding>(json.findings.map(function entry(f: Finding) { return [f.advisoryId, f] as const }))
+        expect(byId.get('PYSEC-FIXTURE-0002')).toMatchObject({ depPath: [], installations: [{ manifestPath: 'requirements.txt', version: '2.0.0' }] })
+        expect(byId.get('GHSA-FIXTURE-gem-nofix')?.depPath).toEqual(['fake-gem-nofix@2.0.0'])
+        expect(byId.get('GHSA-FIXTURE-gem-nofix')?.installations).toEqual([{ manifestPath: 'Gemfile.lock', version: '2.0.0' }])
+        for (const id of ['PYSEC-FIXTURE-0002', 'GHSA-FIXTURE-gem-nofix']) {
+            expect(byId.get(id)?.remediation?.chains.map(function kind(c) { return c.verdict.kind }), id).toEqual(['unknown'])
+        }
+
+        const markdown = await scanPolyglot([])
+        expect(markdown.code).toBe(0)
+        expect(markdown.stdout).toContain('- **Ecosystem:** `PyPI` (Python)')
+        expect(markdown.stdout).toContain('- **Installed through:** `requirements.txt` (2.0.0)')
+        expect(markdown.stdout).toContain('- **Dependency path:** chain unknown (the lockfile records no dependency graph)')
+        expect(markdown.stdout).toContain('`fake-gem-nofix@2.0.0`')
+        expect(markdown.stdout).toContain('upgrade to `1.0.1`')
+        expect(markdown.stdout.toLowerCase()).not.toContain('no way out')
+        expect(markdown.stdout).not.toContain('not checked against the registry')
+    })
+
+    it('settles nothing and asks no registry under --offline', async function () {
+        const before = stub.publishedRequests.length
+        const result = await scanPolyglot(['--json', '--offline'])
+        expect(result.code).toBe(0)
+        expect(stub.publishedRequests.slice(before)).toEqual([])
+        for (const finding of JSON.parse(result.stdout).findings as Finding[]) {
+            expect(finding.fixCheck.registry, finding.advisoryId).toBe('offline')
+        }
+    })
+})
+
+// The publish workflow refuses a package.json with runtime dependencies (.github/workflows/publish-npm.yml,
+// "Verify the package is dependency-free"): the bundle has to carry every ecosystem's resolver, feed and
+// registry client itself.
+describe('the published package', function () {
+    it('declares no runtime dependencies', async function () {
+        const manifest = JSON.parse(await readFile(CLI_PACKAGE_JSON, 'utf8')) as { dependencies?: Record<string, string> }
+        expect(manifest.dependencies ?? {}).toEqual({})
     })
 })
 

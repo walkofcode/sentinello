@@ -3,7 +3,7 @@ import { gunzipSync } from 'node:zlib'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { countRows, createRowWriter, readRowsForPackages, rewriteRows } from './store'
+import { countRows, createRowWriter, readRowsForPackages, rewriteRows, rowKey } from './store'
 import type { StorableRow } from './store'
 
 // The advisory cache is gzipped NDJSON: `packageName \t advisoryId \t {json}` per line. The two
@@ -174,6 +174,24 @@ describe('rewriteRows — the incremental update path', function () {
     it('drops every row carrying a dropped advisory id', async function () {
         await writeRows([row('a', 'DROP'), row('b', 'DROP'), row('c', 'KEEP')])
         await rewriteRows<Row>(path, { dropAdvisoryIds: new Set(['DROP']), append: [] })
+        expect(await countRows(path)).toBe(1)
+    })
+
+    // gemnasium keeps one file per package and advisory: a changed file speaks for its package alone, and
+    // the advisory's rows for every other package it names must survive.
+    it('drops a single (package, advisory) row by its key and leaves the advisory\'s other packages', async function () {
+        await writeRows([row('a', 'CVE-SHARED'), row('b', 'CVE-SHARED'), row('a', 'OTHER')])
+        const count = await rewriteRows<Row>(path, { dropRowKeys: new Set([rowKey('a', 'CVE-SHARED')]), append: [row('a', 'CVE-SHARED', { severity: 'low' })] })
+        expect(count).toBe(3)
+        const found = await readRowsForPackages<Row>(path, new Set(['a', 'b']))
+        expect(found.get('b')).toEqual([{ packageName: 'b', advisoryId: 'CVE-SHARED' }])
+        expect(found.get('a')).toEqual([{ packageName: 'a', advisoryId: 'OTHER' }, { packageName: 'a', advisoryId: 'CVE-SHARED', severity: 'low' }])
+    })
+
+    it('keys a row with the tabs and newlines its line strips', async function () {
+        await writeRows([row('a\tb', 'ID\n1'), row('ab', 'ID1x')])
+        expect(rowKey('a\tb', 'ID\n1')).toBe('ab\tID1')
+        await rewriteRows<Row>(path, { dropRowKeys: new Set([rowKey('a\tb', 'ID\n1')]), append: [] })
         expect(await countRows(path)).toBe(1)
     })
 

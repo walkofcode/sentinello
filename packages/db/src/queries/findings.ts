@@ -344,6 +344,17 @@ export function listOpenFindingEcosystems(db: DrizzleDb, projectId: string): str
     return rows.map(function ecosystem(r) { return r.ecosystem })
 }
 
+// The ecosystems an identity without one could mean: every ecosystem with an open finding of this source,
+// advisory and package — on one project, or on any when projectId is null. A mute names one ecosystem's
+// package; MCP's mute_finding infers it from here when the caller leaves it out, and refuses when there
+// are several. Sorted, so the candidates read the same every time.
+export function listFindingIdentityEcosystems(db: DrizzleDb, identity: { projectId: string | null; source: string; advisoryId: string; packageName: string }): string[] {
+    const conditions = [isNull(findings.resolvedAt), eq(findings.source, identity.source), eq(findings.advisoryId, identity.advisoryId), eq(findings.packageName, identity.packageName)]
+    if (identity.projectId !== null) conditions.push(eq(findings.projectId, identity.projectId))
+    const rows = db.selectDistinct({ ecosystem: findings.ecosystem }).from(findings).where(and(...conditions)).all()
+    return rows.map(function ecosystem(r) { return r.ecosystem }).sort()
+}
+
 export function listFindingsForProject(db: DrizzleDb, projectId: string): Finding[] {
     const rows = db.select().from(findings).where(eq(findings.projectId, projectId)).all()
     return rows.map(rowToFinding)
@@ -536,7 +547,7 @@ function rowToFindingInContext(row: FindingRow, scanContext: FindingScanContext 
 // write, a hand-edited database, or a future writer with a different shape — is worth showing without
 // its dep path. Letting JSON.parse escape would instead take down every findings query that touched
 // the row, and with it the whole page listing that project.
-function parseDepPath(json: string): string[] {
+export function parseDepPath(json: string): string[] {
     let parsed: unknown
     try {
         parsed = JSON.parse(json)

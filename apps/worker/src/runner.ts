@@ -36,6 +36,7 @@ import {
 } from '@sentinello/scanners'
 import { errText } from '@sentinello/feeds'
 import { createRegistryClients, fixEvidenceKey, type RegistryClients } from '@sentinello/fixes'
+import type { NotificationSender } from '@sentinello/notifications'
 import { CONFIG_KEYS, DEFAULT_GLOBAL_IGNORE } from './config-loader'
 import { readGitBranch, refreshProjectInventory } from './discovery'
 import { verifyFixes } from './fix-verification'
@@ -69,6 +70,8 @@ export type RunBatchInput = {
     projects: Project[]
     parallelism: number
     abortSignal?: AbortSignal
+    // The transport the default notifier sends through (NotifyForCompletedScanInput.send).
+    send?: NotificationSender
 }
 
 export type ProjectScanOutcome = {
@@ -115,7 +118,7 @@ async function workerLoop(
         const project = queue.shift()
         if (!project) return
         if (input.abortSignal && input.abortSignal.aborted) return
-        const projectOutcomes = await runProjectScanners({ db: input.db, scanners: input.scanners, project, abortSignal: input.abortSignal, registry })
+        const projectOutcomes = await runProjectScanners({ db: input.db, scanners: input.scanners, project, abortSignal: input.abortSignal, registry, send: input.send })
         for (const outcome of projectOutcomes) outcomes.push(outcome)
         processed.count += 1
     }
@@ -130,6 +133,8 @@ export type RunProjectScansInput = {
     // Called once per outcome after settlement. Defaults to the real notifier (honouring dryRunNotify);
     // the scratch tools pass a recording one that never reaches a sender.
     notify?: (outcome: ProjectScanOutcome) => Promise<void>
+    // The transport the default notifier sends through; ignored when `notify` is given.
+    send?: NotificationSender
     // The registries fix settlement reads through, one client per ecosystem. Defaults to the cache-first
     // clients on this DB; the scratch tools wrap them to record every answer they serve.
     registry?: RegistryClients
@@ -246,7 +251,7 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
     // A finding npm-audit called moderate and gemnasium called critical was dispatched (or, under a
     // critical-only filter, silently not dispatched) as moderate, and nothing ever revisited it. The
     // settled fix has the same shape of problem: the message must say what the row says.
-    const notify = input.notify ?? defaultNotifier(input.db)
+    const notify = input.notify ?? defaultNotifier(input.db, input.send)
     for (const outcome of outcomes) {
         try {
             await notify(outcome)
@@ -304,10 +309,10 @@ function installationsFor(raw: RawFinding, graph: ResolvedGraph | null): Finding
     return out
 }
 
-function defaultNotifier(db: DrizzleDb): (outcome: ProjectScanOutcome) => Promise<void> {
+function defaultNotifier(db: DrizzleDb, send: NotificationSender | undefined): (outcome: ProjectScanOutcome) => Promise<void> {
     const dryRun = getConfigValue<boolean>(db, CONFIG_KEYS.dryRunNotify) || false
     return function notify(outcome) {
-        return notifyForCompletedScan({ db, outcome, dryRun })
+        return notifyForCompletedScan({ db, outcome, dryRun, send })
     }
 }
 

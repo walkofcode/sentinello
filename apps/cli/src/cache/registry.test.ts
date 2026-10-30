@@ -8,11 +8,12 @@ import { createNpmRegistryClient, REGISTRY_FRESH_MS, type RegistryRow } from '@s
 import { tryAcquireLock } from './meta'
 import {
     loadRegistryStore,
+    loadRegistryStores,
     mergeRow,
     parseRow,
     registryCacheSummary,
     registryFilePath,
-    saveRegistryStore,
+    saveRegistryStores,
     type FileRegistryStore
 } from './registry'
 
@@ -32,6 +33,11 @@ afterEach(async function cleanup() {
     await rm(dir, { recursive: true, force: true })
 })
 
+// The npm store alone, as the save takes every ecosystem's.
+function npmOnly(store: FileRegistryStore): Map<'npm', FileRegistryStore> {
+    return new Map([['npm', store]])
+}
+
 function summary(name: string): NpmPackageSummary {
     return { v: 2, name, latest: '1.0.0', modified: NOW, maintainers: 1, repository: null, versions: { '1.0.0': { publishedAt: NOW, deprecated: null, edges: null } }, prereleases: {}, edges: [] }
 }
@@ -42,7 +48,7 @@ function row(name: string, overrides: Partial<RegistryRow> = {}): RegistryRow {
 
 // A run: its own store over the file as it is now, and a client whose fetches are counted.
 async function run(at: number = NOW) {
-    const store = await loadRegistryStore(dir)
+    const store = await loadRegistryStore(dir, 'npm')
     const packuments: string[] = []
     const counts: string[] = []
     const client = createNpmRegistryClient(store, {
@@ -60,18 +66,18 @@ async function run(at: number = NOW) {
 }
 
 async function onDisk(): Promise<Map<string, RegistryRow>> {
-    const text = gunzipSync(await readFile(registryFilePath(dir))).toString('utf8')
+    const text = gunzipSync(await readFile(registryFilePath(dir, 'npm'))).toString('utf8')
     const rows = text.split('\n').filter(function nonEmpty(l) { return l.length > 0 }).map(function parse(l) { return JSON.parse(l) as RegistryRow })
     return new Map(rows.map(function keyed(r) { return [r.name, r] as const }))
 }
 
-describe('loadRegistryStore / saveRegistryStore', function () {
+describe('loadRegistryStore / saveRegistryStores', function () {
     it('starts empty when there is no file, and saves nothing when nothing was answered', async function () {
         const { store } = await run()
         expect(store.get(['a']).size).toBe(0)
         expect(store.dirtyRows()).toEqual([])
-        expect(await saveRegistryStore(dir, store)).toBe('unchanged')
-        await expect(readFile(registryFilePath(dir))).rejects.toThrow()
+        expect(await saveRegistryStores(dir, npmOnly(store))).toBe('unchanged')
+        await expect(readFile(registryFilePath(dir, 'npm'))).rejects.toThrow()
     })
 
     it('a closure-only name cached by run 1 is served by run 2 with no packument request', async function () {
@@ -79,7 +85,7 @@ describe('loadRegistryStore / saveRegistryStore', function () {
         const first = await run()
         await first.client.lookup(['installed', 'candidate-dep', 'missing-pkg'])
         expect(first.packuments.sort()).toEqual(['candidate-dep', 'installed', 'missing-pkg'])
-        expect(await saveRegistryStore(dir, first.store)).toBe('saved')
+        expect(await saveRegistryStores(dir, npmOnly(first.store))).toBe('saved')
 
         const second = await run(NOW + REGISTRY_FRESH_MS - 1)
         const answers = await second.client.lookup(['candidate-dep', 'missing-pkg'])
@@ -89,25 +95,25 @@ describe('loadRegistryStore / saveRegistryStore', function () {
     })
 
     it('serves an expired answer as stale when the refetch fails, and keeps it on disk', async function () {
-        await writeFile(registryFilePath(dir), gzipSync(JSON.stringify(row('a')) + '\n'))
-        const store = await loadRegistryStore(dir)
+        await writeFile(registryFilePath(dir, 'npm'), gzipSync(JSON.stringify(row('a')) + '\n'))
+        const store = await loadRegistryStore(dir, 'npm')
         const client = createNpmRegistryClient(store, {
             now: function now() { return NOW + REGISTRY_FRESH_MS + 1 },
             fetchPackage: async function down(): Promise<NpmPackageResult> { return { status: 'error', reason: 'HTTP 503' } }
         })
         expect((await client.lookup(['a'])).get('a')).toMatchObject({ status: 'stale', checkedAt: NOW, reason: 'HTTP 503' })
-        expect(await saveRegistryStore(dir, store)).toBe('unchanged')
+        expect(await saveRegistryStores(dir, npmOnly(store))).toBe('unchanged')
         expect((await onDisk()).get('a')).toEqual(row('a'))
     })
 
     it('A, then B, then A with disjoint packages: A\'s rows survive B\'s save', async function () {
         const a = await run()
         await a.client.lookup(['a1', 'a2'])
-        await saveRegistryStore(dir, a.store)
+        await saveRegistryStores(dir, npmOnly(a.store))
         const b = await run(NOW + 1)
         await b.client.lookup(['b1'])
         expect(b.packuments).toEqual(['b1'])
-        await saveRegistryStore(dir, b.store)
+        await saveRegistryStores(dir, npmOnly(b.store))
         expect([...(await onDisk()).keys()].sort()).toEqual(['a1', 'a2', 'b1'])
 
         const again = await run(NOW + 2)
@@ -122,8 +128,8 @@ describe('loadRegistryStore / saveRegistryStore', function () {
         await x.client.lookup(['x-only', 'shared'])
         await y.client.lookup(['y-only', 'shared'])
         await y.client.weeklyDownloads(['shared'])
-        expect(await saveRegistryStore(dir, x.store)).toBe('saved')
-        expect(await saveRegistryStore(dir, y.store)).toBe('saved')
+        expect(await saveRegistryStores(dir, npmOnly(x.store))).toBe('saved')
+        expect(await saveRegistryStores(dir, npmOnly(y.store))).toBe('saved')
         const rows = await onDisk()
         expect([...rows.keys()].sort()).toEqual(['shared', 'x-only', 'y-only'])
         // y saved last, but x's answer for `shared` is newer and stays; y's count is the only count and is kept.
@@ -139,27 +145,27 @@ describe('loadRegistryStore / saveRegistryStore', function () {
     })
 
     it('a held lock skips the save and leaves the file intact', async function () {
-        await writeFile(registryFilePath(dir), gzipSync(JSON.stringify(row('kept')) + '\n'))
+        await writeFile(registryFilePath(dir, 'npm'), gzipSync(JSON.stringify(row('kept')) + '\n'))
         const { store, client } = await run()
         await client.lookup(['new'])
         const lock = await tryAcquireLock(dir)
         expect(lock).not.toBeNull()
         try {
-            expect(await saveRegistryStore(dir, store)).toBe('locked')
+            expect(await saveRegistryStores(dir, npmOnly(store))).toBe('locked')
         } finally {
             await lock?.release()
         }
         expect([...(await onDisk()).keys()]).toEqual(['kept'])
         // The skipped save never touched the lock: once its owner releases it, the next save goes through.
-        expect(await saveRegistryStore(dir, store)).toBe('saved')
+        expect(await saveRegistryStores(dir, npmOnly(store))).toBe('saved')
     })
 
     it('releases the lock and removes its temp file when the write fails', async function () {
         // A directory where the file should be: the rename fails.
-        await mkdir(registryFilePath(dir))
+        await mkdir(registryFilePath(dir, 'npm'))
         const { store, client } = await run()
         await client.lookup(['a'])
-        await expect(saveRegistryStore(dir, store)).rejects.toThrow()
+        await expect(saveRegistryStores(dir, npmOnly(store))).rejects.toThrow()
         expect((await readdir(dir)).sort()).toEqual(['registry-npm.ndjson.gz'])
         const lock = await tryAcquireLock(dir)
         expect(lock).not.toBeNull()
@@ -168,17 +174,17 @@ describe('loadRegistryStore / saveRegistryStore', function () {
 
     it('creates the cache directory on first save', async function () {
         const nested = join(dir, 'nested')
-        const store: FileRegistryStore = await loadRegistryStore(nested)
+        const store: FileRegistryStore = await loadRegistryStore(nested, 'npm')
         store.put({ name: 'a', status: 'not_found', summaryJson: null, checkedAt: NOW, etag: null })
-        expect(await saveRegistryStore(nested, store)).toBe('saved')
-        expect(await registryCacheSummary(nested)).toEqual({ rows: 1, oldestCheckedAt: NOW })
+        expect(await saveRegistryStores(nested, npmOnly(store))).toBe('saved')
+        expect(await registryCacheSummary(nested, 'npm')).toEqual({ rows: 1, oldestCheckedAt: NOW })
     })
 
     it('reads a corrupt file as empty, and drops lines that are not rows', async function () {
-        await writeFile(registryFilePath(dir), 'not gzip')
-        expect((await loadRegistryStore(dir)).get(['a']).size).toBe(0)
-        await writeFile(registryFilePath(dir), gzipSync(JSON.stringify(row('good')) + '\n{oops\n\n' + JSON.stringify({ name: 'bad' }) + '\n'))
-        const store = await loadRegistryStore(dir)
+        await writeFile(registryFilePath(dir, 'npm'), 'not gzip')
+        expect((await loadRegistryStore(dir, 'npm')).get(['a']).size).toBe(0)
+        await writeFile(registryFilePath(dir, 'npm'), gzipSync(JSON.stringify(row('good')) + '\n{oops\n\n' + JSON.stringify({ name: 'bad' }) + '\n'))
+        const store = await loadRegistryStore(dir, 'npm')
         expect([...store.get(['good', 'bad']).keys()]).toEqual(['good'])
     })
 })
@@ -187,14 +193,14 @@ describe('loadRegistryStore / saveRegistryStore', function () {
 // the saved row without a packument being downloaded.
 describe('ETag revalidation through the cache file', function () {
     it('saves the ETag, sends it back once the row expires, and saves the 304 as a fresh answer', async function () {
-        const first = await loadRegistryStore(dir)
+        const first = await loadRegistryStore(dir, 'npm')
         const fetchFirst = async function fetchFirst(name: string): Promise<NpmPackageResult> { return { status: 'ok', summary: summary(name), etag: 'W/"e1"', bytes: 1 } }
         await createNpmRegistryClient(first, { now: () => NOW, fetchPackage: fetchFirst }).lookup(['a'])
-        expect(await saveRegistryStore(dir, first)).toBe('saved')
+        expect(await saveRegistryStores(dir, npmOnly(first))).toBe('saved')
 
         const later = NOW + REGISTRY_FRESH_MS + 1
         const sent: (string | null)[] = []
-        const second = await loadRegistryStore(dir)
+        const second = await loadRegistryStore(dir, 'npm')
         const out = await createNpmRegistryClient(second, {
             now: () => later,
             fetchPackage: async function revalidate(_name, request): Promise<NpmPackageResult> {
@@ -204,8 +210,8 @@ describe('ETag revalidation through the cache file', function () {
         }).lookup(['a'])
         expect(sent).toEqual(['W/"e1"'])
         expect(out.get('a')).toEqual({ status: 'ok', summary: summary('a'), checkedAt: later, origin: 'fetched' })
-        expect(await saveRegistryStore(dir, second)).toBe('saved')
-        expect((await loadRegistryStore(dir)).get(['a']).get('a')).toEqual(row('a', { checkedAt: later, etag: '"e1"' }))
+        expect(await saveRegistryStores(dir, npmOnly(second))).toBe('saved')
+        expect((await loadRegistryStore(dir, 'npm')).get(['a']).get('a')).toEqual(row('a', { checkedAt: later, etag: '"e1"' }))
     })
 })
 
@@ -263,10 +269,31 @@ describe('mergeRow', function () {
     })
 })
 
+// Every registry's answers share the row shape, so each ecosystem is a file beside npm's, never a new layout.
+describe('one file per ecosystem', function () {
+    it('names npm\'s file as before and slugs the others', function () {
+        expect(registryFilePath(dir, 'npm')).toBe(join(dir, 'registry-npm.ndjson.gz'))
+        expect(registryFilePath(dir, 'crates.io')).toBe(join(dir, 'registry-crates.io.ndjson.gz'))
+    })
+
+    it('loads a store for every ecosystem and saves only the ones answered, each to its own file', async function () {
+        await writeFile(registryFilePath(dir, 'PyPI'), gzipSync(JSON.stringify(row('kept-py')) + '\n'))
+        const stores = await loadRegistryStores(dir)
+        expect([...stores.keys()]).toEqual(['npm', 'PyPI', 'Go', 'crates.io', 'RubyGems'])
+        expect(stores.get('PyPI')?.get(['kept-py']).size).toBe(1)
+        stores.get('PyPI')?.put({ name: 'requests', status: 'not_found', summaryJson: null, checkedAt: NOW, etag: null })
+        stores.get('Go')?.put({ name: 'example.invalid/mod', status: 'not_found', summaryJson: null, checkedAt: NOW, etag: null })
+        expect(await saveRegistryStores(dir, stores)).toBe('saved')
+        expect((await loadRegistryStore(dir, 'PyPI')).get(['kept-py', 'requests']).size).toBe(2)
+        expect((await loadRegistryStore(dir, 'Go')).get(['example.invalid/mod']).size).toBe(1)
+        expect((await readdir(dir)).sort()).toEqual(['registry-Go.ndjson.gz', 'registry-PyPI.ndjson.gz'])
+    })
+})
+
 describe('registryCacheSummary', function () {
     it('is null with no cache, and counts rows and the oldest answer otherwise', async function () {
-        expect(await registryCacheSummary(dir)).toBeNull()
-        await writeFile(registryFilePath(dir), gzipSync([row('a', { checkedAt: NOW }), row('b', { checkedAt: NOW - 5 })].map(function line(r) { return JSON.stringify(r) + '\n' }).join('')))
-        expect(await registryCacheSummary(dir)).toEqual({ rows: 2, oldestCheckedAt: NOW - 5 })
+        expect(await registryCacheSummary(dir, 'npm')).toBeNull()
+        await writeFile(registryFilePath(dir, 'npm'), gzipSync([row('a', { checkedAt: NOW }), row('b', { checkedAt: NOW - 5 })].map(function line(r) { return JSON.stringify(r) + '\n' }).join('')))
+        expect(await registryCacheSummary(dir, 'npm')).toEqual({ rows: 2, oldestCheckedAt: NOW - 5 })
     })
 })

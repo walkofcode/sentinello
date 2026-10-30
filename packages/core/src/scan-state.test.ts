@@ -243,12 +243,15 @@ describe('scan state — notRecheckedBecause', function () {
 
     it('names the unread manifest\'s reason for a row an ok scan kept without seeing', function () {
         expect(notRecheckedBecause({ latestStatus: 'ok', latestReasonCode: 'ok', lastOkScanAt: AT, projectState: 'partial', unreadReasonCode: 'unsupported_lockfile' }))
-            .toEqual({ reasonCode: 'unsupported_lockfile', side: 'project', projectState: 'partial', lastOkScanAt: AT })
+            .toEqual({ reasonCode: 'unsupported_lockfile', side: 'project', projectState: 'partial', lastOkScanAt: AT, manifests: null })
+        // Kept copies of a row the scan saw through other manifests: named, with no date of their own.
+        expect(notRecheckedBecause({ latestStatus: 'ok', latestReasonCode: 'ok', lastOkScanAt: AT, projectState: 'partial', unreadReasonCode: 'no_lockfile', unreadManifests: ['ios/Gemfile'] }))
+            .toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'partial', lastOkScanAt: null, manifests: ['ios/Gemfile'] })
         expect(notRecheckedBecause({ latestStatus: 'ok', latestReasonCode: 'ok', lastOkScanAt: AT, projectState: 'scanned', unreadReasonCode: null })).toBeNull()
     })
 
     it('names the failure, its side, the project state and the last ok scan', function () {
         expect(notRecheckedBecause({ latestStatus: 'unauditable', latestReasonCode: 'no_lockfile', lastOkScanAt: AT, projectState: 'cannot_scan' }))
-            .toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: AT })
+            .toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: AT, manifests: null })
     })
 })

@@ -1,7 +1,8 @@
 import { sql } from 'drizzle-orm'
-import { parseFindingInstallations, readFixFields, type DepTypeFilter, type FixCheck, type FixStatus, type NotRecheckedBecause, type Remediation } from '@sentinello/core'
+import { parseFindingInstallations, readFixFields, type DepTypeFilter, type FindingInstallation, type FixCheck, type FixStatus, type NotRecheckedBecause, type Remediation } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { depTypeClause } from './dep-type'
+import { parseDepPath } from './findings'
 import { findingScanContexts } from './scan-state'
 import { activeSourceCellClause } from './sources'
 import { advisoryIdentitySql } from './advisory-identity'
@@ -33,6 +34,10 @@ export type LibraryProjectUsage = {
     source: string
     ecosystem: string
     installedVersion: string
+    // Every (manifest, version) the row was installed through (empty before 3.8), and its dependency chain(s)
+    // (empty when the lockfile records no graph: chain unknown).
+    installations: FindingInstallation[]
+    depPath: string[]
     vulnerableRange: string
     advisoryId: string
     advisoryTitle: string | null
@@ -144,6 +149,7 @@ export function listLibraryUsage(
         fix_version: string | null
         fix_check_json: string | null
         remediation_json: string | null
+        dep_path_json: string
         is_prod: number
         is_dev: number
         first_detected_at: number | null
@@ -167,6 +173,7 @@ export function listLibraryUsage(
             f.fix_version AS fix_version,
             f.fix_check_json AS fix_check_json,
             f.remediation_json AS remediation_json,
+            f.dep_path_json AS dep_path_json,
             f.is_prod AS is_prod,
             f.is_dev AS is_dev,
             f.first_detected_at AS first_detected_at,
@@ -197,6 +204,7 @@ export function listLibraryUsage(
     `)
     const scanContext = findingScanContexts(db, Array.from(new Set(rows.map(function projectOf(row) { return row.project_id }))))
     return rows.map(function toUsage(row) {
+        const installations = parseFindingInstallations(row.installations_json)
         return {
             projectId: row.project_id,
             projectName: row.project_name,
@@ -204,6 +212,8 @@ export function listLibraryUsage(
             source: row.source,
             ecosystem: row.ecosystem,
             installedVersion: row.installed_version,
+            installations,
+            depPath: parseDepPath(row.dep_path_json),
             vulnerableRange: row.vulnerable_range,
             advisoryId: row.advisory_id,
             advisoryTitle: row.advisory_title,
@@ -212,7 +222,7 @@ export function listLibraryUsage(
             ...readFixFields(
                 { fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json, remediationJson: row.remediation_json },
                 // Every row here is open (resolved_at IS NULL above).
-                scanContext(row.project_id, row.source, row.ecosystem, { lastSeenAt: row.last_seen_at, resolvedAt: null, installations: parseFindingInstallations(row.installations_json) })
+                scanContext(row.project_id, row.source, row.ecosystem, { lastSeenAt: row.last_seen_at, resolvedAt: null, installations })
             ),
             isProd: row.is_prod === 1,
             isDev: row.is_dev === 1,

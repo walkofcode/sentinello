@@ -25,6 +25,7 @@ export { normalizeOsvRecord } from './osv/normalize'
 export {
     GEMNASIUM_COMPARE_MAX_FILES,
     advisoryIdFromPath,
+    gemnasiumPathIdentity,
     fetchGemnasiumChangedPaths,
     fetchGemnasiumFileRows,
     fetchGemnasiumHeadSha,

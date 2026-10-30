@@ -514,7 +514,7 @@ describe('scan state — not re-checked findings', function () {
         failed('npm-audit', T0 + HOUR)
         const rows = listCurrentFindingsForProject(db, PROJECT_ID, T0 + 2 * HOUR)
         const byId = new Map(rows.map(function r(row) { return [row.id, row] }))
-        const annotation = { reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: T0 }
+        const annotation = { reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: T0, manifests: null }
         expect(byId.get('settled')).toMatchObject({ fixStatus: 'released', fixVersion: '4.17.21', notRecheckedBecause: annotation })
         expect(byId.get('legacy')).toMatchObject({ fixStatus: 'unverified', fixCheck: null, notRecheckedBecause: annotation })
     })
@@ -583,7 +583,7 @@ describe('scan state — a source failing for one ecosystem and answering for an
             state: { state: 'partial', reasons: [{ source: 'osv', ecosystem: null, reasonCode: 'osv_db_unavailable', side: 'environment' }] },
             python: { latestStatus: 'error', latestReasonCode: 'osv_db_unavailable', lastOkScanAt: T0, projectState: 'partial' },
             ruby: { latestStatus: 'ok', latestReasonCode: 'ok', lastOkScanAt: T0 + HOUR, projectState: 'partial' },
-            pythonRow: { reasonCode: 'osv_db_unavailable', side: 'environment', projectState: 'partial', lastOkScanAt: T0 },
+            pythonRow: { reasonCode: 'osv_db_unavailable', side: 'environment', projectState: 'partial', lastOkScanAt: T0, manifests: null },
             rubyRow: null
         })
         // Each cell keeps its latest and its latest ok scan: nothing here is prunable, whatever its age.
@@ -614,7 +614,7 @@ describe('scan state — retention', function () {
         expect(before).toEqual({
             state: { state: 'partial', reasons: [{ source: 'osv', ecosystem: null, reasonCode: 'osv_db_unavailable', side: 'environment' }] },
             context: { latestStatus: 'error', latestReasonCode: 'osv_db_unavailable', lastOkScanAt: T0, projectState: 'partial' },
-            annotation: { reasonCode: 'osv_db_unavailable', side: 'environment', projectState: 'partial', lastOkScanAt: T0 }
+            annotation: { reasonCode: 'osv_db_unavailable', side: 'environment', projectState: 'partial', lastOkScanAt: T0, manifests: null }
         })
         const prunable = listPrunableScanIds(db, at, 100, 1000)
         // Only the oldest npm-audit scan falls outside the newest 100; the OSV failure is OSV's latest scan.
@@ -668,7 +668,7 @@ describe('scan state — a row an ok scan kept because its manifest went unread'
     it('reads the kept row as not re-checked, as of the last scan that saw it', function () {
         setUp()
         const rows = new Map(listCurrentFindingsForProject(db, 'ruby', T0 + 2 * HOUR).map(function r(row) { return [row.id, row] }))
-        expect(rows.get('ios-row')?.notRecheckedBecause).toEqual({ reasonCode: 'unsupported_lockfile', side: 'project', projectState: 'partial', lastOkScanAt: T0 })
+        expect(rows.get('ios-row')?.notRecheckedBecause).toEqual({ reasonCode: 'unsupported_lockfile', side: 'project', projectState: 'partial', lastOkScanAt: T0, manifests: null })
         expect(rows.get('android-row')?.notRecheckedBecause).toBeNull()
     })
 
@@ -701,7 +701,7 @@ describe('scan state — a row an ok scan kept because its manifest went unread'
         setUp()
         failed('osv', T0 + 2 * HOUR, 'osv_db_unavailable', { projectId: 'ruby', ecosystem: 'RubyGems' })
         const rows = new Map(listCurrentFindingsForProject(db, 'ruby', T0 + 3 * HOUR).map(function r(row) { return [row.id, row] }))
-        expect(rows.get('ios-row')?.notRecheckedBecause).toEqual({ reasonCode: 'osv_db_unavailable', side: 'environment', projectState: 'cannot_scan', lastOkScanAt: T0 })
+        expect(rows.get('ios-row')?.notRecheckedBecause).toEqual({ reasonCode: 'osv_db_unavailable', side: 'environment', projectState: 'cannot_scan', lastOkScanAt: T0, manifests: null })
         // The row the t1 scan saw was last checked then.
         expect(rows.get('android-row')?.notRecheckedBecause).toMatchObject({ reasonCode: 'osv_db_unavailable', lastOkScanAt: T0 + HOUR })
         const usage = new Map(listLibraryUsage(db, 'lodash', T0 + 3 * HOUR).map(function u(row) { return [row.lastSeenAt, row.notRecheckedBecause?.lastOkScanAt] }))
@@ -729,7 +729,40 @@ describe('scan state — a row an ok scan kept because its manifest went unread'
                 { ecosystem: 'RubyGems', manifestPath: 'ios/Gemfile', status: 'unauditable', reasonCode: 'no_lockfile' }
             ]
         })
-        expect(listCurrentFindingsForProject(db, 'ruby', T0 + 2 * HOUR)[0]?.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'partial', lastOkScanAt: T0 })
+        expect(listCurrentFindingsForProject(db, 'ruby', T0 + 2 * HOUR)[0]?.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'partial', lastOkScanAt: T0, manifests: null })
+    })
+
+    // SENTINEL-145: the t1 scan saw the row through android/ and kept its macos/ and ios/ copies unread, so the
+    // row's last_seen_at is t1's and only the coverage can say those copies were not re-checked.
+    it('names the kept copies of a row the latest scan saw through its other manifests', function () {
+        addProject('ruby', ['RubyGems', 'PyPI'])
+        enable('osv', true, 'RubyGems')
+        const first = ok('osv', T0, { projectId: 'ruby', ecosystem: 'RubyGems' })
+        const installations = [{ manifestPath: 'android/Gemfile.lock', version: '1.0.0' }, { manifestPath: 'macos/Gemfile.lock', version: '1.1.0' }, { manifestPath: 'ios/Gemfile.lock', version: '2.0.0' }]
+        finding('mixed-row', first.id, true, { source: 'osv', projectId: 'ruby', ecosystem: 'RubyGems', lastSeenAt: T0 + HOUR, installationsJson: JSON.stringify(installations) })
+        ok('osv', T0 + HOUR, {
+            projectId: 'ruby',
+            ecosystem: 'RubyGems',
+            coverage: [
+                { ecosystem: 'RubyGems', manifestPath: 'android/Gemfile.lock', status: 'ok' },
+                // A gap with no reason recorded reads as a partial graph.
+                { ecosystem: 'RubyGems', manifestPath: 'macos/Gemfile.lock', status: 'unauditable' },
+                { ecosystem: 'RubyGems', manifestPath: 'ios/Gemfile.lock', status: 'unauditable', reasonCode: 'unsupported_lockfile' },
+                // Another ecosystem's gap in the same directory, and a pre-3.8 entry naming no manifest, hold no copy.
+                { ecosystem: 'PyPI', manifestPath: 'ios/requirements.txt', status: 'unauditable', reasonCode: 'no_lockfile' },
+                { ecosystem: 'RubyGems', status: 'unauditable', reasonCode: 'no_lockfile' }
+            ]
+        })
+        expect(listCurrentFindingsForProject(db, 'ruby', T0 + 2 * HOUR)[0]?.notRecheckedBecause)
+            .toEqual({ reasonCode: 'partial_dependency_graph', side: 'project', projectState: 'partial', lastOkScanAt: null, manifests: ['macos/Gemfile.lock', 'ios/Gemfile.lock'] })
+        expect(listLibraryUsage(db, 'lodash', T0 + 2 * HOUR)[0]?.notRecheckedBecause?.manifests).toEqual(['macos/Gemfile.lock', 'ios/Gemfile.lock'])
+        // A later failed scan: the whole row was not re-checked, as of t1, the last scan that saw it.
+        failed('osv', T0 + 2 * HOUR, 'osv_db_unavailable', { projectId: 'ruby', ecosystem: 'RubyGems' })
+        expect(listCurrentFindingsForProject(db, 'ruby', T0 + 3 * HOUR)[0]?.notRecheckedBecause).toMatchObject({ reasonCode: 'osv_db_unavailable', lastOkScanAt: T0 + HOUR, manifests: null })
+        // A later ok scan that recorded no coverage says nothing about kept copies.
+        ok('osv', T0 + 3 * HOUR, { projectId: 'ruby', ecosystem: 'RubyGems' })
+        const lookup = findingScanContexts(db, ['ruby'])
+        expect(lookup('ruby', 'osv', 'RubyGems', { lastSeenAt: T0 + 3 * HOUR, resolvedAt: null, installations })?.unreadManifests).toBeUndefined()
     })
 
     it('leaves a resolved row, a row with no last-seen time and a lookup without row facts alone', function () {

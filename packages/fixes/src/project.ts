@@ -1,4 +1,4 @@
-import { errText, requireComparator, type Remediation } from '@sentinello/core'
+import { computesWayOut, errText, requireComparator, WAY_OUT_NPM_ONLY, type Remediation } from '@sentinello/core'
 import type { FixEvidence, ResolvedGraph } from '@sentinello/scanners'
 import type { PublicationClient } from './published-registry'
 import type { RegistryClient } from './registry-client'
@@ -49,7 +49,6 @@ export type ProjectSettlement = {
 }
 
 // What a non-npm 'none_released' finding is told about its way out (SENTINEL-119).
-export const WAY_OUT_NPM_ONLY = 'way out is computed for npm only'
 
 export function fixEvidenceKey(identity: FixIdentity): string {
     return identity.source + '|' + identity.ecosystem + '|' + identity.advisoryId + '|' + identity.packageName
@@ -116,7 +115,7 @@ async function wayOut(input: SettleProjectInput, clients: RegistryClients, settl
         const key = fixEvidenceKey(finding)
         // Only a registry answer settles none_released — and only from evidence, so its evidence is there.
         if ((settlements.get(key) as FixSettlement).fixStatus !== 'none_released' || forKey.has(key) || out.has(key)) continue
-        if (finding.ecosystem !== 'npm') {
+        if (!computesWayOut(finding.ecosystem)) {
             out.set(key, npmOnlyWayOut(finding.packageName, input.checkedAt))
             continue
         }

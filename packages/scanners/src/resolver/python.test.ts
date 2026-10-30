@@ -50,6 +50,16 @@ describe('parsePythonLock dispatch', function () {
         expect(result.status === 'unauditable' && result.details.join(' ')).toContain('setup.py')
     })
 
+    // requirements.txt and Pipfile.lock record no dependency graph: no package carries a chain.
+    it('gives no requirements.txt or Pipfile.lock package a dependency chain', async function () {
+        const requirements = await parse('requirements.txt', 'django==4.2.0\n')
+        const pipfile = await parse('Pipfile.lock', JSON.stringify({ default: { django: { version: '==4.2.0' } }, develop: { pytest: { version: '==7.0.0' } } }))
+        for (const result of [requirements, pipfile]) {
+            if (result.status === 'unauditable') throw new Error('expected a graph')
+            expect(result.graph.packages.map(function chain(p) { return [p.name, p.depPaths] })).toContainEqual(['django', []])
+        }
+    })
+
     it('always reports the PyPI ecosystem', async function () {
         const result = await parse('poetry.lock', '[[package]]\nname = "a"\nversion = "1.0"\n')
         expect(result.ecosystem).toBe('PyPI')

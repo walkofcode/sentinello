@@ -3,9 +3,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GEMNASIUM_NORMALIZER_VERSION, osvNormalizerVersion } from '@sentinello/core'
-import { normalizeOsvRecord, type NpmDownloadsResult, type NpmPackageResult } from '@sentinello/feeds'
+import { normalizeOsvRecord, type NpmDownloadsResult, type NpmPackageResult, type PublishedResult } from '@sentinello/feeds'
 import { registryFilePath } from './cache/registry'
-import { tryAcquireLock, type CacheLock, type CacheMeta } from './cache/meta'
+import { tryAcquireLock, type CacheLock, type CacheMeta, type SourceId } from './cache/meta'
+import type { SyncOutcome, SyncPlanItem } from './cache/sync'
 import type { CliOptions } from './options'
 import type { Ui } from './ui'
 
@@ -20,7 +21,7 @@ import type { Ui } from './ui'
 
 const feeds = vi.hoisted(function makeFeedDoubles() {
     return {
-        headOsvSeed: vi.fn(async function head() { return { contentLength: 1024 } }),
+        headOsvSeed: vi.fn(async function head(_ecosystem: string) { return { contentLength: 1024 } }),
         streamOsvSeed: vi.fn(),
         fetchOsvChangedIds: vi.fn(async function changed() { return { status: 'ok', ids: [], etag: null, newestIso: null } }),
         fetchOsvAdvisoryRows: vi.fn(async function rows() { return [] }),
@@ -32,7 +33,9 @@ const feeds = vi.hoisted(function makeFeedDoubles() {
         gemnasiumFeedDisabled: vi.fn(function disabled() { return false }),
         // The npm registry the fix check reads: down unless a test says otherwise.
         fetchNpmPackage: vi.fn(async function down(): Promise<NpmPackageResult> { return { status: 'error', reason: 'HTTP 503' } }),
-        fetchNpmWeeklyDownloads: vi.fn(async function down(): Promise<NpmDownloadsResult> { return { status: 'error', reason: 'HTTP 503' } })
+        fetchNpmWeeklyDownloads: vi.fn(async function down(): Promise<NpmDownloadsResult> { return { status: 'error', reason: 'HTTP 503' } }),
+        // PyPI, for the polyglot run: down unless a test says otherwise.
+        fetchPypiPackage: vi.fn(async function down(_name: string): Promise<PublishedResult> { return { status: 'error', reason: 'HTTP 503' } })
     }
 })
 
@@ -60,7 +63,7 @@ vi.mock('@sentinello/scanners', async function mockScanners(importOriginal) {
     return { ...actual, ...npmAudit }
 })
 
-const { main, resolveDestination, enabledSources } = await import('./run')
+const { main, resolveDestination, enabledCells, requestedCells, sourcesOf, failedItems } = await import('./run')
 
 // A feed that yields nothing, for the paths where a seed is declined or skipped and the stream must
 // still be a valid async iterable.
@@ -428,11 +431,11 @@ describe('scanning', function () {
     it('drops a switched-off unseeded source and says so, rather than refusing the gate', async function () {
         await makeProject('web')
         feeds.gemnasiumFeedDisabled.mockReturnValue(true)
-        const announced: string[][] = []
+        const announced: unknown[] = []
         const watching = new Proxy({} as Ui, {
             get: function get(_target, prop: string) {
                 return function respond(arg: unknown): unknown {
-                    if (prop === 'sourcesSwitchedOff') announced.push(arg as string[])
+                    if (prop === 'sourcesSwitchedOff') announced.push(arg)
                     if (prop === 'confirmSeed') return Promise.resolve(true)
                     if (prop === 'confirmRetry') return Promise.resolve(false)
                     return undefined
@@ -445,7 +448,7 @@ describe('scanning', function () {
         if (parsed.kind !== 'options') throw new Error('expected options')
 
         expect(await runScan(parsed.options, join(dir, '.cache'), watching)).toBe(EXIT_OK)
-        expect(announced).toEqual([['gemnasium']])
+        expect(announced).toEqual([[{ source: 'gemnasium', ecosystem: 'npm' }]])
     })
 
     // Declining without a gate is a legitimate choice — the user said no to a 200 MB download and gets a
@@ -836,7 +839,7 @@ describe('Ui contract', function () {
 // source: a cache seeded earlier stays valid and must keep producing findings. Only off-AND-unseeded is
 // a source that can never contribute, and only that one may be dropped — a feed that is ON but unseeded
 // is a real failure or a declined download, and refusing a gate there is the whole point.
-describe('enabledSources', function () {
+describe('enabledCells', function () {
     function cell(seeded: boolean | undefined, normalizerVersion: number): Record<string, unknown> {
         if (!seeded) return {}
         return { npm: { normalizerVersion, recordCount: 1, refreshedAt: 0 } }
@@ -852,32 +855,36 @@ describe('enabledSources', function () {
         } as unknown as CacheMeta
     }
 
+    function sourcesKept(sources: SourceId[], meta: CacheMeta): SourceId[] {
+        return enabledCells(sources, ['npm'], meta).map(function source(c) { return c.source })
+    }
+
     it('keeps a source whose feed is on and cache is seeded', function () {
-        expect(enabledSources(['osv', 'gemnasium'], metaWith({ osv: true, gemnasium: true })))
+        expect(sourcesKept(['osv', 'gemnasium'], metaWith({ osv: true, gemnasium: true })))
             .toEqual(['osv', 'gemnasium'])
     })
 
     // The case the gate exists for: nothing was ever downloaded, so the scan must still report the cell
     // unauditable and refuse under --fail-on rather than quietly narrowing what it audited.
     it('keeps a source whose feed is on but cache is unseeded', function () {
-        expect(enabledSources(['osv', 'gemnasium'], metaWith({})))
+        expect(sourcesKept(['osv', 'gemnasium'], metaWith({})))
             .toEqual(['osv', 'gemnasium'])
     })
 
     // Air-gapped with a cache provisioned out of band. Dropping this would throw away real findings.
     it('keeps a source whose feed is off when the cache is seeded', function () {
         feeds.gemnasiumFeedDisabled.mockReturnValue(true)
-        expect(enabledSources(['gemnasium'], metaWith({ gemnasium: true }))).toEqual(['gemnasium'])
+        expect(sourcesKept(['gemnasium'], metaWith({ gemnasium: true }))).toEqual(['gemnasium'])
     })
 
     it('drops a source whose feed is off and cache was never seeded', function () {
         feeds.gemnasiumFeedDisabled.mockReturnValue(true)
-        expect(enabledSources(['osv', 'gemnasium'], metaWith({ osv: true }))).toEqual(['osv'])
+        expect(sourcesKept(['osv', 'gemnasium'], metaWith({ osv: true }))).toEqual(['osv'])
     })
 
     it('drops osv on the same rule', function () {
         feeds.osvFeedDisabled.mockReturnValue(true)
-        expect(enabledSources(['osv', 'gemnasium'], metaWith({ gemnasium: true }))).toEqual(['gemnasium'])
+        expect(sourcesKept(['osv', 'gemnasium'], metaWith({ gemnasium: true }))).toEqual(['gemnasium'])
     })
 
     // A stale normalizer version means every cached row was parsed by code that no longer exists, so the
@@ -888,7 +895,44 @@ describe('enabledSources', function () {
             schemaVersion: 1,
             sources: { osv: {}, gemnasium: { npm: { normalizerVersion: GEMNASIUM_NORMALIZER_VERSION - 1, recordCount: 1, refreshedAt: 0 } } }
         } as unknown as CacheMeta
-        expect(enabledSources(['gemnasium'], stale)).toEqual([])
+        expect(sourcesKept(['gemnasium'], stale)).toEqual([])
+    })
+
+    // Each ecosystem's cache is seeded on its own: an air-gapped npm cache says nothing about PyPI.
+    it('judges each ecosystem on its own cache', function () {
+        feeds.osvFeedDisabled.mockReturnValue(true)
+        expect(enabledCells(['osv'], ['npm', 'PyPI'], metaWith({ osv: true }))).toEqual([{ source: 'osv', ecosystem: 'npm' }])
+    })
+})
+
+describe('requestedCells and sourcesOf', function () {
+    it('pairs every requested source with every ecosystem, source by source', function () {
+        expect(requestedCells(['osv', 'gemnasium'], ['npm', 'Go'])).toEqual([
+            { source: 'osv', ecosystem: 'npm' },
+            { source: 'osv', ecosystem: 'Go' },
+            { source: 'gemnasium', ecosystem: 'npm' },
+            { source: 'gemnasium', ecosystem: 'Go' }
+        ])
+    })
+
+    it('lists each source with a cell once, in order', function () {
+        expect(sourcesOf([{ source: 'gemnasium', ecosystem: 'npm' }, { source: 'osv', ecosystem: 'npm' }, { source: 'gemnasium', ecosystem: 'Go' }])).toEqual(['gemnasium', 'osv'])
+        expect(sourcesOf([])).toEqual([])
+    })
+})
+
+// A retry re-runs the plan item behind each failed outcome, matched on its source and its ecosystems.
+describe('failedItems', function () {
+    it('picks the failed OSV export of one ecosystem and not its sibling', function () {
+        const item = function item(ecosystems: SyncPlanItem['ecosystems']): SyncPlanItem {
+            return { source: 'osv', ecosystems, purpose: 'findings', kind: 'seed', downloadBytes: null, downloadBytesEstimated: false }
+        }
+        const plan = { items: [item(['npm']), item(['PyPI'])], seedBytes: 0, needsConsent: true }
+        const outcomes: SyncOutcome[] = [
+            { source: 'osv', ecosystems: ['npm'], status: 'seeded', rowCount: 1, message: null },
+            { source: 'osv', ecosystems: ['PyPI'], status: 'error', rowCount: 0, message: 'HTTP 503' }
+        ]
+        expect(failedItems(plan, outcomes)).toEqual([item(['PyPI'])])
     })
 })
 
@@ -917,7 +961,7 @@ describe('the npm registry', function () {
         expect(await main()).toBe(EXIT_OK)
         expect(JSON.parse(out()).findings[0]).toMatchObject({ fixStatus: 'released', fixVersion: '4.17.21', fixCheck: { registry: 'ok' } })
         expect(feeds.fetchNpmPackage).toHaveBeenCalledTimes(1)
-        await expect(readFile(registryFilePath(join(dir, '.cache')))).resolves.toBeInstanceOf(Buffer)
+        await expect(readFile(registryFilePath(join(dir, '.cache'), 'npm'))).resolves.toBeInstanceOf(Buffer)
     })
 
     it('asks the registry nothing under --offline', async function () {
@@ -948,7 +992,7 @@ describe('the npm registry', function () {
         expect(await main()).toBe(EXIT_OK)
         expect(held).not.toBeNull()
         await (held as unknown as CacheLock).release()
-        expect(err()).toContain('npm registry cache not saved (another sentinello run holds the cache lock)')
+        expect(err()).toContain('registry cache not saved (another sentinello run holds the cache lock)')
     })
 
     it('reports a save that failed, and still writes the advisory', async function () {
@@ -956,13 +1000,63 @@ describe('the npm registry', function () {
         await seedVulnerableLodash()
         // A directory where the cache file belongs: the save's rename fails.
         feeds.fetchNpmPackage.mockImplementation(async function answerThenBreakTheFile() {
-            await mkdir(registryFilePath(join(dir, '.cache')), { recursive: true })
+            await mkdir(registryFilePath(join(dir, '.cache'), 'npm'), { recursive: true })
             return lodashPackument()
         })
         argv(...seededScanArgs())
 
         expect(await main()).toBe(EXIT_OK)
-        expect(err()).toContain('npm registry cache not saved (')
+        expect(err()).toContain('registry cache not saved (')
         expect(out()).toContain('GHSA-vulnerable-lodash')
+    })
+})
+
+// Every stable ecosystem the tree holds gets its own OSV export and its own registry: nothing else is
+// downloaded, and a PyPI fix is settled against PyPI.
+describe('a polyglot tree', function () {
+    function advisory(ecosystem: string, packageName: string, introduced: string, fixed: string) {
+        return {
+            advisoryId: 'GHSA-FAKE-' + ecosystem + '-' + packageName,
+            ecosystem,
+            packageName,
+            aliases: [],
+            ranges: [{ type: ecosystem === 'npm' ? 'SEMVER' : 'ECOSYSTEM', introduced, fixed, lastAffected: null }],
+            versions: [],
+            severity: 'high',
+            summary: 'Fixture advisory',
+            url: null,
+            malicious: false,
+            withdrawn: null
+        }
+    }
+
+    it('syncs and scans one cache per ecosystem it holds, and settles each fix against its own registry', async function () {
+        await makeProject('web')
+        await writeFile(join(dir, 'web', 'requirements.txt'), 'fake-py-lib==1.0.0\n', 'utf8')
+        feeds.streamOsvSeed.mockImplementation(async function* stream(ecosystem: string) {
+            const row = ecosystem === 'PyPI' ? advisory('PyPI', 'fake-py-lib', '0', '1.1.0') : advisory('npm', 'lodash', '0', '4.17.21')
+            yield { rows: [row], lastModified: '2026-07-01T00:00:00Z' }
+        })
+        feeds.fetchPypiPackage.mockImplementation(async function answer(name: string): Promise<PublishedResult> {
+            return { status: 'ok', summary: { v: 1, name, versions: { '1.0.0': { yanked: false }, '1.1.0': { yanked: false } } }, etag: null }
+        })
+        argv(dir, '--cache-dir', join(dir, '.cache'), '--source', 'osv', '--yes', '--json')
+
+        expect(await main()).toBe(EXIT_OK)
+        expect(feeds.streamOsvSeed.mock.calls.map(function ecosystem(call) { return call[0] })).toEqual(['npm', 'PyPI'])
+        expect(feeds.headOsvSeed.mock.calls.map(function ecosystem(call) { return call[0] })).toEqual(['npm', 'PyPI'])
+        const doc = JSON.parse(out())
+        const py = doc.findings.find(function isPy(f: { ecosystem: string }) { return f.ecosystem === 'PyPI' })
+        expect(py).toMatchObject({
+            packageName: 'fake-py-lib',
+            fixStatus: 'released',
+            fixVersion: '1.1.0',
+            fixCheck: { registry: 'ok' },
+            installations: [{ manifestPath: 'requirements.txt', version: '1.0.0' }],
+            depPath: []
+        })
+        expect(feeds.fetchPypiPackage).toHaveBeenCalledTimes(1)
+        expect(doc.projects[0].scanState.state).toBe('scanned')
+        await expect(readFile(registryFilePath(join(dir, '.cache'), 'PyPI'))).resolves.toBeInstanceOf(Buffer)
     })
 })

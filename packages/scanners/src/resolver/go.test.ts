@@ -97,6 +97,17 @@ describe('parseGoMod reading go.mod', function () {
         expect(new Set(result.graph.packages.map(function path(p) { return p.manifestPath }))).toEqual(new Set(['go.mod']))
     })
 
+    // go.mod and go.sum record no dependency graph, so no module carries a chain: every surface reads it as
+    // chain unknown rather than show the module alone as if it were one.
+    it('gives no module a dependency chain', async function () {
+        for (const kind of ['go.mod', 'go.sum']) {
+            const result = await parse(kind, kind === 'go.mod' ? GO_MOD : 'example.com/lib v1.0.0 h1:x=\nexample.com/lib v1.0.0/go.mod h1:y=\n')
+            if (result.status === 'unauditable') throw new Error('expected a graph')
+            expect(result.graph.packages.length).toBeGreaterThan(0)
+            expect(result.graph.packages.every(function noChain(p) { return p.depPaths.length === 0 })).toBe(true)
+        }
+    })
+
     it('reports the Go ecosystem', async function () {
         const result = await parse('go.mod', GO_MOD)
         expect(result.ecosystem).toBe('Go')

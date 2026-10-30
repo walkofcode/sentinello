@@ -304,11 +304,32 @@ function readRootPointer(memberManifest: string, rootLink: string): string {
 
 // `load_inheritable_fields`: the workspace a manifest's `workspace = true` declarations inherit from — its own
 // `[workspace]`, else the root its `package.workspace` names, else the one `find_workspace_root` finds.
-async function owningWorkspace(projectPath: string, dir: string, config: WorkspaceConfig, load: ManifestLoader): Promise<WorkspaceRoot | null> {
-    if (config.kind === 'root') return config
+// `ambiguous` is set when that last lookup could have answered otherwise in Cargo: before walking the
+// ancestors, `find_workspace_root_with_loader` returns any root Cargo has already loaded (`gctx.ws_roots`)
+// that is an ancestor of the manifest and does not exclude it, and which roots are loaded depends on what
+// Cargo read first. With another such root in the project besides the one the walk lands on, the owner is
+// not known (SENTINEL-136).
+async function owningWorkspace(projectPath: string, dir: string, config: WorkspaceConfig, load: ManifestLoader): Promise<{ owner: WorkspaceRoot | null; ambiguous: boolean }> {
+    if (config.kind === 'root') return { owner: config, ambiguous: false }
     const manifestPath = join(dir, 'Cargo.toml')
-    const rootManifest = config.pointer === null ? await findWorkspaceRoot(projectPath, manifestPath, load) : readRootPointer(manifestPath, config.pointer)
-    return rootManifest === null ? null : await inheritableFrom(projectPath, rootManifest, load)
+    if (config.pointer !== null) return { owner: await inheritableFrom(projectPath, readRootPointer(manifestPath, config.pointer), load), ambiguous: false }
+    const rootManifest = await findWorkspaceRoot(projectPath, manifestPath, load)
+    if (rootManifest === null) return { owner: null, ambiguous: false }
+    const owner = await inheritableFrom(projectPath, rootManifest, load)
+    return { owner, ambiguous: await hasCompetingRoot(projectPath, manifestPath, dirname(rootManifest), load) }
+}
+
+// Whether an ancestor of the manifest inside the project, other than `chosenDir`, is a workspace root that does
+// not exclude it: one Cargo may have loaded first and would then pick from its cache (`gctx.ws_roots`).
+async function hasCompetingRoot(projectPath: string, manifestPath: string, chosenDir: string, load: ManifestLoader): Promise<boolean> {
+    for (let ancestor = dirname(manifestPath); isInsideProject(projectPath, ancestor, '..');) {
+        ancestor = dirname(ancestor)
+        if (ancestor === chosenDir) continue
+        const doc = await load(ancestor)
+        const config = doc === null ? null : workspaceConfig(ancestor, doc)
+        if (config?.kind === 'root' && !isExcluded(config, manifestPath)) return true
+    }
+    return false
 }
 
 // `find_workspace_root_with_loader` over `find_root_iter`: the ancestors of the manifest's directory, nearest
@@ -355,7 +376,7 @@ async function readCargoManifest(projectPath: string, dir: string, load: Manifes
     if (doc === null) return null
     const config = workspaceConfig(dir, doc)
     const workspace = config.kind === 'root' ? config : null
-    const owner = await owningWorkspace(projectPath, dir, config, load)
+    const { owner, ambiguous } = await owningWorkspace(projectPath, dir, config, load)
     const pathDependencies: Array<{ name: string; path: string }> = []
     function recordPath(name: string | null, spec: TomlTable | null, from = dir): void {
         const path = tomlString(spec?.path)
@@ -364,6 +385,7 @@ async function readCargoManifest(projectPath: string, dir: string, load: Manifes
     const dev = new Set<string>()
     const nonDev = new Set<string>()
     let unresolvedProd = false
+    let inherits = false
     for (const { table, scope } of dependencyTables(doc)) {
         for (const [key, value] of Object.entries(table)) {
             const spec = tomlTable(value)
@@ -373,6 +395,7 @@ async function readCargoManifest(projectPath: string, dir: string, load: Manifes
                 recordPath(crateName(key, spec), spec)
                 continue
             }
+            inherits = true
             const from = owner !== null && Object.hasOwn(owner.dependencies, key) ? owner : null
             if (from !== null) {
                 const base = tomlTable(from.dependencies[key])
@@ -388,8 +411,9 @@ async function readCargoManifest(projectPath: string, dir: string, load: Manifes
     for (const [key, value] of Object.entries(tomlTable(doc.replace) ?? {})) recordPath(pkgidName(key), tomlTable(value))
     // An inherited production declaration its workspace does not define — or with no owning workspace found —
     // names a crate this reader cannot know, so nothing in the manifest is claimed dev-only: over-reporting,
-    // never hiding what ships.
-    const devOnly = unresolvedProd ? new Set<string>() : new Set([...dev].filter(function only(crate) { return !nonDev.has(crate) }))
+    // never hiding what ships. So does any inherited declaration when another workspace might own the manifest
+    // in Cargo (`ambiguous`): it could name a different crate there.
+    const devOnly = unresolvedProd || ambiguous && inherits ? new Set<string>() : new Set([...dev].filter(function only(crate) { return !nonDev.has(crate) }))
     return {
         dir,
         name: tomlString(tomlTable(doc.package)?.name),

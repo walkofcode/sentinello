@@ -671,6 +671,32 @@ describe('parseCargoLock — the owner lookup Cargo performs', function () {
         expect(await bytesAt()).toMatchObject({ isProd: excluded, isDev: !excluded })
     })
 
+    // SENTINEL-136: Cargo returns a workspace root it has already loaded (gctx.ws_roots) before walking the
+    // ancestors. Building app loads the outer root first, so helper inherits `net` = tokio from it and ships tokio,
+    // while the walk alone lands on the nearer vendor root, where `net` is bytes. Two roots could own helper, so
+    // its inherited declarations claim nothing dev-only.
+    it('claims no dev-only scope when another ancestor root could own the manifest', async function () {
+        await writeToml('[package]\nname = "app"\nversion = "0.1.0"\n\n[workspace]\n\n[workspace.dependencies]\nnet = { package = "tokio", version = "1" }\n\n[dependencies]\nhelper = { path = "vendor/helper" }\n')
+        await writeToml('[workspace]\n\n[workspace.dependencies]\nnet = { package = "bytes", version = "1" }\n', 'vendor')
+        await writeToml('[package]\nname = "helper"\nversion = "0.1.0"\n\n[dependencies]\nnet.workspace = true\n\n[dev-dependencies]\nnet = { package = "tokio", version = "1" }\n', 'vendor/helper')
+        const lock = crate('app', '0.1.0', null, ['helper']) + crate('helper', '0.1.0', null, ['tokio']) + entry('tokio', '1.38.0')
+        const result = await parseCargoLock(dir, await writeLock(lock), 'Cargo.lock')
+        if (result.status === 'unauditable') throw new Error('expected a graph')
+        expect(result.graph.classify('tokio', '1.38.0')).toMatchObject({ isProd: true, isDev: false })
+    })
+
+    // An outer root that excludes the manifest competes with nothing, and a manifest with no inherited
+    // declaration needs no owner: both keep their dev-only scope.
+    it('keeps dev-only scope when the other ancestor root excludes the manifest, or nothing is inherited', async function () {
+        await writeToml('[package]\nname = "app"\nversion = "0.1.0"\n\n[workspace]\nexclude = ["vendor"]\n\n[dependencies]\nhelper = { path = "vendor/helper" }\n')
+        await writeToml('[workspace]\n\n[workspace.dependencies]\nbytes = "1"\n', 'vendor')
+        await writeToml(HELPER, 'vendor/helper')
+        expect(await bytesAt()).toMatchObject({ isProd: false, isDev: true })
+        await writeToml('[package]\nname = "app"\nversion = "0.1.0"\n\n[workspace]\n\n[dependencies]\nhelper = { path = "vendor/helper" }\n')
+        await writeToml('[package]\nname = "helper"\nversion = "0.1.0"\n\n[dev-dependencies]\nbytes = "1"\n', 'vendor/helper')
+        expect(await bytesAt()).toMatchObject({ isProd: false, isDev: true })
+    })
+
     // find_root_iter stops at `target/package`, where `cargo package` unpacks a crate to verify it: such a crate
     // is never read against the workspace around the target directory.
     it('does not look for a workspace above target/package', async function () {

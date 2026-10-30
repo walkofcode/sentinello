@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
     canonicalPackageName,
     comparatorForEcosystem,
+    computesWayOut,
     DEFAULT_ECOSYSTEM,
     ECOSYSTEMS,
     packageManagerOfManifest,
@@ -64,6 +65,15 @@ describe('getEcosystem', function () {
     // Ids are persisted values, so a case-insensitive match would silently accept bad data.
     it('is case sensitive', function () {
         expect(getEcosystem('pypi')).toBeNull()
+    })
+})
+
+// SENTINEL-119: the way out needs npm's per-version dependency metadata; every other ecosystem gets one
+// unknown verdict, and an unknown id gets none.
+describe('computesWayOut', function () {
+    it('is true for npm only', function () {
+        expect(ECOSYSTEMS.filter(function wayOut(e) { return computesWayOut(e.id) }).map(function id(e) { return e.id })).toEqual(['npm'])
+        expect(computesWayOut('Hackage')).toBe(false)
     })
 })
 

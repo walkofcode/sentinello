@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { senderFor, type NotificationSender } from '@sentinello/notifications'
+import { senderFor, type NotificationSender, type RenderedMessage } from '@sentinello/notifications'
 import type { Project } from '@sentinello/core'
 import {
     getConfigValue,
@@ -17,7 +17,7 @@ import {
     upsertRoot
 } from '@sentinello/db'
 import { versionSetFromSemverRange, patchedVersionSet, type RawFinding, type ScannerPlugin } from '@sentinello/scanners'
-import { assertScratchPath, liveDataDir, openScratchEnv } from '../scripts/scratch-env'
+import { assertScratchPath, inertConfig, liveDataDir, openScratchEnv } from '../scripts/scratch-env'
 import { CONFIG_KEYS } from './config-loader'
 import { runProjectScanners } from './runner'
 
@@ -154,5 +154,84 @@ describe('openScratchEnv — notification isolation', function () {
         } finally {
             env.close()
         }
+    })
+})
+
+// SENTINEL-123: the live-copy check of the silent baseline keeps the copied targets live, so their counts are
+// real, and sends through recording senders only. The copy's credentials are gone, the environment holds no
+// secret a target could resolve, and a kind the recording map lacks fails instead of reaching a real sender.
+describe('openScratchEnv — recording senders', function () {
+    async function scratchCopy(): Promise<string> {
+        const livePath = join(dir, 'source.sqlite')
+        seedLiveShapedDb(livePath)
+        const { db, sqlite } = openDb({ dbPath: livePath })
+        insertNotificationTarget(db, {
+            id: 'tg-1', kind: 'telegram', config: { botToken: 'env:SENTINELLO_TEST_TELEGRAM_TOKEN', chatId: 'not-a-real-chat' }, severityFilter: ['critical', 'high'],
+            envFilter: 'all', enabled: true, createdAt: T0, rootIds: [], projectIds: [], sourceScope: { mode: 'all', cells: [] }
+        })
+        sqlite.pragma('wal_checkpoint(TRUNCATE)')
+        sqlite.close()
+        const scratchPath = join(dir, 'scratch', 'sentinello.sqlite')
+        mkdirSync(dirname(scratchPath))
+        copyFileSync(livePath, scratchPath)
+        return scratchPath
+    }
+
+    it('keeps the targets live with inert credentials, clears SENTINELLO_ variables, and sweeps through the recording senders only', async function () {
+        process.env.SENTINELLO_TEST_TELEGRAM_TOKEN = 'not-a-real-token-only-a-test-fixture'
+        const recorded: { id: string; message: RenderedMessage }[] = []
+        const record: NotificationSender = async function recordSend(target, message) {
+            recorded.push({ id: target.id, message })
+            return { ok: true }
+        }
+        writeFileSync(join(dir, 'repo', 'package.json'), JSON.stringify({ name: 'app' }))
+        const env = await openScratchEnv({ db: await scratchCopy(), senders: { webhook: record, telegram: record } })
+        try {
+            const targets = listNotificationTargets(env.db)
+            expect(targets.map(function on(t) { return [t.id, t.enabled] })).toEqual([['hook-1', true], ['tg-1', true]])
+            expect(targets.find(function hook(t) { return t.id === 'hook-1' })?.config).toEqual(inertConfig('hook-1', 'webhook'))
+            expect(targets.find(function tg(t) { return t.id === 'tg-1' })?.config).toEqual(inertConfig('tg-1', 'telegram'))
+            expect(process.env.SENTINELLO_TEST_TELEGRAM_TOKEN).toBeUndefined()
+            expect(process.env.SENTINELLO_LIVE_DATA_DIR).toBeUndefined()
+            expect(process.env.SENTINELLO_DB_PATH).toBe(env.dbPath)
+            setConfigValue(env.db, CONFIG_KEYS.dryRunNotify, false)
+
+            await env.sweep([scanner])
+            expect(recorded.map(function id(r) { return r.id }).sort()).toEqual(['hook-1', 'tg-1'])
+            expect(recorded[0]?.message.markdown).toContain('braces@3.0.3')
+            expect(send).not.toHaveBeenCalled()
+        } finally {
+            env.close()
+        }
+    })
+
+    it('fails a target whose kind the recording map lacks, and never reaches its real sender', async function () {
+        const errors = vi.spyOn(console, 'error').mockImplementation(function quiet() {})
+        writeFileSync(join(dir, 'repo', 'package.json'), JSON.stringify({ name: 'app' }))
+        const env = await openScratchEnv({ db: await scratchCopy(), senders: { webhook: async function ok() { return { ok: true } } } })
+        try {
+            setConfigValue(env.db, CONFIG_KEYS.dryRunNotify, false)
+            await env.sweep([scanner])
+            expect(errors.mock.calls.flat().join('\n')).toContain('no sender for telegram targets in this transport')
+            expect(send).not.toHaveBeenCalled()
+        } finally {
+            env.close()
+            errors.mockRestore()
+        }
+    })
+
+    it('refuses to sweep without recording senders', async function () {
+        const env = await openScratchEnv({ db: await scratchCopy() })
+        try {
+            await expect(env.sweep([scanner])).rejects.toThrow('sweep() needs the senders option')
+        } finally {
+            env.close()
+        }
+    })
+
+    it('replaces each kind\'s credentials with values that reach nothing', function () {
+        expect(inertConfig('a', 'slack')).toEqual({ webhookUrl: 'https://capture.invalid/a' })
+        expect(inertConfig('a', 'webhook')).toEqual({ url: 'https://capture.invalid/a', headers: {} })
+        expect(inertConfig('a', 'telegram')).toEqual({ botToken: 'not-a-real-bot-token-a', chatId: 'not-a-real-chat-a' })
     })
 })

@@ -27,6 +27,8 @@ const badgeVariants = cva(
                 ecoPy: 'bg-sky-100 text-sky-700 ring-sky-300 dark:bg-sky-950 dark:text-sky-300 dark:ring-sky-800',
                 ecoGo: 'bg-cyan-100 text-cyan-700 ring-cyan-300 dark:bg-cyan-950 dark:text-cyan-300 dark:ring-cyan-800',
                 ecoRust: 'bg-orange-100 text-orange-800 ring-orange-300 dark:bg-orange-950 dark:text-orange-300 dark:ring-orange-800',
+                // Fuchsia rather than a ruby red: red reads as a severity, and rose is gemnasium's.
+                ecoRuby: 'bg-fuchsia-100 text-fuchsia-700 ring-fuchsia-300 dark:bg-fuchsia-950 dark:text-fuchsia-300 dark:ring-fuchsia-800',
                 // Malicious-package emphasis — a distinct threat class from CVE findings.
                 malicious: 'bg-[color:var(--color-sev-critical)] text-white ring-[color:var(--color-sev-critical)]'
             }

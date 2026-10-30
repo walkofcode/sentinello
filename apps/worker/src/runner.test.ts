@@ -973,7 +973,7 @@ describe('runProjectScanners — lockfile loss and recovery', function () {
         await scan()
 
         const after = current()
-        const annotation = { reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: lastOk }
+        const annotation = { reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: lastOk, manifests: null }
         // Kept, at their severity and evidence, with the historical answer of the settled one.
         for (const name of ['lodash', 'minimist']) {
             const was = before.get(name)
@@ -1019,7 +1019,7 @@ describe('runProjectScanners — lockfile loss and recovery', function () {
                 " VALUES ('legacy', ?, ?, 'npm-audit', 'npm-audit', 'npm', 'CVE-2024-1', 'lodash', '4.17.11', '<4.17.21', 'high', ?, ?)"
         ).run(failedScan, PROJECT_ID, T0, T0)
         const row = current().get('lodash')
-        expect(row?.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: null })
+        expect(row?.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: null, manifests: null })
         expect(row && describeFix(row, PLAIN_FIX_STYLE)).toBe('not re-checked — the project cannot be scanned: No lockfile (never scanned successfully)')
     })
 })

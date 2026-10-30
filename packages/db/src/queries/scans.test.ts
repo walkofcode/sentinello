@@ -13,6 +13,7 @@ import {
     countScansForProject,
     deleteScansByIds,
     getLastScanFinishedAt,
+    getScanEcosystem,
     getLatestScanForProject,
     hasStaleSourceUnavailableScans,
     insertScan,
@@ -124,6 +125,13 @@ describe('insertScan and reads', function () {
             reasonCode: 'audit_spawn_error',
             errorText: 'boom'
         })
+    })
+
+    // A scan-failure message names the ecosystem of its event's first scan; a pruned scan names none.
+    it('reads one scan\'s ecosystem, and null for a scan that is gone', function () {
+        insertScan(db, scan({ ecosystem: 'PyPI' }))
+        expect(getScanEcosystem(db, 'scan-1')).toBe('PyPI')
+        expect(getScanEcosystem(db, 'pruned')).toBeNull()
     })
 
     it('reports no latest scan for a project that never ran', function () {

@@ -26,10 +26,10 @@ function groupKey(group: LibraryGroup): string {
     return group.ecosystem + '\x00' + group.packageName
 }
 
-// The library's ecosystem badge value — shown only for non-npm so npm-only projects stay uncluttered.
+// The library's ecosystem badge value, shown for every ecosystem, npm included, so a row never relies
+// on the absence of a badge to say which registry its package comes from.
 function libraryEcosystem(group: LibraryGroup): string | null {
-    if (!group.ecosystem || group.ecosystem === 'npm') return null
-    return group.ecosystem
+    return group.ecosystem || null
 }
 
 type Props = {

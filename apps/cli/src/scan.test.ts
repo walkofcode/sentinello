@@ -3,11 +3,11 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { versionSetFromSemverRange, type DiscoveredProject, type GemnasiumAdvisory, type OsvAdvisory, type RawFinding, type ScanContext, type ScanResult, type ScannerPlugin } from '@sentinello/scanners'
-import type { NpmPackageResult } from '@sentinello/feeds'
-import { createMemoryRegistryStore, createNpmRegistryClient } from '@sentinello/fixes'
-import type { LoadedCache } from './cache/lookup'
-import { buildScanners, cliScanState, collectPackageNames, pick, resolveProjects, scanProject, type ResolvedProject, type ScanSetup } from './scan'
+import { discoverProjectsInTree, versionSetFromSemverRange, type DiscoveredProject, type GemnasiumAdvisory, type OsvAdvisory, type RawFinding, type ResolvedGraph, type ResolvedPackage, type ScanContext, type ScanResult, type ScannerPlugin } from '@sentinello/scanners'
+import type { NpmPackageResult, PublishedResult } from '@sentinello/feeds'
+import { createMemoryRegistryStore, createNpmRegistryClient, createPublishedRegistryClient, type RegistryClients } from '@sentinello/fixes'
+import type { EcosystemCache, FeedCell, LoadedCache } from './cache/lookup'
+import { buildScanners, cellRuns, cliScanState, collectPackageNames, detectedEcosystems, installationsFor, pick, projectEcosystems, resolveProjects, scanProject, type ResolvedManifest, type ResolvedProject, type ScanSetup } from './scan'
 
 // The CLI's scan runner — structurally apps/worker/src/runner.ts with the database and notification calls
 // removed. The symmetry is the point: a CLI run and a portal scan of the same project must produce the
@@ -30,31 +30,55 @@ function project(overrides: Partial<DiscoveredProject> = {}): DiscoveredProject 
         nvmrcVersion: null,
         gitBranch: null,
         ecosystems: ['npm'],
+        manifests: [{ path: 'package-lock.json', ecosystem: 'npm', kind: 'package-lock.json' }],
         ...overrides
     } as DiscoveredProject
 }
 
+function pkg(ecosystem: string, name: string, version = '1.0.0', manifestPath = 'package-lock.json'): ResolvedPackage {
+    return { ecosystem, name, version, scope: { isProd: true, isDev: false, isOptional: false }, depPaths: [], manifestPath }
+}
+
+// Only `packages` is read by the merge and `byName` by the installations lookup.
+function graphOf(packages: ResolvedPackage[]): ResolvedGraph {
+    return {
+        packages,
+        classify: function classify() { return { isProd: true, isDev: false, isOptional: false } },
+        byName: function byName(name: string) { return packages.filter(function named(p) { return p.name === name }) },
+        nodeGraph: null
+    }
+}
+
+function okManifest(manifestPath: string, ecosystem: string, packages: ResolvedPackage[] = []): ResolvedManifest {
+    return { manifestPath, result: { status: 'ok', ecosystem, graph: graphOf(packages) } }
+}
+
+// A project holding one npm lockfile, unless the test says otherwise.
 function resolved(overrides: Partial<ResolvedProject> = {}): ResolvedProject {
     return {
         project: project(),
-        results: [],
-        merged: null,
+        manifests: [okManifest('package-lock.json', 'npm')],
         npmGraph: null,
         ...overrides
-    } as ResolvedProject
+    }
+}
+
+function cells(sources: FeedCell['source'][], ecosystems: FeedCell['ecosystem'][] = ['npm']): FeedCell[] {
+    return sources.flatMap(function bySource(source) {
+        return ecosystems.map(function cell(ecosystem) { return { source, ecosystem } })
+    })
 }
 
 function setup(overrides: Partial<ScanSetup> = {}): ScanSetup {
     return {
         cacheDir: dir,
-        sources: ['osv', 'gemnasium'],
-        ecosystem: 'npm',
+        cells: cells(['osv', 'gemnasium']),
         includeNpmAudit: true,
-        seeded: { osv: true, gemnasium: true },
+        seeded: cells(['osv', 'gemnasium']),
         settledAt: 0,
         registry: null,
         ...overrides
-    } as ScanSetup
+    }
 }
 
 function finding(overrides: Partial<RawFinding> = {}): RawFinding {
@@ -83,6 +107,9 @@ function finding(overrides: Partial<RawFinding> = {}): RawFinding {
         ...overrides
     }
 }
+
+// A PyPI affected set: fix evidence is in its ecosystem's comparator, and settlement refuses any other.
+const PEP440_THROUGH_2 = { comparator: 'pep440' as const, ranges: [{ type: 'ECOSYSTEM', introduced: '0', fixed: null, lastAffected: '2.0.0' }], exact: [], complete: true }
 
 function result(overrides: Partial<ScanResult> = {}): ScanResult {
     return {
@@ -134,7 +161,11 @@ function ctxOf(scanner: { contexts: ScanContext[] }): ScanContext {
 }
 
 function emptyCache(): LoadedCache {
-    return { osv: new Map(), gemnasium: new Map(), withdrawalsChecked: false }
+    return new Map()
+}
+
+function cacheOf(ecosystem: string, entry: Partial<EcosystemCache>): LoadedCache {
+    return new Map([[ecosystem, { osv: new Map(), gemnasium: new Map(), withdrawalsChecked: false, ...entry }]])
 }
 
 // Typed rather than cast: the range needs `lastAffected` and the severity is a plain string, both of
@@ -205,19 +236,23 @@ describe('resolveProjects', function () {
         await makeProject('web')
         const out = await resolveProjects([project()])
         expect(out).toHaveLength(1)
-        expect(first(out, 'resolved project').merged?.packages.map(function name(p) { return p.name })).toContain('lodash')
+        const manifest = first(first(out, 'resolved project').manifests, 'manifest')
+        expect(manifest.manifestPath).toBe('package-lock.json')
+        expect(manifest.result.status === 'ok' && manifest.result.graph.packages.map(function name(p) { return p.name })).toContain('lodash')
     })
 
-    it('keeps the npm graph separately from the merged graph', async function () {
+    it('keeps the npm graph for npm-audit and the way out', async function () {
         await makeProject('web')
         const out = await resolveProjects([project()])
         expect(first(out, 'resolved project').npmGraph?.packages.map(function name(p) { return p.name })).toContain('lodash')
     })
 
-    it('returns a null graph for a directory with nothing resolvable', async function () {
+    it('reads a manifest that cannot be resolved as unauditable, with no npm graph', async function () {
         await mkdir(join(dir, 'empty'), { recursive: true })
-        const out = await resolveProjects([project({ absolutePath: join(dir, 'empty'), relPath: 'empty' })])
-        expect(first(out, 'resolved project').merged).toBeNull()
+        await writeFile(join(dir, 'empty', 'package.json'), '{}', 'utf8')
+        const out = await resolveProjects([project({ absolutePath: join(dir, 'empty'), relPath: 'empty', manifests: [{ path: 'package.json', ecosystem: 'npm', kind: 'package.json' }] })])
+        expect(first(first(out, 'resolved project').manifests, 'manifest').result.status).toBe('unauditable')
+        expect(first(out, 'resolved project').npmGraph).toBeNull()
     })
 
     it('preserves input order across several projects', async function () {
@@ -229,11 +264,39 @@ describe('resolveProjects', function () {
         ])
         expect(out.map(function rel(r) { return r.project.relPath })).toEqual(['web', 'api'])
     })
+
+    // The manifests discovery assigned, as the worker reads them: a sub-manifest belongs to its project.
+    it('resolves the sub-manifests discovery assigned to the project, each under its own path', async function () {
+        await makeProject('app', { 'requirements.txt': 'requests==2.0.0\n' })
+        await mkdir(join(dir, 'app', 'ios'), { recursive: true })
+        await writeFile(join(dir, 'app', 'ios', 'Gemfile.lock'), 'GEM\n  remote: https://rubygems.org/\n  specs:\n    rack (2.0.0)\n\nPLATFORMS\n  ruby\n\nDEPENDENCIES\n  rack\n', 'utf8')
+        const [app] = discoverProjectsInTree({ rootPath: join(dir, 'app') })
+        const out = await resolveProjects([app as DiscoveredProject])
+        const manifests = first(out, 'resolved project').manifests
+        expect(manifests.map(function shape(m) { return [m.manifestPath, m.result.ecosystem] })).toEqual([
+            ['package-lock.json', 'npm'],
+            ['requirements.txt', 'PyPI'],
+            ['ios/Gemfile.lock', 'RubyGems']
+        ])
+    })
+})
+
+describe('detectedEcosystems', function () {
+    it('lists every ecosystem the projects hold once, in registry order', function () {
+        expect(detectedEcosystems([
+            project({ ecosystems: ['RubyGems', 'npm'] }),
+            project({ ecosystems: ['PyPI', 'npm'] })
+        ])).toEqual(['npm', 'PyPI', 'RubyGems'])
+    })
+
+    it('is empty for no projects', function () {
+        expect(detectedEcosystems([])).toEqual([])
+    })
 })
 
 describe('collectPackageNames', function () {
     // The cache is read ONCE for the union across every project rather than re-reading a 6.4 MB file
-    // per project, so the union is what this has to produce.
+    // per project, so the union is what this has to produce — per ecosystem, since each has its own file.
     it('unions every package name across projects and deduplicates', async function () {
         await makeProject('web')
         await makeProject('api')
@@ -241,45 +304,66 @@ describe('collectPackageNames', function () {
             project({ absolutePath: join(dir, 'web'), relPath: 'web' }),
             project({ absolutePath: join(dir, 'api'), relPath: 'api' })
         ])
-        expect(collectPackageNames(out).filter(function isLodash(n) { return n === 'lodash' })).toHaveLength(1)
+        expect(collectPackageNames(out).get('npm')).toEqual(['lodash'])
     })
 
-    it('skips projects whose graph did not resolve', function () {
-        expect(collectPackageNames([resolved({ merged: null })])).toEqual([])
+    it('keeps each ecosystem\'s names apart, even where two spell the same name', function () {
+        const names = collectPackageNames([resolved({
+            manifests: [
+                okManifest('package-lock.json', 'npm', [pkg('npm', 'requests')]),
+                okManifest('requirements.txt', 'PyPI', [pkg('PyPI', 'requests'), pkg('PyPI', 'urllib3')]),
+                okManifest('ios/Gemfile.lock', 'RubyGems', [pkg('RubyGems', 'rack')]),
+                okManifest('android/Gemfile.lock', 'RubyGems', [pkg('RubyGems', 'rack')])
+            ]
+        })])
+        expect(Object.fromEntries(names)).toEqual({ npm: ['requests'], PyPI: ['requests', 'urllib3'], RubyGems: ['rack'] })
+    })
+
+    it('skips manifests that did not resolve', function () {
+        expect(collectPackageNames([resolved({ manifests: [{ manifestPath: 'package.json', result: { status: 'unauditable', ecosystem: 'npm', reasonCode: 'no_lockfile', details: [] } }] })]).size).toBe(0)
     })
 
     it('returns nothing for no projects', function () {
-        expect(collectPackageNames([])).toEqual([])
+        expect(collectPackageNames([]).size).toBe(0)
     })
 })
 
 describe('pick', function () {
-    // The CLI loads ONE ecosystem's advisories into memory for the whole run, so `pick` is the last
-    // thing standing between that single cache and a scanner asking about a different ecosystem. Both
-    // its answers matter and they are opposite kinds of wrong when reversed: serving npm rows for a
-    // Python query invents findings, and refusing a matching query loses them.
-    //
-    // Tested directly rather than through buildScanners, where each scanner's isEnabled is the same
-    // equality and so never lets a foreign ecosystem reach lookup at all. That is exactly why this needs
-    // its own test: the guard's whole job is to hold when the layer above it stops.
-    const cache = new Map([['lodash', [{ advisoryId: 'GHSA-1' }]]])
+    // Each ecosystem's advisories are their own map, so a query is answered out of the asked ecosystem's
+    // rows or not at all: serving npm rows for a Python query would invent findings.
+    const rows = new Map([['lodash', [{ advisoryId: 'GHSA-1' }]], ['empty', []]])
 
-    it('serves the cache when the query matches the ecosystem it was loaded for', function () {
-        expect([...pick(cache, 'npm', ['lodash'], 'npm').keys()]).toEqual(['lodash'])
+    it('serves the rows of the asked names', function () {
+        expect([...pick(rows, ['lodash']).keys()]).toEqual(['lodash'])
     })
 
-    it('serves nothing when the scanner asks about a different ecosystem', function () {
-        expect(pick(cache, 'PyPI', ['lodash'], 'npm').size).toBe(0)
+    it('serves nothing for an ecosystem the run loaded nothing for', function () {
+        expect(pick(undefined, ['lodash']).size).toBe(0)
     })
 
-    // Resolved through the registry on both sides, so the canonical OSV id and the internal id are the
-    // same ecosystem rather than a mismatch.
-    it('matches through the registry rather than by raw string equality', function () {
-        expect([...pick(cache, 'npm', ['lodash'], 'npm').keys()]).toEqual(['lodash'])
+    it('omits names the cache has no rows for, or an empty list', function () {
+        expect(pick(rows, ['express', 'empty']).size).toBe(0)
+    })
+})
+
+describe('cellRuns', function () {
+    it('runs npm-audit for npm alone, and only when the run includes it', function () {
+        expect(cellRuns(setup(), 'npm-audit', 'npm')).toBe(true)
+        expect(cellRuns(setup(), 'npm-audit', 'PyPI')).toBe(false)
+        expect(cellRuns(setup({ includeNpmAudit: false }), 'npm-audit', 'npm')).toBe(false)
     })
 
-    it('omits names the cache has no rows for', function () {
-        expect(pick(cache, 'npm', ['express'], 'npm').size).toBe(0)
+    it('runs a feed source for each cell the run audits', function () {
+        const polyglot = setup({ cells: [{ source: 'osv', ecosystem: 'PyPI' }] })
+        expect(cellRuns(polyglot, 'osv', 'PyPI')).toBe(true)
+        expect(cellRuns(polyglot, 'osv', 'npm')).toBe(false)
+        expect(cellRuns(polyglot, 'gemnasium', 'PyPI')).toBe(false)
+    })
+})
+
+describe('projectEcosystems', function () {
+    it('lists the ecosystems of the project\'s manifests once, in registry order', function () {
+        expect(projectEcosystems({ manifests: [okManifest('Gemfile.lock', 'RubyGems'), okManifest('package-lock.json', 'npm'), okManifest('ios/Gemfile.lock', 'RubyGems')] })).toEqual(['npm', 'RubyGems'])
     })
 })
 
@@ -296,74 +380,62 @@ describe('buildScanners', function () {
         expect(names).toEqual(['osv', 'gemnasium'])
     })
 
-    it('includes only the sources that are enabled', function () {
-        expect(buildScanners(setup({ includeNpmAudit: false, sources: ['osv'] }), emptyCache()).map(function n(s) { return s.name })).toEqual(['osv'])
-        expect(buildScanners(setup({ includeNpmAudit: false, sources: ['gemnasium'] }), emptyCache()).map(function n(s) { return s.name })).toEqual(['gemnasium'])
+    it('builds a feed source when any ecosystem has a cell for it', function () {
+        expect(buildScanners(setup({ includeNpmAudit: false, cells: cells(['osv'], ['Go']) }), emptyCache()).map(function n(s) { return s.name })).toEqual(['osv'])
+        expect(buildScanners(setup({ includeNpmAudit: false, cells: cells(['gemnasium']) }), emptyCache()).map(function n(s) { return s.name })).toEqual(['gemnasium'])
     })
 
     it('builds nothing when everything is disabled', function () {
-        expect(buildScanners(setup({ includeNpmAudit: false, sources: [] }), emptyCache())).toEqual([])
+        expect(buildScanners(setup({ includeNpmAudit: false, cells: [] }), emptyCache())).toEqual([])
     })
 
     // A cache mid-rebuild must report "not downloaded", never "no vulnerabilities".
-    it('reports the source as unseeded when the cache metadata says so', async function () {
+    it('reports OSV as unseeded for an ecosystem whose cache metadata says so', async function () {
         await makeProject('web')
-        const scanners = buildScanners(setup({ includeNpmAudit: false, sources: ['osv'], seeded: { osv: false, gemnasium: false } }), emptyCache())
-        const scanned = await first(scanners, 'scanner').scan(join(dir, 'web'), { timeoutMs: 1000 })
-        expect(scanned.status).not.toBe('ok')
+        const graphs = await resolveProjects([project()])
+        const scanners = buildScanners(setup({ includeNpmAudit: false, cells: cells(['osv']), seeded: [] }), emptyCache())
+        const scanned = await first(scanners, 'scanner').scan(join(dir, 'web'), { timeoutMs: 1000, ecosystem: 'npm', resolvedGraph: first(graphs, 'resolved project').npmGraph })
+        expect(scanned).toMatchObject({ status: 'unauditable', reasonCode: 'osv_db_not_seeded' })
     })
 
     it('serves matching advisories out of the preloaded cache', async function () {
         await makeProject('web')
-        const cache: LoadedCache = {
-            osv: new Map([['lodash', [osvAdvisory()]]]),
-            gemnasium: new Map(),
-            withdrawalsChecked: false
-        }
-        const scanners = buildScanners(setup({ includeNpmAudit: false, sources: ['osv'] }), cache)
+        const scanners = buildScanners(setup({ includeNpmAudit: false, cells: cells(['osv']) }), cacheOf('npm', { osv: new Map([['lodash', [osvAdvisory()]]]) }))
         const graphs = await resolveProjects([project()])
-        const scanned = await first(scanners, 'scanner').scan(join(dir, 'web'), { timeoutMs: 1000, resolvedGraph: first(graphs, 'resolved project').merged ?? undefined })
+        const scanned = await first(scanners, 'scanner').scan(join(dir, 'web'), { timeoutMs: 1000, ecosystem: 'npm', resolvedGraph: first(graphs, 'resolved project').npmGraph })
         expect(scanned.status).toBe('ok')
         expect(scanned.findings.map(function id(f) { return f.advisoryId })).toContain('GHSA-aaaa')
     })
 
-    // A preloaded cache holding nothing for this project must read as "scanned, clean" — no findings and
-    // no error. NOT a test of pick()'s cross-ecosystem guard: matchPackages skips an ecosystem via
-    // isEnabled before it ever calls lookup, and the CLI's isEnabled is the same equality pick re-checks,
-    // so that guard is unreachable from here. See the shape (c) inventory in vitest.config.ts.
-    it('serves no findings from an empty preloaded cache', async function () {
+    // Another ecosystem's rows never answer: the PyPI entry holds lodash, the npm entry nothing.
+    it('serves no findings out of another ecosystem\'s rows', async function () {
         await makeProject('web')
-        const scanners = buildScanners(setup({ includeNpmAudit: false, sources: ['osv'], ecosystem: 'npm' }), emptyCache())
+        const scanners = buildScanners(setup({ includeNpmAudit: false, cells: cells(['osv'], ['npm', 'PyPI']) }), cacheOf('PyPI', { osv: new Map([['lodash', [osvAdvisory()]]]) }))
         const graphs = await resolveProjects([project()])
-        const scanned = await first(scanners, 'scanner').scan(join(dir, 'web'), { timeoutMs: 1000, resolvedGraph: first(graphs, 'resolved project').merged ?? undefined })
+        const scanned = await first(scanners, 'scanner').scan(join(dir, 'web'), { timeoutMs: 1000, ecosystem: 'npm', resolvedGraph: first(graphs, 'resolved project').npmGraph })
         expect(scanned.status).toBe('ok')
         expect(scanned.findings).toEqual([])
     })
 
-    // The gemnasium wiring, which was built by every test above but never driven. The CLI and the worker
-    // must bind the same three closures to the same cache semantics, because a CLI run and a portal scan
-    // of one project are supposed to produce identical findings.
+    // The gemnasium wiring. The CLI and the worker must bind the same closures to the same cache semantics,
+    // because a CLI run and a portal scan of one project are supposed to produce identical findings.
     it('serves matching advisories out of the preloaded gemnasium cache', async function () {
         await makeProject('web')
-        const cache: LoadedCache = {
-            osv: new Map(),
-            gemnasium: new Map([['lodash', [gemnasiumAdvisory()]]]),
-            withdrawalsChecked: false
-        }
-        const scanners = buildScanners(setup({ includeNpmAudit: false, sources: ['gemnasium'] }), cache)
+        const scanners = buildScanners(setup({ includeNpmAudit: false, cells: cells(['gemnasium']) }), cacheOf('npm', { gemnasium: new Map([['lodash', [gemnasiumAdvisory()]]]) }))
         const graphs = await resolveProjects([project()])
-        const scanned = await first(scanners, 'scanner').scan(join(dir, 'web'), { timeoutMs: 1000, resolvedGraph: first(graphs, 'resolved project').merged ?? undefined })
+        const scanned = await first(scanners, 'scanner').scan(join(dir, 'web'), { timeoutMs: 1000, ecosystem: 'npm', resolvedGraph: first(graphs, 'resolved project').npmGraph })
         expect(scanned.status).toBe('ok')
         expect(scanned.findings.map(function id(f) { return f.advisoryId })).toContain('GMS-2024-1')
     })
 
-    // gemnasium's seed flag is global rather than per-ecosystem (one download covers every ecosystem), so
-    // an unseeded cache has to report unauditable rather than zero findings — otherwise a cache that was
-    // never downloaded reads exactly like a clean project.
-    it('reports gemnasium as unseeded when the cache metadata says so', async function () {
-        await makeProject('web')
-        const scanners = buildScanners(setup({ includeNpmAudit: false, sources: ['gemnasium'], seeded: { osv: false, gemnasium: false } }), emptyCache())
-        const scanned = await first(scanners, 'scanner').scan(join(dir, 'web'), { timeoutMs: 1000 })
+    // The scanner's own seed gate takes no ecosystem, but the CLI seeds each ecosystem's file on its own: the
+    // gate is the cell the run is for, and a run with no ecosystem named has none seeded.
+    it.each([
+        ['an ecosystem whose cache was never seeded', 'PyPI' as const],
+        ['a run that names no ecosystem', undefined]
+    ])('reports gemnasium as unseeded for %s', async function (_label, ecosystem) {
+        const scanners = buildScanners(setup({ includeNpmAudit: false, cells: cells(['gemnasium'], ['npm', 'PyPI']), seeded: cells(['gemnasium']) }), emptyCache())
+        const scanned = await first(scanners, 'scanner').scan(join(dir, 'web'), { timeoutMs: 1000, ecosystem })
         expect(scanned.status).toBe('unauditable')
         expect(scanned.reasonCode).toBe('gemnasium_db_not_seeded')
     })
@@ -371,9 +443,43 @@ describe('buildScanners', function () {
 
 describe('scanProject', function () {
     it('runs every scanner and records one outcome each, in order', async function () {
-        const scanners = [fakeScanner('a', result()), fakeScanner('b', result())]
+        const scanners = [fakeScanner('osv', result()), fakeScanner('gemnasium', result())]
         const out = await scanProject(setup(), resolved(), scanners)
-        expect(out.outcomes.map(function n(o) { return o.scanner })).toEqual(['a', 'b'])
+        expect(out.outcomes.map(function n(o) { return [o.scanner, o.ecosystem] })).toEqual([['osv', 'npm'], ['gemnasium', 'npm']])
+    })
+
+    // runProjectScanners' loop: every source once per cell, the ecosystems in registry order.
+    it('runs each source once per ecosystem the project holds, and npm-audit for npm alone', async function () {
+        const audit = fakeScanner('npm-audit', result())
+        const osv = fakeScanner('osv', result())
+        const gemnasium = fakeScanner('gemnasium', result())
+        const polyglot = resolved({ manifests: [okManifest('Gemfile.lock', 'RubyGems'), okManifest('package-lock.json', 'npm'), okManifest('requirements.txt', 'PyPI')] })
+        const out = await scanProject(setup({ cells: cells(['osv', 'gemnasium'], ['npm', 'PyPI', 'RubyGems']) }), polyglot, [audit, osv, gemnasium])
+        expect(out.outcomes.map(function n(o) { return o.scanner + ' ' + o.ecosystem })).toEqual([
+            'npm-audit npm',
+            'osv npm', 'osv PyPI', 'osv RubyGems',
+            'gemnasium npm', 'gemnasium PyPI', 'gemnasium RubyGems'
+        ])
+        expect(osv.contexts.map(function eco(c) { return c.ecosystem })).toEqual(['npm', 'PyPI', 'RubyGems'])
+    })
+
+    it('skips a cell the run does not audit', async function () {
+        const osv = fakeScanner('osv', result())
+        const polyglot = resolved({ manifests: [okManifest('package-lock.json', 'npm'), okManifest('go.mod', 'Go')] })
+        const out = await scanProject(setup({ cells: cells(['osv'], ['Go']) }), polyglot, [osv])
+        expect(out.outcomes.map(function n(o) { return o.ecosystem })).toEqual(['Go'])
+    })
+
+    // The dedup keys are ecosystem-scoped: a PyPI `requests` is not an npm `requests` sharing an alias.
+    it('keeps the same advisory reported for a same-named package of another ecosystem', async function () {
+        const shared = { advisoryId: 'GHSA-shared', aliases: ['CVE-FAKE-1'], packageName: 'requests' }
+        const osv = { name: 'osv', scan: async function scan(_path: string, ctx: ScanContext): Promise<ScanResult> {
+            const own = ctx.ecosystem === 'PyPI' ? { fixInputs: { ...finding().fixInputs, affected: PEP440_THROUGH_2 } } : {}
+            return result({ findings: [finding({ ...shared, ...own, ecosystem: ctx.ecosystem })] })
+        } }
+        const polyglot = resolved({ manifests: [okManifest('package-lock.json', 'npm'), okManifest('requirements.txt', 'PyPI')] })
+        const out = await scanProject(setup({ cells: cells(['osv'], ['npm', 'PyPI']) }), polyglot, [osv])
+        expect(out.findings.map(function eco(f) { return f.ecosystem })).toEqual(['npm', 'PyPI'])
     })
 
     it('returns the project it was given', async function () {
@@ -383,8 +489,8 @@ describe('scanProject', function () {
 
     it('collects findings from every successful scanner', async function () {
         const scanners = [
-            fakeScanner('a', result({ findings: [finding()] })),
-            fakeScanner('b', result({ findings: [finding({ advisoryId: 'GHSA-bbbb', packageName: 'express' })] }))
+            fakeScanner('osv', result({ findings: [finding()] })),
+            fakeScanner('gemnasium', result({ findings: [finding({ advisoryId: 'GHSA-bbbb', packageName: 'express' })] }))
         ]
         const out = await scanProject(setup(), resolved(), scanners)
         expect(out.findings.map(function id(f) { return f.advisoryId })).toEqual(['GHSA-aaaa', 'GHSA-bbbb'])
@@ -410,7 +516,7 @@ describe('scanProject', function () {
     })
 
     it('records a non-ok outcome and contributes none of its findings', async function () {
-        const scanners = [fakeScanner('a', result({ status: 'unauditable', reasonCode: 'no_lockfile', findings: [finding()] }))]
+        const scanners = [fakeScanner('osv', result({ status: 'unauditable', reasonCode: 'no_lockfile', findings: [finding()] }))]
         const out = await scanProject(setup(), resolved(), scanners)
         expect(first(out.outcomes, 'outcome')).toMatchObject({ status: 'unauditable', reasonCode: 'no_lockfile' })
         expect(out.findings).toEqual([])
@@ -419,12 +525,13 @@ describe('scanProject', function () {
     // One scanner blowing up must not lose the other scanners' results for the same project.
     it('contains a thrown error as an outcome and carries on', async function () {
         const scanners = [
-            throwingScanner('boom', new Error('spawn failed')),
-            fakeScanner('b', result({ findings: [finding()] }))
+            throwingScanner('npm-audit', new Error('spawn failed')),
+            fakeScanner('osv', result({ findings: [finding()] }))
         ]
         const out = await scanProject(setup(), resolved(), scanners)
         expect(first(out.outcomes, 'outcome')).toMatchObject({
-            scanner: 'boom',
+            scanner: 'npm-audit',
+            ecosystem: 'npm',
             status: 'error',
             reasonCode: 'audit_unknown_failure',
             errorText: 'spawn failed'
@@ -433,7 +540,7 @@ describe('scanProject', function () {
     })
 
     it('stringifies a non-Error throw rather than losing it', async function () {
-        const scanners = [throwingScanner('boom', 'plain string')]
+        const scanners = [throwingScanner('osv', 'plain string')]
         const out = await scanProject(setup(), resolved(), scanners)
         expect(first(out.outcomes, 'outcome').errorText).toBe('plain string')
     })
@@ -441,7 +548,7 @@ describe('scanProject', function () {
     it('stops before the next scanner once the run is aborted', async function () {
         const controller = new AbortController()
         controller.abort()
-        const scanners = [fakeScanner('a', result()), fakeScanner('b', result())]
+        const scanners = [fakeScanner('osv', result()), fakeScanner('gemnasium', result())]
         const out = await scanProject(setup({ abortSignal: controller.signal }), resolved(), scanners)
         expect(out.outcomes).toEqual([])
     })
@@ -476,7 +583,7 @@ describe('scanProject', function () {
             const { client, asked } = registry()
             // Reported by two sources: one identity, one lookup, one settlement, one way out.
             const scanners = [fakeScanner('osv', result({ findings: [braces] })), fakeScanner('gemnasium', result({ findings: [{ ...braces, fixInputs: { ...braces.fixInputs, source: 'gemnasium' } }] }))]
-            const out = await scanProject(setup({ registry: client }), resolved(), scanners)
+            const out = await scanProject(setup({ registry: { npm: client } }), resolved(), scanners)
             expect(out.findings).toHaveLength(1)
             expect(asked).toEqual(['braces'])
             const kept = first(out.findings, 'finding')
@@ -487,10 +594,34 @@ describe('scanProject', function () {
 
         it('leaves a finding unverified with no way out when the registry cannot answer', async function () {
             const { client } = registry(true)
-            const out = await scanProject(setup({ registry: client }), resolved(), [fakeScanner('osv', result({ findings: [braces] }))])
+            const out = await scanProject(setup({ registry: { npm: client } }), resolved(), [fakeScanner('osv', result({ findings: [braces] }))])
             const kept = first(out.findings, 'finding')
             expect(out.fixes.get(kept)).toMatchObject({ fixStatus: 'unverified', fixCheck: { registry: 'error' } })
             expect(out.remediations.size).toBe(0)
+        })
+
+        // Each ecosystem settles against its own registry, through the client the run built for it.
+        it('settles a PyPI finding against the PyPI client, and its way out is the npm-only verdict', async function () {
+            const asked: string[] = []
+            const pypi: NonNullable<RegistryClients['PyPI']> = createPublishedRegistryClient(createMemoryRegistryStore(), async function fetchPackage(name: string): Promise<PublishedResult> {
+                asked.push(name)
+                return { status: 'ok', summary: { v: 1, name, versions: { '1.0.0': { yanked: false }, '2.0.0': { yanked: false } } }, etag: null }
+            }, { now: function now() { return 1 } })
+            const pyFinding = finding({
+                ecosystem: 'PyPI',
+                packageName: 'fake-py-lib',
+                installedVersion: '2.0.0',
+                vulnerableRange: '<=2.0.0',
+                fixAvailable: false,
+                fixVersion: null,
+                fixInputs: { source: 'osv', installed: ['2.0.0'], affected: PEP440_THROUGH_2, patched: null, patchedSet: null, statedFix: null, fixViaParent: false }
+            })
+            const polyglot = resolved({ manifests: [okManifest('requirements.txt', 'PyPI')] })
+            const out = await scanProject(setup({ cells: cells(['osv'], ['PyPI']), registry: { PyPI: pypi } }), polyglot, [fakeScanner('osv', result({ findings: [pyFinding] }))])
+            const kept = first(out.findings, 'finding')
+            expect(asked).toEqual(['fake-py-lib'])
+            expect(out.fixes.get(kept)).toMatchObject({ fixStatus: 'none_released' })
+            expect(out.remediations.get(kept)?.chains.map(function verdict(c) { return c.verdict.kind })).toEqual(['unknown'])
         })
 
         it('asks nothing offline, and marks the fix as not checked because of it', async function () {
@@ -516,31 +647,44 @@ describe('scanProject', function () {
             expect(ctxOf(audit).useNvm).toBe(false)
         })
 
-        it('hands npm-audit the npm graph and the feed scanners the merged graph', async function () {
-            const npmGraph = { packages: [{ name: 'npm-only' }] } as ResolvedProject['npmGraph']
-            const merged = { packages: [{ name: 'merged' }] } as ResolvedProject['merged']
+        it('hands npm-audit the npm graph and a feed scanner only its cell\'s packages', async function () {
+            const npmGraph = graphOf([pkg('npm', 'npm-only')])
             const audit = fakeScanner('npm-audit', result())
             const osv = fakeScanner('osv', result())
-            await scanProject(setup(), resolved({ npmGraph, merged }), [audit, osv])
+            const polyglot = resolved({
+                npmGraph,
+                manifests: [
+                    okManifest('package-lock.json', 'npm', [pkg('npm', 'left-pad')]),
+                    okManifest('ios/Gemfile.lock', 'RubyGems', [pkg('RubyGems', 'rack', '2.0.0', 'ios/Gemfile.lock')]),
+                    okManifest('android/Gemfile.lock', 'RubyGems', [pkg('RubyGems', 'rack', '2.1.0', 'android/Gemfile.lock')])
+                ]
+            })
+            await scanProject(setup({ cells: cells(['osv'], ['npm', 'RubyGems']) }), polyglot, [audit, osv])
             expect(ctxOf(audit).resolvedGraph).toBe(npmGraph)
-            expect(ctxOf(osv).resolvedGraph).toBe(merged)
+            expect(osv.contexts.map(function names(c) { return c.resolvedGraph?.packages.map(function id(p) { return p.name + '@' + p.version }) })).toEqual([
+                ['left-pad@1.0.0'],
+                // Two manifests of one ecosystem are merged into the one cell.
+                ['rack@2.0.0', 'rack@2.1.0']
+            ])
         })
 
-        // Coverage is per-ecosystem resolver status, which npm-audit has no use for.
-        it('passes resolver coverage to the feed scanners but not to npm-audit', async function () {
+        // Coverage is per-manifest resolver status for the cell's ecosystem, which npm-audit has no use for.
+        it('passes each cell its own manifests\' coverage, and npm-audit none', async function () {
             const audit = fakeScanner('npm-audit', result())
             const osv = fakeScanner('osv', result())
-            await scanProject(setup(), resolved({
-                results: [
-                    { ecosystem: 'npm', status: 'ok' },
-                    { ecosystem: 'PyPI', status: 'unauditable', reasonCode: 'no_lockfile', details: ['no requirements.txt'] }
-                ] as ResolvedProject['results']
+            await scanProject(setup({ cells: cells(['osv'], ['npm', 'PyPI']) }), resolved({
+                manifests: [
+                    okManifest('package-lock.json', 'npm'),
+                    { manifestPath: 'pyproject.toml', result: { status: 'unauditable', ecosystem: 'PyPI', reasonCode: 'no_lockfile', details: ['no lockfile'] } }
+                ]
             }), [audit, osv])
             expect(ctxOf(audit).coverage).toBeUndefined()
-            expect(ctxOf(osv).coverage).toEqual([
-                { ecosystem: 'npm', status: 'ok' },
-                { ecosystem: 'PyPI', status: 'unauditable', reasonCode: 'no_lockfile', details: ['no requirements.txt'] }
+            expect(osv.contexts.map(function coverage(c) { return c.coverage })).toEqual([
+                [{ ecosystem: 'npm', manifestPath: 'package-lock.json', status: 'ok' }],
+                [{ ecosystem: 'PyPI', manifestPath: 'pyproject.toml', status: 'unauditable', reasonCode: 'no_lockfile', details: ['no lockfile'] }]
             ])
+            // A cell with nothing readable gets no graph to match.
+            expect(osv.contexts[1]?.resolvedGraph).toBeNull()
         })
 
         it('threads the abort signal and a timeout into every scanner', async function () {
@@ -559,9 +703,9 @@ describe('project cannot be scanned — a lockfile-less project', function () {
     const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'tests', 'fixtures', 'projects', 'npm-no-lockfile')
 
     it('reads as cannot be scanned: No lockfile, from the source and the npm dependencies', async function () {
-        const [entry] = await resolveProjects([project({ absolutePath: FIXTURE, relPath: 'npm-no-lockfile', name: 'npm-no-lockfile' })])
-        const scanners = buildScanners(setup({ includeNpmAudit: false, sources: ['osv'] }), emptyCache())
-        const scanned = await scanProject(setup({ includeNpmAudit: false, sources: ['osv'] }), entry as ResolvedProject, scanners)
+        const [entry] = await resolveProjects([project({ absolutePath: FIXTURE, relPath: 'npm-no-lockfile', name: 'npm-no-lockfile', manifests: [{ path: 'package.json', ecosystem: 'npm', kind: 'package.json' }] })])
+        const scanners = buildScanners(setup({ includeNpmAudit: false, cells: cells(['osv']) }), emptyCache())
+        const scanned = await scanProject(setup({ includeNpmAudit: false, cells: cells(['osv']) }), entry as ResolvedProject, scanners)
         expect(scanned.findings).toEqual([])
         expect(scanned.scanState).toEqual({
             state: 'cannot_scan',
@@ -574,24 +718,33 @@ describe('project cannot be scanned — a lockfile-less project', function () {
 })
 
 describe('cliScanState — the run is its own expected sources', function () {
-    const ok = { ecosystem: 'npm', status: 'ok' as const, graph: { packages: [], edges: [] } } as unknown as ResolvedProject['results'][number]
+    const ok = okManifest('package-lock.json', 'npm')
+    const outcome = function outcome(scanner: string, ecosystem: 'npm' | 'PyPI' = 'npm') {
+        return { scanner, ecosystem, status: 'ok', reasonCode: 'ok', errorText: null, durationMs: 1 }
+    }
 
-    it('is scanned when every scanner the run enabled answered and the run ecosystem was read', function () {
-        const outcomes = [{ scanner: 'osv', status: 'ok', reasonCode: 'ok', errorText: null, durationMs: 1 }]
-        expect(cliScanState({ ecosystem: 'npm' }, { results: [ok] }, [{ name: 'osv' }], outcomes)).toEqual({ state: 'scanned', reasons: [] })
+    it('is scanned when every cell the run enabled answered and every ecosystem was read', function () {
+        expect(cliScanState(setup({ cells: cells(['osv']) }), { manifests: [ok] }, [{ name: 'osv' }], [outcome('osv')])).toEqual({ state: 'scanned', reasons: [] })
     })
 
-    // Another ecosystem the CLI does not audit is not something the run was asked to read.
-    it('ignores the coverage of an ecosystem the run does not audit', function () {
-        const pypi = { ecosystem: 'PyPI', status: 'unauditable', reasonCode: 'no_lockfile', details: [] } as ResolvedProject['results'][number]
-        const outcomes = [{ scanner: 'osv', status: 'ok', reasonCode: 'ok', errorText: null, durationMs: 1 }]
-        expect(cliScanState({ ecosystem: 'npm' }, { results: [ok, pypi] }, [{ name: 'osv' }], outcomes).state).toBe('scanned')
+    // Every ecosystem the run audits answers for itself: an unreadable PyPI manifest is a reason.
+    it('reads an unreadable manifest of another audited ecosystem as a reason', function () {
+        const pyproject: ResolvedManifest = { manifestPath: 'pyproject.toml', result: { status: 'unauditable', ecosystem: 'PyPI', reasonCode: 'no_lockfile', details: [] } }
+        const state = cliScanState(setup({ cells: cells(['osv'], ['npm', 'PyPI']) }), { manifests: [ok, pyproject] }, [{ name: 'osv' }], [outcome('osv'), outcome('osv', 'PyPI')])
+        expect(state).toEqual({ state: 'partial', reasons: [{ source: null, ecosystem: 'PyPI', reasonCode: 'no_lockfile', side: 'project' }] })
+    })
+
+    // `--source npm-audit` on a tree with a Python project: nothing answers for PyPI, which is a reason,
+    // never a clean result.
+    it('reads an ecosystem no cell answers for as having no source enabled', function () {
+        const requirements = okManifest('requirements.txt', 'PyPI')
+        const state = cliScanState(setup({ cells: [] }), { manifests: [ok, requirements] }, [{ name: 'npm-audit' }], [outcome('npm-audit')])
+        expect(state).toEqual({ state: 'partial', reasons: [{ source: null, ecosystem: 'PyPI', reasonCode: 'ecosystem_source_disabled', side: 'environment' }] })
     })
 
     it('reads a scanner the run never reached as not yet run, and a partly read ecosystem by its reason', function () {
-        const partial = { ecosystem: 'npm', status: 'partial', reasonCode: 'partial_dependency_graph', details: [], graph: { packages: [], edges: [] } } as unknown as ResolvedProject['results'][number]
-        const outcomes = [{ scanner: 'npm-audit', status: 'ok', reasonCode: 'ok', errorText: null, durationMs: 1 }]
-        expect(cliScanState({ ecosystem: 'npm' }, { results: [partial] }, [{ name: 'npm-audit' }, { name: 'osv' }], outcomes)).toEqual({
+        const partial: ResolvedManifest = { manifestPath: 'package-lock.json', result: { status: 'partial', ecosystem: 'npm', reasonCode: 'partial_dependency_graph', details: [], graph: graphOf([]) } }
+        expect(cliScanState(setup({ cells: cells(['osv']) }), { manifests: [partial] }, [{ name: 'npm-audit' }, { name: 'osv' }], [outcome('npm-audit')])).toEqual({
             state: 'partial',
             reasons: [
                 { source: 'osv', ecosystem: null, reasonCode: 'not_yet_run', side: null },
@@ -600,7 +753,36 @@ describe('cliScanState — the run is its own expected sources', function () {
         })
     })
 
-    it('is not scanned yet when the run enabled no scanner', function () {
-        expect(cliScanState({ ecosystem: 'npm' }, { results: [ok] }, [], [])).toEqual({ state: 'not_scanned_yet', reasons: [] })
+    it('cannot be scanned when the run enabled no scanner for any of its ecosystems', function () {
+        expect(cliScanState(setup({ cells: [], includeNpmAudit: false }), { manifests: [ok] }, [], [])).toEqual({
+            state: 'cannot_scan',
+            reasons: [{ source: null, ecosystem: 'npm', reasonCode: 'ecosystem_source_disabled', side: 'environment' }]
+        })
+    })
+})
+
+describe('installationsFor', function () {
+    const graph = graphOf([
+        pkg('npm', 'lodash', '4.17.11', 'package-lock.json'),
+        pkg('npm', 'lodash', '4.17.11', 'package-lock.json'),
+        pkg('npm', 'lodash', '4.17.20', 'packages/app/package-lock.json'),
+        pkg('npm', 'lodash', '4.17.21', 'package-lock.json')
+    ])
+
+    it('keeps what the matcher recorded', function () {
+        const recorded = [{ manifestPath: 'requirements.txt', version: '2.0.0' }]
+        expect(installationsFor(finding({ installations: recorded }), graph)).toBe(recorded)
+    })
+
+    // npm-audit reports a comma-joined installed value and no installations: they come from the npm graph.
+    it('finds an npm-audit finding\'s copies in the npm graph, each once', function () {
+        expect(installationsFor(finding({ installedVersion: '4.17.11, 4.17.20' }), graph)).toEqual([
+            { manifestPath: 'package-lock.json', version: '4.17.11' },
+            { manifestPath: 'packages/app/package-lock.json', version: '4.17.20' }
+        ])
+    })
+
+    it('names none with no npm graph to look in', function () {
+        expect(installationsFor(finding(), null)).toEqual([])
     })
 })

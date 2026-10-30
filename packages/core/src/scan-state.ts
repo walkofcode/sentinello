@@ -199,28 +199,36 @@ export const NOT_YET_RUN_LABELS: Record<Locale, string> = {
 
 // Why a finding still listed was not re-checked: its source's latest scan of the project failed, or was ok
 // but could not read a manifest the row lives behind, so the row is what an earlier scan left behind.
-// Read-time only, never stored. `lastOkScanAt` is when the row was last checked successfully: the last ok
-// scan that saw it (its last_seen_at) when the findings query passed the row's facts, else the source's last
-// ok scan of the project; null when it never scanned it successfully.
+// Read-time only, never stored. `manifests` says how much of the row it covers: null, the whole row; a list,
+// only the copies installed through those manifests — the latest ok scan re-checked the row through its other
+// manifests and kept these copies as they were, unread (SENTINEL-145). `lastOkScanAt` is when the whole row
+// was last checked successfully: the last ok scan that saw it (its last_seen_at) when the findings query
+// passed the row's facts, else the source's last ok scan of the project; null when it never scanned it
+// successfully, and always null for kept copies (`manifests` set) — the row's timestamp is the scan that saw
+// its other copies, and no per-copy history is kept.
 export type NotRecheckedBecause = {
     reasonCode: FailureReasonCode
     side: ScanStateSide
     projectState: ScanStateValue
     lastOkScanAt: number | null
+    manifests: readonly string[] | null
 }
 
 // What a findings query knows about the row's source: its latest scan of the project, and when the row was
 // last checked successfully (`lastOkScanAt`, the same contract as NotRecheckedBecause's: for an open row read
 // with its facts, the last ok scan that saw it — never a later ok scan that kept it unseen, whether or not a
-// failed scan followed). `unreadReasonCode` is set when that latest scan was ok but did not see the row
-// because a manifest it may live behind could not be read (the lifecycle merge keeps such a row open rather
-// than resolve it): the coverage reason of that manifest. Null or absent otherwise.
+// failed scan followed). `unreadReasonCode` is set when that latest scan was ok but did not see the row, or
+// some of its copies, because a manifest they may live behind could not be read (the lifecycle merge keeps
+// such a row open, and such copies on it, rather than resolve them): the coverage reason of that manifest.
+// `unreadManifests` is set beside it when the scan saw the row through other manifests: the manifests whose
+// copies it kept unread. Null or absent otherwise.
 export type FindingScanContext = {
     latestStatus: string | null
     latestReasonCode: string | null
     lastOkScanAt: number | null
     projectState: ScanStateValue
     unreadReasonCode?: string | null
+    unreadManifests?: readonly string[] | null
 }
 
 // Null when the source's latest scan was ok and re-checked the row, or when the source has no scan of the
@@ -231,8 +239,9 @@ export function notRecheckedBecause(context: FindingScanContext | null): NotRech
     if (context.latestStatus === 'ok') {
         if (context.unreadReasonCode === undefined || context.unreadReasonCode === null) return null
         const unread = failureReasonCode(context.unreadReasonCode)
-        return { reasonCode: unread, side: REASON_SIDE[unread], projectState: context.projectState, lastOkScanAt: context.lastOkScanAt }
+        const manifests = context.unreadManifests ?? null
+        return { reasonCode: unread, side: REASON_SIDE[unread], projectState: context.projectState, lastOkScanAt: manifests === null ? context.lastOkScanAt : null, manifests }
     }
     const reasonCode = failureReasonCode(context.latestReasonCode)
-    return { reasonCode, side: REASON_SIDE[reasonCode], projectState: context.projectState, lastOkScanAt: context.lastOkScanAt }
+    return { reasonCode, side: REASON_SIDE[reasonCode], projectState: context.projectState, lastOkScanAt: context.lastOkScanAt, manifests: null }
 }

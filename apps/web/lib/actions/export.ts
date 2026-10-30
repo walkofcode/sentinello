@@ -44,8 +44,10 @@ export async function exportLibraryAdvisoryMarkdownAction(
     const rows = listLibraryUsage(db, trimmed, now, parsedDep, ecosystem)
     const findings: ExportFinding[] = rows.map(function toExport(r): ExportFinding {
         return {
+            ecosystem: r.ecosystem,
             packageName: trimmed,
             installedVersion: r.installedVersion,
+            installations: r.installations,
             fixAvailable: r.fixAvailable,
             fixVersion: r.fixVersion,
             fixStatus: r.fixStatus,
@@ -59,7 +61,7 @@ export async function exportLibraryAdvisoryMarkdownAction(
             vulnerableRange: r.vulnerableRange,
             isProd: r.isProd,
             isDev: r.isDev,
-            depPath: [],
+            depPath: r.depPath,
             projectName: r.projectName
         }
     })

@@ -270,26 +270,57 @@ describe('runDoctor — advisory cache', function () {
     })
 })
 
-describe('runDoctor — npm registry cache', function () {
+describe('runDoctor — registry cache', function () {
     it('says nothing is cached yet before the first run that reached the registry', async function () {
+        await makeProject('.')
         await runDoctor(options(), cacheDir)
-        expect(report()).toContain('npm registry nothing cached yet')
+        expect(report()).toContain('    registry    nothing cached yet')
     })
 
     it('counts the cached packages and dates the oldest answer', async function () {
         vi.useFakeTimers()
         vi.setSystemTime(T0 + 3 * 3_600_000)
+        await makeProject('.')
         await ensureCacheDir(cacheDir)
         const row = function row(name: string, checkedAt: number) {
             return JSON.stringify({ name, status: 'not_found', summaryJson: null, checkedAt, weeklyDownloads: null, downloadsCheckedAt: null }) + '\n'
         }
-        await writeFile(registryFilePath(cacheDir), gzipSync(row('a', T0) + row('b', T0 + 3_600_000)))
+        await writeFile(registryFilePath(cacheDir, 'npm'), gzipSync(row('a', T0) + row('b', T0 + 3_600_000)))
         await runDoctor(options(), cacheDir)
-        expect(report()).toContain('npm registry 2 packages, oldest answer 3h ago')
-        expect(report()).toContain(registryFilePath(cacheDir))
-        await writeFile(registryFilePath(cacheDir), gzipSync(row('a', T0)))
+        expect(report()).toContain('registry    2 packages, oldest answer 3h ago')
+        expect(report()).toContain(registryFilePath(cacheDir, 'npm'))
+        await writeFile(registryFilePath(cacheDir, 'npm'), gzipSync(row('a', T0)))
         await runDoctor(options(), cacheDir)
-        expect(report()).toContain('npm registry 1 package, oldest answer 3h ago')
+        expect(report()).toContain('registry    1 package, oldest answer 3h ago')
+    })
+})
+
+// One cache per ecosystem: doctor reports the ecosystems a run here would sync, and any other already cached.
+describe('runDoctor — one cache per ecosystem', function () {
+    it('reports a section for each ecosystem the projects hold', async function () {
+        const { mkdir } = await import('node:fs/promises')
+        await makeProject('web')
+        await mkdir(join(rootPath, 'tool'), { recursive: true })
+        await writeFile(join(rootPath, 'tool', 'requirements.txt'), 'fake-py-lib==1.0.0\n', 'utf8')
+        await runDoctor(options(), cacheDir)
+        const text = report()
+        expect(text).toContain('\n  npm\n    osv         not downloaded\n    gemnasium   not downloaded\n    registry    nothing cached yet\n')
+        expect(text).toContain('\n  PyPI\n    osv         not downloaded\n')
+        expect(text).not.toContain('\n  Go\n')
+    })
+
+    it('reports an ecosystem the cache holds even with no project of it here', async function () {
+        const { mkdir } = await import('node:fs/promises')
+        await mkdir(rootPath, { recursive: true })
+        await seedState('gemnasium', { headSha: 'abcdef0123456789' })
+        await runDoctor(options(), cacheDir)
+        expect(report()).toContain('\n  npm\n')
+        expect(report()).toContain('commit abcdef012345')
+    })
+
+    it('says so when no ecosystem is detected and nothing is cached', async function () {
+        await runDoctor(options(), cacheDir)
+        expect(report()).toContain('(no ecosystem detected and nothing cached)')
     })
 })
 

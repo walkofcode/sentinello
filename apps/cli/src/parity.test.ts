@@ -96,16 +96,16 @@ async function scanWithCli(): Promise<Map<string, Settled>> {
     await writeCacheMeta(cacheDir, { schemaVersion: 1, sources: { osv: { npm: { normalizerVersion: osvNormalizerVersion('npm'), recordCount: count, refreshedAt: Date.now() } }, gemnasium: {} } })
     const discovered = discoverProjectsInTree({ rootPath: join(PROJECTS, PROJECT), maxDepth: 0, excludes: [] })
     const resolved = await resolveProjects(discovered)
+    const cells: ScanSetup['cells'] = [{ source: 'osv', ecosystem: 'npm' }]
     const setup: ScanSetup = {
         cacheDir,
-        sources: ['osv'],
-        ecosystem: 'npm',
+        cells,
         includeNpmAudit: false,
-        seeded: { osv: true, gemnasium: false },
+        seeded: cells,
         settledAt: Date.now(),
-        registry: createNpmRegistryClient(await loadRegistryStore(cacheDir))
+        registry: { npm: createNpmRegistryClient(await loadRegistryStore(cacheDir, 'npm')) }
     }
-    const scanners = buildScanners(setup, await loadCacheForPackages(cacheDir, 'npm', collectPackageNames(resolved), ['osv'], await readCacheMeta(cacheDir)))
+    const scanners = buildScanners(setup, await loadCacheForPackages(cacheDir, collectPackageNames(resolved), cells, await readCacheMeta(cacheDir)))
     const out = new Map<string, Settled>()
     for (const entry of resolved) {
         const result = await scanProject(setup, entry, scanners)

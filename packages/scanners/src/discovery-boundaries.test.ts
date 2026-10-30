@@ -418,4 +418,18 @@ describe('withUnreadManifests', function () {
         const parent = withUnreadManifests(project, dotted, [{ path: '/r/app/native', message: 'EACCES' }])
         expect(parent.manifests.map(function path(m) { return m.path })).toEqual(['package-lock.json', 'native/Cargo.lock', 'native/..ios/Gemfile.lock', 'native/ios/Gemfile.lock'])
     })
+
+    // SENTINEL-148: a searchable but unlistable native/ios yields its Gemfile.lock to stat while its listing
+    // fails. The lock found there is the directory's one Ruby manifest; the recorded bare Gemfile is not added
+    // beside it, while another ecosystem's manifest in the same directory still is.
+    it('adds nothing back to a directory slot the walk found a manifest of the same ecosystem in', function () {
+        const found: DiscoveredProject = { ...project, manifests: [...project.manifests, { path: 'native/ios/Gemfile.lock', ecosystem: 'RubyGems', kind: 'Gemfile.lock' }] }
+        const bare = [
+            { path: 'package-lock.json', ecosystem: 'npm' as const, kind: 'package-lock.json' },
+            { path: 'native/ios/Gemfile', ecosystem: 'RubyGems' as const, kind: 'Gemfile' },
+            { path: 'native/ios/requirements.txt', ecosystem: 'PyPI' as const, kind: 'requirements.txt' }
+        ]
+        const kept = withUnreadManifests(found, bare, [{ path: '/r/app/native/ios', message: 'EACCES' }])
+        expect(kept.manifests.map(function path(m) { return m.path })).toEqual(['package-lock.json', 'native/ios/Gemfile.lock', 'native/ios/requirements.txt'])
+    })
 })

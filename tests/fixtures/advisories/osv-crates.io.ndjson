@@ -1,0 +1,1 @@
+{"advisoryId":"RUSTSEC-FIXTURE-0001","ecosystem":"crates.io","packageName":"fake-crate","aliases":[],"ranges":[{"type":"SEMVER","introduced":"0","fixed":"1.0.1","lastAffected":null}],"versions":[],"severity":"CRITICAL","summary":"Fixture: fake-crate fixed in 1.0.1","url":"https://example.invalid/RUSTSEC-FIXTURE-0001","malicious":false,"withdrawn":null}

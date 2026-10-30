@@ -55,6 +55,13 @@ export function getLatestScanForProject(db: DrizzleDb, projectId: string): Scan 
     return rowToScan(row)
 }
 
+// The ecosystem one scan was for, or null when the scan is gone (pruned). A scan-failure event names its first
+// scan, and its message names that scan's ecosystem: one source scans each ecosystem of a project apart.
+export function getScanEcosystem(db: DrizzleDb, scanId: string): string | null {
+    const row = db.select({ ecosystem: scans.ecosystem }).from(scans).where(eq(scans.id, scanId)).get()
+    return row ? row.ecosystem : null
+}
+
 // Does any project's LATEST scan for this source still say the source's cache could not be consulted?
 //
 // The worker enqueues a re-scan when a cache TRANSITIONS to usable inside one sync, which covers the

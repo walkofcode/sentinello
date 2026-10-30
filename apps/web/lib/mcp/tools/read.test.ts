@@ -194,6 +194,30 @@ describe('get_project', function () {
         expect(result.structuredContent).toHaveProperty('coverage')
     })
 
+    // One Expo app with two Gemfile.locks and its npm lock: ecosystem narrows the manifests and coverage, never
+    // the project's own ecosystems or scan state.
+    it('narrows manifests and coverage to one ecosystem', async function () {
+        const manifests = [
+            { path: 'package-lock.json', ecosystem: 'npm', kind: 'package-lock.json' },
+            { path: 'ios/Gemfile.lock', ecosystem: 'RubyGems', kind: 'Gemfile.lock' },
+            { path: 'android/Gemfile.lock', ecosystem: 'RubyGems', kind: 'Gemfile.lock' }
+        ]
+        seedProject(handle.db, 'expo', { ecosystems: ['npm', 'RubyGems'], manifests })
+        scanProject(handle.db, 'expo', [], { rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', manifestPath: 'package-lock.json', status: 'ok' }, { ecosystem: 'RubyGems', manifestPath: 'ios/Gemfile.lock', status: 'ok' }] }) })
+
+        const ruby = (await mcp.call('get_project', { id: 'expo', ecosystem: 'RubyGems' })).structuredContent as Record<string, unknown>
+        expect(ruby.manifests).toEqual(manifests.slice(1))
+        expect(ruby.coverage).toMatchObject([{ ecosystem: 'RubyGems', manifestPath: 'ios/Gemfile.lock' }])
+        expect(ruby.ecosystems).toEqual(['npm', 'RubyGems'])
+        const all = (await mcp.call('get_project', { id: 'expo' })).structuredContent as Record<string, unknown>
+        expect(all.manifests).toEqual(manifests)
+        expect(all.coverage).toHaveLength(2)
+    })
+
+    it('rejects an ecosystem id it does not know', async function () {
+        expect(await expectSchemaRejection('get_project', { id: 'project-1', ecosystem: 'pypi' })).toContain('expected one of')
+    })
+
     it('reports an error for an unknown project', async function () {
         const result = await mcp.call('get_project', { id: 'nope' })
 
@@ -676,7 +700,7 @@ describe('project cannot be scanned — scanState, the counts and not re-checked
     it('marks each retained list_findings row not re-checked, with the last successful scan', async function () {
         const rows = jsonOf<{ notRecheckedBecause: unknown }[]>(await mcp.call('list_findings', { projectId: 'project-1' }))
         expect(rows).toHaveLength(1)
-        expect(rows[0]?.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: LAST_OK })
+        expect(rows[0]?.notRecheckedBecause).toEqual({ reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: LAST_OK, manifests: null })
     })
 
     it('opens get_project_advisory with the section and marks the finding not re-checked', async function () {

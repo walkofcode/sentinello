@@ -22,9 +22,10 @@ describe('sourceNormalizerVersion', function () {
 // Per ecosystem, so a change that re-derives only PyPI rows re-seeds PyPI alone and npm's 200 MB export is
 // never fetched again for it.
 describe('osvNormalizerVersion', function () {
-    it('answers per ecosystem, npm unchanged by 3.8', function () {
-        expect(osvNormalizerVersion('npm')).toBe(7)
-        for (const id of ['PyPI', 'Go', 'crates.io', 'RubyGems']) expect(osvNormalizerVersion(id)).toBe(8)
+    // npm too since the live-cache diff: 19 ECOSYSTEM-typed npm records with CalVer fixes now keep a refused
+    // part, and cached v7 rows would never gain it.
+    it('answers per ecosystem, every one at 8 for 3.8', function () {
+        for (const id of ['npm', 'PyPI', 'Go', 'crates.io', 'RubyGems']) expect(osvNormalizerVersion(id)).toBe(8)
     })
 
     it('fails loudly for an ecosystem the registry does not know', function () {

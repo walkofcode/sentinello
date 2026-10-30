@@ -229,7 +229,7 @@
         "schedule": {
             "metaTitle": "Programación · Configuración",
             "scanEvery": "Escanear cada",
-            "cadenceHelp": "El worker recorre cada raíz configurada y ejecuta npm audit en cada proyecto descubierto con esta frecuencia.",
+            "cadenceHelp": "Con esta frecuencia, el worker recorre cada raíz configurada y compara cada proyecto descubierto con sus fuentes habilitadas.",
             "saveButton": "Guardar programación",
             "startHour": "Comenzar a las",
             "startHourHelp": "Para intervalos mayores de 1 h, fija la hora del día en que comienzan los escaneos (hora local del worker).",
@@ -304,7 +304,7 @@
         "sources": {
             "metaTitle": "Fuentes · Configuración",
             "title": "Fuentes de vulnerabilidades",
-            "description": "Sentinello compara tus dependencias de Node.js con las fuentes de abajo. Al menos una debe permanecer activada.",
+            "description": "Sentinello compara tus dependencias, en todos los lenguajes compatibles, con las fuentes de abajo. Al menos una debe permanecer activada.",
             "enabled": "Activado",
             "disabled": "Desactivado",
             "seeded": "Actualizado",
@@ -327,10 +327,10 @@
             "npmAuditAdds": "La GitHub Advisory Database, alcanzada a través del gestor de paquetes de tu propio proyecto.",
             "npmAuditDownloads": "Nada. Consulta registry.npmjs.org mientras corre el escaneo.",
             "npmAuditRuns": "En cada escaneo.",
-            "osvAdds": "CVEs que npm audit no detecta, más paquetes maliciosos conocidos asociados a las versiones exactas comprometidas.",
+            "osvAdds": "Avisos para todos los lenguajes (en Node.js, los CVE que npm audit no detecta), más paquetes maliciosos conocidos asociados a las versiones exactas comprometidas.",
             "osvDownloads": "Alrededor de {mb} MB desde osv-vulnerabilities.storage.googleapis.com. Necesita {freeMb} MB libres. Reconstruible y guardada aparte de tus hallazgos.",
             "osvRuns": "A diario cerca de las 03:17, y cada vez que actualizás. La comparación en sí corre sin conexión.",
-            "gemnasiumAdds": "Avisos con curaduría independiente más allá de npm audit y OSV, calificados a partir del vector CVSS.",
+            "gemnasiumAdds": "Avisos con curaduría independiente para todos los lenguajes, más allá de OSV (y de npm audit en Node.js), calificados a partir del vector CVSS.",
             "gemnasiumDownloads": "Alrededor de {mb} MB desde gitlab.com. Necesita {freeMb} MB libres. Reconstruible y guardada aparte de tus hallazgos.",
             "gemnasiumRuns": "A diario cerca de las 03:42, y cada vez que actualizás. La comparación en sí corre sin conexión."
         },
@@ -493,6 +493,7 @@
             "verdictBlocked": "{escape} ≥ {version} elimina {target}, pero ninguna versión publicada de {blockedBy} lo admite (la última, {latest}, requiere {range})",
             "verdictNoEscape": "Ninguna versión publicada de {packages} elimina {target}",
             "verdictUnknown": "Desconocido: no hay suficientes datos del registro en {at}",
+            "verdictNpmOnly": "Desconocido — la salida solo se calcula para npm; revisa la actualización del paquete padre con las herramientas de este ecosistema",
             "verdictDirect": "{target} es una dependencia directa: la única salida es reemplazarlo",
             "morePaths": "y {count, plural, one {# ruta más} other {# rutas más}}",
             "morePathsAtLeast": "y al menos {count, plural, one {# ruta más} other {# rutas más}}",
@@ -532,6 +533,10 @@
         },
         "notRecheckedCannotScan": "no se volvió a comprobar — el proyecto no se puede escanear: {reason}",
         "notRecheckedPartial": "no se volvió a comprobar — el proyecto no se puede escanear por completo: {reason}",
+        "notRecheckedCopies": "las copias en {manifests} no se volvieron a comprobar — el proyecto no se puede escanear por completo: {reason}",
+        "chainUnknown": "cadena desconocida",
+        "chainUnknownHint": "El lockfile no registra un grafo de dependencias, así que no se sabe qué trae este paquete. No significa que no haya salida.",
+        "installedThrough": "en {manifests}",
         "lastScannedSuccessfully": "último escaneo correcto {date}",
         "neverScannedSuccessfully": "nunca se escaneó correctamente"
     },
@@ -620,11 +625,11 @@
         "title": "Sentinello",
         "intro": "Monitoreo centralizado de vulnerabilidades en dependencias de todo tu portafolio — autoalojado, en tu propia infraestructura.",
         "notDoTitle": "Lo que Sentinello no hace",
-        "notDoBody": "Sentinello se ejecuta por completo en tu infraestructura. No lee tu código fuente — descubre proyectos localizando sus manifiestos de dependencias y lockfiles (<code>package.json</code>, <code>package-lock.json</code>, <code>pnpm-lock.yaml</code>, <code>yarn.lock</code>) — no se sube nada a ningún lado, ninguna telemetría sale de tu máquina, no hay cuenta central y no interviene ningún LLM ni IA. De forma predeterminada es simplemente <code>npm audit</code>; las fuentes opcionales OSV y gemnasium (Configuración → Fuentes, desactivadas por defecto) solo obtienen datos públicos de avisos por HTTPS.",
+        "notDoBody": "Sentinello se ejecuta por completo en tu infraestructura. Nunca lee el código de tu aplicación — descubre proyectos localizando los manifiestos de dependencias y los lockfiles de cada ecosistema compatible (<code>package.json</code> y su lockfile para Node.js; <code>requirements.txt</code>, <code>pyproject.toml</code>, <code>Pipfile</code> y sus lockfiles para Python; <code>go.mod</code> para Go; <code>Cargo.toml</code> y <code>Cargo.lock</code> para Rust; <code>Gemfile</code> y <code>Gemfile.lock</code> para Ruby) — nada de lo que lee sale de tu máquina, no se envía telemetría, no hay cuenta central y no interviene ningún LLM ni IA. De forma predeterminada es simplemente <code>npm audit</code> para Node.js; las fuentes opcionales OSV y gemnasium (Configuración → Fuentes, desactivadas por defecto) solo obtienen datos públicos de avisos por HTTPS.",
         "whoTitle": "Quién lo construyó",
         "whoBody": "Construido por <company>Walk of Code LLC</company> y Sebastian Arena (<linkedin>LinkedIn</linkedin>).",
         "advisoryTitle": "De dónde provienen los datos de avisos",
-        "advisoryBody": "Los datos de vulnerabilidades provienen de la GitHub Advisory Database, accedida a través del endpoint de avisos del registro de npm vía <code>npm audit</code>. Además podés activar OSV y gemnasium de GitLab (Configuración → Fuentes) para comparar tus paquetes de Node.js con esas bases de datos públicas de avisos — detectando avisos que npm audit pasa por alto y marcando paquetes maliciosos conocidos. Ambas resuelven tus dependencias sin conexión a partir del lockfile y las comparan con una copia de los avisos almacenada en caché localmente, así que durante el escaneo ninguna petición por proyecto sale de tu máquina; los manifiestos ambiguos se reportan como parciales o no auditables en lugar de tratarse como limpios. Sentinello solo lee el rango de versiones legible por máquina del propio gemnasium —junto con la versión corregida que indique el registro— para decidir a qué afecta un aviso. Los rangos npm se interpretan con la propia implementación semver de npm; un límite superior ilegible se ignora en vez de permitir que silencie un intervalo válido. Un registro cuyo rango no selecciona ninguna versión, o que está escrito con una sintaxis que Sentinello no implementa, se descarta en lugar de adivinarlo, y no se consulta ninguna otra fuente para rellenar el hueco. Python, Go y Rust están construidos pero no se ofrecen: la derivación de correcciones y la coincidencia de nombres PyPI de OSV todavía no son correctas, y una fuente que responde “sin vulnerabilidades” por los motivos equivocados es peor que una que directamente no se ofrece.",
+        "advisoryBody": "Sentinello cubre Node.js, Python, Go, Rust y Ruby. Para Node.js, los datos de vulnerabilidades provienen por defecto de la GitHub Advisory Database, accedida a través del endpoint de avisos del registro de npm vía <code>npm audit</code>. OSV y gemnasium de GitLab (Configuración → Fuentes) cubren los cinco: para Node.js añaden avisos que npm audit pasa por alto y marcan paquetes maliciosos conocidos, y para Python, Go, Rust y Ruby son las únicas fuentes. Ambas están desactivadas por defecto, así que un proyecto en uno de esos cuatro lenguajes muestra “Sin fuente habilitada para …” hasta que actives una. Ambas resuelven tus dependencias sin conexión a partir del lockfile y las comparan con una copia de los avisos almacenada en caché localmente, así que durante el escaneo ninguna petición por proyecto sale de tu máquina; un manifiesto ambiguo, o uno sin lockfile, se reporta como parcial o no auditable en lugar de tratarse como limpio. Sentinello solo lee el rango de versiones legible por máquina del propio gemnasium —junto con la versión corregida que indique el registro— para decidir a qué afecta un aviso. Las versiones de cada ecosistema se comparan con sus propias reglas: la implementación semver de npm para npm, semver para crates.io, PEP 440 para Python, las versiones de módulos de Go y el orden de versiones de RubyGems. En los rangos de eventos de OSV, un límite superior ilegible se ignora en vez de permitir que silencie un intervalo por lo demás válido. Un registro cuyo rango no selecciona ninguna versión, o que está escrito con una sintaxis que Sentinello no implementa, se descarta en lugar de adivinarlo, y no se consulta ninguna otra fuente para rellenar el hueco. Las versiones corregidas se comprueban en el registro propio de cada ecosistema.",
         "sendsTitle": "Lo que Sentinello envía hacia afuera",
         "tableDestination": "Destino",
         "tablePurpose": "Propósito",
@@ -647,7 +652,7 @@
                 "disable": "No se puede desactivar: SENTINELLO_NPM_DOWNLOADS_URL lo apunta a otro sitio. Si no se puede alcanzar, se muestra la última cifra conocida, o desconocida si no hay ninguna"
             },
             "osv": {
-                "purpose": "Descargar el export público de avisos OSV del ecosistema npm",
+                "purpose": "Descargar el export público de avisos OSV de cada ecosistema para el que OSV está habilitado (npm, PyPI, Go, crates.io, RubyGems)",
                 "when": "A diario cerca de las 03:17, además de actualización manual — solo cuando OSV está habilitado",
                 "disable": "Configuración → Fuentes (desactivado por defecto), o SENTINELLO_OSV_FEED_URL=off"
             },
@@ -670,6 +675,26 @@
                 "purpose": "Enviar los hallazgos para los que configuraste alertas: nombre del proyecto, rama de git, paquete y versión, severidad, id del aviso y un enlace de vuelta a este portal",
                 "when": "Cuando un análisis produce un hallazgo nuevo, uno resuelto o un fallo de análisis",
                 "disable": "Configuración → Notificaciones: no existe ninguno hasta que lo agregues"
+            },
+            "pypi": {
+                "purpose": "Comprobar que una versión corregida de un paquete de Python con un hallazgo se publicó de verdad y no fue retirada (yanked)",
+                "when": "Después de cada escaneo, solo para hallazgos de Python, para paquetes sin una respuesta correcta en las últimas 24 horas; una petición fallida no se guarda, así que puede repetirse antes",
+                "disable": "Solo se ejecuta mientras haya una fuente habilitada para Python (Configuración → Fuentes); SENTINELLO_PYPI_URL lo apunta a un mirror. Si no se puede alcanzar, se reutiliza una respuesta anterior con la fecha en que se obtuvo; sin ella, la corrección se muestra como no comprobada en el registro"
+            },
+            "goproxy": {
+                "purpose": "Comprobar que una versión corregida de un módulo de Go con un hallazgo se publicó de verdad: la lista de versiones del módulo y, cuando un aviso nombra una versión que la lista omite, esa versión en sí",
+                "when": "Después de cada escaneo, solo para hallazgos de Go, para módulos sin una respuesta correcta en las últimas 24 horas; una petición fallida no se guarda, así que puede repetirse antes",
+                "disable": "Solo se ejecuta mientras haya una fuente habilitada para Go (Configuración → Fuentes); SENTINELLO_GOPROXY_URL lo apunta a otro proxy de módulos. Si no se puede alcanzar, se reutiliza una respuesta anterior con la fecha en que se obtuvo; sin ella, la corrección se muestra como no comprobada en el registro"
+            },
+            "crates": {
+                "purpose": "Comprobar que una versión corregida de un crate de Rust con un hallazgo se publicó de verdad y no fue retirada (yanked), a partir del archivo del crate en el índice sparse",
+                "when": "Después de cada escaneo, solo para hallazgos de Rust, para crates sin una respuesta correcta en las últimas 24 horas; una petición fallida no se guarda, así que puede repetirse antes",
+                "disable": "Solo se ejecuta mientras haya una fuente habilitada para Rust (Configuración → Fuentes); SENTINELLO_CRATES_INDEX_URL lo apunta a un mirror. Si no se puede alcanzar, se reutiliza una respuesta anterior con la fecha en que se obtuvo; sin ella, la corrección se muestra como no comprobada en el registro"
+            },
+            "rubygems": {
+                "purpose": "Comprobar que una versión corregida de una gema de Ruby con un hallazgo se publicó de verdad y no fue retirada (yanked)",
+                "when": "Después de cada escaneo, solo para hallazgos de Ruby, para gemas sin una respuesta correcta en las últimas 24 horas; una petición fallida no se guarda, así que puede repetirse antes",
+                "disable": "Solo se ejecuta mientras haya una fuente habilitada para Ruby (Configuración → Fuentes); SENTINELLO_RUBYGEMS_URL lo apunta a un mirror. Si no se puede alcanzar, se reutiliza una respuesta anterior con la fecha en que se obtuvo; sin ella, la corrección se muestra como no comprobada en el registro"
             }
         },
         "dataLivesTitle": "Dónde residen tus datos",
@@ -693,7 +718,11 @@
             "gemnasiumFeedUrl": "URL del archivo de avisos gemnasium de GitLab, usada solo cuando la fuente gemnasium está habilitada; poné off para desactivar todo el acceso de red de gemnasium.",
             "gemnasiumDbPath": "Ubicación de la caché reconstruible de avisos gemnasium; por defecto se ubica junto a la base de datos principal.",
             "npmRegistryUrl": "Registro de npm con el que se comprueban las versiones corregidas después de cada escaneo y del que se leen los metadatos de los paquetes para la salida; apúntalo a un mirror si usas uno. Si no se puede alcanzar, se reutilizan los metadatos de paquete obtenidos antes, si siguen siendo utilizables, y los hallazgos actuales se evalúan con ellos, con la fecha en que se obtuvieron; sin ellos, la corrección se muestra como no verificado en el registro.",
-            "npmDownloadsUrl": "API de descargas de npm, de la que se leen las descargas semanales que se muestran en una salida. Si no se puede alcanzar, se muestra la última cifra conocida, o desconocida si no hay ninguna."
+            "npmDownloadsUrl": "API de descargas de npm, de la que se leen las descargas semanales que se muestran en una salida. Si no se puede alcanzar, se muestra la última cifra conocida, o desconocida si no hay ninguna.",
+            "pypiUrl": "PyPI con el que se comprueban las versiones corregidas de los hallazgos de Python después de cada escaneo, solo mientras haya una fuente habilitada para Python; apúntalo a un mirror si usas uno. Si no se puede alcanzar, se reutiliza una respuesta anterior con la fecha en que se obtuvo; sin ella, la corrección se muestra como no comprobada en el registro.",
+            "goproxyUrl": "Proxy de módulos de Go con el que se comprueban las versiones corregidas de los hallazgos de Go después de cada escaneo, solo mientras haya una fuente habilitada para Go; apúntalo a otro proxy si usas uno. Si no se puede alcanzar, se reutiliza una respuesta anterior con la fecha en que se obtuvo; sin ella, la corrección se muestra como no comprobada en el registro.",
+            "cratesIndexUrl": "Índice sparse de crates.io con el que se comprueban las versiones corregidas de los hallazgos de Rust después de cada escaneo, solo mientras haya una fuente habilitada para Rust; apúntalo a un mirror si usas uno. Si no se puede alcanzar, se reutiliza una respuesta anterior con la fecha en que se obtuvo; sin ella, la corrección se muestra como no comprobada en el registro.",
+            "rubygemsUrl": "RubyGems con el que se comprueban las versiones corregidas de los hallazgos de Ruby después de cada escaneo, solo mientras haya una fuente habilitada para Ruby; apúntalo a un mirror si usas uno. Si no se puede alcanzar, se reutiliza una respuesta anterior con la fecha en que se obtuvo; sin ella, la corrección se muestra como no comprobada en el registro."
         },
         "builtWithTitle": "Construido con",
         "reportingTitle": "Reportar una vulnerabilidad en Sentinello",

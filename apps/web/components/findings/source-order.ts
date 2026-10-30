@@ -8,7 +8,8 @@ export const SOURCE_PARAM = 'src'
 export const ECOSYSTEM_PARAM = 'eco'
 
 // npm audit before OSV before gemnasium before anything else, matching the row source-tag order so the
-// filter reads consistently with the table.
+// filter reads consistently with the table. The npm-audit preference only ever applies to npm rows:
+// npm audit answers for npm alone, so a Python, Go, Rust or Ruby row never carries it and starts at OSV.
 const SOURCE_ORDER: Record<string, number> = { 'npm-audit': 0, osv: 1, gemnasium: 2 }
 
 // Distinct sources, in display order. Used both for the enabled-source universe and to normalize order.

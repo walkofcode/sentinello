@@ -1,4 +1,4 @@
-import { CAPABILITIES, type Capability } from '@sentinello/core'
+import { CAPABILITIES, type Capability, type Locale } from '@sentinello/core'
 import {
     baselineCountsForTarget,
     claimCompletedBaselines,
@@ -15,8 +15,9 @@ import {
     type BaselineCounts,
     type DrizzleDb
 } from '@sentinello/db'
-import { redactErrorText, redactTarget, renderCapabilitySummary, senderFor, type NotificationSender } from '@sentinello/notifications'
+import { redactErrorText, redactTarget, renderCapabilitySummary, type NotificationSender } from '@sentinello/notifications'
 import { CONFIG_KEYS } from './config-loader'
+import { sendByKind } from './transport'
 
 // The silent baseline's worker side (plan Phase 3 step 5, decisions SENTINEL-120/124/125). The notifier
 // stamps a pending capability's new finding events so they are never dispatched one by one; when a sweep
@@ -37,6 +38,8 @@ export type DispatchSummariesInput = {
     send?: NotificationSender
     capabilities: readonly Capability[]
     portalBaseUrl?: string | null
+    // The notification locale the summary is written in; English when absent.
+    locale?: Locale
 }
 
 // The single-flight queue (SENTINEL-125). Every dispatch — after a completed sweep, from the boot sweep,
@@ -85,7 +88,7 @@ async function dispatchOpenSummaries(input: DispatchSummariesInput): Promise<voi
             suppressSummary(input.db, row.capabilityId, row.targetId, 'eligibility_changed', at)
             continue
         }
-        const message = renderCapabilitySummary({ capability, ...counts, portalBaseUrl: input.portalBaseUrl ?? null })
+        const message = renderCapabilitySummary({ capability, ...counts, portalBaseUrl: input.portalBaseUrl ?? null, locale: input.locale })
         if (input.dryRun) {
             console.log('[baseline] DRY-RUN ' + redactTarget(target) + ' would receive: ' + message.title)
             recordSummaryDryRun(input.db, row.capabilityId, row.targetId, at)
@@ -109,10 +112,6 @@ async function dispatchOpenSummaries(input: DispatchSummariesInput): Promise<voi
     closeFinishedBaselines(input.db, Date.now())
 }
 
-function sendByKind(target: Parameters<NotificationSender>[0], message: Parameters<NotificationSender>[1]): ReturnType<NotificationSender> {
-    return senderFor(target)(target, message)
-}
-
 function sameCounts(a: BaselineCounts, b: BaselineCounts): boolean {
     return a.findings === b.findings && a.projects === b.projects && a.critical === b.critical && a.sourceDisabledProjects === b.sourceDisabledProjects
 }
@@ -128,6 +127,7 @@ export async function onCompletedSweep(db: DrizzleDb, options: { send?: Dispatch
         db,
         dryRun: getConfigValue<boolean>(db, CONFIG_KEYS.dryRunNotify) || false,
         portalBaseUrl: getConfigValue<string>(db, CONFIG_KEYS.portalBaseUrl) || null,
+        locale: (getConfigValue<string>(db, CONFIG_KEYS.notificationLocale) || 'en') as Locale,
         send: options.send,
         capabilities
     })

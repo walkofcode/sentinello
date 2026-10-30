@@ -1,0 +1,16 @@
+{
+    "PyPI": {
+        "fake-py-lib": { "1.0.0": {}, "1.1.0": {} },
+        "fake-py-nofix": { "1.0.0": {}, "2.0.0": {}, "2.0.1": { "yanked": true } }
+    },
+    "Go": {
+        "example.invalid/fakemod": { "v1.2.0": {}, "v1.3.0": {} }
+    },
+    "crates.io": {
+        "fake-crate": { "1.0.0": {}, "1.0.1": {} }
+    },
+    "RubyGems": {
+        "fake-gem": { "1.0.0": {}, "1.0.1": {} },
+        "fake-gem-nofix": { "1.0.0": {}, "2.0.0": {}, "2.0.1": { "yanked": true } }
+    }
+}

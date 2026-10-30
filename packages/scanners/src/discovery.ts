@@ -219,8 +219,13 @@ export function rediscoverProject(options: ProjectRediscoveryOptions): ProjectRe
 // kept rather than dropped: the project still has to answer for it, and dropping it would let the next scan
 // read the project as fully covered, or resolve what was found in it, when nothing looked (SENTINEL-140). A
 // directory whose listing failed may hide its own files too (a mode-000 directory cannot be stat'ed into),
-// so a manifest in the unreadable directory itself is kept as well. Returns the project with those manifests
-// added back and its ecosystems derived again; unchanged when the walk was complete.
+// so a manifest in the unreadable directory itself is kept as well. A slot the walk did read keeps what it
+// found there, though: a directory that can be searched but not listed (mode 0111) still yields its known
+// manifest files to stat, so a manifest detected now of an ecosystem in a directory is that directory's one
+// manifest of it, and a recorded one beside it is not added back (SENTINEL-148) — copies belong to their
+// directory (installedThrough), so a second manifest in the slot would read them as both seen and unread.
+// Returns the project with those manifests added back and its ecosystems derived again; unchanged when the
+// walk was complete.
 export function withUnreadManifests(
     project: DiscoveredProject,
     recorded: readonly ProjectManifest[],
@@ -230,7 +235,8 @@ export function withUnreadManifests(
     if (errors.length === 0) return project
     const manifests = project.manifests.slice()
     for (const manifest of recorded) {
-        if (manifests.some(function same(m) { return m.path === manifest.path })) continue
+        const slot = manifestDirOf(manifest.path)
+        if (manifests.some(function sameSlot(m) { return m.ecosystem === manifest.ecosystem && manifestDirOf(m.path) === slot })) continue
         const dir = dirname(join(project.absolutePath, manifest.path))
         if (!errors.some(function hides(error) { return isWithin(resolve(error.path), dir) })) continue
         manifests.push(manifest)
