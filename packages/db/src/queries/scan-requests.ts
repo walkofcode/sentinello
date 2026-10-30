@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, isNull, or, sql } from 'drizzle-orm'
+import { and, asc, eq, gte, isNull, not, or, sql } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import { SCAN_HEARTBEAT_STALE_MS, type ScanRequest } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
@@ -40,13 +40,34 @@ export function enqueueScanRequest(
     }
 }
 
+// A full sweep is the request with neither a project nor a root.
+const isFullSweep = sql`(${scanRequests.projectId} IS NULL AND ${scanRequests.rootId} IS NULL)`
+
+// Queues a full sweep unless one is already waiting to be claimed, and says whether it queued one. A
+// pending sweep has not started, so it already scans everything the new one would: two of them would only
+// sweep twice. A RUNNING sweep does not count — it may be the very sweep whose verdicts the new one has to
+// replace.
+export function enqueueFullSweepUnlessPending(db: DrizzleDb, at: number): boolean {
+    const waiting = db
+        .select({ one: sql<number>`1` })
+        .from(scanRequests)
+        .where(and(eq(scanRequests.status, 'pending'), isFullSweep))
+        .limit(1)
+        .get()
+    if (waiting) return false
+    enqueueScanRequest(db, {}, at)
+    return true
+}
+
 // Pick the oldest pending request and mark it running atomically.
-// Returns null if no pending request.
-export function claimNextPendingRequest(db: DrizzleDb, at: number): ScanRequest | null {
+// Returns null if no pending request. With holdFullSweeps, a pending full sweep is left waiting and the
+// oldest project or root request is claimed instead: the worker holds sweeps while an advisory cache is
+// rebuilding, and a sweep run then would only record that the cache is not ready.
+export function claimNextPendingRequest(db: DrizzleDb, at: number, options: { holdFullSweeps?: boolean } = {}): ScanRequest | null {
     const next = db
         .select()
         .from(scanRequests)
-        .where(eq(scanRequests.status, 'pending'))
+        .where(options.holdFullSweeps ? and(eq(scanRequests.status, 'pending'), not(isFullSweep)) : eq(scanRequests.status, 'pending'))
         .orderBy(asc(scanRequests.requestedAt))
         .limit(1)
         .get()

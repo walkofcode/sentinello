@@ -1,5 +1,6 @@
 import {
     buildAdvisoryMarkdown,
+    isCacheNotReadyReason,
     labelScanState,
     requireEcosystemId,
     resolveExportPrompt,
@@ -67,7 +68,9 @@ export async function notifyForCompletedScan(input: NotifyForCompletedScanInput)
     // Step 1: UPSERT discovery rows for current findings + (if not ok) a scan-failure row. While a
     // capability's baseline is pending, a new finding event in one of its ecosystems is recorded silently
     // (baseline_of): it is told in that capability's one summary when the sweep completes, never by itself.
-    // npm events and scan failures are never held back.
+    // npm events and scan failures are never held back. A scan that failed only because an advisory cache is
+    // still downloading or rebuilding is not a scan failure at all: the install is not ready, the project is
+    // fine, and the re-scan queued when the cache lands replaces the verdict. It records no event.
     const silentBaselines = pendingBaselineCapabilities(input.db, CAPABILITIES)
     for (const finding of input.outcome.findings) {
         const ecosystem = requireEcosystemId(finding.ecosystem)
@@ -84,7 +87,7 @@ export async function notifyForCompletedScan(input: NotifyForCompletedScanInput)
             at
         })
     }
-    if (input.outcome.scan.status !== 'ok') {
+    if (input.outcome.scan.status !== 'ok' && !isCacheNotReadyReason(input.outcome.scan.reasonCode)) {
         const signature = normalizeFailureSignature(
             input.outcome.scan.status,
             input.outcome.scan.reasonCode,

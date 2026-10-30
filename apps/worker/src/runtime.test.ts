@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createWorkerRuntime, waitForInFlight } from './runtime'
+import { createCacheRebuilds, createWorkerRuntime, waitForInFlight } from './runtime'
 
 // Shutdown correctness depends on this pair. abort() tells scanner subprocesses to bail out fast,
 // and waitForInFlight holds the shutdown until DB writes for already-started scans have landed —
@@ -236,5 +236,85 @@ describe('waitForInFlight — the settled race', function () {
             warn.mockRestore()
             vi.useRealTimers()
         }
+    })
+})
+
+// One source's runtime has to see that another's cache is still rebuilding, so the poller can hold full
+// sweeps until every cache an upgrade rebuilds has landed.
+describe('createCacheRebuilds', function () {
+    it('is idle with nothing tracked', function () {
+        expect(createCacheRebuilds().active()).toBe(false)
+        expect(createWorkerRuntime().rebuilds.active()).toBe(false)
+    })
+
+    it('is active while a tracked sync is in flight on an unusable cache, and idle once it settles', async function () {
+        const rebuilds = createCacheRebuilds()
+        const seed = deferred()
+        rebuilds.track('osv/npm', seed.promise, function unusable() { return true })
+        expect(rebuilds.active()).toBe(true)
+        seed.resolve()
+        await seed.promise
+        await Promise.resolve()
+        expect(rebuilds.active()).toBe(false)
+    })
+
+    it('reads the cache state at each check, so a sync that discards a usable cache becomes a rebuild', function () {
+        const rebuilds = createCacheRebuilds()
+        let discarded = false
+        rebuilds.track('osv/npm', deferred().promise, function unusable() { return discarded })
+        expect(rebuilds.active()).toBe(false)
+        discarded = true
+        expect(rebuilds.active()).toBe(true)
+    })
+
+    it('lets go of a sync that failed', async function () {
+        const rebuilds = createCacheRebuilds()
+        const seed = deferred()
+        rebuilds.track('osv/npm', seed.promise, function unusable() { return true })
+        seed.reject(new Error('ECONNRESET'))
+        await seed.promise.catch(function ignore() {})
+        await Promise.resolve()
+        expect(rebuilds.active()).toBe(false)
+    })
+
+    it('stays active while any one of several syncs is rebuilding', function () {
+        const rebuilds = createCacheRebuilds()
+        rebuilds.track('osv/npm', deferred().promise, function usable() { return false })
+        rebuilds.track('osv/npm', deferred().promise, function unusable() { return true })
+        expect(rebuilds.active()).toBe(true)
+    })
+
+    // SENTINEL-159: the silent baseline waits for a cache on its way, never for one whose download failed.
+    it('remembers a sync that settled with its cache still unusable as failed, per cache, until one lands', async function () {
+        const rebuilds = createCacheRebuilds()
+        let usable = false
+        const first = deferred()
+        rebuilds.track('gemnasium', first.promise, function unusable() { return !usable })
+        expect(rebuilds.failed('gemnasium')).toBe(false)
+        first.resolve()
+        await first.promise
+        await Promise.resolve()
+        expect(rebuilds.failed('gemnasium')).toBe(true)
+        expect(rebuilds.failed('osv/PyPI')).toBe(false)
+
+        // A retry in flight leaves it failed; one that lands clears it.
+        const retry = deferred()
+        rebuilds.track('gemnasium', retry.promise, function unusable() { return !usable })
+        expect(rebuilds.failed('gemnasium')).toBe(true)
+        usable = true
+        retry.resolve()
+        await retry.promise
+        await Promise.resolve()
+        expect(rebuilds.failed('gemnasium')).toBe(false)
+    })
+
+    it('counts a sync that rejected on an unusable cache as failed', async function () {
+        const rebuilds = createCacheRebuilds()
+        const seed = deferred()
+        rebuilds.track('osv/PyPI', seed.promise, function unusable() { return true })
+        seed.reject(new Error('HTTP 503'))
+        await seed.promise.catch(function ignore() {})
+        await Promise.resolve()
+        expect(rebuilds.failed('osv/PyPI')).toBe(true)
     })
 })

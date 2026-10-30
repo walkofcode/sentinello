@@ -199,6 +199,42 @@ describe('pollOnce — full sweep', function () {
     })
 })
 
+// 3.8.1 (SENTINEL-158): a full sweep run while an advisory cache is rebuilding records every project the
+// cache covers as "not downloaded yet". It waits for the rebuild; project and root requests do not.
+describe('pollOnce — while an advisory cache is rebuilding', function () {
+    let rebuilding: boolean
+    let seed: Promise<void>
+    let finishSeed: () => void
+
+    beforeEach(function startRebuild() {
+        rebuilding = true
+        seed = new Promise<void>(function executor(resolve) { finishSeed = resolve })
+        runtime.rebuilds.track('osv/npm', seed, function unusable() { return rebuilding })
+    })
+
+    it('holds a full sweep until the cache lands, then runs it', async function () {
+        const sweep = enqueueScanRequest(handle.db, {}, T0)
+        await pollOnce(input())
+        expect(runBatch).not.toHaveBeenCalled()
+        expect(statusOf(sweep.id)).toBe('pending')
+        rebuilding = false
+        finishSeed()
+        await seed
+        await pollOnce(input())
+        expect(statusOf(sweep.id)).toBe('done')
+        expect(runBatch).toHaveBeenCalledTimes(1)
+    })
+
+    it('still runs a project request queued behind the held sweep', async function () {
+        const sweep = enqueueScanRequest(handle.db, {}, T0)
+        seedProject(handle.db, { id: 'p-1', rootId: 'root-1', relPath: 'web' })
+        const project = enqueueScanRequest(handle.db, { projectId: 'p-1' }, T0 + 1)
+        await pollOnce(input())
+        expect(statusOf(project.id)).toBe('done')
+        expect(statusOf(sweep.id)).toBe('pending')
+    })
+})
+
 describe('pollOnce — single project', function () {
     it('scans only the requested project', async function () {
         await makeTree(rootPath, 'api', { 'package.json': PKG_JSON })

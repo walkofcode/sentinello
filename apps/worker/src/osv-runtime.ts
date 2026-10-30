@@ -21,7 +21,7 @@ import {
     openOsvDb,
     osvMetaKeyFor,
     runOsvMigrations,
-    enqueueScanRequest,
+    enqueueFullSweepUnlessPending,
     hasStaleSourceUnavailableScans,
     setConfigValue,
     type DrizzleDb,
@@ -37,7 +37,7 @@ import {
 export type { ScannerPlugin }
 import { incrementalSyncOsv, osvFeedDisabled, seedOsv } from './osv-sync'
 import { enabledGemnasiumEcosystems, gemnasiumSourceEnabled, type GemnasiumController } from './gemnasium-runtime'
-import type { WorkerRuntime } from './runtime'
+import { osvCache, type WorkerRuntime } from './runtime'
 
 // Owns the OSV cache connection + the OSV scanner instance + the periodic sync job. Opened lazily so a
 // worker that needs no OSV data never creates osv.db or touches the network. The main DB is read to learn
@@ -100,6 +100,12 @@ export function createOsvController(mainDb: DrizzleDb, runtime: WorkerRuntime): 
             } catch (err) {
                 console.error('[osv] runtime failed to start: ' + errText(err))
                 current = null
+                // Nothing will download these caches until the runtime starts, so the start was the attempt
+                // to prepare them, and it failed: a silent baseline must not wait on them (decision #70).
+                const failed = Promise.reject(err)
+                for (const ecosystem of syncedOsvEcosystems(mainDb)) {
+                    runtime.rebuilds.track(osvCache(ecosystem), failed, function unusable() { return true })
+                }
             }
             return
         }
@@ -351,8 +357,7 @@ function reconcileStaleVerdicts(mainDb: DrizzleDb, osvDb: OsvDrizzleDb): void {
     const stale = hasStaleSourceUnavailableScans(mainDb, OSV_SCANNER_NAME)
         || hasStaleSourceUnavailableScans(mainDb, GEMNASIUM_SCANNER_NAME)
     if (!stale) return
-    enqueueScanRequest(mainDb, {}, Date.now())
-    console.log('[osv] cache is matchable but projects still hold unauditable verdicts — enqueued a full re-scan')
+    if (enqueueFullSweepUnlessPending(mainDb, Date.now())) console.log('[osv] cache is matchable but projects still hold unauditable verdicts — enqueued a full re-scan')
 }
 
 // Manually trigger a sync (seed-or-incremental) for every synced OSV ecosystem, then mirror each cell's
@@ -369,7 +374,7 @@ export async function runSync(mainDb: DrizzleDb, osvDb: OsvDrizzleDb, runtime: W
     let becameUsable = false
     for (const ecosystem of ecosystems) {
         if (signal.aborted) break
-        const flight = syncOnce(mainDb, osvDb, ecosystem, signal)
+        const flight = syncOnce(mainDb, osvDb, ecosystem, runtime)
         // A joined sync reports its transition to the caller that started it, which enqueues for it.
         if (await flight.done && flight.started) becameUsable = true
     }
@@ -394,7 +399,7 @@ async function refreshWithdrawalEvidence(mainDb: DrizzleDb, osvDb: OsvDrizzleDb,
     for (const ecosystem of enabledGemnasiumEcosystems(mainDb)) {
         if (signal.aborted) break
         const usable = osvCacheUsable(osvDb, ecosystem)
-        const flight = syncOnce(mainDb, osvDb, ecosystem, signal)
+        const flight = syncOnce(mainDb, osvDb, ecosystem, runtime)
         if (!usable) {
             if (flight.started) runtime.track(rescanWhenUsable(mainDb, ecosystem, flight.done))
             continue
@@ -426,16 +431,22 @@ async function rescanWhenUsable(mainDb: DrizzleDb, ecosystem: EcosystemId, done:
 // while it was down and whose verdicts must be superseded. On a cold start the boot sweep is still
 // finishing when the seed lands, so guarding would skip the one enqueue that makes the estate auditable.
 // The poller claims one request per tick and runs them sequentially, so the cost is one more pass, never
-// concurrency.
+// concurrency. A sweep still WAITING is enough, though: it has not scanned anything yet. That is what makes
+// an upgrade that rebuilds two caches sweep once — the first cache to land queues the sweep, the poller
+// holds it while the other is still rebuilding (runtime.rebuilds), and the second finds it waiting.
 function enqueueRescan(mainDb: DrizzleDb): void {
-    enqueueScanRequest(mainDb, {}, Date.now())
-    console.log('[osv] cache is matchable again — enqueued a full re-scan to replace stale unauditable verdicts')
+    if (enqueueFullSweepUnlessPending(mainDb, Date.now())) {
+        console.log('[osv] cache is matchable again — enqueued a full re-scan to replace stale unauditable verdicts')
+        return
+    }
+    console.log('[osv] cache is matchable again — a full re-scan is already queued')
 }
 
 // One OSV sync per (cache, ecosystem) at a time. Keyed by the cache handle so every caller holding it —
 // runSync and the evidence refresh alike — shares one registry, without threading it through each. A
 // sync that already finished is gone from the map, so a later caller starts a fresh one: completing a
-// sync never exempts a later batch from its own refresh.
+// sync never exempts a later batch from its own refresh. Every sync started is also registered with the
+// worker's runtime.rebuilds, which counts it as a rebuild for as long as the ecosystem's cache is unusable.
 type SyncFlight = {
     // Resolves true when this sync turned an unusable cache matchable.
     done: Promise<boolean>
@@ -445,13 +456,14 @@ type SyncFlight = {
 
 const inFlightSyncs = new WeakMap<OsvDrizzleDb, Map<EcosystemId, Promise<boolean>>>()
 
-function syncOnce(mainDb: DrizzleDb, osvDb: OsvDrizzleDb, ecosystem: EcosystemId, signal: AbortSignal): SyncFlight {
+function syncOnce(mainDb: DrizzleDb, osvDb: OsvDrizzleDb, ecosystem: EcosystemId, runtime: WorkerRuntime): SyncFlight {
     const flights = inFlightSyncs.get(osvDb) ?? new Map<EcosystemId, Promise<boolean>>()
     inFlightSyncs.set(osvDb, flights)
     const running = flights.get(ecosystem)
     if (running) return { done: running, started: false }
-    const done = syncEcosystem(mainDb, osvDb, ecosystem, signal)
+    const done = syncEcosystem(mainDb, osvDb, ecosystem, runtime.abortController.signal)
     flights.set(ecosystem, done)
+    runtime.rebuilds.track(osvCache(ecosystem), done, function rebuilding() { return !osvCacheUsable(osvDb, ecosystem) })
     // Settles on both arms, so a failed sync frees the slot too and the derived promise never rejects.
     function settle(): void {
         flights.delete(ecosystem)

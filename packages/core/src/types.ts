@@ -305,6 +305,25 @@ export function isSourceUnavailableReason(code: string): boolean {
     return (SOURCE_UNAVAILABLE_REASON_CODES as string[]).includes(code)
 }
 
+// The source-unavailable codes that describe a passing state of the install rather than a failure: an
+// advisory cache still being downloaded or rebuilt (a first seed, a normalizer change after an upgrade).
+// gemnasium reports osv_db_not_seeded too, while the OSV cache its withdrawal evidence comes from is not
+// complete. Every scan inside that window says so, and the full re-scan queued when the cache lands
+// replaces the verdict — so such a scan never alerts as a scan failure, and never counts as an answer that
+// closes a silent baseline. The *_unavailable codes (a cache that could not be opened) are real failures.
+export const CACHE_NOT_READY_REASON_CODES: ReasonCode[] = ['osv_db_not_seeded', 'gemnasium_db_not_seeded']
+
+export function isCacheNotReadyReason(code: string | null): boolean {
+    return code !== null && (CACHE_NOT_READY_REASON_CODES as string[]).includes(code)
+}
+
+// The scan_failure event signatures those scans carried before 3.8.1 stopped recording them: status
+// 'unauditable' and the reason code, the form the worker's normalizeFailureSignature gives a coded failure.
+// Dispatch and backfill skip them, so an event left undelivered by the 3.8.0 upgrade is never sent late.
+export const CACHE_NOT_READY_FAILURE_SIGNATURES: string[] = CACHE_NOT_READY_REASON_CODES.map(function signature(code) {
+    return 'unauditable:' + code
+})
+
 // reasonCodeLabel + scanStatusLabel and their localized maps live in ./reason-code-labels and
 // ./scan-status-labels (re-exported from the barrel). They're kept out of this file so the label
 // data stays separate from the type/vocabulary definitions.

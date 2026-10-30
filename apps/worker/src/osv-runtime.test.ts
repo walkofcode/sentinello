@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
     osvNormalizerVersion,
+    enqueueScanRequest,
     getConfigValue,
     openOsvDb,
     osvMetaKeyFor,
@@ -369,7 +370,7 @@ describe('createOsvController — lazy lifecycle', function () {
 
     // A cache that cannot be opened (unwritable volume, corrupt file) must not take the worker down —
     // the rest of the estate is still scannable by npm-audit.
-    it('logs and stays disabled when the runtime fails to start', function () {
+    it('logs and stays disabled when the runtime fails to start', async function () {
         enable('npm')
         // A path that IS a directory. openOsvDb mkdir -p's the parent, so a merely-absent path
         // would succeed; SQLite cannot open a directory as a database file, which is the closest
@@ -378,6 +379,10 @@ describe('createOsvController — lazy lifecycle', function () {
         const controller = createOsvController(handle.db, runtime)
         expect(controller.getScanner()).toBeNull()
         expect(errorLines().some(function m(l) { return l.startsWith('[osv] runtime failed to start: ') })).toBe(true)
+        // Nothing downloads the cache while the runtime is down: a baseline must not wait on it (SENTINEL-159).
+        await Promise.resolve()
+        expect(runtime.rebuilds.failed('osv/npm')).toBe(true)
+        expect(runtime.rebuilds.active()).toBe(false)
     })
 })
 
@@ -481,6 +486,18 @@ describe('startOsvRuntime', function () {
         const requests = listRecentScanRequests(handle.db)
         expect(requests).toHaveLength(1)
         expect(requests[0]).toMatchObject({ projectId: null, rootId: null })
+    })
+
+    it('queues no second boot re-scan while one is already waiting', function () {
+        const cache = openCache()
+        setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.seedComplete, 'npm'), true)
+        setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, 'npm'), osvNormalizerVersion('npm'))
+        cache.sqlite.close()
+        seedStaleProject()
+        enqueueScanRequest(handle.db, {}, Date.now())
+        startOsvRuntime(handle.db, runtime)
+        expect(listRecentScanRequests(handle.db)).toHaveLength(1)
+        expect(logLines()).not.toContain('[osv] cache is matchable but projects still hold unauditable verdicts — enqueued a full re-scan')
     })
 
     it('does not re-scan at boot when the cache is still unusable', function () {
@@ -743,6 +760,44 @@ describe('runSync — seed or catch up', function () {
         })
         await runSync(handle.db, cache.db, runtime)
         expect(listRecentScanRequests(handle.db)).toHaveLength(1)
+    })
+
+    // The poller holds full sweeps while runtime.rebuilds is active: a seed counts from its first byte,
+    // an incremental catch-up of a usable cache never does.
+    it('counts a seed as a rebuild until the cache is matchable', async function () {
+        enable('npm')
+        const seeding = deferred<void>()
+        sync.seedOsv.mockImplementationOnce(async function seed(_db: unknown, eco: string) {
+            await seeding.promise
+            markSeeded(eco)
+            return { status: 'ok', upserted: 1, recordCount: 1, message: null }
+        })
+        const run = runSync(handle.db, cache.db, runtime)
+        expect(runtime.rebuilds.active()).toBe(true)
+        seeding.resolve()
+        await run
+        expect(runtime.rebuilds.active()).toBe(false)
+    })
+
+    it('does not count an incremental catch-up of a matchable cache as a rebuild', async function () {
+        enable('npm')
+        markSeeded('npm')
+        const run = runSync(handle.db, cache.db, runtime)
+        expect(runtime.rebuilds.active()).toBe(false)
+        await run
+    })
+
+    // Two caches landing in turn queue one sweep, not two: the second finds the first's still waiting.
+    it('queues no second sweep while one is still waiting', async function () {
+        enable('npm')
+        enqueueScanRequest(handle.db, {}, Date.now())
+        sync.seedOsv.mockImplementationOnce(async function seed(_db: unknown, eco: string) {
+            markSeeded(eco)
+            return { status: 'ok', upserted: 1, recordCount: 1, message: null }
+        })
+        await runSync(handle.db, cache.db, runtime)
+        expect(listRecentScanRequests(handle.db)).toHaveLength(1)
+        expect(logLines()).toContain('[osv] cache is matchable again — a full re-scan is already queued')
     })
 
     it('reports a never-refreshed cell as null rather than zero', async function () {

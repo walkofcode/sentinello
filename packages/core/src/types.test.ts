@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SEVERITY_ORDER, compareSeverity, findingIdentity, installedThrough, manifestDirOf, maxSeverity, meetsSeverityFloor, parseFindingInstallations, severityWeight } from './types'
+import { CACHE_NOT_READY_FAILURE_SIGNATURES, SEVERITY_ORDER, compareSeverity, isCacheNotReadyReason, isSourceUnavailableReason, findingIdentity, installedThrough, manifestDirOf, maxSeverity, meetsSeverityFloor, parseFindingInstallations, severityWeight } from './types'
 import type { Severity } from './types'
 
 // There used to be four SEVERITY_RANK tables in this repo — one here, one in merge-findings.ts, and one
@@ -176,5 +176,23 @@ describe('installedThrough', function () {
     it('names the directory of a manifest path', function () {
         expect(manifestDirOf('native/ios/Gemfile.lock')).toBe('native/ios')
         expect(manifestDirOf('uv.lock')).toBe('')
+    })
+})
+
+// A cache still downloading or rebuilding is the install getting ready: it neither alerts as a scan failure
+// nor answers for a silent baseline. A cache that cannot be opened, or anything about the project, is not.
+describe('isCacheNotReadyReason', function () {
+    it('names both sources\' not-downloaded-yet codes, and they are source-unavailable codes', function () {
+        expect(isCacheNotReadyReason('osv_db_not_seeded')).toBe(true)
+        expect(isCacheNotReadyReason('gemnasium_db_not_seeded')).toBe(true)
+        expect(isSourceUnavailableReason('osv_db_not_seeded') && isSourceUnavailableReason('gemnasium_db_not_seeded')).toBe(true)
+    })
+
+    it('leaves out a cache that cannot be opened, a project failure, ok and no code', function () {
+        expect(['osv_db_unavailable', 'gemnasium_db_unavailable', 'no_lockfile', 'ok', null].map(isCacheNotReadyReason)).toEqual([false, false, false, false, false])
+    })
+
+    it('gives each the scan-failure signature an unauditable scan carried', function () {
+        expect(CACHE_NOT_READY_FAILURE_SIGNATURES).toEqual(['unauditable:osv_db_not_seeded', 'unauditable:gemnasium_db_not_seeded'])
     })
 })
