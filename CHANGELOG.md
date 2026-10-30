@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.8.0](https://github.com/walkofcode/sentinello/compare/v3.7.7...v3.8.0) (2026-10-30)
+
+
+### Documentation
+
+* **releases:** add the 3.8.0 what's-new entry for Python, Go, Rust and Ruby ([a97bdde](https://github.com/walkofcode/sentinello/commit/a97bdde0ec681371d47f1bcf64e356283184b4a9))
+
 ## [3.7.7](https://github.com/walkofcode/sentinello/compare/v3.7.6...v3.7.7) (2026-10-29)
 
 
