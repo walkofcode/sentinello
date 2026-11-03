@@ -42,9 +42,11 @@ add a test:
   refuse to track the files the test needs), and a committed `.git` directory is
   impossible — git treats a nested one as a submodule.
 
-For end-to-end runs, install the browser once with
-`pnpm exec playwright install --with-deps chromium`. pnpm blocks Playwright's
-post-install script by default, which is why this step is explicit.
+End-to-end runs drive your installed **Google Chrome** (stable channel) with its sandbox
+on, not a Playwright-downloaded Chromium, so there is no browser to fetch: on macOS and
+Windows, having Chrome installed is enough. On Linux,
+`pnpm exec playwright install --with-deps chrome` installs the current stable `.deb` and the
+libraries it needs (it replaces an existing Chrome, so outside CI it asks for `--force`).
 
 ### Coverage
 

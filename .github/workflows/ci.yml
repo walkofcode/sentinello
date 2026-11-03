@@ -141,8 +141,9 @@ jobs:
 
     portal-e2e:
         name: portal end-to-end
-        # Playwright 1.60 has no ubuntu-26.04 support; unpin once it is bumped to a release that has.
-        runs-on: ubuntu-24.04
+        # ubuntu-latest is 26.04, which Playwright supports officially since 1.64 (it was pinned to
+        # 24.04 while the repo was on 1.60, which did not).
+        runs-on: ubuntu-latest
         # Two next start processes plus a real worker means a hang is possible; the default ceiling
         # is six hours, which would burn a runner rather than fail.
         timeout-minutes: 30
@@ -159,17 +160,15 @@ jobs:
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
 
-            # pnpm blocks Playwright's post-install script (onlyBuiltDependencies in
-            # pnpm-workspace.yaml lists only better-sqlite3, esbuild and sharp), so the browser has
-            # to be fetched explicitly. Chromium only — the suite declares no other project.
-            - name: Cache Playwright browsers
-              uses: actions/cache@v4
-              with:
-                  path: ~/.cache/ms-playwright
-                  key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+            # The suite runs real Google Chrome (channel: 'chrome' in playwright.config.ts), not
+            # Playwright's bundled Chromium, so there is no ~/.cache/ms-playwright to fetch or cache.
+            # The runner image ships a Chrome, but this installs the current stable .deb over it plus
+            # the system libraries Playwright needs, so the browser under test is never a stale one.
+            - name: Install Google Chrome
+              run: pnpm exec playwright install --with-deps chrome
 
-            - name: Install Chromium
-              run: pnpm exec playwright install --with-deps chromium
+            - name: Google Chrome version
+              run: google-chrome --version
 
             # Runs against a real production build served by `next start`, not the dev server. Must
             # stay ahead of the suite: tests/e2e/portal/build-guard.ts fails the run when .next is

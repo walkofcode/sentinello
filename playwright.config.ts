@@ -30,6 +30,17 @@ function escapeRe(literal: string): string {
     return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+// Real Google Chrome (current stable) rather than Playwright's bundled Chromium build, with Chrome's
+// sandbox ON: Playwright passes --no-sandbox unless chromiumSandbox is true. Never switch the sandbox
+// off to get a run green; when a Linux host blocks it ("No usable sandbox", typically AppArmor
+// restricting unprivileged user namespaces), fix the host instead. Spread AFTER the device preset so
+// a preset can never override either setting.
+const DESKTOP_CHROME = {
+    ...devices['Desktop Chrome'],
+    channel: 'chrome',
+    launchOptions: { chromiumSandbox: true }
+}
+
 const SHARED_ENV = {
     SENTINELLO_DB_PATH: E2E_DB_PATH,
     // Explicit even though the sibling rule in packages/db/src/osv-client.ts would agree: an
@@ -71,7 +82,7 @@ export default defineConfig({
             testMatch: /.*\.read\.spec\.ts/,
             fullyParallel: true,
             timeout: 30_000,
-            use: { ...devices['Desktop Chrome'], baseURL: OPEN }
+            use: { ...DESKTOP_CHROME, baseURL: OPEN }
         },
         // Mutating specs. One database, one worker, no write isolation — so exactly one mutating test
         // runs at a time. fullyParallel:false keeps declaration order WITHIN a file; workers:1 is what
@@ -83,7 +94,7 @@ export default defineConfig({
             workers: 1,
             dependencies: ['read'],
             timeout: 90_000,
-            use: { ...devices['Desktop Chrome'], baseURL: OPEN }
+            use: { ...DESKTOP_CHROME, baseURL: OPEN }
         },
         // The auth gate, against the second server. Its own port because the token is read from
         // process-level env by lib/portal-auth.ts.
@@ -92,7 +103,7 @@ export default defineConfig({
             testMatch: /.*\.auth\.spec\.ts/,
             fullyParallel: true,
             timeout: 30_000,
-            use: { ...devices['Desktop Chrome'], baseURL: AUTH }
+            use: { ...DESKTOP_CHROME, baseURL: AUTH }
         }
     ],
 
