@@ -16,6 +16,18 @@ import type { NotificationSender, RenderedMessage, SendResult } from '@sentinell
 import { closeWorkerTestDb, openWorkerTestDb, seedProject, T0, type WorkerTestDb } from './worker-test-db.fixture'
 import { runDigestTick } from './weekly-digest'
 
+// The production transport, so no test can reach a real network send: the one that names no sender records here.
+const transport = vi.hoisted(function holder() { return { sent: [] as string[] } })
+
+vi.mock('./transport', function mockTransport() {
+    return {
+        sendByKind: async function sendByKind(target: { id: string }) {
+            transport.sent.push(target.id)
+            return { ok: true }
+        }
+    }
+})
+
 // One digest per enabled target per calendar week. The due-time arithmetic has its own test in core; these replay
 // the tick against the real ledger, with a fixed clock and a recording sender. 2026-11-02 is a Monday, ISO week 45.
 
@@ -74,6 +86,7 @@ beforeEach(async function setup() {
     vi.spyOn(console, 'error').mockImplementation(function silence() {})
     sent = []
     answers = []
+    transport.sent = []
     seq = 0
     zone('UTC')
     upsertRoot(handle.db, { id: 'root-a', path: '/roots/a', label: null, createdAt: T0 })
@@ -102,6 +115,14 @@ describe('one digest per week', function () {
         expect(sent).toHaveLength(1)
         await tick(MONDAY_0900_UTC + 7 * DAY)
         expect(sent).toHaveLength(2)
+    })
+
+    it('goes through the production transport when the tick is given no sender, and closes the row', async function () {
+        target('t')
+        await runDigestTick({ db: handle.db, now: MONDAY_0900_UTC })
+        expect(transport.sent).toEqual(['t'])
+        expect(sent).toEqual([])
+        expect(listDigestDeliveries(handle.db, 't')[0]?.firstSucceededAt).toBe(MONDAY_0900_UTC)
     })
 
     it('still says so with nothing outstanding, and links the portal', async function () {
@@ -215,6 +236,17 @@ describe('who is owed', function () {
         expect(sent).toHaveLength(1)
     })
 
+    // A row from before the column has no boundary of its own: how old the target is decides.
+    it('judges a target with no eligibility boundary by when it was created', async function () {
+        target('old')
+        target('late', { createdAt: MONDAY_0900_UTC + HOUR })
+        handle.db.update(schema.notificationTargets).set({ digestEligibleSinceAt: null }).run()
+        await tick(MONDAY_0900_UTC + 2 * HOUR)
+        expect(to('old')).toHaveLength(1)
+        expect(to('late')).toEqual([])
+        expect(listDigestDeliveries(handle.db, 'late')[0]?.suppressedReason).toBe('not_eligible_at_due')
+    })
+
     it('suppresses an open retry of a target switched off since, either way', async function () {
         target('a')
         target('b')
@@ -317,6 +349,16 @@ describe('what it says', function () {
         expect(sent[0]?.message.markdown).toContain('*CRITICAL*\n• svc › axios (Node.js): 1 advisory, no fix released')
         expect(sent[0]?.message.markdown).toContain('• svc › lodash (Node.js): 1 advisory, fix 2.0.0')
         expect(sent[0]?.message.markdown).toContain('• svc › qs (Node.js): 1 advisory')
+    })
+
+    // The portal is another process, and can delete the project between the worker's reads.
+    it('names a project that is gone by its id', async function () {
+        target('t')
+        finding('p-a', 'high', { packageName: 'lodash' })
+        handle.sqlite.pragma('foreign_keys = OFF')
+        handle.sqlite.prepare('DELETE FROM projects WHERE id = ?').run('p-a')
+        await tick(MONDAY_0900_UTC)
+        expect(sent[0]?.message.markdown).toContain('• p-a › lodash (Node.js): 1 advisory')
     })
 
     it('narrows by the target\'s severity filter, env filter, root scope and mutes', async function () {

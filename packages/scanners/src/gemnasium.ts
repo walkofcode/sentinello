@@ -146,7 +146,7 @@ export function matchPackages(
                 return toCanonicalAdvisory(name, ecosystem, advisory)
             }))
         }
-        const acceptedRangeTypes = acceptedRangeTypesForEcosystem(ecosystem) ?? []
+        const acceptedRangeTypes = acceptedRangeTypesForEcosystem(ecosystem) as string[]
         for (const finding of matchAdvisories(pkgs, byPackage, comparator)) {
             const advisory = byPackageRaw.get(finding.packageName)?.find(function same(a) { return a.advisoryId === finding.advisoryId })
             if (!clearedByOsv(advisory?.osvRecords, finding.installedVersion, comparator, acceptedRangeTypes)) findings.push(finding)

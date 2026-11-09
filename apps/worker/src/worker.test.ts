@@ -480,6 +480,20 @@ describe('main — boot sequence', function () {
         expect(errorLines().join('\n')).toContain('ELOCKED')
     })
 
+    // The digest's real tick: a timezone the runtime does not know fails it, and that is no reason to stop booting.
+    it('logs a boot digest tick that fails, and boots anyway', async function () {
+        await seedDb(function seed(sqlite) {
+            sqlite.prepare('INSERT INTO app_config (key, value_json) VALUES (?, ?)').run('schedule', JSON.stringify({ intervalHours: 24, startHour: 0, timezone: 'Mars/Olympus' }))
+        })
+        await main()
+        await vi.waitFor(function logged() {
+            expect(errorLines().join('\n')).toContain('[digest] boot tick failed: ')
+        })
+        expect(errorLines().join('\n')).toContain('Mars/Olympus')
+        expect(exitSpy).not.toHaveBeenCalled()
+        expect(logLines().join('\n')).toContain('scheduler + scan-request poller + mute-expiry running')
+    })
+
     it('registers SIGTERM and SIGINT handlers', async function () {
         const before = process.listenerCount('SIGTERM')
         await main()

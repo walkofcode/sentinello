@@ -140,6 +140,18 @@ describe('reconcileAgainstReported — which findings survive', function () {
 })
 
 describe('reconcileAgainstReported — corroboration', function () {
+    it('leaves a notice a notice when the other source calls it one too, and clears it when one reports it as real', function () {
+        const seen = reported()
+        const survivor = finding({ noticeKind: 'unsound' })
+        reconcileAgainstReported([survivor], seen, 'osv')
+        const second = reconcileAgainstReported([finding({ noticeKind: 'unsound' })], seen, 'gemnasium')
+        expect(second.kept).toEqual([])
+        expect(second.corroborations).toHaveLength(1)
+        expect(survivor.noticeKind).toBe('unsound')
+        reconcileAgainstReported([finding({ noticeKind: null })], seen, 'npm-audit')
+        expect(survivor.noticeKind).toBeNull()
+    })
+
     it('reports no corroboration for a finding only one source has', function () {
         expect(reconcileAgainstReported([finding()], reported(), 'npm-audit').corroborations).toEqual([])
     })

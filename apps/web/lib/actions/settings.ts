@@ -207,8 +207,7 @@ const deliverySchema = z.enum(['per_project', 'run_summary'])
 
 // One target's own delivery, once its scope rows are in place: opting in seeds what it already knows from that scope.
 function applyDelivery(db: DrizzleDb, targetId: string, delivery: TargetDelivery): void {
-    const target = getNotificationTargetById(db, targetId)
-    if (target) setNotificationTargetDelivery(db, target, delivery, Date.now())
+    setNotificationTargetDelivery(db, getNotificationTargetById(db, targetId) as NotificationTarget, delivery, Date.now())
 }
 
 // Guards that every id refers to a real root. Empty list is fine (= "all roots"). Throws on the

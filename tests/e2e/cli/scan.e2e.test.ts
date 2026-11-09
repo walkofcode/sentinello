@@ -295,8 +295,8 @@ describe('a project that cannot be scanned', function () {
         expect(JSON.parse(json.stdout).projects[0].scanState).toEqual({
             state: 'cannot_scan',
             reasons: [
-                { source: 'osv', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' },
-                { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' }
+                { source: 'osv', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile', fixHint: 'commit the lockfile your package manager writes' },
+                { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile', fixHint: 'commit the lockfile your package manager writes' }
             ]
         })
     })

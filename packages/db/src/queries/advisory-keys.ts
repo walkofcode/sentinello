@@ -117,7 +117,7 @@ function representative(nodes: readonly string[]): string {
         if (node.startsWith('cve-')) return 1
         return 2
     }
-    return [...nodes].sort(function best(a, b) { return rank(a) - rank(b) || (a < b ? -1 : a > b ? 1 : 0) })[0] as string
+    return [...nodes].sort(function best(a, b) { return rank(a) - rank(b) || (a < b ? -1 : 1) })[0] as string
 }
 
 // The keys of one (ecosystem, package)'s open rows, from their stored evidence and what the caches know.

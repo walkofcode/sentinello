@@ -547,6 +547,19 @@ describe('discovery — a crate a sibling Cargo.lock lists (SENTINEL-171)', func
         const none = await makeTree({ 'package.json': PKG, 'b/Cargo.toml': crate('b') })
         expect(manifestsOf(none)).toContain('b/Cargo.toml')
     })
+
+    // Its crate is named in the lock and would be dropped if it could be read: unread, its name is unknown and it stays.
+    it('keeps a manifest it cannot read, whatever a lock lists', async function () {
+        const { chmod } = await import('node:fs/promises')
+        const root = await makeTree({ 'package.json': PKG, 'apps/desktop/Cargo.lock': LOCK, 'apps/desktop/Cargo.toml': crate('desktop'), 'packages/gx-core/Cargo.toml': crate('gx-core') })
+        expect(manifestsOf(root)).not.toContain('packages/gx-core/Cargo.toml')
+        await chmod(join(root, 'packages/gx-core/Cargo.toml'), 0o000)
+        try {
+            expect(manifestsOf(root)).toContain('packages/gx-core/Cargo.toml')
+        } finally {
+            await chmod(join(root, 'packages/gx-core/Cargo.toml'), 0o644)
+        }
+    })
 })
 
 describe('isExcludedPath', function () {

@@ -72,6 +72,11 @@ describe('buildAdvisoryToolResult', function () {
     describe('when the document was cut to fit', function () {
         const text = textOf(resultOf({ rendered: 24, total: 36, nextOffset: 24 }))
 
+        it('counts the notices among the total, only when there are some', function () {
+            expect(textOf(resultOf({ rendered: 24, total: 36, notices: 5, nextOffset: 24 }))).toContain('12 did not fit in one response (5 of the 36 are notices, listed last). Do not treat')
+            expect(text).toContain('12 did not fit in one response. Do not treat')
+        })
+
         it('says plainly that the list is not the full set', function () {
             expect(text).toContain('This document is incomplete')
             expect(text).toContain('Do not treat the list above as the full set')

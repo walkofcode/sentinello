@@ -33,6 +33,32 @@ vi.mock('@sentinello/fixes', async function mockFixes(importOriginal) {
     return { ...actual, createRegistryClients: function noRegistry() { return {} } }
 })
 
+// Which projects the summary looked up, read through to the real query.
+const projectLookups = vi.hoisted(function holder() { return { ids: [] as string[] } })
+
+vi.mock('@sentinello/db', async function mockDb(importOriginal) {
+    const actual = await importOriginal<typeof import('@sentinello/db')>()
+    return {
+        ...actual,
+        getProjectById: function getProjectById(db: Parameters<typeof actual.getProjectById>[0], projectIdToRead: string) {
+            projectLookups.ids.push(projectIdToRead)
+            return actual.getProjectById(db, projectIdToRead)
+        }
+    }
+})
+
+// The production transport, so no test can reach a real network send: a run that names no sender records here.
+const transport = vi.hoisted(function holder() { return { sent: [] as string[] } })
+
+vi.mock('./transport', function mockTransport() {
+    return {
+        sendByKind: async function sendByKind(to: { id: string }) {
+            transport.sent.push(to.id)
+            return { ok: true }
+        }
+    }
+})
+
 const batchScanners = vi.hoisted(function holder() { return { current: [] as ScannerPlugin[] } })
 
 vi.mock('./osv-runtime', async function mockOsvRuntime(importOriginal) {
@@ -137,6 +163,8 @@ beforeEach(async function setup() {
     sent = []
     answers = []
     onSend = null
+    transport.sent = []
+    projectLookups.ids = []
     rootPath = await makeTree(handle.dir, 'code', { ...lockFor('a'), ...lockFor('b'), ...lockFor('c') })
     root = { id: 'code', path: rootPath, label: null, createdAt: T0 }
     upsertRoot(handle.db, root)
@@ -306,6 +334,56 @@ describe('a dead channel', function () {
         sent = []
         await request('manual', { projectId: id('b') })
         expect(sent).toEqual([])
+    })
+})
+
+describe('a retried message', function () {
+    // A first send that fails leaves the message owed, so the run below builds it alone.
+    async function owed(findings: Reported[]): Promise<void> {
+        target('summary', 'run_summary')
+        audit.set('a', findings)
+        answers = [{ ok: false, errorText: 'down' }]
+        await sweep()
+        sent = []
+        projectLookups.ids = []
+    }
+
+    function retry(sender?: NotificationSender): Promise<void> {
+        return onRunFinished(handle.db, { kind: 'manual', projectIds: [id('a')], completed: true, send: sender })
+    }
+
+    it('looks a project up once however many of its packages it lists', async function () {
+        await owed([high('GHSA-1', 'lodash'), high('GHSA-2', 'axios')])
+        await retry(send)
+        expect(to('summary')[0]?.markdown).toContain('• a › axios (Node.js): 1 advisory, no fix released\n• a › lodash (Node.js): 1 advisory, no fix released')
+        expect(projectLookups.ids).toEqual([id('a')])
+    })
+
+    // The portal is another process, and can delete the project between the worker's reads.
+    it('names a project that is gone by its id', async function () {
+        await owed([high('GHSA-1')])
+        handle.sqlite.pragma('foreign_keys = OFF')
+        handle.sqlite.prepare('DELETE FROM projects WHERE id = ?').run(id('a'))
+        await retry(send)
+        expect(to('summary')[0]?.markdown).toContain('• ' + id('a') + ' › lodash (Node.js): 1 advisory')
+    })
+
+    it('goes through the production transport when the run names no sender, and is then told', async function () {
+        await owed([high('GHSA-1')])
+        await retry()
+        expect(transport.sent).toEqual(['summary'])
+        expect(sent).toEqual([])
+        await retry(send)
+        expect(sent).toEqual([])
+    })
+
+    // Whatever a channel throws reaches the log as itself, and what it interrupted is still owed.
+    it('logs a thrown non-Error as it is, and retries it on the next run', async function () {
+        await owed([high('GHSA-1')])
+        await retry(function thrown() { return Promise.reject('channel fell over') })
+        expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/^\[run-summary\] dispatch to webhook\(.*\) failed: channel fell over$/))
+        await retry(send)
+        expect(to('summary')).toHaveLength(1)
     })
 })
 
@@ -810,6 +888,15 @@ describe('a resolved row that names its manifests', function () {
         await rm(join(rootPath, 'a', 'ios'), { recursive: true })
         expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack')
         expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+    })
+
+    // Nothing configured means the default exclusions, 'out' among them, and they cover the row's only manifest.
+    it('is not told when no exclusions are configured and a default one covers its manifest', async function () {
+        await rowThrough('out')
+        handle.sqlite.prepare("DELETE FROM app_config WHERE key = 'globalIgnore'").run()
+        ruby = new Map()
+        expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+        closedNaming('out/Gemfile.lock')
     })
 
     it.each([

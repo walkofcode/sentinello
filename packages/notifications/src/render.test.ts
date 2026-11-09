@@ -623,6 +623,13 @@ describe('renderCapabilitySummary', function () {
             .toBe('Sentinello 3.8 now checks Python/Go/Rust/Ruby: 1 finding across 1 project, 1 critical')
     })
 
+    // A cell can outlive its source's entry in the registry: its stored id still names it, rather than blanking the title.
+    it('names a source it does not know by its id', function () {
+        const operator = { id: 'sources-2', since: null, ecosystems: ['PyPI'], cells: [{ source: 'retired-feed', ecosystem: 'PyPI' }, { source: 'osv', ecosystem: 'PyPI' }] } as Capability
+        expect(renderCapabilitySummary({ capability: operator, findings: 2, projects: 1, critical: 0, sourceDisabledProjects: 0, portalBaseUrl: null }).text)
+            .toBe('Sentinello now checks Python with retired-feed/OSV: 2 findings across 1 project, 0 critical')
+    })
+
     it('says what an operator switched on, in every locale', function () {
         const operator = { id: 'sources-1', since: null, ecosystems: ['PyPI'], cells: [{ source: 'osv', ecosystem: 'PyPI' }, { source: 'gemnasium', ecosystem: 'PyPI' }, { source: 'osv', ecosystem: 'PyPI' }] } as Capability
         const message = renderCapabilitySummary({ capability: operator, findings: 2, projects: 1, critical: 0, sourceDisabledProjects: 0, portalBaseUrl: null })

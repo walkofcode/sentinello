@@ -452,6 +452,53 @@ describe('runBatch — several scanners', function () {
     })
 })
 
+describe('runBatch — a notice two sources report', function () {
+    it('stays a notice, with the second source as its corroboration', async function () {
+        const notice = { noticeKind: 'unsound' }
+        await batch(
+            [fakeScanner('npm-audit', okResult([rawFinding(notice)])), fakeScanner('osv', okResult([rawFinding(notice)]))],
+            [project()]
+        )
+        const rows = listFindingsForProject(db, PROJECT_ID)
+        expect(rows).toHaveLength(1)
+        expect(rows[0]?.noticeKind).toBe('unsound')
+        expect(rows[0]?.corroborations.map(function by(c) { return c.source })).toEqual(['osv'])
+    })
+})
+
+describe('runBatch — a project on Bun whose inventory could not be read', function () {
+    // npm audit does not answer for Bun, and not attempting it proves nothing. With the project unread there is no
+    // inventory either to say the package has gone, so the row stays open: nothing here has looked.
+    it('closes nothing for the source it does not attempt', async function () {
+        await batch([fakeScanner('npm-audit', okResult([rawFinding()]))], [project()])
+        const audit = fakeScanner('npm-audit', okResult([]))
+        await batch([audit], [project({ packageManager: 'bun' })])
+        expect(audit.contexts).toEqual([])
+        expect(listFindingsForProject(db, PROJECT_ID).map(function row(f) { return [f.advisoryId, f.resolvedAt] })).toEqual([['CVE-2024-1', null]])
+    })
+})
+
+describe('runBatch — a row closed while its scan is still running', function () {
+    // The portal is another process. A row it closes is not among the open ones the refresh reads, so it has no fresh
+    // key to take; the finding keeps the one it has, and the rows still open take theirs.
+    it('keeps the key the row had, and refreshes the rest', async function () {
+        let keyWhenClosed: string | null | undefined
+        const closesTheFirst: ScannerPlugin = {
+            name: 'osv',
+            async scan() {
+                const row = sqlite.prepare('SELECT advisory_key AS advisoryKey FROM findings WHERE advisory_id = ?').get('CVE-2024-1') as { advisoryKey: string | null }
+                keyWhenClosed = row.advisoryKey
+                sqlite.prepare('UPDATE findings SET resolved_at = ? WHERE advisory_id = ?').run(T0, 'CVE-2024-1')
+                return okResult([rawFinding({ advisoryId: 'CVE-2024-2', packageName: 'minimist' })])
+            }
+        }
+        const [audit, osv] = await batch([fakeScanner('npm-audit', okResult([rawFinding()])), closesTheFirst], [project()])
+        expect(keyWhenClosed).not.toBeUndefined()
+        expect(audit?.findings[0]?.advisoryKey).toBe(keyWhenClosed)
+        expect(osv?.findings[0]?.advisoryKey).toBe('cve-2024-2')
+    })
+})
+
 describe('runBatch — scanner context', function () {
     // nvm is JavaScript-only tooling. A project's .nvmrc must not make a toolchain-free feed source
     // try to switch Node versions.

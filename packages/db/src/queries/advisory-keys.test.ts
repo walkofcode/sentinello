@@ -129,6 +129,12 @@ describe('refreshAdvisoryKeys', function () {
         expect(keys()['LOW-2']).toBe('low-1')
     })
 
+    it('picks the lowest id of one rank from either side of the comparison', function () {
+        scan('a', [incoming('a', 'LOW-2', { aliases: ['LOW-1', 'LOW-3'] }), incoming('a', 'HIGH-1', { aliases: ['HIGH-3', 'HIGH-2'] })])
+        refreshAdvisoryKeys(db, [])
+        expect(keys()).toEqual({ 'LOW-2': 'low-1', 'HIGH-1': 'high-1' })
+    })
+
     it('writes only what changed, and survives a corrupted column as no evidence', function () {
         scan('osv', [incoming('osv', 'GHSA-1', { aliases: ['CVE-1'] })])
         expect(refreshAdvisoryKeys(db, []).written).toBe(1)

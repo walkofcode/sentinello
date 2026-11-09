@@ -127,6 +127,16 @@ describe('settleFix — the finding\'s comparator', function () {
         expect(settleFix({ ecosystem: 'Go', evidence: [goEvidence], registry: view, checkedAt: AT })).toMatchObject({ fixStatus: 'released', fixVersion: 'v' + PSEUDO })
     })
 
+    // Deprecated still fixes it, so with nothing current it is the answer; with a current one it never is.
+    it('takes a deprecated pseudo-version only when no current one qualifies', function () {
+        const LATER = '0.0.0-20220101000000-cccccccccccc'
+        const deprecated = { version: 'v' + PSEUDO, deprecated: true }
+        const alone: RegistryView = { status: 'ok', published: [deprecated], dataAsOf: 3 }
+        expect(settleFix({ ecosystem: 'Go', evidence: [goEvidence], registry: alone, checkedAt: AT })).toMatchObject({ fixStatus: 'released', fixVersion: 'v' + PSEUDO })
+        const beside: RegistryView = { status: 'ok', published: [deprecated, { version: 'v' + LATER, deprecated: false }], dataAsOf: 3 }
+        expect(settleFix({ ecosystem: 'Go', evidence: [goEvidence, { ...goEvidence, statedFix: LATER }], registry: beside, checkedAt: AT })).toMatchObject({ fixStatus: 'released', fixVersion: 'v' + LATER })
+    })
+
     it('is none_released only when no stated fix is unconfirmed — an unconfirmed one makes it unknown, blamed on the registry', function () {
         const empty: RegistryView = { status: 'ok', published: [], dataAsOf: 3 }
         expect(settleFix({ ecosystem: 'Go', evidence: [goEvidence], registry: empty, checkedAt: AT })).toMatchObject({ fixStatus: 'none_released' })

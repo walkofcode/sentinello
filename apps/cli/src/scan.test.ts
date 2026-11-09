@@ -593,6 +593,18 @@ describe('scanProject', function () {
             expect(out.wayOutError).toBeNull()
         })
 
+        // A notice has no fix to chase: the registry is not asked, and only where it is installed is recorded.
+        it('settles nothing for a notice', async function () {
+            const { client, asked } = registry()
+            const out = await scanProject(setup({ registry: { npm: client } }), resolved(), [fakeScanner('osv', result({ findings: [{ ...braces, noticeKind: 'unmaintained' }] }))])
+            const kept = first(out.findings, 'finding')
+            expect(kept.noticeKind).toBe('unmaintained')
+            expect(asked).toEqual([])
+            expect(out.fixes.has(kept)).toBe(false)
+            expect(out.remediations.has(kept)).toBe(false)
+            expect(out.installations.has(kept)).toBe(true)
+        })
+
         it('leaves a finding unverified with no way out when the registry cannot answer', async function () {
             const { client } = registry(true)
             const out = await scanProject(setup({ registry: { npm: client } }), resolved(), [fakeScanner('osv', result({ findings: [braces] }))])

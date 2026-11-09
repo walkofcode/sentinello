@@ -53,6 +53,17 @@ describe('sortFleetLines', function () {
         expect(sortFleetLines(lines).map(function key(l) { return l.projectName + l.packageName })).toEqual(['ax', 'ay', 'bx'])
         expect(lines[0]?.projectName).toBe('b')
     })
+
+    // A line that names no package (a project that cannot be scanned) reads first within its project.
+    it('breaks a project tie by package, a line with no package first, and keeps equal lines in order', function () {
+        const lines = [
+            { projectName: 'a', packageName: 'x', at: 1 },
+            { projectName: 'a', at: 2 },
+            { projectName: 'a', at: 3 },
+            { projectName: 'a', packageName: 'b', at: 4 }
+        ]
+        expect(sortFleetLines(lines).map(function at(l) { return l.at })).toEqual([2, 3, 4, 1])
+    })
 })
 
 describe('renderFleetSummary', function () {

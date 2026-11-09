@@ -919,6 +919,21 @@ describe('summary', function () {
         ui().summary(summary(), null)
         expect(out()).not.toContain('Advisory written to')
     })
+
+    // A notice sits in no count, so this line is the only thing in the summary that says one exists.
+    it('names the notices apart from the counts, singular and plural, and is silent with none', function () {
+        function notices(count: number): RunSummary['notices'] {
+            return Array.from({ length: count }, function notice() { return {} }) as RunSummary['notices']
+        }
+        ui().summary(summary({ notices: notices(1) }), null)
+        expect(out()).toContain('1 notice (unmaintained, unsound), not vulnerabilities: listed in the report, in no count above.')
+        written.length = 0
+        ui().summary(summary({ notices: notices(2) }), null)
+        expect(out()).toContain('2 notices (unmaintained, unsound), not vulnerabilities: listed in the report, in no count above.')
+        written.length = 0
+        ui().summary(summary(), null)
+        expect(out()).not.toContain('notice')
+    })
 })
 
 describe('colour', function () {
