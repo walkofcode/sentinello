@@ -1,5 +1,5 @@
-import { join } from 'node:path'
-import { describeScanReasons, type Locale, type NotificationTarget, type ScanRequestOrigin } from '@sentinello/core'
+import { dirname, join, resolve } from 'node:path'
+import { describeScanReasons, installedThrough, type FindingInstallation, type Locale, type NotificationTarget, type ProjectManifest, type ScanRequestOrigin } from '@sentinello/core'
 import {
     applyScanRecoveries,
     findingScanContexts,
@@ -28,7 +28,7 @@ import {
     type FleetUnscannableLine,
     type NotificationSender
 } from '@sentinello/notifications'
-import { isExcludedPath, rediscoverProject } from '@sentinello/scanners'
+import { isExcludedPath, isWithin, rediscoverProject } from '@sentinello/scanners'
 import { inSummaryQueue } from './capability-baseline'
 import { CONFIG_KEYS, DEFAULT_GLOBAL_IGNORE } from './config-loader'
 import { matchEventsToFindings } from './notifier'
@@ -85,45 +85,80 @@ function projectNames(db: DrizzleDb): (projectId: string) => string {
     }
 }
 
-// An exclusion is not a fix (SENTINEL-172): a row whose every installation lives under a path the current exclusions
-// cover went because nobody looks there any more, and says nothing about the package. A row written before 3.8 names
-// no manifest, so it is judged by its whole project, where an ignore file can hide a manifest as well.
-function closedOutOfSight(candidate: ResolvedCandidate, excludes: readonly string[], projectHidden: (candidate: ResolvedCandidate) => boolean): boolean {
-    const installations = candidate.finding.installations
-    if (installations.length === 0) return projectHidden(candidate)
-    return installations.every(function excluded(installation) {
-        return isExcludedPath(candidate.rootPath, join(candidate.rootPath, candidate.relPath, installation.manifestPath), excludes)
+// Leaving the scan's view is not a fix. A row went for nothing but that when every installation lives under a path the
+// current exclusions cover (SENTINEL-172), or when an installation is still on the disk where a scan does not look
+// (SENTINEL-198): one copy unread proves nothing, whatever a checked copy beside it says. A row written before 3.8 names
+// no manifest, so it is judged by its whole project.
+function closedOutOfSight(candidate: ResolvedCandidate, excludes: readonly string[], sightOf: (candidate: ResolvedCandidate) => ProjectSight): boolean {
+    const { finding: { installations, ecosystem }, rootPath, relPath } = candidate
+    if (installations.length === 0) return hidesAnyManifest(sightOf(candidate), rootPath, relPath, excludes)
+    function excluded(installation: FindingInstallation): boolean {
+        return isExcludedPath(rootPath, join(rootPath, relPath, installation.manifestPath), excludes)
+    }
+    if (installations.every(excluded)) return true
+    const sight = sightOf(candidate)
+    return installations.some(function hidden(installation) {
+        return !excluded(installation) && hidesCopy(sight, rootPath, relPath, installation, ecosystem)
     })
 }
 
-// Whether a closed row that names no manifest may have lived where a scan does not look. Read from the disk, once per
-// project for one message, by comparing two walks of the project: one past its ignore files, and one as a scan walks it.
-// A manifest only the first finds, or one the exclusions cover, is hidden: nothing read it, so the closing says nothing
-// and the row stays owed until the manifest is removed or a scan reads it. With none hidden, wherever the row lived was
-// either read by the scan that closed it (a manifest that went unread keeps its rows open) or is gone, so the closing is
-// true. An ignored directory holding no manifest hides nothing. Only the directories no scan ever searches stay unseen
-// by both walks, and no row came from those. A directory either walk cannot read proves nothing, ignored or not, and
-// the row is left out.
-function hiddenManifests(excludes: readonly string[]): (candidate: ResolvedCandidate) => boolean {
-    const hidden = new Map<string, boolean>()
-    return function projectHidden({ finding: { projectId }, rootPath, relPath }) {
-        const known = hidden.get(projectId)
+// What the disk says of a project against what a scan reads there, by comparing two walks: one past its ignore files,
+// and one as a scan walks it. Only the directories no scan ever searches stay unseen by both, and no row came from those.
+type ProjectSight = {
+    // Whether both walks still find the project.
+    found: boolean
+    // What the project owns on the disk, and which of those a scan's walk does not reach.
+    manifests: readonly ProjectManifest[]
+    hidden: readonly ProjectManifest[]
+    // The directories either walk could not read.
+    unreadable: readonly string[]
+}
+
+// Read from the disk, once per project for one message.
+function projectSights(excludes: readonly string[]): (candidate: ResolvedCandidate) => ProjectSight {
+    const sights = new Map<string, ProjectSight>()
+    return function sightOf({ finding: { projectId }, rootPath, relPath }) {
+        const known = sights.get(projectId)
         if (known !== undefined) return known
-        const hides = hidesManifest(rootPath, relPath, excludes)
-        hidden.set(projectId, hides)
-        return hides
+        const sight = readProjectSight(rootPath, relPath, excludes)
+        sights.set(projectId, sight)
+        return sight
     }
 }
 
-function hidesManifest(rootPath: string, relPath: string, excludes: readonly string[]): boolean {
+function readProjectSight(rootPath: string, relPath: string, excludes: readonly string[]): ProjectSight {
     const projectPath = join(rootPath, relPath)
     const onDisk = rediscoverProject({ rootPath, projectPath, readIgnoreFiles: false })
     const scanned = rediscoverProject({ rootPath, projectPath, excludes: [...excludes] })
-    if (onDisk.project === null || scanned.project === null || onDisk.errors.length > 0 || scanned.errors.length > 0) return true
-    const seen = new Set(scanned.project.manifests.map(function path(manifest) { return manifest.path }))
-    return onDisk.project.manifests.some(function hides(manifest) {
-        return !seen.has(manifest.path) || isExcludedPath(rootPath, join(projectPath, manifest.path), excludes)
-    })
+    const seen = new Set(scanned.project?.manifests.map(function path(manifest) { return manifest.path }))
+    const manifests = onDisk.project?.manifests ?? []
+    return {
+        found: onDisk.project !== null && scanned.project !== null,
+        manifests,
+        hidden: manifests.filter(function unseen(manifest) { return !seen.has(manifest.path) }),
+        unreadable: [...onDisk.errors, ...scanned.errors].map(function directory(error) { return resolve(error.path) })
+    }
+}
+
+// Whether a closed row that names no manifest may have lived where a scan does not look. A manifest the scan's walk
+// misses, or one the exclusions cover, is hidden: nothing read it, so the closing says nothing and the row stays owed
+// until the manifest is removed or a scan reads it. With none hidden, wherever the row lived was either read by the scan
+// that closed it (a manifest that went unread keeps its rows open) or is gone, so the closing is true. An ignored
+// directory holding no manifest hides nothing. A directory either walk cannot read proves nothing, ignored or not, and
+// the row is left out.
+function hidesAnyManifest(sight: ProjectSight, rootPath: string, relPath: string, excludes: readonly string[]): boolean {
+    if (!sight.found || sight.unreadable.length > 0 || sight.hidden.length > 0) return true
+    return sight.manifests.some(function excluded(manifest) { return isExcludedPath(rootPath, join(rootPath, relPath, manifest.path), excludes) })
+}
+
+// Whether a named copy may still be where a scan does not look. Only its own place counts, so a hidden manifest elsewhere
+// holds nothing back: a copy belongs to its directory's manifest of the ecosystem (installedThrough), and with none left
+// there, the copy is gone and the closing is true. A directory that cannot be read, at or above the copy, proves nothing.
+function hidesCopy(sight: ProjectSight, rootPath: string, relPath: string, installation: FindingInstallation, ecosystem: string): boolean {
+    const manifestDir = dirname(resolve(rootPath, relPath, installation.manifestPath))
+    if (sight.unreadable.some(function above(directory) { return isWithin(directory, manifestDir) })) return true
+    const sameEcosystem = sight.hidden.filter(function ofEcosystem(manifest) { return manifest.ecosystem === ecosystem })
+    return installedThrough(installation, sameEcosystem.map(function path(manifest) { return manifest.path }))
 }
 
 function resolvedLines(candidates: readonly ResolvedCandidate[]): FleetResolvedLine[] {
@@ -163,8 +198,8 @@ async function dispatchForTarget(db: DrizzleDb, target: NotificationTarget, run:
     // Nothing new means no send. Resolved rows never trigger one: they ride along, and stay owed until a message goes.
     if (matched.length === 0 && newlyUnscannable.length === 0) return
     const excludes = getConfigValue<string[]>(db, CONFIG_KEYS.globalIgnore) || DEFAULT_GLOBAL_IGNORE
-    const projectHidden = hiddenManifests(excludes)
-    const resolved = listOwedResolvedFindings(db, target.id, at, run.projectIds).filter(function inSight(candidate) { return !closedOutOfSight(candidate, excludes, projectHidden) })
+    const sightOf = projectSights(excludes)
+    const resolved = listOwedResolvedFindings(db, target.id, at, run.projectIds).filter(function inSight(candidate) { return !closedOutOfSight(candidate, excludes, sightOf) })
     const { counts, listed } = summarizeFleetFindings(matched.map(function row(m) { return m.finding }), projectNames(db))
     const message = renderFleetSummary({
         kind: 'run_summary',

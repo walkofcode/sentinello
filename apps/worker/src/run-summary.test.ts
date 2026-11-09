@@ -478,23 +478,37 @@ describe('a row a move to Bun closed, with no scan behind it', function () {
     })
 })
 
+const GEMFILE_LOCK = ['GEM', '  remote: https://rubygems.org/', '  specs:', '    rack (2.0.8)', '', 'PLATFORMS', '  ruby', '', 'DEPENDENCIES', '  rack', ''].join('\n')
+
+// What the Ruby cell answers for each project; nothing for one not named.
+let ruby: Map<string, string[]>
+
+// Reports the version GEMFILE_LOCK installs, so the runner finds each copy in the real graph and names its manifest.
+const rubyFeed: ScannerPlugin = {
+    name: 'osv',
+    scan: async function scan(path, options) {
+        const advisories = options.ecosystem === 'RubyGems' ? ruby.get(path.split('/').pop() as string) ?? [] : []
+        const findings = advisories.map(function row(advisoryId) { return { ...rawFinding({ advisoryId, packageName: 'rack', severity: 'high' }), ecosystem: 'RubyGems', installedVersion: '2.0.8' } })
+        return { status: 'ok', reasonCode: 'ok', findings, rawJson: '{}', errorText: null, durationMs: 1 }
+    }
+} as ScannerPlugin
+
+// An ignore file over a manifest takes it out of the scan as surely as an exclusion does, and nothing read it when the
+// row closed. Named by where the rule sits, with the configured exclusions that say nothing about the manifest.
+const IGNORE_ONLY = [
+    ['.gitignore in the project', join('a', '.gitignore'), 'ios/'],
+    ['.sentinelloignore in the project', join('a', '.sentinelloignore'), 'ios/'],
+    ['.gitignore at the root', '.gitignore', 'a/ios/'],
+    ['.sentinelloignore at the root', '.sentinelloignore', 'a/ios/']
+] as const
+const NO_RELEVANT_EXCLUSION: readonly (readonly [string, string[]])[] = [['no exclusions', []], ['an unrelated exclusion', ['elsewhere']]]
+const IGNORE_ONLY_CASES = IGNORE_ONLY.flatMap(function perExclusion([where, ignoreFile, rule]) {
+    return NO_RELEVANT_EXCLUSION.map(function combined([label, exclusions]) { return [where + ' with ' + label, ignoreFile, rule, exclusions] as const })
+})
+
 // A row written before 3.8 names no manifest. Exclude the sub-manifest that supplied it and the merge can close it as
 // absent, with the parent project intact: nothing then says the package went, only that nobody looks there any more.
 describe('a resolved row that names no manifest', function () {
-    const GEMFILE_LOCK = ['GEM', '  remote: https://rubygems.org/', '  specs:', '    rack (2.0.8)', '', 'PLATFORMS', '  ruby', '', 'DEPENDENCIES', '  rack', ''].join('\n')
-
-    // What the Ruby cell answers for each project; nothing for one not named.
-    let ruby: Map<string, string[]>
-
-    const rubyFeed: ScannerPlugin = {
-        name: 'osv',
-        scan: async function scan(path, options) {
-            const advisories = options.ecosystem === 'RubyGems' ? ruby.get(path.split('/').pop() as string) ?? [] : []
-            const findings = advisories.map(function row(advisoryId) { return { ...rawFinding({ advisoryId, packageName: 'rack', severity: 'high' }), ecosystem: 'RubyGems' } })
-            return { status: 'ok', reasonCode: 'ok', findings, rawJson: '{}', errorText: null, durationMs: 1 }
-        }
-    } as ScannerPlugin
-
     // Each named project holds ios/Gemfile.lock and a finding from it, made legacy as a pre-3.8 row reads.
     async function legacyRows(...names: string[]): Promise<void> {
         target('summary', 'run_summary')
@@ -558,19 +572,8 @@ describe('a resolved row that names no manifest', function () {
         expect(to('summary')[0]?.markdown).not.toContain('a › rack')
     })
 
-    // An ignore file over the manifest takes it out of the scan as surely as an exclusion does, and nothing read it
-    // when the row closed. The row stays owed until the manifest is gone, whatever the configured exclusions say.
-    const IGNORE_ONLY = [
-        ['.gitignore in the project', join('a', '.gitignore'), 'ios/'],
-        ['.sentinelloignore in the project', join('a', '.sentinelloignore'), 'ios/'],
-        ['.gitignore at the root', '.gitignore', 'a/ios/'],
-        ['.sentinelloignore at the root', '.sentinelloignore', 'a/ios/']
-    ] as const
-    const NO_RELEVANT_EXCLUSION: readonly (readonly [string, string[]])[] = [['no exclusions', []], ['an unrelated exclusion', ['elsewhere']]]
-
-    it.each(IGNORE_ONLY.flatMap(function perExclusion([where, ignoreFile, rule]) {
-        return NO_RELEVANT_EXCLUSION.map(function combined([label, exclusions]) { return [where + ' with ' + label, ignoreFile, rule, exclusions] as const })
-    }))('is not told while a %s hides its manifest, and is told once the manifest is gone', async function (_name, ignoreFile, rule, exclusions) {
+    // The row stays owed until the manifest is gone, whatever the configured exclusions say.
+    it.each(IGNORE_ONLY_CASES)('is not told while a %s hides its manifest, and is told once the manifest is gone', async function (_name, ignoreFile, rule, exclusions) {
         await legacyRows('a')
         setConfigValue(handle.db, 'globalIgnore', exclusions)
         await writeFile(join(rootPath, ignoreFile), rule)
@@ -657,6 +660,185 @@ describe('a resolved row that names no manifest', function () {
         await request('manual', { projectId: id('a') }, [fakeAudit, rubyFeed])
         expect(to('summary')).toHaveLength(1)
         expect(to('summary')[0]?.markdown).not.toContain('Resolved')
+    })
+})
+
+// A row that names its manifests can be asked about them. Discovery dropping a directory an ignore file now covers closes
+// the row with the lockfile untouched, and that closing says nothing about the package.
+describe('a resolved row that names its manifests', function () {
+    // Project a holds these directories' Gemfile.locks and one finding with a copy through each.
+    async function rowThrough(...directories: string[]): Promise<void> {
+        target('summary', 'run_summary')
+        setConfigValue(handle.db, sourceEnabledKey('osv', 'RubyGems'), true)
+        for (const directory of directories) {
+            await mkdir(join(rootPath, 'a', directory))
+            await writeFile(join(rootPath, 'a', directory, 'Gemfile.lock'), GEMFILE_LOCK)
+        }
+        ruby = new Map([['a', ['GHSA-a']]])
+        await sweep([fakeAudit, rubyFeed])
+        expect(rowOf().resolvedAt).toBeNull()
+        sent = []
+    }
+
+    function rowOf(): typeof schema.findings.$inferSelect {
+        const rows = handle.db.select().from(schema.findings).all().filter(function ofProject(row) { return row.projectId === id('a') })
+        expect(rows).toHaveLength(1)
+        return rows[0] as typeof schema.findings.$inferSelect
+    }
+
+    function closedNaming(...manifests: string[]): void {
+        const row = rowOf()
+        expect(row.resolvedAt).not.toBeNull()
+        expect((JSON.parse(row.installationsJson) as { manifestPath: string }[]).map(function path(copy) { return copy.manifestPath }).sort()).toEqual(manifests)
+    }
+
+    // One more finding on b, which is what carries a resolved row. b keeps the earlier ones, so none of them resolves.
+    async function sweepWithNews(): Promise<RenderedMessage> {
+        const earlier = audit.get('b') as Reported[] | undefined ?? []
+        const packageName = 'news-' + earlier.length
+        audit.set('b', [...earlier, high('GHSA-' + packageName, packageName)])
+        sent = []
+        await sweep([fakeAudit, rubyFeed])
+        expect(to('summary')).toHaveLength(1)
+        expect(to('summary')[0]?.markdown).toContain('b › ' + packageName)
+        return to('summary')[0] as RenderedMessage
+    }
+
+    it.each(IGNORE_ONLY_CASES)('is not told while a %s hides an unchanged lockfile, and is told once it is gone', async function (_name, ignoreFile, rule, exclusions) {
+        await rowThrough('ios')
+        setConfigValue(handle.db, 'globalIgnore', exclusions)
+        await writeFile(join(rootPath, ignoreFile), rule)
+        ruby = new Map()
+        expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+        closedNaming('ios/Gemfile.lock')
+        // Held, not acknowledged: a second message still leaves it out, and it is owed when the lockfile goes.
+        expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+        await rm(join(rootPath, 'a', 'ios'), { recursive: true })
+        expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack')
+        expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+    })
+
+    it.each([
+        ['.gitignore', '.gitignore'],
+        ['.sentinelloignore', '.sentinelloignore']
+    ])('is told once a %s rule is lifted and a scan reads the lockfile it hid', async function (_name, ignoreFile) {
+        await rowThrough('ios')
+        await writeFile(join(rootPath, 'a', ignoreFile), 'ios/')
+        ruby = new Map()
+        expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+        await rm(join(rootPath, 'a', ignoreFile))
+        expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack')
+    })
+
+    // Both copies go from the scan at once: one was read and is clean, the other was never read and proves nothing.
+    it.each([
+        ['.gitignore', '.gitignore', []],
+        ['.gitignore', '.gitignore', ['elsewhere']],
+        ['.sentinelloignore', '.sentinelloignore', []],
+        ['.sentinelloignore', '.sentinelloignore', ['elsewhere']]
+    ] as const)('a checked copy does not clear one a %s hides', async function (_name, ignoreFile, exclusions) {
+        await rowThrough('ios', 'web')
+        setConfigValue(handle.db, 'globalIgnore', [...exclusions])
+        await writeFile(join(rootPath, 'a', ignoreFile), 'ios/')
+        ruby = new Map()
+        expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+        closedNaming('ios/Gemfile.lock', 'web/Gemfile.lock')
+        await rm(join(rootPath, 'a', 'ios'), { recursive: true })
+        expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack')
+    })
+
+    it('with a hidden copy and a checked one is told once the rule is lifted and a scan reads both', async function () {
+        await rowThrough('ios', 'web')
+        await writeFile(join(rootPath, 'a', '.gitignore'), 'ios/')
+        ruby = new Map()
+        expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+        await rm(join(rootPath, 'a', '.gitignore'))
+        expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack')
+    })
+
+    it('is told when the manifest an ignore file hides is not one it names', async function () {
+        await rowThrough('ios')
+        await mkdir(join(rootPath, 'a', 'other'))
+        await writeFile(join(rootPath, 'a', 'other', 'Gemfile.lock'), GEMFILE_LOCK)
+        await writeFile(join(rootPath, 'a', '.gitignore'), 'other/')
+        ruby = new Map()
+        expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack')
+        closedNaming('ios/Gemfile.lock')
+    })
+
+    it('is told when its hidden lockfile was deleted, and a hidden manifest of another ecosystem is left in that directory', async function () {
+        await rowThrough('ios')
+        await writeFile(join(rootPath, 'a', 'ios', 'requirements.txt'), 'flask==2.0.0\n')
+        await rm(join(rootPath, 'a', 'ios', 'Gemfile.lock'))
+        await writeFile(join(rootPath, 'a', '.gitignore'), 'ios/')
+        ruby = new Map()
+        expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack')
+    })
+
+    // A directory holds one manifest of an ecosystem, so whichever it holds now is the one the copy came through.
+    it('is not told when the hidden directory still holds the bare manifest its lockfile left', async function () {
+        await rowThrough('ios')
+        await writeFile(join(rootPath, 'a', 'ios', 'Gemfile'), "gem 'rack'\n")
+        await rm(join(rootPath, 'a', 'ios', 'Gemfile.lock'))
+        await writeFile(join(rootPath, 'a', '.gitignore'), 'ios/')
+        ruby = new Map()
+        expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+    })
+
+    // The walk classifies directories only: a rule naming the file stops nothing, so a scan read it.
+    it('is told when an ignore rule names the lockfile but not its directory', async function () {
+        await rowThrough('ios')
+        await writeFile(join(rootPath, 'a', '.gitignore'), 'ios/Gemfile.lock')
+        ruby = new Map()
+        expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack')
+    })
+
+    it('is told when nothing hides it', async function () {
+        await rowThrough('ios')
+        ruby = new Map()
+        expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack')
+    })
+
+    it('is held by an unreadable directory holding its manifest, not by another one', async function () {
+        await rowThrough('ios')
+        await mkdir(join(rootPath, 'a', 'other'))
+        ruby = new Map()
+        await sweep([fakeAudit, rubyFeed])
+        closedNaming('ios/Gemfile.lock')
+        await chmod(join(rootPath, 'a', 'ios'), 0o000)
+        try {
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+        } finally {
+            await chmod(join(rootPath, 'a', 'ios'), 0o755)
+        }
+        await chmod(join(rootPath, 'a', 'other'), 0o000)
+        try {
+            expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack')
+        } finally {
+            await chmod(join(rootPath, 'a', 'other'), 0o755)
+        }
+    })
+
+    it('is told when its project\'s directory is gone', async function () {
+        await rowThrough('ios')
+        ruby = new Map()
+        await sweep([fakeAudit, rubyFeed])
+        closedNaming('ios/Gemfile.lock')
+        await rm(join(rootPath, 'a'), { recursive: true })
+        sent = []
+        await request('manual', { projectId: id('a') }, [fakeAudit, rubyFeed])
+        expect(to('summary')).toHaveLength(1)
+        expect(to('summary')[0]?.markdown).toContain('*Resolved*\n• a › rack')
+    })
+
+    it('is not told while an exclusion covers every copy, even once the lockfile is gone', async function () {
+        await rowThrough('ios')
+        setConfigValue(handle.db, 'globalIgnore', ['a/ios'])
+        ruby = new Map()
+        expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+        closedNaming('ios/Gemfile.lock')
+        await rm(join(rootPath, 'a', 'ios'), { recursive: true })
+        expect((await sweepWithNews()).markdown).not.toContain('Resolved')
     })
 })
 
