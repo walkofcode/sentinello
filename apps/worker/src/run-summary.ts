@@ -127,12 +127,20 @@ function hidesAnyManifest(sight: ProjectSight, rootPath: string, relPath: string
     return sight.manifests.some(function excluded(manifest) { return isExcludedPath(rootPath, join(rootPath, relPath, manifest.path), excludes) })
 }
 
+// What this message may call fixed. A row held for what the scan cannot see holds every owed row of its advisory: an
+// episode that came and went elsewhere names only what was read, and the claim is about the advisory (SENTINEL-203).
+function tellableResolved(owed: readonly ResolvedCandidate[], excludes: readonly string[]): ResolvedCandidate[] {
+    const sightOf = projectSights(excludes)
+    const held = new Set(owed.filter(function unproved(candidate) { return closedOutOfSight(candidate, excludes, sightOf) }).map(function identity(candidate) { return candidate.identity }))
+    return owed.filter(function tellable(candidate) { return !held.has(candidate.identity) })
+}
+
 function resolvedLines(candidates: readonly ResolvedCandidate[]): FleetResolvedLine[] {
     const lines = new Map<string, FleetResolvedLine & { identities: Set<string> }>()
-    for (const { finding, projectName } of candidates) {
+    for (const { finding, identity, projectName } of candidates) {
         const key = finding.projectId + '|' + finding.ecosystem + '|' + finding.packageName
         const line = lines.get(key) ?? { projectId: finding.projectId, projectName, packageName: finding.packageName, ecosystem: finding.ecosystem, advisories: 0, identities: new Set<string>() }
-        line.identities.add(finding.advisoryKey ?? finding.source + ':' + finding.advisoryId)
+        line.identities.add(identity)
         line.advisories = line.identities.size
         lines.set(key, line)
     }
@@ -164,8 +172,7 @@ async function dispatchForTarget(db: DrizzleDb, target: NotificationTarget, run:
     // Nothing new means no send. Resolved rows never trigger one: they ride along, and stay owed until a message goes.
     if (matched.length === 0 && newlyUnscannable.length === 0) return
     const excludes = getConfigValue<string[]>(db, CONFIG_KEYS.globalIgnore) || DEFAULT_GLOBAL_IGNORE
-    const sightOf = projectSights(excludes)
-    const resolved = listOwedResolvedFindings(db, target.id, at, run.projectIds).filter(function inSight(candidate) { return !closedOutOfSight(candidate, excludes, sightOf) })
+    const resolved = tellableResolved(listOwedResolvedFindings(db, target.id, at, run.projectIds), excludes)
     const { counts, listed } = summarizeFleetFindings(matched.map(function row(m) { return m.finding }), projectNames(db))
     const message = renderFleetSummary({
         kind: 'run_summary',

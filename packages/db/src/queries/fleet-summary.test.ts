@@ -193,7 +193,6 @@ describe('listOwedResolvedFindings', function () {
 
         it.each([
             ['project', { projectId: 'b' }],
-            ['source', { source: 'gemnasium', scanner: 'gemnasium' }],
             ['ecosystem', { ecosystem: 'PyPI' }],
             ['advisory', { advisoryId: 'GHSA-another' }],
             ['package', { packageName: 'another' }]
@@ -224,6 +223,100 @@ describe('listOwedResolvedFindings', function () {
             resolvedRow('fixed-b', 'b', IDENTITY)
             expect(owed(['a'])).toEqual([])
             expect(owed(['b'])).toEqual(['fixed-b'])
+        })
+    })
+
+    // Sources disagree: one closes its row while another still reports the advisory. Only what the rows themselves state
+    // says they are one advisory: refreshAdvisoryKeys touches open rows only, so a closed row's key may be stale or null.
+    describe('a row another source still has open', function () {
+        const PACKAGE = { packageName: 'same', ecosystem: 'npm' }
+        const NPM = { ...PACKAGE, source: 'npm-audit', scanner: 'npm-audit' }
+        const OSV = { ...PACKAGE, source: 'osv', scanner: 'osv' }
+        const GEMNASIUM = { ...PACKAGE, source: 'gemnasium', scanner: 'gemnasium' }
+        const GHSA = 'GHSA-aaaa-bbbb-cccc'
+
+        function owed(): string[] {
+            return listOwedResolvedFindings(db, 't', T0, null).map(function id(c) { return c.finding.id }).sort()
+        }
+
+        function optedIn(overrides: Partial<NotificationTarget> = {}): void {
+            setNotificationTargetDelivery(db, target(overrides), 'run_summary', T0)
+        }
+
+        it.each([
+            ['equal keys, with nothing else in common', { ...NPM, advisoryId: '1234', advisoryKey: 'ghsa-x' }, { ...OSV, advisoryId: 'GO-2026-1', advisoryKey: 'ghsa-x' }],
+            ['one named id, no keys', { ...NPM, advisoryId: GHSA }, { ...OSV, advisoryId: GHSA }],
+            ['one named id in another case', { ...NPM, advisoryId: GHSA.toLowerCase() }, { ...OSV, advisoryId: GHSA }],
+            ['a numeric id whose url names the open row, as a legacy row with a null key', { ...NPM, advisoryId: '1234', advisoryUrl: 'https://github.com/advisories/' + GHSA, advisoryKey: null }, { ...OSV, advisoryId: GHSA, advisoryKey: GHSA.toLowerCase() }],
+            ['an alias of the closed row, with a null key', { ...OSV, advisoryId: GHSA, aliasesJson: '["CVE-2026-1"]', advisoryKey: null }, { ...GEMNASIUM, advisoryId: 'CVE-2026-1', advisoryKey: 'cve-2026-1' }],
+            ['an alias of the open row, with a null key', { ...GEMNASIUM, advisoryId: 'CVE-2026-1', advisoryKey: null }, { ...OSV, advisoryId: GHSA, aliasesJson: '["CVE-2026-1"]', advisoryKey: GHSA.toLowerCase() }],
+            ['a corroboration naming the numeric id its own source gave', { ...OSV, advisoryId: GHSA, corroborationsJson: JSON.stringify([{ source: 'npm-audit', advisoryId: '1234', severity: 'high' }]) }, { ...NPM, advisoryId: '1234' }],
+            ['a stale key the open row has left behind, still its alias', { ...GEMNASIUM, advisoryId: 'GMS-2026-1', advisoryKey: 'cve-2026-1' }, { ...OSV, advisoryId: GHSA, aliasesJson: '["CVE-2026-1"]', advisoryKey: GHSA.toLowerCase() }],
+            ['a stale key that is a source-namespaced id', { ...OSV, advisoryId: GHSA, advisoryKey: 'gemnasium:1234' }, { ...GEMNASIUM, advisoryId: '1234', advisoryKey: 'ghsa-other' }],
+            ['a row with no source, read by its scanner', { ...NPM, source: null, advisoryId: '1234', corroborationsJson: '[]', advisoryUrl: 'https://github.com/advisories/' + GHSA }, { ...OSV, advisoryId: GHSA }],
+            ['a link through another owed row', { ...NPM, advisoryId: '1234', advisoryUrl: 'https://github.com/advisories/' + GHSA }, { ...OSV, advisoryId: 'CVE-2026-1' }, { ...GEMNASIUM, advisoryId: GHSA, aliasesJson: '["CVE-2026-1"]' }]
+        ] as const)('is held on %s, and goes when that row closes', function (_name, closed, open, bridge?: Partial<typeof findings.$inferInsert>) {
+            optedIn()
+            resolvedRow('closed', 'a', closed)
+            if (bridge !== undefined) resolvedRow('bridge', 'a', bridge)
+            resolvedRow('open', 'a', { ...open, resolvedAt: null })
+            expect(owed()).toEqual([])
+            db.update(findings).set({ resolvedAt: T0 + 20 }).where(eq(findings.id, 'open')).run()
+            const candidates = listOwedResolvedFindings(db, 't', T0, null)
+            expect(candidates.map(function id(c) { return c.finding.id }).sort()).toEqual(bridge === undefined ? ['closed', 'open'] : ['bridge', 'closed', 'open'])
+            // One claim: every row of it reads as the same advisory.
+            expect(new Set(candidates.map(function identity(c) { return c.identity })).size).toBe(1)
+        })
+
+        it.each([
+            ['a shared title alone', { ...NPM, advisoryId: 'GHSA-one', advisoryTitle: 'Path traversal' }, { ...OSV, advisoryId: 'GHSA-two', advisoryTitle: 'Path traversal' }],
+            ['the same bare number in two sources', { ...NPM, advisoryId: '1234' }, { ...GEMNASIUM, advisoryId: '1234' }],
+            ['a bare number as an alias, against another source\'s id', { ...OSV, advisoryId: GHSA, aliasesJson: '["1234"]' }, { ...NPM, advisoryId: '1234' }],
+            ['a bare number in a url', { ...NPM, advisoryId: 'GHSA-one', advisoryUrl: 'https://npmjs.com/advisories/1234' }, { ...OSV, advisoryId: '1234' }],
+            ['a corroboration of another advisory', { ...OSV, advisoryId: 'GHSA-one', corroborationsJson: JSON.stringify([{ source: 'npm-audit', advisoryId: '99', severity: 'high' }]) }, { ...NPM, advisoryId: '1234' }],
+            ['different keys and ids', { ...NPM, advisoryId: 'GHSA-one', advisoryKey: 'ghsa-one' }, { ...OSV, advisoryId: 'GHSA-two', advisoryKey: 'ghsa-two' }],
+            ['corrupt evidence columns', { ...NPM, advisoryId: 'GHSA-one', aliasesJson: 'not json', corroborationsJson: 'not json' }, { ...OSV, advisoryId: 'GHSA-two', aliasesJson: '{"not":"a list"}' }]
+        ] as const)('is told beside an open row linked by %s', function (_name, closed, open) {
+            optedIn()
+            resolvedRow('closed', 'a', closed)
+            resolvedRow('open', 'a', { ...open, resolvedAt: null })
+            expect(owed()).toEqual(['closed'])
+        })
+
+        it.each([
+            ['project', { projectId: 'b' }],
+            ['ecosystem', { ecosystem: 'PyPI' }],
+            ['package', { packageName: 'another' }]
+        ])('is told beside an open row of the same advisory in another %s', function (_name, other) {
+            optedIn()
+            resolvedRow('closed', 'a', { ...NPM, advisoryId: GHSA, advisoryKey: GHSA.toLowerCase() })
+            const { projectId, ...rest } = other as { projectId?: string }
+            resolvedRow('open', projectId ?? 'a', { ...OSV, advisoryId: GHSA, advisoryKey: GHSA.toLowerCase(), ...rest, resolvedAt: null })
+            expect(owed()).toEqual(['closed'])
+        })
+
+        it('holds for an open row of another source the target\'s severity or env filter leaves out', function () {
+            optedIn({ severityFilter: ['high'], envFilter: 'prod' })
+            resolvedRow('closed', 'a', { ...NPM, advisoryId: GHSA, isProd: true })
+            resolvedRow('low', 'a', { ...OSV, advisoryId: GHSA, severity: 'low', isProd: true, resolvedAt: null })
+            expect(owed()).toEqual([])
+            db.delete(findings).where(eq(findings.id, 'low')).run()
+            expect(owed()).toEqual(['closed'])
+            resolvedRow('dev-only', 'a', { ...OSV, advisoryId: GHSA, isProd: false, isDev: true, resolvedAt: null })
+            expect(owed()).toEqual([])
+        })
+
+        it('reads each row of no shared evidence as its own advisory, and keeps projects, ecosystems and packages apart', function () {
+            optedIn()
+            resolvedRow('numeric', 'a', { ...NPM, advisoryId: '1234' })
+            resolvedRow('same-number', 'a', { ...GEMNASIUM, advisoryId: '1234' })
+            resolvedRow('named', 'a', { ...OSV, advisoryId: GHSA })
+            resolvedRow('other-project', 'b', { ...OSV, advisoryId: GHSA })
+            resolvedRow('other-ecosystem', 'a', { ...OSV, advisoryId: GHSA, ecosystem: 'PyPI' })
+            resolvedRow('other-package', 'a', { ...OSV, advisoryId: GHSA, packageName: 'another' })
+            const candidates = listOwedResolvedFindings(db, 't', T0, null)
+            expect(candidates).toHaveLength(6)
+            expect(new Set(candidates.map(function identity(c) { return c.identity })).size).toBe(6)
         })
     })
 

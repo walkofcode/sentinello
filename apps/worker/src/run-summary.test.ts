@@ -40,7 +40,7 @@ vi.mock('./osv-runtime', async function mockOsvRuntime(importOriginal) {
     return { ...actual, scannersForBatch: async function scannersForBatch() { return batchScanners.current } }
 })
 
-type Reported = { advisoryId: string; packageName: string; severity: Severity }
+type Reported = { advisoryId: string; packageName: string; severity: Severity; advisoryUrl?: string }
 
 let handle: WorkerTestDb
 let runtime: WorkerRuntime
@@ -64,7 +64,7 @@ const send: NotificationSender = async function recording(target, message) {
 
 function rawFinding(r: Reported) {
     return {
-        advisoryId: r.advisoryId, advisoryTitle: r.advisoryId + ' title', advisoryUrl: null, packageName: r.packageName, ecosystem: 'npm', installedVersion: '1.0.0',
+        advisoryId: r.advisoryId, advisoryTitle: r.advisoryId + ' title', advisoryUrl: r.advisoryUrl ?? null, packageName: r.packageName, ecosystem: 'npm', installedVersion: '1.0.0',
         vulnerableRange: '<2.0.0', severity: r.severity, fixAvailable: false, fixVersion: null,
         fixInputs: { source: 'npm-audit', installed: ['1.0.0'], affected: { comparator: 'semver' as const, ranges: [], exact: [], complete: false }, patched: null, patchedSet: null, statedFix: null, fixViaParent: false },
         depPath: [], isProd: true, isDev: false, aliases: []
@@ -407,6 +407,96 @@ describe('resolved rows', function () {
         audit.set('b', [high('GHSA-b'), high('GHSA-b3', 'qs')])
         await sweep()
         expect(to('summary')[0]?.markdown).not.toContain('Resolved')
+    })
+})
+
+// Two sources disagree: npm audit stops reporting an advisory another source still reports. No ignore file and no edit,
+// and the package is still vulnerable, so one message must not list it under HIGH and under Resolved.
+describe('a row another source still has open', function () {
+    const GHSA = 'GHSA-aaaa-bbbb-cccc'
+    const NEWS = 'https://github.com/advisories/' + GHSA
+    // What the second source answers for each project.
+    let osv: Map<string, Reported[]>
+
+    const npmFeed: ScannerPlugin = {
+        name: 'osv',
+        scan: async function scan(path, options) {
+            const reported = options.ecosystem === 'npm' ? osv.get(path.split('/').pop() as string) ?? [] : []
+            return { status: 'ok', reasonCode: 'ok', findings: reported.map(rawFinding), rawJson: '{}', errorText: null, durationMs: 1 }
+        }
+    } as ScannerPlugin
+
+    function rowsOfA(): (typeof schema.findings.$inferSelect)[] {
+        return handle.db.select().from(schema.findings).all().filter(function ofProject(row) { return row.projectId === id('a') })
+    }
+
+    function bothSources(): Promise<void> {
+        return sweep([fakeAudit, npmFeed])
+    }
+
+    // One more finding on b, which is what carries a resolved row when a has no news of its own.
+    async function sweepWithNews(): Promise<string> {
+        const earlier = audit.get('b') as Reported[] | undefined ?? []
+        const packageName = 'news-' + earlier.length
+        audit.set('b', [...earlier, high('GHSA-' + packageName, packageName)])
+        sent = []
+        await bothSources()
+        expect(to('summary')).toHaveLength(1)
+        return to('summary')[0]?.markdown as string
+    }
+
+    function told(): number {
+        return handle.db.select().from(schema.runSummaryResolvedTold).all().length
+    }
+
+    beforeEach(function enableSecondSource() {
+        osv = new Map()
+        setConfigValue(handle.db, sourceEnabledKey('osv', 'npm'), true)
+        target('summary', 'run_summary')
+    })
+
+    it('is not told while that source reports the package under HIGH, and is told once when it closes too', async function () {
+        audit.set('a', [high(GHSA)])
+        osv.set('a', [high(GHSA)])
+        await bothSources()
+        audit.set('a', [])
+        sent = []
+        await bothSources()
+        expect(rowsOfA().map(function open(row) { return [row.source, row.resolvedAt === null] }).sort()).toEqual([['npm-audit', false], ['osv', true]])
+        expect(to('summary')).toHaveLength(1)
+        expect(to('summary')[0]?.markdown).toContain('a › lodash')
+        expect(to('summary')[0]?.markdown).not.toContain('Resolved')
+        expect(told()).toBe(0)
+        osv.delete('a')
+        expect(await sweepWithNews()).toContain('*Resolved*\n• a › lodash (Node.js): 1 advisory')
+        expect(told()).toBe(2)
+        expect(await sweepWithNews()).not.toContain('Resolved')
+    })
+
+    // npm audit's numeric id, with only its url to say which advisory it is, on a row whose key nothing refreshes now.
+    it('is held by the evidence of a numeric id whose key is gone, and reads as one advisory when both have closed', async function () {
+        audit.set('a', [{ ...high('1234'), advisoryUrl: NEWS }])
+        osv.set('a', [high(GHSA)])
+        await bothSources()
+        audit.set('a', [])
+        await bothSources()
+        handle.sqlite.prepare('UPDATE findings SET advisory_key = NULL WHERE resolved_at IS NOT NULL').run()
+        expect(rowsOfA().filter(function closed(row) { return row.resolvedAt !== null }).map(function key(row) { return [row.advisoryId, row.advisoryKey] })).toEqual([['1234', null]])
+        expect(await sweepWithNews()).not.toContain('Resolved')
+        expect(told()).toBe(0)
+        osv.delete('a')
+        expect(await sweepWithNews()).toContain('*Resolved*\n• a › lodash (Node.js): 1 advisory')
+        expect(told()).toBe(2)
+        expect(await sweepWithNews()).not.toContain('Resolved')
+    })
+
+    it('is told when what stays open is another advisory of the package', async function () {
+        audit.set('a', [high('GHSA-fixed')])
+        osv.set('a', [high('GHSA-still-open')])
+        await bothSources()
+        audit.set('a', [])
+        expect(await sweepWithNews()).toContain('*Resolved*\n• a › lodash (Node.js): 1 advisory')
+        expect(told()).toBe(1)
     })
 })
 
@@ -854,6 +944,75 @@ describe('a resolved row that names its manifests', function () {
         expect(rowsOf().every(function closed(row) { return row.resolvedAt !== null })).toBe(true)
         expect(handle.db.select().from(schema.runSummaryResolvedTold).all()).toHaveLength(2)
         expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+    })
+
+    // An older episode stays held for a hidden copy while a newer one of the same advisory comes and goes elsewhere. The
+    // newer row names only what the scan read, so judged alone it would tell a fix with the hidden lockfile unread.
+    describe('and a newer episode of its advisory closes while it is held', function () {
+        function told(): string[] {
+            return handle.db.select().from(schema.runSummaryResolvedTold).all().map(function finding(row) { return row.findingId }).sort()
+        }
+
+        // Project a: the row naming ios closes held, then a new row through web opens and closes. Leaves both owed.
+        async function heldBesideClosedEpisode(): Promise<void> {
+            await rowThrough('ios')
+            await writeFile(join(rootPath, 'a', '.gitignore'), 'ios/')
+            ruby = new Map()
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+            closedNaming('ios/Gemfile.lock')
+            await mkdir(join(rootPath, 'a', 'web'))
+            await writeFile(join(rootPath, 'a', 'web', 'Gemfile.lock'), GEMFILE_LOCK)
+            ruby = new Map([['a', ['GHSA-a']]])
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+            ruby = new Map()
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+            expect(rowsOf()).toHaveLength(2)
+            expect(rowsOf().every(function closed(row) { return row.resolvedAt !== null })).toBe(true)
+            expect(told()).toEqual([])
+        }
+
+        it('tells neither while the copy is hidden, and one advisory once when the lockfile is gone', async function () {
+            await heldBesideClosedEpisode()
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+            expect(told()).toEqual([])
+            await rm(join(rootPath, 'a', 'ios'), { recursive: true })
+            expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack (Ruby): 1 advisory')
+            expect(told()).toHaveLength(2)
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+        })
+
+        it('tells one advisory once when the rule is lifted and a scan reads the lockfile clean', async function () {
+            await heldBesideClosedEpisode()
+            await rm(join(rootPath, 'a', '.gitignore'))
+            expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack (Ruby): 1 advisory')
+            expect(told()).toHaveLength(2)
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+        })
+
+        // Rows copied from the held one and changed in one respect, the key kept where it would otherwise join them.
+        it('holds nothing of another project, ecosystem, package or advisory', async function () {
+            await heldBesideClosedEpisode()
+            const held = rowsOf()[0] as typeof schema.findings.$inferSelect
+            const installationsJson = JSON.stringify([{ manifestPath: 'web/Gemfile.lock', version: '2.0.8' }])
+            const others = {
+                'other-project': { projectId: id('b') },
+                'other-ecosystem': { ecosystem: 'npm' },
+                'other-package': { packageName: 'sinatra' },
+                'other-advisory': { advisoryId: 'GHSA-other', advisoryKey: 'ghsa-other' }
+            }
+            for (const [rowId, change] of Object.entries(others)) {
+                handle.db.insert(schema.findings).values({ ...held, id: rowId, installationsJson, ...change }).run()
+            }
+            const { markdown } = await sweepWithNews()
+            expect(markdown).toContain('b › rack (Ruby): 1 advisory')
+            expect(markdown).toContain('a › rack (Node.js): 1 advisory')
+            expect(markdown).toContain('a › sinatra (Ruby): 1 advisory')
+            expect(markdown).toContain('a › rack (Ruby): 1 advisory')
+            expect(told()).toEqual(['other-advisory', 'other-ecosystem', 'other-package', 'other-project'])
+            await rm(join(rootPath, 'a', 'ios'), { recursive: true })
+            expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack (Ruby): 1 advisory')
+            expect(told()).toHaveLength(6)
+        })
     })
 
     // An edit to the ignore file while another copy is still reported: the scan sees one copy of a row that has two.

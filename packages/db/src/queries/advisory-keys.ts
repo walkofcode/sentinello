@@ -24,8 +24,9 @@ export type RefreshAdvisoryKeysResult = {
     keys: Map<string, string>
 }
 
-type OpenRow = {
+type EvidenceRow = {
     id: string
+    projectId: string
     source: string | null
     scanner: string
     ecosystem: string
@@ -35,6 +36,20 @@ type OpenRow = {
     aliasesJson: string
     corroborationsJson: string
     advisoryKey: string | null
+}
+
+const EVIDENCE_COLUMNS = {
+    id: findings.id,
+    projectId: findings.projectId,
+    source: findings.source,
+    scanner: findings.scanner,
+    ecosystem: findings.ecosystem,
+    packageName: findings.packageName,
+    advisoryId: findings.advisoryId,
+    advisoryUrl: findings.advisoryUrl,
+    aliasesJson: findings.aliasesJson,
+    corroborationsJson: findings.corroborationsJson,
+    advisoryKey: findings.advisoryKey
 }
 
 // An id is globally named when it carries its namespace (GHSA-…, CVE-…, GO-…, RUSTSEC-…, PYSEC-…, GMS-…). One
@@ -58,6 +73,19 @@ function parseAliases(json: string): string[] {
         return []
     }
     return Array.isArray(parsed) ? parsed.filter(function isId(value): value is string { return typeof value === 'string' && value.length > 0 }) : []
+}
+
+function ownNode(row: EvidenceRow): string {
+    return nodeOf(row.advisoryId, row.source ?? row.scanner)
+}
+
+// What a row itself states it is linked to: its aliases, the ids its URL names, and what other sources reported with it.
+function statedNodes(row: EvidenceRow): string[] {
+    const source = row.source ?? row.scanner
+    return [
+        ...[...parseAliases(row.aliasesJson), ...urlIdentifiers(row.advisoryUrl)].map(function aliased(alias) { return nodeOf(alias, source) }),
+        ...(parseFindingCorroborations(row.corroborationsJson) as FindingCorroboration[]).map(function reported(c) { return nodeOf(c.advisoryId, c.source) })
+    ]
 }
 
 class UnionFind {
@@ -93,16 +121,14 @@ function representative(nodes: readonly string[]): string {
 }
 
 // The keys of one (ecosystem, package)'s open rows, from their stored evidence and what the caches know.
-function keysOfPackage(rows: readonly OpenRow[], cacheRecords: readonly { advisoryId: string; aliases: readonly string[] }[]): Map<string, string> {
+function keysOfPackage(rows: readonly EvidenceRow[], cacheRecords: readonly { advisoryId: string; aliases: readonly string[] }[]): Map<string, string> {
     const sets = new UnionFind()
     const rowNodes = new Map<string, string>()
     for (const row of rows) {
-        const source = row.source ?? row.scanner
-        const node = nodeOf(row.advisoryId, source)
+        const node = ownNode(row)
         rowNodes.set(row.id, node)
         sets.find(node)
-        for (const alias of [...parseAliases(row.aliasesJson), ...urlIdentifiers(row.advisoryUrl)]) sets.union(node, nodeOf(alias, source))
-        for (const c of parseFindingCorroborations(row.corroborationsJson) as FindingCorroboration[]) sets.union(node, nodeOf(c.advisoryId, c.source))
+        for (const stated of statedNodes(row)) sets.union(node, stated)
     }
     // A cache record has no source of its own to namespace with, and needs none: only globally named ids link
     // anything across records. An unnamed one in a cache is the cache's private id, and is left out.
@@ -125,7 +151,7 @@ function keysOfPackage(rows: readonly OpenRow[], cacheRecords: readonly { adviso
 // Refreshes advisory_key for the open rows of the named packages, or of every package with no scope. Writes
 // only the rows whose key changed.
 export function refreshAdvisoryKeys(db: DrizzleDb, caches: readonly AliasEvidence[], scope?: readonly AdvisoryPackage[]): RefreshAdvisoryKeysResult {
-    const groups = new Map<string, OpenRow[]>()
+    const groups = new Map<string, EvidenceRow[]>()
     for (const row of readOpenRows(db, scope)) {
         const key = row.ecosystem + '\x00' + row.packageName
         const group = groups.get(key)
@@ -134,7 +160,7 @@ export function refreshAdvisoryKeys(db: DrizzleDb, caches: readonly AliasEvidenc
     }
     const names = new Map<string, string[]>()
     for (const group of groups.values()) {
-        const first = group[0] as OpenRow
+        const first = group[0] as EvidenceRow
         const list = names.get(first.ecosystem)
         if (list) list.push(first.packageName)
         else names.set(first.ecosystem, [first.packageName])
@@ -152,7 +178,7 @@ export function refreshAdvisoryKeys(db: DrizzleDb, caches: readonly AliasEvidenc
     let written = 0
     db.transaction(function write(tx) {
         for (const group of groups.values()) {
-            const first = group[0] as OpenRow
+            const first = group[0] as EvidenceRow
             const records = (answers.get(first.ecosystem) as ReadonlyMap<string, readonly { advisoryId: string; aliases: readonly string[] }[]>[]).flatMap(function ofPackage(answer) { return [...(answer.get(first.packageName) ?? [])] })
             const groupKeys = keysOfPackage(group, records)
             for (const row of group) {
@@ -167,29 +193,62 @@ export function refreshAdvisoryKeys(db: DrizzleDb, caches: readonly AliasEvidenc
     return { written, keys }
 }
 
-function readOpenRows(db: DrizzleDb, scope: readonly AdvisoryPackage[] | undefined): OpenRow[] {
-    const columns = {
-        id: findings.id,
-        source: findings.source,
-        scanner: findings.scanner,
-        ecosystem: findings.ecosystem,
-        packageName: findings.packageName,
-        advisoryId: findings.advisoryId,
-        advisoryUrl: findings.advisoryUrl,
-        aliasesJson: findings.aliasesJson,
-        corroborationsJson: findings.corroborationsJson,
-        advisoryKey: findings.advisoryKey
-    }
-    if (scope === undefined) return db.select(columns).from(findings).where(isNull(findings.resolvedAt)).all()
+function readOpenRows(db: DrizzleDb, scope: readonly AdvisoryPackage[] | undefined): EvidenceRow[] {
+    if (scope === undefined) return db.select(EVIDENCE_COLUMNS).from(findings).where(isNull(findings.resolvedAt)).all()
     const wanted = new Set(scope.map(function pair(p) { return p.ecosystem + '\x00' + p.packageName }))
-    const out: OpenRow[] = []
+    const out: EvidenceRow[] = []
     const names = [...new Set(scope.map(function name(p) { return p.packageName }))]
     const CHUNK = 500
     for (let i = 0; i < names.length; i += CHUNK) {
-        const rows = db.select(columns).from(findings).where(and(isNull(findings.resolvedAt), inArray(findings.packageName, names.slice(i, i + CHUNK)))).all()
+        const rows = db.select(EVIDENCE_COLUMNS).from(findings).where(and(isNull(findings.resolvedAt), inArray(findings.packageName, names.slice(i, i + CHUNK)))).all()
         for (const row of rows) {
             if (wanted.has(row.ecosystem + '\x00' + row.packageName)) out.push(row)
         }
     }
     return out
+}
+
+export type ReportingIdentity = {
+    // Equal for the rows one message may call one advisory. It names the project, ecosystem and package, so no two of
+    // those ever share one.
+    identity: string
+    // An open row of the project is the same advisory.
+    open: boolean
+}
+
+// Which advisory each closed row is, for what a message claims about it, judged against every open row of its project,
+// ecosystem and package. Whatever the rows state joins them, directly or through each other: id, aliases, the ids a URL
+// names, corroborations, and the stored key, which refreshAdvisoryKeys keeps current on open rows only, so a closed row's
+// may be stale or null and equal keys alone would not do. An id with no namespace stays inside its source, and a title is
+// no evidence (SENTINEL-174). With no evidence a row stands alone under its own source and id. Stored evidence only, and
+// nothing is written: history is not rewritten. Reads only the packages of the rows it is given.
+export function reportingIdentities(db: DrizzleDb, closedIds: readonly string[]): Map<string, ReportingIdentity> {
+    const closed = closedIds.length === 0 ? [] : db.select(EVIDENCE_COLUMNS).from(findings).where(inArray(findings.id, [...closedIds])).all()
+    function groupOf(row: EvidenceRow): string {
+        return row.projectId + '\x00' + row.ecosystem + '\x00' + row.packageName
+    }
+    const groups = new Map<string, { closed: EvidenceRow[]; open: EvidenceRow[] }>()
+    for (const row of closed) {
+        const group = groups.get(groupOf(row)) ?? { closed: [], open: [] }
+        group.closed.push(row)
+        groups.set(groupOf(row), group)
+    }
+    for (const row of readOpenRows(db, closed)) groups.get(groupOf(row))?.open.push(row)
+    const identities = new Map<string, ReportingIdentity>()
+    for (const [group, rows] of groups) {
+        const sets = new UnionFind()
+        for (const row of [...rows.closed, ...rows.open]) {
+            const node = ownNode(row)
+            sets.find(node)
+            for (const stated of statedNodes(row)) sets.union(node, stated)
+            // Already a node: refreshAdvisoryKeys wrote it from nodeOf.
+            if (row.advisoryKey !== null) sets.union(node, row.advisoryKey)
+        }
+        const stillOpen = new Set(rows.open.map(function root(row) { return sets.find(ownNode(row)) }))
+        for (const row of rows.closed) {
+            const root = sets.find(ownNode(row))
+            identities.set(row.id, { identity: group + '\x00' + root, open: stillOpen.has(root) })
+        }
+    }
+    return identities
 }

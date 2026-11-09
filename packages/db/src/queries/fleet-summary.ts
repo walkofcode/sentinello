@@ -3,6 +3,7 @@ import { isCacheNotReadyReason, severityInFilter, type Finding, type Notificatio
 import type { DrizzleDb } from '../client'
 import { notificationTargets, runSummaryResolvedTold, runSummaryUnscannableTold } from '../schema'
 import { advisoryIdentitySql, findingMuteExclusionSql, severityRankSql, statesModerateSql } from './advisory-identity'
+import { reportingIdentities, type ReportingIdentity } from './advisory-keys'
 import type { SeverityCounts } from './dashboard'
 import { listFindingsByIds } from './findings'
 import { findingEligibleForTargetSql, findingSeverityInFilterSql, recordSuccess } from './notification-deliveries'
@@ -109,12 +110,15 @@ export function setNotificationTargetDelivery(db: DrizzleDb, target: Notificatio
 // Resolved findings of the run's scope this target has not been told, from the moment it opted in. Read from
 // resolved_at and the per-target acknowledgements directly, never through a scan: a row a source that is no longer
 // attempted closed has no resolving scan (resolved_scan_id is null), and it is news all the same. A notice is not a
-// vulnerability, so its going is not news either. Nor is a row whose identity is open again: the merge opens a new row
-// for what it finds again rather than reopening the old one, so the old row's closing is no longer true (SENTINEL-199).
-// It stays owed until the open row closes too, and the two then read as one advisory. That open row counts whatever this
-// target's severity and env filters say of it: a filter is not evidence of a fix.
+// vulnerability, so its going is not news either. Nor is a row whose advisory is open in its project and package: the
+// merge opens a new row for what it finds again rather than reopening the old one (SENTINEL-199), and one source can stop
+// reporting what another still does (SENTINEL-202), so the closing is not true. It stays owed until the open row closes
+// too, and the two then read as one advisory. That open row counts whatever this target's severity and env filters say of
+// it: a filter is not evidence of a fix.
 export type ResolvedCandidate = {
     finding: Finding
+    // Which advisory this is, for one message: reportingIdentities.
+    identity: string
     rootPath: string
     relPath: string
     projectName: string
@@ -133,23 +137,16 @@ export function listOwedResolvedFindings(db: DrizzleDb, targetId: string, at: nu
           AND t.run_summary_since_at IS NOT NULL
           AND f.resolved_at >= t.run_summary_since_at
           AND NOT EXISTS (SELECT 1 FROM run_summary_resolved_told told WHERE told.target_id = t.id AND told.finding_id = f.id)
-          AND NOT EXISTS (
-              SELECT 1 FROM findings episode
-              WHERE episode.project_id = f.project_id
-                AND COALESCE(episode.source, episode.scanner) = COALESCE(f.source, f.scanner)
-                AND episode.ecosystem = f.ecosystem
-                AND episode.advisory_id = f.advisory_id
-                AND episode.package_name = f.package_name
-                AND episode.resolved_at IS NULL
-          )
           AND ${findingEligibleForTargetSql('f', 't')}
           AND ${findingSeverityInFilterSql('f', 't')}
           ${findingMuteExclusionSql(at, 'f')}
           ${scope}
     `)
-    const byId = new Map(listFindingsByIds(db, rows.map(function id(row) { return row.id })).map(function pair(f): [string, Finding] { return [f.id, f] }))
-    return rows.map(function toCandidate(row): ResolvedCandidate {
-        return { finding: byId.get(row.id) as Finding, rootPath: row.root_path, relPath: row.rel_path, projectName: row.alias ?? row.name }
+    const identities = reportingIdentities(db, rows.map(function id(row) { return row.id }))
+    const closed = rows.filter(function noOpenRow(row) { return !(identities.get(row.id) as ReportingIdentity).open })
+    const byId = new Map(listFindingsByIds(db, closed.map(function id(row) { return row.id })).map(function pair(f): [string, Finding] { return [f.id, f] }))
+    return closed.map(function toCandidate(row): ResolvedCandidate {
+        return { finding: byId.get(row.id) as Finding, identity: (identities.get(row.id) as ReportingIdentity).identity, rootPath: row.root_path, relPath: row.rel_path, projectName: row.alias ?? row.name }
     })
 }
 
