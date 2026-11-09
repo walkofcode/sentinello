@@ -137,15 +137,15 @@ describe('pollOnce — claiming', function () {
     })
 
     it('claims the oldest pending request first', async function () {
-        const first = enqueueScanRequest(handle.db, {}, T0)
-        enqueueScanRequest(handle.db, {}, T0 + 1000)
+        const first = enqueueScanRequest(handle.db, {}, T0, 'manual')
+        enqueueScanRequest(handle.db, {}, T0 + 1000, 'manual')
         await pollOnce(input())
         expect(statusOf(first.id)).toBe('done')
     })
 
     it('handles one request per tick', async function () {
-        enqueueScanRequest(handle.db, {}, T0)
-        const second = enqueueScanRequest(handle.db, {}, T0 + 1000)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
+        const second = enqueueScanRequest(handle.db, {}, T0 + 1000, 'manual')
         await pollOnce(input())
         expect(statusOf(second.id)).toBe('pending')
         await pollOnce(input())
@@ -155,7 +155,7 @@ describe('pollOnce — claiming', function () {
 
 describe('pollOnce — full sweep', function () {
     it('discovers and scans every project under every root', async function () {
-        const request = enqueueScanRequest(handle.db, {}, T0)
+        const request = enqueueScanRequest(handle.db, {}, T0, 'manual')
         await pollOnce(input())
         expect(lastBatch().projects.map(function rel(p) { return p.relPath })).toEqual(['web'])
         expect(statusOf(request.id)).toBe('done')
@@ -163,7 +163,7 @@ describe('pollOnce — full sweep', function () {
 
     it('marks the request done without a batch when there is nothing to scan', async function () {
         const empty = await openWorkerTestDb('worker-poller-empty')
-        const request = enqueueScanRequest(empty.db, {}, T0)
+        const request = enqueueScanRequest(empty.db, {}, T0, 'manual')
         await pollOnce(input({ db: empty.db, sqlite: empty.sqlite }))
         expect(runBatch).not.toHaveBeenCalled()
         expect(listRecentScanRequests(empty.db).find(function m(r) { return r.id === request.id })?.status).toBe('done')
@@ -172,13 +172,13 @@ describe('pollOnce — full sweep', function () {
 
     it('uses the configured parallelism', async function () {
         setConfigValue(handle.db, CONFIG_KEYS.parallelism, 2)
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
         await pollOnce(input())
         expect(lastBatch().parallelism).toBe(2)
     })
 
     it('threads the abort signal so shutdown can cut the scan short', async function () {
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
         await pollOnce(input())
         expect(lastBatch().abortSignal).toBe(runtime.abortController.signal)
     })
@@ -193,7 +193,7 @@ describe('pollOnce — full sweep', function () {
         insertScan(handle.db, { id: 'old-scan', projectId: 'old-project', startedAt: T0, finishedAt: T0, scanner: 'npm-audit', source: 'npm-audit', ecosystem: 'npm', status: 'ok', reasonCode: 'ok', durationMs: 1, errorText: null, rawJson: '{}' })
         seedCapabilityBaselines(handle.db, CAPABILITIES, T0)
         runBatch.mockResolvedValueOnce({ outcomes: [], completed })
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
         await pollOnce(input())
         expect(getBaselineState(handle.db, 'languages-3.8')).toBe(state)
     })
@@ -213,7 +213,7 @@ describe('pollOnce — while an advisory cache is rebuilding', function () {
     })
 
     it('holds a full sweep until the cache lands, then runs it', async function () {
-        const sweep = enqueueScanRequest(handle.db, {}, T0)
+        const sweep = enqueueScanRequest(handle.db, {}, T0, 'manual')
         await pollOnce(input())
         expect(runBatch).not.toHaveBeenCalled()
         expect(statusOf(sweep.id)).toBe('pending')
@@ -226,9 +226,9 @@ describe('pollOnce — while an advisory cache is rebuilding', function () {
     })
 
     it('still runs a project request queued behind the held sweep', async function () {
-        const sweep = enqueueScanRequest(handle.db, {}, T0)
+        const sweep = enqueueScanRequest(handle.db, {}, T0, 'manual')
         seedProject(handle.db, { id: 'p-1', rootId: 'root-1', relPath: 'web' })
-        const project = enqueueScanRequest(handle.db, { projectId: 'p-1' }, T0 + 1)
+        const project = enqueueScanRequest(handle.db, { projectId: 'p-1' }, T0 + 1, 'manual')
         await pollOnce(input())
         expect(statusOf(project.id)).toBe('done')
         expect(statusOf(sweep.id)).toBe('pending')
@@ -238,12 +238,12 @@ describe('pollOnce — while an advisory cache is rebuilding', function () {
 describe('pollOnce — single project', function () {
     it('scans only the requested project', async function () {
         await makeTree(rootPath, 'api', { 'package.json': PKG_JSON })
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
         await pollOnce(input())
         runBatch.mockClear()
 
         const id = makeProjectId('root-1', 'api')
-        const request = enqueueScanRequest(handle.db, { projectId: id }, T0 + 1000)
+        const request = enqueueScanRequest(handle.db, { projectId: id }, T0 + 1000, 'manual')
         await pollOnce(input())
 
         expect(lastBatch().projects.map(function pid(p) { return p.id })).toEqual([id])
@@ -258,7 +258,7 @@ describe('pollOnce — single project', function () {
     // indistinguishable from a live scan and spins in the portal until the next boot resets it.
     it('marks the request failed when the project no longer exists', async function () {
         const loose = await openWorkerTestDb('worker-poller-ghost', { relaxForeignKeys: true })
-        const request = enqueueScanRequest(loose.db, { projectId: 'ghost' }, T0)
+        const request = enqueueScanRequest(loose.db, { projectId: 'ghost' }, T0, 'manual')
         await pollOnce(input({ db: loose.db, sqlite: loose.sqlite }))
         expect(listRecentScanRequests(loose.db).find(function m(r) { return r.id === request.id })?.status).toBe('failed')
         expect(errorLines().some(function m(l) { return l.includes('project not found: ghost') })).toBe(true)
@@ -267,12 +267,12 @@ describe('pollOnce — single project', function () {
     })
 
     it('does not run discovery for a single-project request', async function () {
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
         await pollOnce(input())
         await makeTree(rootPath, 'api', { 'package.json': PKG_JSON })
 
         const id = makeProjectId('root-1', 'web')
-        enqueueScanRequest(handle.db, { projectId: id }, T0 + 1000)
+        enqueueScanRequest(handle.db, { projectId: id }, T0 + 1000, 'manual')
         await pollOnce(input())
 
         expect(lastBatch().projects.map(function pid(p) { return p.id })).toEqual([id])
@@ -283,7 +283,7 @@ describe('pollOnce — root sweep', function () {
     it('discovers and scans only the requested root', async function () {
         const other = await makeTree(handle.dir, 'other', { 'tool/package.json': PKG_JSON })
         upsertRoot(handle.db, { id: 'root-2', path: other, label: null, createdAt: T0 })
-        const request = enqueueScanRequest(handle.db, { rootId: 'root-2' }, T0)
+        const request = enqueueScanRequest(handle.db, { rootId: 'root-2' }, T0, 'manual')
 
         await pollOnce(input())
 
@@ -294,7 +294,7 @@ describe('pollOnce — root sweep', function () {
     // Same shape as the missing-project case, and reachable the same way — see the note there.
     it('marks the request failed when the root no longer exists', async function () {
         const loose = await openWorkerTestDb('worker-poller-ghost-root', { relaxForeignKeys: true })
-        const request = enqueueScanRequest(loose.db, { rootId: 'ghost' }, T0)
+        const request = enqueueScanRequest(loose.db, { rootId: 'ghost' }, T0, 'manual')
         await pollOnce(input({ db: loose.db, sqlite: loose.sqlite }))
         expect(listRecentScanRequests(loose.db).find(function m(r) { return r.id === request.id })?.status).toBe('failed')
         expect(errorLines().some(function m(l) { return l.includes('root not found: ghost') })).toBe(true)
@@ -304,7 +304,7 @@ describe('pollOnce — root sweep', function () {
     it('marks the request done without a batch when the root holds no projects', async function () {
         const bare = await makeTree(handle.dir, 'bare', { 'notes.md': 'nothing here' })
         upsertRoot(handle.db, { id: 'root-3', path: bare, label: null, createdAt: T0 })
-        const request = enqueueScanRequest(handle.db, { rootId: 'root-3' }, T0)
+        const request = enqueueScanRequest(handle.db, { rootId: 'root-3' }, T0, 'manual')
         await pollOnce(input())
         expect(runBatch).not.toHaveBeenCalled()
         expect(statusOf(request.id)).toBe('done')
@@ -318,7 +318,7 @@ describe('pollOnce — root sweep', function () {
     ])('reports %s in the finished log', async function (_label, tree, expected) {
         const path = await makeTree(handle.dir, 'counted-' + String(expected).replace(/\W/g, ''), tree as Record<string, string>)
         upsertRoot(handle.db, { id: 'root-count', path, label: null, createdAt: T0 })
-        enqueueScanRequest(handle.db, { rootId: 'root-count' }, T0)
+        enqueueScanRequest(handle.db, { rootId: 'root-count' }, T0, 'manual')
 
         await pollOnce(input())
 
@@ -339,32 +339,32 @@ describe('pollOnce — withdrawal evidence', function () {
     }
 
     it('refreshes before a full sweep', async function () {
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
         await pollOnce(input())
         expect(osvController.refreshEvidence).toHaveBeenCalledTimes(1)
         expect(refreshedBeforeTheBatch()).toBe(true)
     })
 
     it('refreshes before a single-project scan', async function () {
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
         await pollOnce(input())
         runBatch.mockClear()
         osvController.refreshEvidence.mockClear()
-        enqueueScanRequest(handle.db, { projectId: makeProjectId('root-1', 'web') }, T0 + 1000)
+        enqueueScanRequest(handle.db, { projectId: makeProjectId('root-1', 'web') }, T0 + 1000, 'manual')
         await pollOnce(input())
         expect(osvController.refreshEvidence).toHaveBeenCalledTimes(1)
         expect(refreshedBeforeTheBatch()).toBe(true)
     })
 
     it('refreshes before a root sweep', async function () {
-        enqueueScanRequest(handle.db, { rootId: 'root-1' }, T0)
+        enqueueScanRequest(handle.db, { rootId: 'root-1' }, T0, 'manual')
         await pollOnce(input())
         expect(osvController.refreshEvidence).toHaveBeenCalledTimes(1)
         expect(refreshedBeforeTheBatch()).toBe(true)
     })
 
     it('still scans when no OSV controller was passed', async function () {
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
         await pollOnce(input({ osvController: null }))
         expect(runBatch).toHaveBeenCalledTimes(1)
     })
@@ -373,7 +373,7 @@ describe('pollOnce — withdrawal evidence', function () {
 describe('pollOnce — failure handling', function () {
     it('marks a request failed when the batch throws, and logs the reason', async function () {
         runBatch.mockRejectedValueOnce(new Error('scanner exploded'))
-        const request = enqueueScanRequest(handle.db, {}, T0)
+        const request = enqueueScanRequest(handle.db, {}, T0, 'manual')
         await pollOnce(input())
         expect(statusOf(request.id)).toBe('failed')
         expect(errorLines().some(function m(l) {
@@ -383,7 +383,7 @@ describe('pollOnce — failure handling', function () {
 
     it('reports a non-Error rejection as a string', async function () {
         runBatch.mockRejectedValueOnce('plain failure')
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
         await pollOnce(input())
         expect(errorLines().some(function m(l) { return l.includes('failed: plain failure') })).toBe(true)
     })
@@ -391,8 +391,8 @@ describe('pollOnce — failure handling', function () {
     // A failed request must not wedge the queue: the next tick has to make progress.
     it('leaves the queue drainable after a failure', async function () {
         runBatch.mockRejectedValueOnce(new Error('once'))
-        enqueueScanRequest(handle.db, {}, T0)
-        const second = enqueueScanRequest(handle.db, {}, T0 + 1000)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
+        const second = enqueueScanRequest(handle.db, {}, T0 + 1000, 'manual')
         await pollOnce(input())
         await pollOnce(input())
         expect(statusOf(second.id)).toBe('done')
@@ -410,7 +410,7 @@ describe('pollOnce — the heartbeat', function () {
                 release = function () { resolve({ outcomes: [], completed: true }) }
             })
         })
-        const request = enqueueScanRequest(handle.db, {}, T0)
+        const request = enqueueScanRequest(handle.db, {}, T0, 'manual')
         const work = pollOnce(input())
         await vi.advanceTimersByTimeAsync(5_000)
         const midFlight = listRecentScanRequests(handle.db).find(function m(r) { return r.id === request.id })
@@ -422,7 +422,7 @@ describe('pollOnce — the heartbeat', function () {
 
     it('stops pinging once the request is done', async function () {
         vi.useFakeTimers()
-        const request = enqueueScanRequest(handle.db, {}, T0)
+        const request = enqueueScanRequest(handle.db, {}, T0, 'manual')
         await pollOnce(input())
         const settled = listRecentScanRequests(handle.db).find(function m(r) { return r.id === request.id })
         await vi.advanceTimersByTimeAsync(30_000)
@@ -447,7 +447,7 @@ describe('pollOnce — the heartbeat', function () {
                 release = function () { resolve({ outcomes: [], completed: true }) }
             })
         })
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
 
         const work = pollOnce(input())
         await vi.advanceTimersByTimeAsync(5_000)
@@ -523,7 +523,7 @@ describe('pollOnce — when the database itself is unavailable', function () {
     it('defaults to a five-second interval when none is given', async function () {
         vi.useFakeTimers()
         const handles = startScanRequestPoller(input())
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
 
         await vi.advanceTimersByTimeAsync(4_999)
         expect(runBatch).not.toHaveBeenCalled()
@@ -547,7 +547,7 @@ describe('worker signals', function () {
     // rather than after the scan finishes.
     it('drains signals before claiming a scan request', async function () {
         enqueueWorkerSignal(handle.db, 'reload-schedule', T0)
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
         runBatch.mockImplementationOnce(function assertOrder() {
             expect(scheduler.reload).toHaveBeenCalled()
             return Promise.resolve({ outcomes: [], completed: true })
@@ -668,7 +668,7 @@ describe('startScanRequestPoller', function () {
 
     it('polls on the configured interval', async function () {
         const handles = startScanRequestPoller(input({ intervalMs: 100 }))
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
         await vi.advanceTimersByTimeAsync(100)
         expect(runBatch).toHaveBeenCalledTimes(1)
         handles.stop()
@@ -676,7 +676,7 @@ describe('startScanRequestPoller', function () {
 
     it('does not poll before the first interval elapses', async function () {
         const handles = startScanRequestPoller(input({ intervalMs: 5_000 }))
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
         await vi.advanceTimersByTimeAsync(4_999)
         expect(runBatch).not.toHaveBeenCalled()
         handles.stop()
@@ -693,7 +693,7 @@ describe('startScanRequestPoller', function () {
             })
         })
         const handles = startScanRequestPoller(input({ intervalMs: 100 }))
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
         await vi.advanceTimersByTimeAsync(100)
         expect(runtime.inFlight.size).toBe(1)
         release()
@@ -705,7 +705,7 @@ describe('startScanRequestPoller', function () {
     it('stops ticking after stop()', async function () {
         const handles = startScanRequestPoller(input({ intervalMs: 100 }))
         handles.stop()
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
         await vi.advanceTimersByTimeAsync(1_000)
         expect(runBatch).not.toHaveBeenCalled()
     })
@@ -714,7 +714,7 @@ describe('startScanRequestPoller', function () {
     it('catches a failing tick and logs it', async function () {
         runBatch.mockRejectedValueOnce(new Error('tick exploded'))
         const handles = startScanRequestPoller(input({ intervalMs: 100 }))
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
         await vi.advanceTimersByTimeAsync(100)
         expect(errorLines().some(function m(l) { return l.includes('tick failed') || l.includes('exploded') })).toBe(true)
         handles.stop()
@@ -723,9 +723,9 @@ describe('startScanRequestPoller', function () {
     it('keeps polling after a failed tick', async function () {
         runBatch.mockRejectedValueOnce(new Error('once'))
         const handles = startScanRequestPoller(input({ intervalMs: 100 }))
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
         await vi.advanceTimersByTimeAsync(100)
-        const second = enqueueScanRequest(handle.db, {}, T0 + 1)
+        const second = enqueueScanRequest(handle.db, {}, T0 + 1, 'manual')
         await vi.advanceTimersByTimeAsync(100)
         expect(statusOf(second.id)).toBe('done')
         handles.stop()
@@ -733,7 +733,7 @@ describe('startScanRequestPoller', function () {
 
     it('logs the sweep it performed', async function () {
         const handles = startScanRequestPoller(input({ intervalMs: 100 }))
-        enqueueScanRequest(handle.db, {}, T0)
+        enqueueScanRequest(handle.db, {}, T0, 'manual')
         await vi.advanceTimersByTimeAsync(100)
         expect(logLines().some(function m(l) { return l.includes('full sweep started') })).toBe(true)
         handles.stop()

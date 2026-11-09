@@ -300,7 +300,22 @@
             "webhookFlavor": "Formato do payload",
             "webhookFlavorJson": "JSON estruturado",
             "webhookFlavorText": "Aviso em texto simples",
-            "webhookFlavorHelp": "JSON envia raiz, projeto e vulnerabilidades para um agente de correção automática. Texto simples envia a exportação de avisos, pronta para um LLM."
+            "webhookFlavorHelp": "JSON envia raiz, projeto e vulnerabilidades para um agente de correção automática. Texto simples envia a exportação de avisos, pronta para um LLM.",
+            "messages": "Mensagens",
+            "runSummary": "Resumo de execução",
+            "runSummaryHelp": "Uma mensagem por execução agendada ou manual, com o que há de novo em todos os projetos. Este destino deixa de receber mensagens por projeto.",
+            "weeklyDigest": "Resumo semanal",
+            "weeklyDigestHelp": "Uma mensagem por semana com tudo o que está pendente, mesmo quando não há nada.",
+            "deliveryPerProject": "Por projeto",
+            "deliveryRunSummary": "Resumo de execução",
+            "digestOn": "Resumo semanal ligado",
+            "digestOff": "Resumo semanal desligado",
+            "digestSchedule": {
+                "title": "Agendamento do resumo semanal",
+                "day": "Dia",
+                "hour": "Hora",
+                "help": "Enviado a cada destino com o resumo ligado, neste horário no fuso horário do agendamento ({timezone})."
+            }
         },
         "sources": {
             "metaTitle": "Fontes · Configurações",
@@ -681,7 +696,7 @@
             },
             "notifications": {
                 "purpose": "Envia os achados para os quais você configurou alertas — nome do projeto, branch do git, pacote e versão, severidade, id do aviso e um link de volta para este portal",
-                "when": "Quando uma varredura produz um achado novo, um achado resolvido ou uma falha de varredura",
+                "when": "Um achado novo ou uma falha de varredura: por projeto, ou em um único resumo de execução se o destino optou por ele. Além do resumo semanal, ligado por padrão, no dia e na hora definidos aqui",
                 "disable": "Configurações → Notificações — nenhum existe até você adicionar um"
             },
             "pypi": {

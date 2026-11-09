@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
-import { and, eq, isNull, sql } from 'drizzle-orm'
-import type { Capability, NotificationTarget } from '@sentinello/core'
+import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import { ulid } from 'ulid'
+import { CAPABILITIES, type Capability, type EcosystemId, type NotificationTarget, type SourceCell } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { capabilityBaselines, capabilitySummaryDeliveries } from '../schema'
 import { eventEligibleForTargetSql } from './notification-deliveries'
@@ -70,6 +71,67 @@ export function pendingBaselineCapabilities(db: DrizzleDb, capabilities: readonl
     return capabilities.filter(function pending(capability) { return getBaselineState(db, capability.id) === 'pending' })
 }
 
+// What every reader of a baseline takes: the release's capabilities and the ones operators opened. `statics` is
+// for a caller naming its own, as the tests and the live-copy verification do.
+export function allBaselineCapabilities(db: DrizzleDb, statics: readonly Capability[] = CAPABILITIES): Capability[] {
+    const rows = db.select().from(capabilityBaselines).where(isNotNull(capabilityBaselines.cellsJson)).all()
+    return [...statics, ...rows.map(rowToOperatorBaseline)]
+}
+
+function rowToOperatorBaseline(row: typeof capabilityBaselines.$inferSelect): Capability {
+    const cells = JSON.parse(row.cellsJson as string) as SourceCell[]
+    return {
+        id: row.capabilityId,
+        since: null,
+        ecosystems: Array.from(new Set<EcosystemId>(cells.map(function ecosystem(cell) { return cell.ecosystem }))),
+        cells
+    }
+}
+
+function pendingOperatorBaseline(db: DrizzleDb): typeof capabilityBaselines.$inferSelect | undefined {
+    return db.select().from(capabilityBaselines)
+        .where(and(eq(capabilityBaselines.state, 'pending'), isNotNull(capabilityBaselines.cellsJson)))
+        .orderBy(desc(capabilityBaselines.createdAt))
+        .limit(1)
+        .get()
+}
+
+// A cell just went from off to on, in the caller's transaction (writeSourceCell, the only write path for a cell).
+// Findings it reports now existed all along, so they wait for one summary: the open pending operator baseline takes
+// the cell, or a new one opens, and enabling four languages at once is one summary. A fresh install has no scan
+// on record and nothing that existed all along. A cache rebuild never passes through here, so it cannot open one.
+// scope_changed_at moves either way: only a sweep started after it answers for this cell (claimCompletedBaselines).
+export function recordSourceCellEnabled(db: DrizzleDb, cell: SourceCell, at: number): void {
+    if (getLastScanFinishedAt(db) === null) return
+    const open = pendingOperatorBaseline(db)
+    if (open === undefined) {
+        db.insert(capabilityBaselines)
+            .values({ capabilityId: 'sources-' + ulid(), state: 'pending', createdAt: at, cellsJson: JSON.stringify([cell]), scopeChangedAt: at })
+            .run()
+        return
+    }
+    const cells = JSON.parse(open.cellsJson as string) as SourceCell[]
+    const known = cells.some(function same(c) { return c.source === cell.source && c.ecosystem === cell.ecosystem })
+    db.update(capabilityBaselines)
+        .set({ cellsJson: JSON.stringify(known ? cells : [...cells, cell]), scopeChangedAt: at })
+        .where(eq(capabilityBaselines.capabilityId, open.capabilityId))
+        .run()
+}
+
+// A cell switched off again before its baseline closed is no longer something Sentinello "now checks". The last one
+// leaving closes the baseline with nothing to say. What it stamped stays silent: a mistaken click sends nothing.
+export function recordSourceCellDisabled(db: DrizzleDb, cell: SourceCell, at: number): void {
+    const open = pendingOperatorBaseline(db)
+    if (open === undefined) return
+    const remaining = (JSON.parse(open.cellsJson as string) as SourceCell[]).filter(function other(c) {
+        return !(c.source === cell.source && c.ecosystem === cell.ecosystem)
+    })
+    db.update(capabilityBaselines)
+        .set(remaining.length === 0 ? { state: 'done', doneAt: at } : { cellsJson: JSON.stringify(remaining) })
+        .where(eq(capabilityBaselines.capabilityId, open.capabilityId))
+        .run()
+}
+
 // The scope and filter columns a summary was counted under, as one hash. Any edit to them between the
 // count and a retry (a narrower root, another severity) changes it, and the frozen counts no longer
 // describe what the target would be told, so the retry is dropped instead (SENTINEL-124). Canonical: every
@@ -130,13 +192,22 @@ function sourceDisabledProjectsInScope(db: DrizzleDb, capability: Capability, ta
 // completion loses the race and writes nothing), and it writes one summary row per enabled target with
 // that target's counts and policy fingerprint. From here on nothing is stamped any more: the scan baseline
 // is over whether or not any summary is ever delivered. Returns the capability ids it claimed.
-export function claimCompletedBaselines(db: DrizzleDb, capabilities: readonly Capability[], at: number): string[] {
+//
+// `sweepStartedAt` holds an operator's baseline open: only a sweep started after the last of its cells was added
+// answers for all of them, and equal timestamps do not count (SENTINEL-182). A sweep started later read the cells
+// after that write. The check is in the UPDATE, so a cell added as a claim runs either lands first and holds the
+// baseline open, or finds it swept and opens a new one. A release's capability has no scope_changed_at.
+export function claimCompletedBaselines(db: DrizzleDb, capabilities: readonly Capability[], at: number, sweepStartedAt: number): string[] {
     const claimed: string[] = []
     for (const capability of capabilities) {
         db.transaction(function claim(tx) {
             const moved = tx.update(capabilityBaselines)
                 .set({ state: 'swept', sweptAt: at })
-                .where(and(eq(capabilityBaselines.capabilityId, capability.id), eq(capabilityBaselines.state, 'pending')))
+                .where(and(
+                    eq(capabilityBaselines.capabilityId, capability.id),
+                    eq(capabilityBaselines.state, 'pending'),
+                    sql`(${capabilityBaselines.scopeChangedAt} IS NULL OR ${capabilityBaselines.scopeChangedAt} < ${sweepStartedAt})`
+                ))
                 .run()
             if (moved.changes !== 1) return
             for (const target of listEnabledNotificationTargets(tx)) {

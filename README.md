@@ -413,7 +413,37 @@ Configure delivery targets in **Settings → Notifications**. Three channel kind
 **Slack** (incoming webhook), **Telegram** (bot token + chat id), and a generic **webhook**.
 Each target carries a severity filter and a **scope**: leave it at "everything", or narrow it to
 specific **roots** and/or individual **projects** (e.g. wire one noisy project to its own channel).
-One message is sent per project per scan.
+
+**What each target receives** is set per target, when you add or edit it:
+
+- **Per-project messages** are every target's default: one message per project per scan.
+- **Run summary** (off by default) replaces them with one message per scheduled sweep or manual scan:
+  CRITICAL and HIGH listed by project and package with the advisory count and top fix, the other
+  severities as counts, resolved items, newly unscannable projects, and a portal link.
+  - Nothing new means no message. Resolved items never send one on their own: they wait for the next
+    message that goes out, and the portal shows them meanwhile.
+  - Scans the lockfile watcher starts, and the sweep that follows an advisory cache landing, send
+    nothing of their own. What they find is told in the next scheduled sweep's summary, or a manual
+    scan of that project.
+  - A manual scan's summary covers the projects it scanned.
+  - A failed send is retried by the next run that covers those projects, and the same things are told
+    once. On Telegram the lists are cut to fit its 4096 characters, with a count of what was left out,
+    and the counts are never cut.
+- **Weekly digest** (on by default, existing targets included) is one message a week with what is
+  outstanding under the target's filters, the same counts the dashboard shows, and what cannot be
+  fully scanned. It goes out also when nothing is outstanding, so its absence means something is wrong.
+  The day and hour are set once, at the bottom of **Settings → Notifications** (default Monday 09:00), in
+  the timezone of **Settings → Schedule**. A worker that was down sends one on boot, however many weeks it
+  missed. A target disabled at the due time is owed nothing for that week.
+
+A project under a project mute triggers nothing and appears in neither message. **Test send** and
+**send historical** work as before; historical events reach a run-summary target in its next message.
+
+**Switching a source on** in **Settings → Sources**, once anything has been scanned, is told as one
+message per target ("Sentinello now checks Python with OSV: 12 findings across 3 projects, 2 critical")
+instead of a message for every finding that existed all along. It goes out after the first full sweep
+that started after the last cell was switched on and whose caches were ready. A failed download does
+not hold it: those projects keep saying the database is not downloaded yet. Findings after that notify normally.
 
 The generic webhook has two **payload flavors**:
 
@@ -457,8 +487,16 @@ The generic webhook has two **payload flavors**:
   findings message — its headline ("Project cannot be scanned: …") included — is English, as are the
   labels MCP and the CLI return.
 
+  The summaries have their own shapes, never truncated, each with `title`, `text`, `portalUrl`, `locale`,
+  `counts` (`{ critical, high, moderate, unrated, low, info }`), `listed`
+  (`[{ projectId, projectName, packageName, ecosystem, severity, advisories, topFix: { version, untagged } }]`),
+  `resolved` (empty on a digest) and `unscannable` (`[{ projectId, projectName, state, reason }]`):
+  `"event": "run_summary"` and `"event": "weekly_digest"`. Switching a source on arrives as
+  `"event": "capability_summary"` with `capability: { id, since: null, ecosystems, cells }` and `counts`.
+
 - **Plain-text advisory** — POSTs `{ "text": "<markdown>" }` containing the same advisory export the
-  portal produces (**Settings → Export**), ready to pipe straight into an LLM to triage and fix.
+  portal produces (**Settings → Export**), ready to pipe straight into an LLM to triage and fix. The
+  summaries post their message text in this flavor.
 
 Slack URLs and Telegram credentials may be literals or `env:NAME` references resolved from the
 container environment (handy for keeping secrets out of the database; the destination there is fixed

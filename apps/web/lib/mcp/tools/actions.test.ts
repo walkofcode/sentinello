@@ -76,7 +76,7 @@ describe('request_scan', function () {
 
         expect(result.structuredContent).toMatchObject({ skipped: false })
         expect(queued()).toHaveLength(1)
-        expect(queued()[0]).toMatchObject({ projectId: 'project-1', rootId: null })
+        expect(queued()[0]).toMatchObject({ projectId: 'project-1', rootId: null, origin: 'manual' })
     })
 
     it('enqueues a root scan', async function () {
@@ -114,7 +114,7 @@ describe('request_scan', function () {
     // An agent has no button to disable, so it can retry freely. The dedupe is the only thing
     // stopping a loop from queueing an unbounded pile of identical sweeps.
     it('reports skipped rather than queueing a duplicate project scan', async function () {
-        enqueueScanRequest(handle.db, { projectId: 'project-1' }, Date.now())
+        enqueueScanRequest(handle.db, { projectId: 'project-1' }, Date.now(), 'manual')
 
         const result = await mcp.call('request_scan', { projectId: 'project-1' })
 
@@ -123,7 +123,7 @@ describe('request_scan', function () {
     })
 
     it('treats a root sweep as covering a project inside it', async function () {
-        enqueueScanRequest(handle.db, { rootId: ROOT_ID }, Date.now())
+        enqueueScanRequest(handle.db, { rootId: ROOT_ID }, Date.now(), 'manual')
 
         const result = await mcp.call('request_scan', { projectId: 'project-1' })
 
@@ -131,7 +131,7 @@ describe('request_scan', function () {
     })
 
     it('reports skipped rather than queueing a duplicate root scan', async function () {
-        enqueueScanRequest(handle.db, { rootId: ROOT_ID }, Date.now())
+        enqueueScanRequest(handle.db, { rootId: ROOT_ID }, Date.now(), 'manual')
 
         const result = await mcp.call('request_scan', { rootId: ROOT_ID })
 
@@ -140,7 +140,7 @@ describe('request_scan', function () {
     })
 
     it('reports skipped for a full sweep when anything is already in flight', async function () {
-        enqueueScanRequest(handle.db, { projectId: 'project-1' }, Date.now())
+        enqueueScanRequest(handle.db, { projectId: 'project-1' }, Date.now(), 'manual')
 
         const result = await mcp.call('request_scan')
 

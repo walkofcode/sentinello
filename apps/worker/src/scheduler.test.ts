@@ -101,7 +101,6 @@ afterEach(async function teardown() {
 describe('startScheduler — arming the task', function () {
     it('schedules the default daily expression when no schedule is configured', function () {
         startScheduler(input())
-        expect(cron.tasks).toHaveLength(1)
         expect(cron.tasks[0]?.expr).toBe('0 0 * * *')
     })
 
@@ -133,13 +132,28 @@ describe('startScheduler — arming the task', function () {
         handles.stop()
         expect(cron.tasks[0]?.stopped).toBe(true)
     })
+
+    // Every current IANA offset is a multiple of 15 minutes, so UTC quarter hours land on every local hour.
+    it('arms the digest tick on UTC quarter hours, stops it with the rest, and logs a tick that fails', async function () {
+        const handles = startScheduler(input())
+        const digest = cron.tasks[1]
+        expect(digest?.expr).toBe('*/15 * * * *')
+        expect(digest?.options).toEqual({ timezone: 'UTC' })
+        await (digest?.fn() as Promise<unknown>)
+        setConfigValue(handle.db, CONFIG_KEYS.schedule, { intervalHours: 24, startHour: 0, timezone: 'Mars/Olympus' })
+        const errors = vi.spyOn(console, 'error').mockImplementation(function silence() {})
+        await (digest?.fn() as Promise<unknown>)
+        expect(errors.mock.calls.some(function logged(call) { return String(call[0]).startsWith('[digest] tick failed') })).toBe(true)
+        handles.stop()
+        expect(digest?.stopped).toBe(true)
+    })
 })
 
 describe('startScheduler — reload', function () {
     it('does nothing when the schedule is unchanged', function () {
         const handles = startScheduler(input())
         handles.reload()
-        expect(cron.tasks).toHaveLength(1)
+        expect(cron.tasks).toHaveLength(2)
         expect(cron.tasks[0]?.stopped).toBe(false)
     })
 
@@ -147,9 +161,10 @@ describe('startScheduler — reload', function () {
         const handles = startScheduler(input())
         setConfigValue(handle.db, CONFIG_KEYS.schedule, { intervalHours: 1 })
         handles.reload()
-        expect(cron.tasks).toHaveLength(2)
+        expect(cron.tasks).toHaveLength(3)
         expect(cron.tasks[0]?.stopped).toBe(true)
-        expect(cron.tasks[1]?.expr).toBe('0 * * * *')
+        expect(cron.tasks[1]?.stopped).toBe(false)
+        expect(cron.tasks[2]?.expr).toBe('0 * * * *')
     })
 
     // A timezone change leaves the expression identical, so an expression-only comparison would treat
@@ -159,8 +174,8 @@ describe('startScheduler — reload', function () {
         const handles = startScheduler(input())
         setConfigValue(handle.db, CONFIG_KEYS.schedule, { intervalHours: 24, startHour: 3, timezone: 'UTC' })
         handles.reload()
-        expect(cron.tasks).toHaveLength(2)
-        expect(cron.tasks[1]?.options).toEqual({ timezone: 'UTC' })
+        expect(cron.tasks).toHaveLength(3)
+        expect(cron.tasks[2]?.options).toEqual({ timezone: 'UTC' })
     })
 
     it('logs the before and after when it re-arms', function () {

@@ -1,4 +1,4 @@
-import { errText } from '@sentinello/core'
+import { errText, type ScanRequest } from '@sentinello/core'
 import {
     claimNextPendingRequest,
     claimPendingSignals,
@@ -25,8 +25,10 @@ import { type GemnasiumController } from './gemnasium-runtime'
 import { discoverProjects } from './discovery'
 import { runBatch } from './runner'
 import { onCompletedSweep } from './capability-baseline'
+import { onRunFinished } from './run-summary'
 import type { WorkerRuntime } from './runtime'
 import type { SchedulerHandles } from './scheduler'
+import type { NotificationSender } from '@sentinello/notifications'
 
 const POLL_INTERVAL_MS = 5_000
 const HEARTBEAT_INTERVAL_MS = 5_000
@@ -45,6 +47,9 @@ export type StartPollerInput = {
     // honor the current Sources setting; reload() is invoked on the 'reload-sources' worker signal.
     osvController?: OsvController | null
     gemnasiumController?: GemnasiumController | null
+    // The transport notifications and summaries go out through, as the scheduler has; each target's real sender
+    // when absent. Tests and the live-copy verification pass a recording one.
+    send?: NotificationSender
 }
 
 export function startScanRequestPoller(input: StartPollerInput): PollerHandles {
@@ -89,11 +94,11 @@ export async function pollOnce(input: StartPollerInput): Promise<void> {
     heartbeat.unref()
     try {
         if (claimed.projectId) {
-            await runSingleProject(input, claimed.projectId, claimed.id)
+            await runSingleProject(input, claimed.projectId, claimed)
         } else if (claimed.rootId) {
-            await runRootSweep(input, claimed.rootId, claimed.id)
+            await runRootSweep(input, claimed.rootId, claimed)
         } else {
-            await runFullSweep(input, claimed.id)
+            await runFullSweep(input, claimed)
         }
         markScanRequestDone(input.db, claimed.id, Date.now())
     } catch (err) {
@@ -105,7 +110,8 @@ export async function pollOnce(input: StartPollerInput): Promise<void> {
     }
 }
 
-async function runSingleProject(input: StartPollerInput, projectId: string, requestId: string): Promise<void> {
+async function runSingleProject(input: StartPollerInput, projectId: string, request: ScanRequest): Promise<void> {
+    const requestId = request.id
     const startedAt = Date.now()
     const project = getProjectById(input.db, projectId)
     if (!project) {
@@ -113,18 +119,21 @@ async function runSingleProject(input: StartPollerInput, projectId: string, requ
     }
     console.log('[scan-request-poller] single-project scan started (request=' + requestId + ', project=' + projectId + ')')
     const parallelism = (getConfigValue<number>(input.db, CONFIG_KEYS.parallelism)) || DEFAULT_PARALLELISM
-    await runBatch({
+    const batch = await runBatch({
         db: input.db,
         sqlite: input.sqlite,
         scanners: await scannersForBatch(input),
         projects: [project],
         parallelism,
-        abortSignal: input.runtime.abortController.signal
+        abortSignal: input.runtime.abortController.signal,
+        send: input.send
     })
     console.log('[scan-request-poller] single-project scan finished (request=' + requestId + ', project=' + projectId + ', ' + formatDurationMs(Date.now() - startedAt) + ')')
+    await onRunFinished(input.db, { kind: request.origin, projectIds: [projectId], completed: batch.completed, send: input.send })
 }
 
-async function runFullSweep(input: StartPollerInput, requestId: string): Promise<void> {
+async function runFullSweep(input: StartPollerInput, request: ScanRequest): Promise<void> {
+    const requestId = request.id
     const startedAt = Date.now()
     const at = startedAt
     const roots = listRoots(input.db)
@@ -134,7 +143,8 @@ async function runFullSweep(input: StartPollerInput, requestId: string): Promise
     console.log('[scan-request-poller] full sweep started (request=' + requestId + ', ' + projects.length + ' project' + (projects.length === 1 ? '' : 's') + ')')
     if (projects.length === 0) {
         console.log('[scan-request-poller] full sweep finished (request=' + requestId + ', 0 projects, ' + formatDurationMs(Date.now() - startedAt) + ')')
-        await onCompletedSweep(input.db, [], { rebuilds: input.runtime.rebuilds })
+        await onCompletedSweep(input.db, [], { rebuilds: input.runtime.rebuilds, sweepStartedAt: startedAt, send: input.send })
+        await onRunFinished(input.db, { kind: request.origin, projectIds: null, completed: true, send: input.send })
         return
     }
     const parallelism = (getConfigValue<number>(input.db, CONFIG_KEYS.parallelism)) || DEFAULT_PARALLELISM
@@ -144,14 +154,17 @@ async function runFullSweep(input: StartPollerInput, requestId: string): Promise
         scanners: await scannersForBatch(input),
         projects,
         parallelism,
-        abortSignal: input.runtime.abortController.signal
+        abortSignal: input.runtime.abortController.signal,
+        send: input.send
     })
     console.log('[scan-request-poller] full sweep finished (request=' + requestId + ', ' + projects.length + ' project' + (projects.length === 1 ? '' : 's') + ', ' + formatDurationMs(Date.now() - startedAt) + ')')
     // A requested full sweep is a sweep like the scheduled one: a completed one completes the baselines.
-    if (batch.completed) await onCompletedSweep(input.db, batch.outcomes, { rebuilds: input.runtime.rebuilds })
+    if (batch.completed) await onCompletedSweep(input.db, batch.outcomes, { rebuilds: input.runtime.rebuilds, sweepStartedAt: startedAt, send: input.send })
+    await onRunFinished(input.db, { kind: request.origin, projectIds: null, completed: batch.completed, send: input.send })
 }
 
-async function runRootSweep(input: StartPollerInput, rootId: string, requestId: string): Promise<void> {
+async function runRootSweep(input: StartPollerInput, rootId: string, request: ScanRequest): Promise<void> {
+    const requestId = request.id
     const startedAt = Date.now()
     const at = startedAt
     const root = getRootById(input.db, rootId)
@@ -167,15 +180,17 @@ async function runRootSweep(input: StartPollerInput, rootId: string, requestId: 
         return
     }
     const parallelism = (getConfigValue<number>(input.db, CONFIG_KEYS.parallelism)) || DEFAULT_PARALLELISM
-    await runBatch({
+    const batch = await runBatch({
         db: input.db,
         sqlite: input.sqlite,
         scanners: await scannersForBatch(input),
         projects,
         parallelism,
-        abortSignal: input.runtime.abortController.signal
+        abortSignal: input.runtime.abortController.signal,
+        send: input.send
     })
     console.log('[scan-request-poller] root sweep finished (request=' + requestId + ', root=' + rootId + ', ' + projects.length + ' project' + (projects.length === 1 ? '' : 's') + ', ' + formatDurationMs(Date.now() - startedAt) + ')')
+    await onRunFinished(input.db, { kind: request.origin, projectIds: projects.map(function id(p) { return p.id }), completed: batch.completed, send: input.send })
 }
 
 function drainWorkerSignals(input: StartPollerInput): void {

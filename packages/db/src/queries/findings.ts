@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, isNull, sql, inArray } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import { escalatedSeverity, installedThrough, parseFindingCorroborations, parseFindingInstallations, parseRemediation, readFixFields, requireComparator, type EcosystemId, type FixCheck, type FixFields, type FixStatus, type Finding, type FindingCorroboration, type FindingInstallation, type FindingScanContext, type Remediation } from '@sentinello/core'
 import { compareVersions } from '@sentinello/versions'
@@ -532,6 +532,12 @@ export function findFindingByIdentity(
         resolvedAt: row.resolvedAt,
         installations: parseFindingInstallations(row.installationsJson)
     }))
+}
+
+// Rows by id, as they stand, with no scan context: a reader that only wants the facts, not whether they are stale.
+export function listFindingsByIds(db: DrizzleDb, ids: readonly string[]): Finding[] {
+    if (ids.length === 0) return []
+    return db.select().from(findings).where(inArray(findings.id, [...ids])).all().map(rowToFinding)
 }
 
 // In-memory dedup key for the lifecycle merge. First component is the persisted source identity, not

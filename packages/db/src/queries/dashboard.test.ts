@@ -533,7 +533,7 @@ describe('getDashboardSummary — the in-flight scan freeze', function () {
 
     it('freezes at the last scan that finished before a pending request was queued', function () {
         scanProject('project-1', [finding()], { at: T0 + HOUR })
-        enqueueScanRequest(db, { projectId: 'project-1' }, T0 + 90 * 60_000)
+        enqueueScanRequest(db, { projectId: 'project-1' }, T0 + 90 * 60_000, 'manual')
         // Finished after the request was queued: part of the sweep the operator is waiting on.
         scanProject('project-1', [finding()], { at: T0 + 2 * HOUR })
 
@@ -545,7 +545,7 @@ describe('getDashboardSummary — the in-flight scan freeze', function () {
     // timestamp until someone noticed.
     it('ignores a running request whose heartbeat has gone stale', function () {
         scanProject('project-1', [finding()], { at: T0 + HOUR })
-        const request = enqueueScanRequest(db, { projectId: 'project-1' }, T0 + 90 * 60_000)
+        const request = enqueueScanRequest(db, { projectId: 'project-1' }, T0 + 90 * 60_000, 'manual')
         db.run(sql`UPDATE scan_requests SET status = 'running', heartbeat_at = ${T0} WHERE id = ${request.id}`)
         scanProject('project-1', [finding()], { at: T0 + 2 * HOUR })
 

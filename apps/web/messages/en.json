@@ -300,7 +300,22 @@
             "webhookFlavor": "Payload format",
             "webhookFlavorJson": "Structured JSON",
             "webhookFlavorText": "Plain-text advisory",
-            "webhookFlavorHelp": "JSON sends root, project and vulnerabilities for an auto-fix agent. Plain-text sends the advisory export, ready to feed an LLM."
+            "webhookFlavorHelp": "JSON sends root, project and vulnerabilities for an auto-fix agent. Plain-text sends the advisory export, ready to feed an LLM.",
+            "messages": "Messages",
+            "runSummary": "Run summary",
+            "runSummaryHelp": "One message per scheduled or manual scan run, with what is new across every project. This target stops getting per-project messages.",
+            "weeklyDigest": "Weekly digest",
+            "weeklyDigestHelp": "One message a week with everything outstanding, also when nothing is.",
+            "deliveryPerProject": "Per project",
+            "deliveryRunSummary": "Run summary",
+            "digestOn": "Digest on",
+            "digestOff": "Digest off",
+            "digestSchedule": {
+                "title": "Weekly digest schedule",
+                "day": "Day",
+                "hour": "Hour",
+                "help": "Sent to every target with the digest on, at this time in the schedule’s timezone ({timezone})."
+            }
         },
         "sources": {
             "metaTitle": "Sources · Settings",
@@ -681,7 +696,7 @@
             },
             "notifications": {
                 "purpose": "Send the findings you configured alerts for — project name, git branch, package and version, severity, advisory id, and a link back to this portal",
-                "when": "When a scan produces a new finding, a resolved finding, or a scan failure",
+                "when": "A new finding or a scan failure: per project, or in one run summary if the target opted in. Plus the weekly digest, on by default, on the day and hour set here",
                 "disable": "Settings → Notifications — none exist until you add one"
             },
             "pypi": {

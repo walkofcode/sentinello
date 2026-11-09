@@ -331,7 +331,7 @@ describe('startGemnasiumRuntime', function () {
         cache.sqlite.close()
         enable('npm')
         seedStaleProject()
-        enqueueScanRequest(handle.db, {}, Date.now())
+        enqueueScanRequest(handle.db, {}, Date.now(), 'manual')
         startGemnasiumRuntime(handle.db, runtime, evidence)
         expect(listRecentScanRequests(handle.db)).toHaveLength(1)
         expect(logLines()).not.toContain('[gemnasium] cache is matchable but projects still hold unauditable verdicts — enqueued a full re-scan')
@@ -500,7 +500,7 @@ describe('runSync', function () {
 
     // The live 3.8.0 upgrade: gemnasium landed first and queued its sweep; OSV landing later finds it waiting.
     it('queues no second sweep while one is still waiting', async function () {
-        enqueueScanRequest(handle.db, {}, Date.now())
+        enqueueScanRequest(handle.db, {}, Date.now(), 'manual')
         sync.syncGemnasium.mockImplementationOnce(async function seed() {
             setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.seedComplete, true)
             setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.normalizerVersion, GEMNASIUM_NORMALIZER_VERSION)

@@ -57,7 +57,7 @@ export function registerActionTools(server: McpServer): void {
                         structuredContent: { skipped: true, reason: 'scan_in_flight' }
                     }
                 }
-                const req = enqueueScanRequest(db, { projectId }, now)
+                const req = enqueueScanRequest(db, { projectId }, now, 'manual')
                 return {
                     content: [{ type: 'text', text: 'Enqueued scan request ' + req.id + ' for project ' + projectId }],
                     structuredContent: { skipped: false, request: req }
@@ -70,7 +70,7 @@ export function registerActionTools(server: McpServer): void {
                         structuredContent: { skipped: true, reason: 'scan_in_flight' }
                     }
                 }
-                const req = enqueueScanRequest(db, { rootId }, now)
+                const req = enqueueScanRequest(db, { rootId }, now, 'manual')
                 return {
                     content: [{ type: 'text', text: 'Enqueued scan request ' + req.id + ' for root ' + rootId }],
                     structuredContent: { skipped: false, request: req }
@@ -82,7 +82,7 @@ export function registerActionTools(server: McpServer): void {
                     structuredContent: { skipped: true, reason: 'scan_in_flight' }
                 }
             }
-            const req = enqueueScanRequest(db, {}, now)
+            const req = enqueueScanRequest(db, {}, now, 'manual')
             return {
                 content: [{ type: 'text', text: 'Enqueued full-sweep scan request ' + req.id }],
                 structuredContent: { skipped: false, request: req }

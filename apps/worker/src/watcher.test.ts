@@ -189,6 +189,7 @@ describe('which events count', function () {
         emit('change', join(rootPath, 'web', 'package-lock.json'))
         vi.advanceTimersByTime(DEBOUNCE)
         expect(requests()).toHaveLength(1)
+        expect(requests()[0]?.origin).toBe('automatic')
     })
 
     it('enqueues a scan when a lockfile is created', function () {

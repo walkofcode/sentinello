@@ -300,7 +300,22 @@
             "webhookFlavor": "Formato del payload",
             "webhookFlavorJson": "JSON strutturato",
             "webhookFlavorText": "Avviso in testo semplice",
-            "webhookFlavorHelp": "JSON invia root, progetto e vulnerabilità per un agente di auto-correzione. Il testo semplice invia l'esportazione degli avvisi, pronta per un LLM."
+            "webhookFlavorHelp": "JSON invia root, progetto e vulnerabilità per un agente di auto-correzione. Il testo semplice invia l'esportazione degli avvisi, pronta per un LLM.",
+            "messages": "Messaggi",
+            "runSummary": "Riepilogo dell’esecuzione",
+            "runSummaryHelp": "Un messaggio per ogni esecuzione pianificata o manuale, con le novità di tutti i progetti. Questa destinazione non riceve più messaggi per progetto.",
+            "weeklyDigest": "Riepilogo settimanale",
+            "weeklyDigestHelp": "Un messaggio a settimana con tutto ciò che è in sospeso, anche quando non c’è nulla.",
+            "deliveryPerProject": "Per progetto",
+            "deliveryRunSummary": "Riepilogo dell’esecuzione",
+            "digestOn": "Riepilogo settimanale attivo",
+            "digestOff": "Riepilogo settimanale disattivo",
+            "digestSchedule": {
+                "title": "Pianificazione del riepilogo settimanale",
+                "day": "Giorno",
+                "hour": "Ora",
+                "help": "Inviato a ogni destinazione con il riepilogo attivo, a quest’ora nel fuso orario della pianificazione ({timezone})."
+            }
         },
         "sources": {
             "metaTitle": "Fonti · Impostazioni",
@@ -681,7 +696,7 @@
             },
             "notifications": {
                 "purpose": "Invia i risultati per cui hai configurato gli avvisi: nome del progetto, branch git, pacchetto e versione, gravità, id dell’advisory e un link a questo portale",
-                "when": "Quando una scansione produce un nuovo risultato, un risultato risolto o un errore di scansione",
+                "when": "Un nuovo risultato o un errore di scansione: per progetto, o in un unico riepilogo dell’esecuzione se la destinazione lo ha scelto. Inoltre il riepilogo settimanale, attivo per impostazione predefinita, nel giorno e all’ora impostati qui",
                 "disable": "Impostazioni → Notifiche — non ne esiste nessuna finché non la aggiungi"
             },
             "pypi": {

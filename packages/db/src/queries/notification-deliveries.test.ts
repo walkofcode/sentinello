@@ -65,6 +65,9 @@ function target(overrides: Partial<NotificationTarget> = {}): NotificationTarget
         rootIds: [],
         projectIds: [],
         sourceScope: { mode: 'all', cells: [] },
+        delivery: 'per_project',
+        weeklyDigest: true,
+        digestEligibleSinceAt: null,
         ...overrides
     }
 }

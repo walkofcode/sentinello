@@ -129,7 +129,10 @@ function target(id: string, severityFilter: NotificationTarget['severityFilter']
         createdAt: T0 - 1,
         rootIds: [],
         projectIds: [],
-        sourceScope: { mode: 'all', cells: [] }
+        sourceScope: { mode: 'all', cells: [] },
+        delivery: 'per_project',
+        weeklyDigest: true,
+        digestEligibleSinceAt: null
     })
 }
 

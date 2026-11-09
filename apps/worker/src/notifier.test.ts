@@ -65,6 +65,9 @@ function target(overrides: Partial<NotificationTarget> = {}): NotificationTarget
         rootIds: [],
         projectIds: [],
         sourceScope: { mode: 'all', cells: [] },
+        delivery: 'per_project',
+        weeklyDigest: true,
+        digestEligibleSinceAt: null,
         ...overrides
     }
 }
@@ -766,7 +769,7 @@ describe('notifyForCompletedScan — during the silent baseline', function () {
 
     // Once the sweep completed, a source turned on later notifies normally, per project.
     it('notifies a Python finding normally once the baseline is swept', async function () {
-        claimCompletedBaselines(db, CAPABILITIES, T0)
+        claimCompletedBaselines(db, CAPABILITIES, T0, T0)
         await notify(outcome([finding({ ecosystem: 'PyPI', packageName: 'django' })]))
         expect(send).toHaveBeenCalledTimes(1)
     })

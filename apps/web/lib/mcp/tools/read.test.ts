@@ -840,6 +840,16 @@ describe('project cannot be scanned — scanState, the counts and not re-checked
     })
 
     // issue-037: a field an agent receives is described where the agent reads it.
+    it('describes the notice floors, the new fields and every project state a retained row can read', async function () {
+        const findings = await mcp.describeTool('list_findings')
+        for (const said of ['noticeKind', 'fixKind', "'untagged_commit'", "'unrated'", 'source_not_applicable', "'scanned' (every expected source answered", "'not_scanned_yet' (no expected source"]) {
+            expect(findings).toContain(said)
+        }
+        expect(await mcp.describeTool('list_libraries')).toContain('distinctNotices')
+        expect(await mcp.describeTool('get_dashboard_summary')).toContain("'unrated' as a bucket")
+        expect(await mcp.describeTool('get_project_advisory')).toContain('A notice (unmaintained, unsound)')
+    })
+
     it('describes scanState, the counts and notRecheckedBecause in the tool descriptions', async function () {
         for (const tool of ['list_projects', 'get_project']) {
             const description = await mcp.describeTool(tool)

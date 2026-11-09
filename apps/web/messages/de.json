@@ -300,7 +300,22 @@
             "webhookFlavor": "Payload-Format",
             "webhookFlavorJson": "Strukturiertes JSON",
             "webhookFlavorText": "Klartext-Advisory",
-            "webhookFlavorHelp": "JSON sendet Root, Projekt und Schwachstellen für einen Auto-Fix-Agenten. Klartext sendet den Advisory-Export, bereit für ein LLM."
+            "webhookFlavorHelp": "JSON sendet Root, Projekt und Schwachstellen für einen Auto-Fix-Agenten. Klartext sendet den Advisory-Export, bereit für ein LLM.",
+            "messages": "Nachrichten",
+            "runSummary": "Laufzusammenfassung",
+            "runSummaryHelp": "Eine Nachricht pro geplantem oder manuellem Scan-Lauf, mit allem Neuen über alle Projekte. Dieses Ziel erhält keine Nachrichten pro Projekt mehr.",
+            "weeklyDigest": "Wochenübersicht",
+            "weeklyDigestHelp": "Eine Nachricht pro Woche mit allem, was offen ist, auch wenn nichts offen ist.",
+            "deliveryPerProject": "Pro Projekt",
+            "deliveryRunSummary": "Laufzusammenfassung",
+            "digestOn": "Wochenübersicht an",
+            "digestOff": "Wochenübersicht aus",
+            "digestSchedule": {
+                "title": "Zeitplan der Wochenübersicht",
+                "day": "Tag",
+                "hour": "Stunde",
+                "help": "Wird an jedes Ziel mit aktiver Wochenübersicht gesendet, zu dieser Zeit in der Zeitzone des Zeitplans ({timezone})."
+            }
         },
         "sources": {
             "metaTitle": "Quellen · Einstellungen",
@@ -681,7 +696,7 @@
             },
             "notifications": {
                 "purpose": "Sendet die Funde, für die du Benachrichtigungen eingerichtet hast — Projektname, Git-Branch, Paket und Version, Schweregrad, Advisory-ID und ein Link zurück zu diesem Portal",
-                "when": "Wenn ein Scan einen neuen Fund, einen behobenen Fund oder einen Scan-Fehler ergibt",
+                "when": "Ein neuer Fund oder ein Scan-Fehler: pro Projekt, oder in einer Laufzusammenfassung, wenn das Ziel sie gewählt hat. Dazu die Wochenübersicht, standardmäßig an, am hier eingestellten Tag und zur hier eingestellten Stunde",
                 "disable": "Einstellungen → Benachrichtigungen — es existiert keine, bis du eine hinzufügst"
             },
             "pypi": {

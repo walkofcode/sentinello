@@ -494,7 +494,7 @@ describe('startOsvRuntime', function () {
         setOsvMeta(cache.db, osvMetaKeyFor(OSV_META_KEYS.normalizerVersion, 'npm'), osvNormalizerVersion('npm'))
         cache.sqlite.close()
         seedStaleProject()
-        enqueueScanRequest(handle.db, {}, Date.now())
+        enqueueScanRequest(handle.db, {}, Date.now(), 'manual')
         startOsvRuntime(handle.db, runtime)
         expect(listRecentScanRequests(handle.db)).toHaveLength(1)
         expect(logLines()).not.toContain('[osv] cache is matchable but projects still hold unauditable verdicts — enqueued a full re-scan')
@@ -790,7 +790,7 @@ describe('runSync — seed or catch up', function () {
     // Two caches landing in turn queue one sweep, not two: the second finds the first's still waiting.
     it('queues no second sweep while one is still waiting', async function () {
         enable('npm')
-        enqueueScanRequest(handle.db, {}, Date.now())
+        enqueueScanRequest(handle.db, {}, Date.now(), 'manual')
         sync.seedOsv.mockImplementationOnce(async function seed(_db: unknown, eco: string) {
             markSeeded(eco)
             return { status: 'ok', upserted: 1, recordCount: 1, message: null }

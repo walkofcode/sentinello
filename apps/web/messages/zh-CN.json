@@ -300,7 +300,22 @@
             "webhookFlavor": "负载格式",
             "webhookFlavorJson": "结构化 JSON",
             "webhookFlavorText": "纯文本公告",
-            "webhookFlavorHelp": "JSON 会发送根目录、项目和漏洞，供自动修复代理使用。纯文本会发送公告导出内容，可直接交给 LLM。"
+            "webhookFlavorHelp": "JSON 会发送根目录、项目和漏洞，供自动修复代理使用。纯文本会发送公告导出内容，可直接交给 LLM。",
+            "messages": "消息",
+            "runSummary": "运行摘要",
+            "runSummaryHelp": "每次定时或手动扫描运行发送一条消息，汇总所有项目的新情况。此目标不再接收按项目发送的消息。",
+            "weeklyDigest": "每周摘要",
+            "weeklyDigestHelp": "每周一条消息，列出所有待处理项，没有待处理项时也会发送。",
+            "deliveryPerProject": "按项目",
+            "deliveryRunSummary": "运行摘要",
+            "digestOn": "每周摘要已开启",
+            "digestOff": "每周摘要已关闭",
+            "digestSchedule": {
+                "title": "每周摘要时间",
+                "day": "星期",
+                "hour": "时间",
+                "help": "在计划时区（{timezone}）的此时间发送给所有开启摘要的目标。"
+            }
         },
         "sources": {
             "metaTitle": "来源 · 设置",
@@ -681,7 +696,7 @@
             },
             "notifications": {
                 "purpose": "发送你已配置告警的漏洞信息——项目名称、git 分支、包与版本、严重程度、公告 ID，以及返回本门户的链接",
-                "when": "当扫描产生新漏洞、已修复漏洞或扫描失败时",
+                "when": "新漏洞或扫描失败时：按项目发送，或在目标选择后合并为一条运行摘要。另有每周摘要（默认开启），在此处设置的星期和时间发送",
                 "disable": "设置 → 通知——在你添加之前不存在任何通知目标"
             },
             "pypi": {

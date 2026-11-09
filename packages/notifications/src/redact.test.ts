@@ -17,7 +17,10 @@ function target(kind: NotificationTarget['kind'], config: NotificationTargetConf
         createdAt: 0,
         rootIds: [],
         projectIds: [],
-        sourceScope: { mode: 'all', cells: [] }
+        sourceScope: { mode: 'all', cells: [] },
+        delivery: 'per_project',
+        weeklyDigest: true,
+        digestEligibleSinceAt: null
     }
 }
 

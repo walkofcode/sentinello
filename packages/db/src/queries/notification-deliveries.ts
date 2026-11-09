@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import { CACHE_NOT_READY_FAILURE_SIGNATURES, type DepTypeFilter, type NotificationDelivery, type NotificationEvent, type NotificationTarget } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
@@ -6,6 +6,7 @@ import { notificationDeliveries, notificationEvents, notificationTargets } from 
 import { rowToEvent } from './notification-events'
 import { listTargetRootIds } from './notification-target-roots'
 import { listTargetProjectIds } from './notification-target-projects'
+import { parseDelivery } from './notifications'
 
 type NotificationDeliveryRow = typeof notificationDeliveries.$inferSelect
 type NotificationTargetRow = typeof notificationTargets.$inferSelect
@@ -28,6 +29,33 @@ export type DispatchablePair = {
 //  - no successful delivery row exists for (event_id, target_id)
 //  - the target's policy would tell it about the event: severity filter, prod/dev filter, cell scope,
 //    root/project scope and active mutes — eventEligibleForTargetSql, below, states each rule
+// The one statement of that predicate, shared by the per-project path and the run summary's select.
+function pendingEventConditions(at: number): (SQL | undefined)[] {
+    return [
+        eq(notificationTargets.enabled, true),
+        or(
+            isNull(notificationDeliveries.id),
+            isNull(notificationDeliveries.firstSucceededAt)
+        ),
+        // Eligibility gate: either the event was discovered after the target was created
+        // (the default no-backflood rule), or there is already a placeholder delivery row
+        // with first_attempted_at = NULL — which only backfillForNewTarget() inserts, and
+        // only when the operator explicitly opts in to historical send.
+        or(
+            sql`${notificationEvents.firstSeenAt} >= ${notificationTargets.createdAt}`,
+            and(
+                isNotNull(notificationDeliveries.id),
+                isNull(notificationDeliveries.firstAttemptedAt)
+            )
+        ),
+        // Silent-baseline events are told in their capability's one summary, never one by one.
+        isNull(notificationEvents.baselineOf),
+        eventEligibleForTargetSql('notification_events', 'notification_targets', at)
+    ]
+}
+
+// The per-project path: only a 'per_project' target is on it. A 'run_summary' target never receives a per-project
+// finding or scan-failure message, from any kind of scan.
 export function selectDispatchablePairs(db: DrizzleDb, projectId: string, at: number): DispatchablePair[] {
     const rows = db
         .select({
@@ -49,25 +77,8 @@ export function selectDispatchablePairs(db: DrizzleDb, projectId: string, at: nu
         .where(
             and(
                 eq(notificationEvents.projectId, projectId),
-                eq(notificationTargets.enabled, true),
-                or(
-                    isNull(notificationDeliveries.id),
-                    isNull(notificationDeliveries.firstSucceededAt)
-                ),
-                // Eligibility gate: either the event was discovered after the target was created
-                // (the default no-backflood rule), or there is already a placeholder delivery row
-                // with first_attempted_at = NULL — which only backfillForNewTarget() inserts, and
-                // only when the operator explicitly opts in to historical send.
-                or(
-                    sql`${notificationEvents.firstSeenAt} >= ${notificationTargets.createdAt}`,
-                    and(
-                        isNotNull(notificationDeliveries.id),
-                        isNull(notificationDeliveries.firstAttemptedAt)
-                    )
-                ),
-                // Silent-baseline events are told in their capability's one summary, never one by one.
-                isNull(notificationEvents.baselineOf),
-                eventEligibleForTargetSql('notification_events', 'notification_targets', at)
+                eq(notificationTargets.delivery, 'per_project'),
+                ...pendingEventConditions(at)
             )
         )
         .all()
@@ -211,6 +222,82 @@ export function eventEligibleForTargetSql(e: string, t: string, at: number): SQL
     )`
 }
 
+// What one 'run_summary' target is owed, by the same predicate as the per-project path, scoped to the run's
+// projects (null: every project).
+export function selectPendingEventsForTarget(db: DrizzleDb, targetId: string, at: number, projectIds: readonly string[] | null): NotificationEvent[] {
+    if (projectIds !== null && projectIds.length === 0) return []
+    const rows = db
+        .select({ event: notificationEvents })
+        .from(notificationEvents)
+        .innerJoin(notificationTargets, eq(notificationTargets.id, targetId))
+        .leftJoin(
+            notificationDeliveries,
+            and(
+                eq(notificationDeliveries.eventId, notificationEvents.id),
+                eq(notificationDeliveries.targetId, notificationTargets.id)
+            )
+        )
+        .where(
+            and(
+                projectIds === null ? undefined : inArray(notificationEvents.projectId, [...projectIds]),
+                ...pendingEventConditions(at)
+            )
+        )
+        .all()
+    return rows.map(function toEvent(row) { return rowToEvent(row.event) })
+}
+
+// The findings-side twin of eventEligibleForTargetSql, kept beside it: whether target `t` would be told about
+// findings row `f`, by its prod/dev filter, cell scope and root/project scope, and that the row is a vulnerability.
+// What it leaves to the caller: open or resolved, mutes (findingMuteExclusionSql) and the severity filter, which
+// the digest judges on a merged group's grade and a resolved row on its own (findingSeverityInFilterSql).
+export function findingEligibleForTargetSql(f: string, t: string): SQL {
+    const fr = sql.raw(f)
+    const tg = sql.raw(t)
+    return sql`(
+        ${fr}.notice_kind IS NULL
+        AND (
+            ${tg}.env_filter = 'all'
+            OR (${tg}.env_filter = 'prod' AND ${fr}.is_prod = 1)
+            OR (${tg}.env_filter = 'dev' AND ${fr}.is_dev = 1 AND ${fr}.is_prod = 0)
+        )
+        AND (
+            json_extract(${tg}.source_scope_json, '$.mode') = 'all'
+            OR EXISTS (
+                SELECT 1 FROM json_each(${tg}.source_scope_json, '$.cells')
+                WHERE json_extract(json_each.value, '$.source') = COALESCE(${fr}.source, ${fr}.scanner)
+                  AND json_extract(json_each.value, '$.ecosystem') = ${fr}.ecosystem
+            )
+        )
+        AND (
+            (
+                NOT EXISTS (SELECT 1 FROM notification_target_roots tr WHERE tr.target_id = ${tg}.id)
+                AND NOT EXISTS (SELECT 1 FROM notification_target_projects tp WHERE tp.target_id = ${tg}.id)
+            )
+            OR EXISTS (
+                SELECT 1 FROM notification_target_roots tr
+                INNER JOIN projects p ON p.id = ${fr}.project_id
+                WHERE tr.target_id = ${tg}.id AND tr.root_id = p.root_id
+            )
+            OR EXISTS (
+                SELECT 1 FROM notification_target_projects tp
+                WHERE tp.target_id = ${tg}.id AND tp.project_id = ${fr}.project_id
+            )
+        )
+    )`
+}
+
+// One findings row against the target's severity filter: `moderate` also covers `unrated` (severityInFilter).
+export function findingSeverityInFilterSql(f: string, t: string): SQL {
+    const fr = sql.raw(f)
+    const tg = sql.raw(t)
+    return sql`EXISTS (
+        SELECT 1 FROM json_each(${tg}.severity_filter_json)
+        WHERE json_each.value = ${fr}.severity
+           OR (json_each.value = 'moderate' AND ${fr}.severity = 'unrated')
+    )`
+}
+
 export function getDelivery(
     db: DrizzleDb,
     eventId: string,
@@ -344,7 +431,10 @@ function targetRowToTarget(row: NotificationTargetRow, rootIds: string[], projec
         createdAt: row.createdAt,
         rootIds,
         projectIds,
-        sourceScope: parseSourceScope(row.sourceScopeJson)
+        sourceScope: parseSourceScope(row.sourceScopeJson),
+        delivery: parseDelivery(row.delivery),
+        weeklyDigest: row.weeklyDigest,
+        digestEligibleSinceAt: row.digestEligibleSinceAt
     }
 }
 

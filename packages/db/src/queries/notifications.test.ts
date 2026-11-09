@@ -19,7 +19,8 @@ import {
     listEnabledNotificationTargets,
     listNotificationTargets,
     setNotificationTargetEnabled,
-    updateNotificationTarget
+    updateNotificationTarget,
+    setNotificationTargetDigest
 } from './notifications'
 import {
     getEventByIdentityKey,
@@ -66,6 +67,9 @@ function target(overrides: Partial<NotificationTarget> = {}): NotificationTarget
         rootIds: [],
         projectIds: [],
         sourceScope: { mode: 'all', cells: [] },
+        delivery: 'per_project',
+        weeklyDigest: true,
+        digestEligibleSinceAt: null,
         ...overrides
     }
 }
@@ -156,7 +160,11 @@ afterEach(async function teardown() {
 describe('notification targets', function () {
     it('round-trips a target', function () {
         insertNotificationTarget(db, target())
-        expect(getNotificationTargetById(db, 'target-1')).toEqual(target())
+        expect(getNotificationTargetById(db, 'target-1')).toEqual(target({ digestEligibleSinceAt: T0 }))
+    })
+
+    it('refuses a new target that is not per project: opting in seeds from its scope', function () {
+        expect(function insert() { insertNotificationTarget(db, target({ delivery: 'run_summary' })) }).toThrow(/starts per project/)
     })
 
     it('returns null for an unknown id', function () {
@@ -217,7 +225,61 @@ describe('updateNotificationTarget', function () {
     it('is a no-op when nothing is supplied', function () {
         insertNotificationTarget(db, target())
         updateNotificationTarget(db, { id: 'target-1' })
-        expect(getNotificationTargetById(db, 'target-1')).toEqual(target())
+        expect(getNotificationTargetById(db, 'target-1')).toEqual(target({ digestEligibleSinceAt: T0 }))
+    })
+
+    // Every writer of either flag moves the boundary when the pair goes from not eligible to eligible, and only then:
+    // a target disabled at a due instant and enabled before the worker restarts is not owed that week.
+    describe('the digest eligibility boundary', function () {
+        function boundary() { return getNotificationTargetById(db, 'target-1')?.digestEligibleSinceAt }
+
+        it('starts at creation for an eligible target, and empty for one that is not', function () {
+            insertNotificationTarget(db, target({ enabled: false }))
+            expect(boundary()).toBeNull()
+            insertNotificationTarget(db, target({ id: 'target-2', weeklyDigest: false }))
+            expect(getNotificationTargetById(db, 'target-2')?.digestEligibleSinceAt).toBeNull()
+        })
+
+        it('moves on enabling, and not on disabling or on enabling what is enabled', function () {
+            insertNotificationTarget(db, target())
+            setNotificationTargetEnabled(db, 'target-1', true, T0 + 1)
+            expect(boundary()).toBe(T0)
+            setNotificationTargetEnabled(db, 'target-1', false, T0 + 2)
+            expect(boundary()).toBe(T0)
+            setNotificationTargetEnabled(db, 'target-1', true, T0 + 3)
+            expect(boundary()).toBe(T0 + 3)
+        })
+
+        it('moves on turning the digest back on, and only if the target is enabled', function () {
+            insertNotificationTarget(db, target())
+            setNotificationTargetDigest(db, 'target-1', false, T0 + 1)
+            expect(boundary()).toBe(T0)
+            setNotificationTargetDigest(db, 'target-1', true, T0 + 2)
+            expect(boundary()).toBe(T0 + 2)
+            setNotificationTargetEnabled(db, 'target-1', false, T0 + 3)
+            setNotificationTargetDigest(db, 'target-1', false, T0 + 4)
+            setNotificationTargetDigest(db, 'target-1', true, T0 + 5)
+            expect(boundary()).toBe(T0 + 2)
+        })
+
+        it('moves through updateNotificationTarget, whichever flag it writes', function () {
+            insertNotificationTarget(db, target({ enabled: false }))
+            updateNotificationTarget(db, { id: 'target-1', severityFilter: ['high'] }, T0 + 1)
+            expect(boundary()).toBeNull()
+            updateNotificationTarget(db, { id: 'target-1', enabled: true }, T0 + 2)
+            expect(boundary()).toBe(T0 + 2)
+            updateNotificationTarget(db, { id: 'target-1', weeklyDigest: false, enabled: true }, T0 + 3)
+            expect(boundary()).toBe(T0 + 2)
+            updateNotificationTarget(db, { id: 'target-1', weeklyDigest: true, enabled: true }, T0 + 4)
+            expect(boundary()).toBe(T0 + 4)
+        })
+
+        it('defaults its clock to now', function () {
+            insertNotificationTarget(db, target({ enabled: false }))
+            const before = Date.now()
+            setNotificationTargetEnabled(db, 'target-1', true)
+            expect(boundary()).toBeGreaterThanOrEqual(before)
+        })
     })
 
     // createdAt anchors backfill semantics, so no update path may move it.

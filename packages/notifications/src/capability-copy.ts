@@ -5,6 +5,8 @@ import type { Locale } from '@sentinello/core'
 // one form. "Settings → Sources" is the portal's own label in that locale (Nav.settings → Nav.tabs.sources).
 export type CapabilitySummaryCopy = {
     title(version: string, languages: string): string
+    // An operator switched a source on, rather than a release adding a language.
+    enabledTitle(languages: string, sources: string): string
     counts(findings: number, projects: number, critical: number): string
     sourceDisabled(projects: number): string
 }
@@ -32,51 +34,61 @@ function russian(count: number, one: string, few: string, many: string): string 
 export const CAPABILITY_SUMMARY_COPY: Record<Locale, CapabilitySummaryCopy> = {
     'en': {
         title: function title(version, languages) { return 'Sentinello ' + version + ' now checks ' + languages },
+        enabledTitle: function enabledTitle(languages, sources) { return 'Sentinello now checks ' + languages + ' with ' + sources },
         counts: function counts(n, m, x) { return n + ' ' + oneOther(n, 'finding', 'findings') + ' across ' + m + ' ' + oneOther(m, 'project', 'projects') + ', ' + x + ' critical' },
         sourceDisabled: function sourceDisabled(k) { return k + ' ' + oneOther(k, 'project has', 'projects have') + ' no enabled source, turn one on in Settings → Sources' }
     },
     'es': {
         title: function title(version, languages) { return 'Sentinello ' + version + ' ahora revisa ' + languages },
+        enabledTitle: function enabledTitle(languages, sources) { return 'Sentinello ahora revisa ' + languages + ' con ' + sources },
         counts: function counts(n, m, x) { return n + ' ' + oneOther(n, 'hallazgo', 'hallazgos') + ' en ' + m + ' ' + oneOther(m, 'proyecto', 'proyectos') + ', ' + x + ' ' + oneOther(x, 'crítico', 'críticos') },
         sourceDisabled: function sourceDisabled(k) { return k + ' ' + oneOther(k, 'proyecto no tiene', 'proyectos no tienen') + ' ninguna fuente activada, activa una en Configuración → Fuentes' }
     },
     'fr': {
         title: function title(version, languages) { return 'Sentinello ' + version + ' vérifie désormais ' + languages },
+        enabledTitle: function enabledTitle(languages, sources) { return 'Sentinello vérifie désormais ' + languages + ' avec ' + sources },
         counts: function counts(n, m, x) { return n + ' ' + frenchOneOther(n, 'vulnérabilité', 'vulnérabilités') + ' dans ' + m + ' ' + frenchOneOther(m, 'projet', 'projets') + ', dont ' + x + ' ' + frenchOneOther(x, 'critique', 'critiques') },
         sourceDisabled: function sourceDisabled(k) { return k + ' ' + frenchOneOther(k, 'projet n’a', 'projets n’ont') + ' aucune source activée, activez-en une dans Paramètres → Sources' }
     },
     'de': {
         title: function title(version, languages) { return 'Sentinello ' + version + ' prüft jetzt ' + languages },
+        enabledTitle: function enabledTitle(languages, sources) { return 'Sentinello prüft jetzt ' + languages + ' mit ' + sources },
         counts: function counts(n, m, x) { return n + ' ' + oneOther(n, 'Befund', 'Befunde') + ' in ' + m + ' ' + oneOther(m, 'Projekt', 'Projekten') + ', ' + x + ' kritisch' },
         sourceDisabled: function sourceDisabled(k) { return k + ' ' + oneOther(k, 'Projekt hat', 'Projekte haben') + ' keine aktivierte Quelle, aktivieren Sie eine unter Einstellungen → Quellen' }
     },
     'pt-BR': {
         title: function title(version, languages) { return 'Sentinello ' + version + ' agora verifica ' + languages },
+        enabledTitle: function enabledTitle(languages, sources) { return 'Sentinello agora verifica ' + languages + ' com ' + sources },
         counts: function counts(n, m, x) { return n + ' ' + oneOther(n, 'achado', 'achados') + ' em ' + m + ' ' + oneOther(m, 'projeto', 'projetos') + ', ' + x + ' ' + oneOther(x, 'crítico', 'críticos') },
         sourceDisabled: function sourceDisabled(k) { return k + ' ' + oneOther(k, 'projeto não tem', 'projetos não têm') + ' nenhuma fonte ativada, ative uma em Configurações → Fontes' }
     },
     'it': {
         title: function title(version, languages) { return 'Sentinello ' + version + ' ora controlla ' + languages },
+        enabledTitle: function enabledTitle(languages, sources) { return 'Sentinello ora controlla ' + languages + ' con ' + sources },
         counts: function counts(n, m, x) { return n + ' ' + oneOther(n, 'vulnerabilità trovata', 'vulnerabilità trovate') + ' in ' + m + ' ' + oneOther(m, 'progetto', 'progetti') + ', ' + x + ' ' + oneOther(x, 'critica', 'critiche') },
         sourceDisabled: function sourceDisabled(k) { return k + ' ' + oneOther(k, 'progetto non ha', 'progetti non hanno') + ' alcuna fonte attivata, attivane una in Impostazioni → Fonti' }
     },
     'ja': {
         title: function title(version, languages) { return 'Sentinello ' + version + ' は ' + languages + ' もチェックするようになりました' },
+        enabledTitle: function enabledTitle(languages, sources) { return 'Sentinello は ' + sources + ' で ' + languages + ' をチェックするようになりました' },
         counts: function counts(n, m, x) { return m + ' 件のプロジェクトで ' + n + ' 件の検出、うち重大 ' + x + ' 件' },
         sourceDisabled: function sourceDisabled(k) { return k + ' 件のプロジェクトで有効なソースがありません。設定 → ソースで有効にしてください' }
     },
     'zh-CN': {
         title: function title(version, languages) { return 'Sentinello ' + version + ' 现已检查 ' + languages },
+        enabledTitle: function enabledTitle(languages, sources) { return 'Sentinello 现已使用 ' + sources + ' 检查 ' + languages },
         counts: function counts(n, m, x) { return m + ' 个项目中有 ' + n + ' 个发现，其中 ' + x + ' 个严重' },
         sourceDisabled: function sourceDisabled(k) { return k + ' 个项目没有已启用的来源，请在 设置 → 来源 中启用一个' }
     },
     'ko': {
         title: function title(version, languages) { return 'Sentinello ' + version + '부터 ' + languages + '도 검사합니다' },
+        enabledTitle: function enabledTitle(languages, sources) { return 'Sentinello가 이제 ' + sources + '(으)로 ' + languages + '을(를) 검사합니다' },
         counts: function counts(n, m, x) { return '프로젝트 ' + m + '개에서 발견 항목 ' + n + '개, 그중 심각 ' + x + '개' },
         sourceDisabled: function sourceDisabled(k) { return '프로젝트 ' + k + '개에 활성화된 소스가 없습니다. 설정 → 소스에서 하나를 켜세요' }
     },
     'ru': {
         title: function title(version, languages) { return 'Sentinello ' + version + ' теперь проверяет ' + languages },
+        enabledTitle: function enabledTitle(languages, sources) { return 'Sentinello теперь проверяет ' + languages + ' с помощью ' + sources },
         counts: function counts(n, m, x) { return n + ' ' + russian(n, 'находка', 'находки', 'находок') + ' в ' + m + ' ' + russian(m, 'проекте', 'проектах', 'проектах') + ', ' + x + ' ' + russian(x, 'критическая', 'критических', 'критических') },
         sourceDisabled: function sourceDisabled(k) { return 'В ' + k + ' ' + russian(k, 'проекте', 'проектах', 'проектах') + ' нет включённого источника, включите его в Настройки → Источники' }
     }

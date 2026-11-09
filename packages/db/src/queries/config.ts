@@ -1,4 +1,5 @@
 import { eq, sql } from 'drizzle-orm'
+import { DEFAULT_WEEKLY_DIGEST, type WeeklyDigestSchedule } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { appConfig, projects, roots, scanRequests } from '../schema'
 import { deleteTargetRootsForRoot } from './notification-target-roots'
@@ -18,6 +19,14 @@ export function setConfigValue(db: DrizzleDb, key: string, value: unknown): void
         .values({ key, valueJson })
         .onConflictDoUpdate({ target: appConfig.key, set: { valueJson } })
         .run()
+}
+
+// The weekly digest's day and hour: one setting, for every target, in the schedule's timezone. Written only by
+// Settings → Notifications, through a schema that refuses anything else.
+export const WEEKLY_DIGEST_CONFIG_KEY = 'weeklyDigest'
+
+export function getWeeklyDigestSchedule(db: DrizzleDb): WeeklyDigestSchedule {
+    return getConfigValue<WeeklyDigestSchedule>(db, WEEKLY_DIGEST_CONFIG_KEY) ?? DEFAULT_WEEKLY_DIGEST
 }
 
 export function listConfig(db: DrizzleDb): Record<string, unknown> {

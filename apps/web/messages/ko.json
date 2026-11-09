@@ -300,7 +300,22 @@
             "webhookFlavor": "페이로드 형식",
             "webhookFlavorJson": "구조화된 JSON",
             "webhookFlavorText": "일반 텍스트 권고문",
-            "webhookFlavorHelp": "JSON은 루트, 프로젝트, 취약점을 자동 수정 에이전트로 보냅니다. 일반 텍스트는 LLM에 바로 넣을 수 있는 권고문 내보내기를 보냅니다."
+            "webhookFlavorHelp": "JSON은 루트, 프로젝트, 취약점을 자동 수정 에이전트로 보냅니다. 일반 텍스트는 LLM에 바로 넣을 수 있는 권고문 내보내기를 보냅니다.",
+            "messages": "메시지",
+            "runSummary": "실행 요약",
+            "runSummaryHelp": "예약 또는 수동 스캔 실행마다 모든 프로젝트의 새 소식을 한 통으로 보냅니다. 이 대상은 프로젝트별 메시지를 더 이상 받지 않습니다.",
+            "weeklyDigest": "주간 요약",
+            "weeklyDigestHelp": "미해결 항목을 모아 일주일에 한 통 보냅니다. 없을 때도 보냅니다.",
+            "deliveryPerProject": "프로젝트별",
+            "deliveryRunSummary": "실행 요약",
+            "digestOn": "주간 요약 켜짐",
+            "digestOff": "주간 요약 꺼짐",
+            "digestSchedule": {
+                "title": "주간 요약 일정",
+                "day": "요일",
+                "hour": "시각",
+                "help": "요약이 켜진 모든 대상에 일정의 시간대({timezone}) 기준 이 시각에 보냅니다."
+            }
         },
         "sources": {
             "metaTitle": "소스 · 설정",
@@ -681,7 +696,7 @@
             },
             "notifications": {
                 "purpose": "알림을 설정한 발견 항목을 전송합니다 — 프로젝트 이름, git 브랜치, 패키지와 버전, 심각도, 권고 ID, 이 포털로 돌아오는 링크",
-                "when": "스캔에서 새 발견, 해결된 발견 또는 스캔 실패가 생겼을 때",
+                "when": "새 발견 또는 스캔 실패: 프로젝트별로, 또는 대상이 선택한 경우 한 통의 실행 요약으로. 그리고 기본으로 켜진 주간 요약을 여기서 설정한 요일과 시각에",
                 "disable": "설정 → 알림 — 추가하기 전까지는 대상이 없습니다"
             },
             "pypi": {

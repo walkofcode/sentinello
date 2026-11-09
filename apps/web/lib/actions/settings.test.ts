@@ -12,7 +12,10 @@ import {
     getRootById,
     getRootByPath,
     insertNotificationTarget,
+    getWeeklyDigestSchedule,
+    insertScan,
     listNotificationTargets,
+    schema,
     listRoots,
     selectInFlightScanRequests,
     setConfigValue,
@@ -50,7 +53,8 @@ import {
     turnOnSourceForEcosystemAction,
     updateSourceCellAction,
     upsertNotificationTargetAction,
-    upsertRootAction
+    upsertRootAction,
+    updateWeeklyDigestScheduleAction
 } from './settings'
 import type { ActionResult } from './action-result'
 
@@ -98,6 +102,9 @@ function seedTarget(id: string, overrides: Partial<NotificationTarget> = {}): No
         rootIds: [],
         projectIds: [],
         sourceScope: { mode: 'all', cells: [] },
+        delivery: 'per_project',
+        weeklyDigest: true,
+        digestEligibleSinceAt: null,
         ...overrides
     } as NotificationTarget
     insertNotificationTarget(handle.db, target)
@@ -928,7 +935,7 @@ describe('turnOnSourceForEcosystemAction', function () {
     // cell on: turning on Python and then Ruby queues one sweep, not two. A single-project request is no
     // such sweep.
     it('does not queue a second sweep while one is waiting', async function () {
-        enqueueScanRequest(handle.db, { projectId: 'project-1' }, T0)
+        enqueueScanRequest(handle.db, { projectId: 'project-1' }, T0, 'manual')
         await turnOnSourceForEcosystemAction({ source: 'osv', ecosystem: 'PyPI' })
         await turnOnSourceForEcosystemAction({ source: 'osv', ecosystem: 'RubyGems' })
 
@@ -1005,3 +1012,83 @@ describe('updateFilterDefaultsAction', function () {
         expect(bustedPaths()).toEqual(['/settings/defaults', '/'])
     })
 })
+
+describe('run summary and weekly digest settings', function () {
+    function firstId(): string {
+        return listNotificationTargets(handle.db)[0]?.id as string
+    }
+
+    const slack = { kind: 'slack' as const, config: { webhookUrl: 'https://hooks.slack.com/services/T/B/X' }, severityFilter: ['critical' as const], envFilter: 'all' as const, enabled: true, rootIds: [], projectIds: [] }
+
+    it('defaults a new target to per-project messages with the digest on', async function () {
+        await upsertNotificationTargetAction(slack)
+        expect(listNotificationTargets(handle.db)[0]).toMatchObject({ delivery: 'per_project', weeklyDigest: true })
+    })
+
+    it('takes both choices when adding a target and when editing one', async function () {
+        await upsertNotificationTargetAction({ ...slack, delivery: 'run_summary', weeklyDigest: false })
+        expect(listNotificationTargets(handle.db)[0]).toMatchObject({ delivery: 'run_summary', weeklyDigest: false })
+        await updateNotificationTargetAction({ id: firstId(), severityFilter: ['high'], envFilter: 'all', enabled: true, delivery: 'per_project', weeklyDigest: true })
+        expect(listNotificationTargets(handle.db)[0]).toMatchObject({ delivery: 'per_project', weeklyDigest: true })
+    })
+
+    it('leaves both alone when an edit does not name them', async function () {
+        await upsertNotificationTargetAction({ ...slack, delivery: 'run_summary', weeklyDigest: false })
+        await updateNotificationTargetAction({ id: firstId(), severityFilter: ['high'], envFilter: 'all', enabled: true })
+        expect(listNotificationTargets(handle.db)[0]).toMatchObject({ delivery: 'run_summary', weeklyDigest: false })
+    })
+
+    it('refuses a delivery it does not know', async function () {
+        await expect(upsertNotificationTargetAction({ ...slack, delivery: 'hourly' as never })).rejects.toThrow()
+        expect(listNotificationTargets(handle.db)).toEqual([])
+    })
+
+    it('copies both to a duplicate', async function () {
+        await upsertNotificationTargetAction({ ...slack, delivery: 'run_summary', weeklyDigest: false })
+        const { id } = await duplicateNotificationTargetAction(firstId())
+        expect(getNotificationTargetById(handle.db, id)).toMatchObject({ delivery: 'run_summary', weeklyDigest: false })
+    })
+
+    it('stores the one digest day and hour, and refuses one that does not exist', async function () {
+        expect(await updateWeeklyDigestScheduleAction({ day: 3, hour: 14 })).toEqual({ ok: true })
+        expect(getWeeklyDigestSchedule(handle.db)).toEqual({ day: 3, hour: 14 })
+        expect((await updateWeeklyDigestScheduleAction({ day: 7, hour: 14 })).ok).toBe(false)
+        expect((await updateWeeklyDigestScheduleAction({ day: 3, hour: 24 })).ok).toBe(false)
+        expect(getWeeklyDigestSchedule(handle.db)).toEqual({ day: 3, hour: 14 })
+    })
+})
+
+describe('a source switched on with scans on record', function () {
+    function operatorBaselines() {
+        return handle.db.select().from(schema.capabilityBaselines).all().filter(function operator(row) { return row.cellsJson !== null })
+    }
+
+    function aScan(): void {
+        seedProject(handle.db, 'project-b')
+        insertScan(handle.db, { id: 'scan-1', projectId: 'project-b', startedAt: T0, finishedAt: T0, scanner: 'npm-audit', source: 'npm-audit', ecosystem: 'npm', status: 'ok', reasonCode: 'ok', durationMs: 1, errorText: null, rawJson: '{}' })
+    }
+
+    it('opens one baseline for several cells, and enabling what is on opens nothing', async function () {
+        aScan()
+        await updateSourceCellAction({ source: 'osv', ecosystem: 'PyPI', enabled: true })
+        await updateSourceCellAction({ source: 'osv', ecosystem: 'Go', enabled: true })
+        await updateSourceCellAction({ source: 'osv', ecosystem: 'Go', enabled: true })
+        expect(operatorBaselines()).toHaveLength(1)
+        expect(JSON.parse(operatorBaselines()[0]?.cellsJson as string)).toEqual([{ source: 'osv', ecosystem: 'PyPI' }, { source: 'osv', ecosystem: 'Go' }])
+    })
+
+    it('opens none on a fresh install', async function () {
+        await updateSourceCellAction({ source: 'osv', ecosystem: 'PyPI', enabled: true })
+        expect(operatorBaselines()).toEqual([])
+    })
+
+    it('takes a cell back out when it is switched off, and the one click path opens one too', async function () {
+        aScan()
+        await updateSourceCellAction({ source: 'osv', ecosystem: 'PyPI', enabled: true })
+        await updateSourceCellAction({ source: 'osv', ecosystem: 'PyPI', enabled: false })
+        expect(operatorBaselines()[0]?.state).toBe('done')
+        await turnOnSourceForEcosystemAction({ source: 'osv', ecosystem: 'Go' })
+        expect(operatorBaselines().filter(function open(row) { return row.state === 'pending' })).toHaveLength(1)
+    })
+})
+

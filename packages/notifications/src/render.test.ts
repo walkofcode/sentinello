@@ -623,6 +623,19 @@ describe('renderCapabilitySummary', function () {
             .toBe('Sentinello 3.8 now checks Python/Go/Rust/Ruby: 1 finding across 1 project, 1 critical')
     })
 
+    it('says what an operator switched on, in every locale', function () {
+        const operator = { id: 'sources-1', since: null, ecosystems: ['PyPI'], cells: [{ source: 'osv', ecosystem: 'PyPI' }, { source: 'gemnasium', ecosystem: 'PyPI' }, { source: 'osv', ecosystem: 'PyPI' }] } as Capability
+        const message = renderCapabilitySummary({ capability: operator, findings: 2, projects: 1, critical: 0, sourceDisabledProjects: 0, portalBaseUrl: null })
+        expect(message.text).toBe('Sentinello now checks Python with OSV/GitLab gemnasium: 2 findings across 1 project, 0 critical')
+        expect(message.webhook).toMatchObject({ capability: { id: 'sources-1', since: null, cells: operator.cells } })
+        for (const locale of ['es', 'fr', 'de', 'pt-BR', 'it', 'ja', 'zh-CN', 'ko', 'ru'] as Locale[]) {
+            const { title } = renderCapabilitySummary({ capability: operator, findings: 0, projects: 0, critical: 0, sourceDisabledProjects: 0, portalBaseUrl: null, locale })
+            expect(title).toContain('Python')
+            expect(title).toContain('OSV')
+            expect(title).not.toBe(message.title)
+        }
+    })
+
     it('carries the capability and its counts for a webhook', function () {
         expect(renderCapabilitySummary({ capability, findings: 12, projects: 3, critical: 2, sourceDisabledProjects: 4, portalBaseUrl: null }).webhook).toEqual({
             event: 'capability_summary',

@@ -15,6 +15,7 @@ import type {
     Root,
     Severity,
     SourceCell,
+    TargetDelivery,
     WebhookFlavor
 } from '@sentinello/core'
 import { upsertNotificationTargetAction } from '@/lib/actions/settings'
@@ -22,6 +23,7 @@ import { RootScopeField, type RootScopeMode } from '@/components/settings/root-s
 import { SourceScopeField, type SourceScopeMode } from '@/components/settings/source-scope-field'
 import { SeverityFilterPills } from '@/components/settings/severity-filter-pills'
 import { EnvFilterField } from '@/components/settings/env-filter-field'
+import { TargetDeliveryFields } from '@/components/settings/target-delivery-fields'
 
 type Props = {
     open: boolean
@@ -50,6 +52,8 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
     const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([])
     const [sourceScopeMode, setSourceScopeMode] = useState<SourceScopeMode>('all')
     const [selectedCells, setSelectedCells] = useState<SourceCell[]>([])
+    const [delivery, setDelivery] = useState<TargetDelivery>('per_project')
+    const [weeklyDigest, setWeeklyDigest] = useState(true)
     const [pending, startTransition] = useTransition()
     function toggleSeverity(sev: Severity) {
         setFilter(function next(prev) {
@@ -72,6 +76,8 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
         setSelectedProjectIds([])
         setSourceScopeMode('all')
         setSelectedCells([])
+        setDelivery('per_project')
+        setWeeklyDigest(true)
     }
     const scopeInvalid = scopeMode === 'selected' && selectedRootIds.length === 0 && selectedProjectIds.length === 0
     const sourceScopeInvalid = sourceScopeMode === 'selected' && selectedCells.length === 0
@@ -98,7 +104,9 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
                 enabled,
                 rootIds,
                 projectIds,
-                sourceScope
+                sourceScope,
+                delivery,
+                weeklyDigest
             })
             reset()
             onClose()
@@ -225,6 +233,13 @@ export function AddTargetDialog({ open, onClose, roots, projects }: Props) {
                         selectedCells={selectedCells}
                         onModeChange={setSourceScopeMode}
                         onSelectedCellsChange={setSelectedCells}
+                        disabled={pending}
+                    />
+                    <TargetDeliveryFields
+                        delivery={delivery}
+                        weeklyDigest={weeklyDigest}
+                        onDeliveryChange={setDelivery}
+                        onWeeklyDigestChange={setWeeklyDigest}
                         disabled={pending}
                     />
                 </div>

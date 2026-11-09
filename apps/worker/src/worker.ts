@@ -6,6 +6,7 @@ import { backfillEcosystemIdentity, backfillFindingsLifecycle, seedCapabilityBas
 import { CONFIG_KEYS, DEFAULT_SCHEDULE, discoverDockerRoots, loadConfigFile, pruneDockerRoots, seedFromConfig, type IntervalHours } from './config-loader'
 import { startScheduler, sweepActiveProjects } from './scheduler'
 import { startScanRequestPoller } from './scan-request-poller'
+import { runDigestTick } from './weekly-digest'
 import { createOsvController, type OsvController } from './osv-runtime'
 import { createGemnasiumController, type GemnasiumController } from './gemnasium-runtime'
 import { startLockfileWatcher, type WatcherHandle } from './watcher'
@@ -169,6 +170,10 @@ export async function main(): Promise<void> {
     process.on('SIGINT', function onSigint() {
         shutdown('SIGINT')
     })
+    // A digest due while the worker was down goes out now; the scheduler's tick takes it from here.
+    runtime.track(runDigestTick({ db }).catch(function onDigestError(err: unknown) {
+        console.error('[digest] boot tick failed: ' + errText(err))
+    }))
     // On boot, only run an initial sweep if enough time has elapsed since the last scan
     // (i.e. we're overdue per the configured schedule). Otherwise wait for the next cron tick.
     // First-boot (no prior scans) always runs.

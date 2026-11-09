@@ -492,6 +492,10 @@ export function findingIdentity(finding: Pick<Finding, 'projectId' | 'source' | 
     }
 }
 
+// 'manual': the portal or MCP asked, and a run summary follows. 'automatic': the lockfile watcher or a cache that
+// landed asked, and what it finds waits for the next scheduled sweep's summary.
+export type ScanRequestOrigin = 'manual' | 'automatic'
+
 export type ScanRequest = {
     id: string
     projectId: string | null
@@ -501,6 +505,7 @@ export type ScanRequest = {
     finishedAt: number | null
     heartbeatAt: number | null
     status: ScanRequestStatus
+    origin: ScanRequestOrigin
 }
 
 // A 'running' scan_requests row whose heartbeat is older than this is treated as dead.
@@ -539,6 +544,10 @@ export type WebhookTargetConfig = {
 
 export type NotificationTargetConfig = SlackTargetConfig | TelegramTargetConfig | WebhookTargetConfig
 
+// 'per_project': a message per project per scan, every target's default. 'run_summary': one message per scheduled
+// or manual run, instead of those.
+export type TargetDelivery = 'per_project' | 'run_summary'
+
 export type NotificationTarget = {
     id: string
     kind: NotificationTargetKind
@@ -562,6 +571,12 @@ export type NotificationTarget = {
     // fires only for findings whose (source, ecosystem) is in `cells`. Dispatch filters finding events
     // by this; operational (scan_failure) events bypass it. Defaults to { mode: 'all', cells: [] }.
     sourceScope: NotificationSourceScope
+    delivery: TargetDelivery
+    // The weekly digest, on until it is turned off.
+    weeklyDigest: boolean
+    // The last moment the target became digest-eligible (enabled and weeklyDigest both true); null reads as
+    // createdAt. A target is owed a week's digest only if this is at or before that week's due instant.
+    digestEligibleSinceAt: number | null
 }
 
 export type MuteScope = 'project' | 'finding'

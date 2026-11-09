@@ -96,7 +96,10 @@ describe('a polyglot tree, upgraded to 3.8', function () {
         setConfigValue(handle.db, sourceEnabledKey('osv', 'RubyGems'), true)
         insertNotificationTarget(handle.db, {
             id: 'team', kind: 'webhook', config: { url: 'https://hooks.example.test/team' }, severityFilter: ['critical', 'high'],
-            envFilter: 'all', enabled: true, createdAt: T0, rootIds: [], projectIds: [], sourceScope: { mode: 'all', cells: [] }
+            envFilter: 'all', enabled: true, createdAt: T0, rootIds: [], projectIds: [], sourceScope: { mode: 'all', cells: [] },
+            delivery: 'per_project',
+            weeklyDigest: true,
+            digestEligibleSinceAt: null
         })
 
         discoverProjects({ db: handle.db, roots: [{ id: 'code', path: code, label: null, createdAt: T0 }, { id: 'other', path: other, label: null, createdAt: T0 }], globalIgnore: [], at: T0 })
@@ -132,7 +135,7 @@ describe('a polyglot tree, upgraded to 3.8', function () {
         expect(getProjectScanState(handle.db, ids.web).state).toBe('scanned')
 
         // The first completed sweep closes the baseline: one summary to the target, rack counted in it.
-        await onCompletedSweep(handle.db, [], { rebuilds: createCacheRebuilds(), send: recordingSender })
+        await onCompletedSweep(handle.db, [], { rebuilds: createCacheRebuilds(), sweepStartedAt: T0, send: recordingSender })
         expect(sent.map(function to(s) { return s.targetId })).toEqual(['team'])
         expect(sent[0]?.message.text).toBe([
             'Sentinello 3.8 now checks Python/Go/Rust/Ruby: 1 finding across 1 project, 0 critical',

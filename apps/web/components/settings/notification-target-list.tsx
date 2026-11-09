@@ -15,7 +15,8 @@ import { RootScopeField, modeFromScope, type RootScopeMode } from '@/components/
 import { SourceScopeField, sourceScopeModeFrom, type SourceScopeMode } from '@/components/settings/source-scope-field'
 import { SeverityFilterPills } from '@/components/settings/severity-filter-pills'
 import { EnvFilterField } from '@/components/settings/env-filter-field'
-import type { DepTypeFilter, NotificationTarget, Project, Root, Severity, SourceCell } from '@sentinello/core'
+import { TargetDeliveryFields } from '@/components/settings/target-delivery-fields'
+import type { DepTypeFilter, NotificationTarget, Project, Root, Severity, SourceCell, TargetDelivery } from '@sentinello/core'
 import {
     deleteNotificationTargetAction,
     duplicateNotificationTargetAction,
@@ -162,6 +163,7 @@ export function NotificationTargetList({ targets, roots, projects }: Props) {
                                     <TableHead>{t('notifications.identity')}</TableHead>
                                     <TableHead>{t('notifications.severityFilter')}</TableHead>
                                     <TableHead>{t('notifications.scope')}</TableHead>
+                                    <TableHead>{t('notifications.messages')}</TableHead>
                                     <TableHead>{t('notifications.enabled')}</TableHead>
                                     <TableHead className="text-right"></TableHead>
                                 </TableRow>
@@ -243,6 +245,9 @@ function TargetRow(props: {
                     <ScopeBadge target={t} roots={props.roots} projects={props.projects} />
                 </TableCell>
                 <TableCell>
+                    <MessagesBadge target={t} />
+                </TableCell>
+                <TableCell>
                     <Button
                         variant="ghost"
                         size="sm"
@@ -312,7 +317,7 @@ function TargetRow(props: {
             </TableRow>
             {props.isEditing ? (
                 <TableRow>
-                    <TableCell colSpan={6} className="bg-muted/20 p-4">
+                    <TableCell colSpan={7} className="bg-muted/20 p-4">
                         <EditTargetForm target={t} roots={props.roots} projects={props.projects} onSaved={props.onSaved} />
                     </TableCell>
                 </TableRow>
@@ -366,6 +371,10 @@ function TargetCard(props: {
                     <dt className="uppercase tracking-wide text-muted-foreground">{tr('notifications.scope')}</dt>
                     <dd>
                         <ScopeBadge target={t} roots={props.roots} projects={props.projects} />
+                    </dd>
+                    <dt className="uppercase tracking-wide text-muted-foreground">{tr('notifications.messages')}</dt>
+                    <dd>
+                        <MessagesBadge target={t} />
                     </dd>
                 </dl>
             </div>
@@ -451,6 +460,17 @@ function ScopeBadge({ target, roots, projects }: { target: NotificationTarget; r
     )
 }
 
+function MessagesBadge({ target }: { target: NotificationTarget }) {
+    const t = useTranslations('Settings')
+    return (
+        <span className="text-xs">
+            {target.delivery === 'run_summary' ? t('notifications.deliveryRunSummary') : t('notifications.deliveryPerProject')}
+            {' · '}
+            {target.weeklyDigest ? t('notifications.digestOn') : t('notifications.digestOff')}
+        </span>
+    )
+}
+
 function EditTargetForm({ target, roots, projects, onSaved }: { target: NotificationTarget; roots: Root[]; projects: Project[]; onSaved: () => void }) {
     const t = useTranslations('Settings')
     const tc = useTranslations('Common')
@@ -466,6 +486,8 @@ function EditTargetForm({ target, roots, projects, onSaved }: { target: Notifica
         return sourceScopeModeFrom(target.sourceScope)
     })
     const [selectedCells, setSelectedCells] = useState<SourceCell[]>(target.sourceScope.cells)
+    const [delivery, setDelivery] = useState<TargetDelivery>(target.delivery)
+    const [weeklyDigest, setWeeklyDigest] = useState(target.weeklyDigest)
     const [pending, startTransition] = useTransition()
     function toggleSeverity(sev: Severity) {
         setFilter(function next(prev) {
@@ -491,7 +513,9 @@ function EditTargetForm({ target, roots, projects, onSaved }: { target: Notifica
                 enabled,
                 rootIds,
                 projectIds,
-                sourceScope
+                sourceScope,
+                delivery,
+                weeklyDigest
             })
             onSaved()
         })
@@ -530,6 +554,13 @@ function EditTargetForm({ target, roots, projects, onSaved }: { target: Notifica
                 selectedCells={selectedCells}
                 onModeChange={setSourceScopeMode}
                 onSelectedCellsChange={setSelectedCells}
+                disabled={pending}
+            />
+            <TargetDeliveryFields
+                delivery={delivery}
+                weeklyDigest={weeklyDigest}
+                onDeliveryChange={setDelivery}
+                onWeeklyDigestChange={setWeeklyDigest}
                 disabled={pending}
             />
             <div className="flex justify-end gap-2">

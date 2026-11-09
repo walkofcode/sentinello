@@ -131,11 +131,11 @@ function enqueueForFile(db: DrizzleDb, roots: Root[], filePath: string): void {
     if (!match) {
         // The lockfile changed in a place not (yet) known as a project. Enqueue a full sweep so
         // discovery picks it up.
-        enqueueScanRequest(db, {}, Date.now())
+        enqueueScanRequest(db, {}, Date.now(), 'automatic')
         console.log('[watcher] enqueued full sweep for unknown project at ' + projectDir)
         return
     }
-    enqueueScanRequest(db, { projectId: match.projectId }, Date.now())
+    enqueueScanRequest(db, { projectId: match.projectId }, Date.now(), 'automatic')
     console.log('[watcher] enqueued scan for ' + match.name)
 }
 

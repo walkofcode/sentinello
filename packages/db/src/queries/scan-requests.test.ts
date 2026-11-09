@@ -83,7 +83,7 @@ afterEach(async function teardown() {
 
 describe('enqueueScanRequest', function () {
     it('enqueues a pending single-project request', function () {
-        const request = enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        const request = enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         expect(request).toMatchObject({
             projectId: PROJECT_ID,
             rootId: null,
@@ -95,29 +95,29 @@ describe('enqueueScanRequest', function () {
     })
 
     it('enqueues a root-scoped request', function () {
-        expect(enqueueScanRequest(db, { rootId: ROOT_ID }, T0)).toMatchObject({ projectId: null, rootId: ROOT_ID })
+        expect(enqueueScanRequest(db, { rootId: ROOT_ID }, T0, 'manual')).toMatchObject({ projectId: null, rootId: ROOT_ID })
     })
 
     // Both null is the full-sweep signal the worker reads, so it must survive as null rather than ''.
     it('enqueues a full sweep when neither target is given', function () {
-        expect(enqueueScanRequest(db, {}, T0)).toMatchObject({ projectId: null, rootId: null })
+        expect(enqueueScanRequest(db, {}, T0, 'manual')).toMatchObject({ projectId: null, rootId: null })
     })
 
     it('normalizes empty-string targets to null', function () {
-        expect(enqueueScanRequest(db, { projectId: '', rootId: '' }, T0)).toMatchObject({
+        expect(enqueueScanRequest(db, { projectId: '', rootId: '' }, T0, 'manual')).toMatchObject({
             projectId: null,
             rootId: null
         })
     })
 
     it('gives each request a distinct id', function () {
-        const a = enqueueScanRequest(db, {}, T0)
-        const b = enqueueScanRequest(db, {}, T0)
+        const a = enqueueScanRequest(db, {}, T0, 'manual')
+        const b = enqueueScanRequest(db, {}, T0, 'manual')
         expect(a.id).not.toBe(b.id)
     })
 
     it('persists the request so it can be listed', function () {
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         expect(listRecentScanRequests(db)).toHaveLength(1)
     })
 })
@@ -128,35 +128,35 @@ describe('claimNextPendingRequest', function () {
     })
 
     it('claims the oldest pending request first', function () {
-        enqueueScanRequest(db, { projectId: OTHER_PROJECT_ID }, T0 + 1000)
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: OTHER_PROJECT_ID }, T0 + 1000, 'manual')
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         expect(claimNextPendingRequest(db, T0 + 5000)?.projectId).toBe(PROJECT_ID)
     })
 
     it('marks the claimed request running and stamps both timestamps', function () {
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         const claimed = claimNextPendingRequest(db, T0 + 500)
         expect(claimed).toMatchObject({ status: 'running', pickedUpAt: T0 + 500, heartbeatAt: T0 + 500 })
     })
 
     // Claiming must be a state transition, not a peek: a second worker must not get the same row.
     it('does not hand the same request out twice', function () {
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         expect(claimNextPendingRequest(db, T0 + 1)).not.toBeNull()
         expect(claimNextPendingRequest(db, T0 + 2)).toBeNull()
     })
 
     it('ignores requests that already finished', function () {
-        const request = enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        const request = enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         markScanRequestDone(db, request.id, T0 + 1)
         expect(claimNextPendingRequest(db, T0 + 2)).toBeNull()
     })
 
     // While an advisory cache rebuilds the worker holds full sweeps; project and root scans still run.
     it('leaves a full sweep waiting and claims the next project or root request when told to hold sweeps', function () {
-        const sweep = enqueueScanRequest(db, {}, T0)
-        enqueueScanRequest(db, { rootId: ROOT_ID }, T0 + 1)
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0 + 2)
+        const sweep = enqueueScanRequest(db, {}, T0, 'manual')
+        enqueueScanRequest(db, { rootId: ROOT_ID }, T0 + 1, 'manual')
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0 + 2, 'manual')
         expect(claimNextPendingRequest(db, T0 + 10, { holdFullSweeps: true })?.rootId).toBe(ROOT_ID)
         expect(claimNextPendingRequest(db, T0 + 11, { holdFullSweeps: true })?.projectId).toBe(PROJECT_ID)
         expect(claimNextPendingRequest(db, T0 + 12, { holdFullSweeps: true })).toBeNull()
@@ -179,10 +179,10 @@ describe('enqueueFullSweepUnlessPending', function () {
     // A running sweep may be the one whose verdicts the new sweep must replace; a project or root request
     // does not scan everything.
     it('queues one behind a running sweep, and beside project or root requests', function () {
-        enqueueScanRequest(db, {}, T0)
+        enqueueScanRequest(db, {}, T0, 'manual')
         claimNextPendingRequest(db, T0 + 1)
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0 + 2)
-        enqueueScanRequest(db, { rootId: ROOT_ID }, T0 + 3)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0 + 2, 'manual')
+        enqueueScanRequest(db, { rootId: ROOT_ID }, T0 + 3, 'manual')
         expect(enqueueFullSweepUnlessPending(db, T0 + 4)).toBe(true)
         expect(listRecentScanRequests(db).filter(function full(r) { return r.projectId === null && r.rootId === null })).toHaveLength(2)
     })
@@ -190,7 +190,7 @@ describe('enqueueFullSweepUnlessPending', function () {
 
 describe('pingScanRequestHeartbeat', function () {
     it('refreshes the heartbeat of a running request', function () {
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         const claimed = claimNextPendingRequest(db, T0 + 100)
         if (!claimed) throw new Error('expected a claimed request')
         pingScanRequestHeartbeat(db, claimed.id, T0 + 900)
@@ -199,7 +199,7 @@ describe('pingScanRequestHeartbeat', function () {
 
     // Guarded by status='running' so a late ping from a finishing scan cannot resurrect a done row.
     it('is a no-op for a request that already finished', function () {
-        const request = enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        const request = enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         claimNextPendingRequest(db, T0 + 100)
         markScanRequestDone(db, request.id, T0 + 200)
         pingScanRequestHeartbeat(db, request.id, T0 + 300)
@@ -217,8 +217,8 @@ describe('resetOrphanedRunningRequests', function () {
     // Called at worker boot: any 'running' row belongs to a process that did not exit cleanly, so the
     // queue heals itself rather than leaving the UI stuck.
     it('fails every running request and reports the count', function () {
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
-        enqueueScanRequest(db, { projectId: OTHER_PROJECT_ID }, T0 + 1)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
+        enqueueScanRequest(db, { projectId: OTHER_PROJECT_ID }, T0 + 1, 'manual')
         claimNextPendingRequest(db, T0 + 10)
         claimNextPendingRequest(db, T0 + 11)
         expect(resetOrphanedRunningRequests(db, T0 + 100)).toBe(2)
@@ -226,7 +226,7 @@ describe('resetOrphanedRunningRequests', function () {
     })
 
     it('leaves pending requests alone', function () {
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         expect(resetOrphanedRunningRequests(db, T0 + 100)).toBe(0)
         expect(listRecentScanRequests(db)[0]?.status).toBe('pending')
     })
@@ -236,7 +236,7 @@ describe('resetOrphanedRunningRequests', function () {
     })
 
     it('stamps the finish time', function () {
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         claimNextPendingRequest(db, T0 + 10)
         resetOrphanedRunningRequests(db, T0 + 100)
         expect(listRecentScanRequests(db)[0]?.finishedAt).toBe(T0 + 100)
@@ -248,7 +248,7 @@ describe('markScanRequestDone and markScanRequestFailed', function () {
         ['done', markScanRequestDone],
         ['failed', markScanRequestFailed]
     ] as Array<[string, (db: DrizzleDb, id: string, at: number) => void]>)('marks a request %s', function (status, mark) {
-        const request = enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        const request = enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         mark(db, request.id, T0 + 100)
         expect(listRecentScanRequests(db)[0]).toMatchObject({ status, finishedAt: T0 + 100 })
     })
@@ -256,8 +256,8 @@ describe('markScanRequestDone and markScanRequestFailed', function () {
 
 describe('listRecentScanRequests', function () {
     it('returns requests oldest first', function () {
-        enqueueScanRequest(db, { projectId: OTHER_PROJECT_ID }, T0 + 1000)
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: OTHER_PROJECT_ID }, T0 + 1000, 'manual')
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         expect(listRecentScanRequests(db).map(function id(r) { return r.projectId })).toEqual([
             PROJECT_ID,
             OTHER_PROJECT_ID
@@ -265,8 +265,8 @@ describe('listRecentScanRequests', function () {
     })
 
     it('honours the limit', function () {
-        enqueueScanRequest(db, {}, T0)
-        enqueueScanRequest(db, {}, T0 + 1)
+        enqueueScanRequest(db, {}, T0, 'manual')
+        enqueueScanRequest(db, {}, T0 + 1, 'manual')
         expect(listRecentScanRequests(db, 1)).toHaveLength(1)
     })
 
@@ -279,24 +279,24 @@ describe('listRecentScanRequests', function () {
 // Both sides of it are asserted explicitly rather than approximated.
 describe('in-flight detection', function () {
     it('counts a pending request as in flight', function () {
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         expect(isAnyScanInFlight(db, T0)).toBe(true)
     })
 
     it('counts a running request with a fresh heartbeat as in flight', function () {
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         claimNextPendingRequest(db, T0)
         expect(isAnyScanInFlight(db, T0 + SCAN_HEARTBEAT_STALE_MS - 1)).toBe(true)
     })
 
     it('counts a heartbeat exactly at the staleness boundary as fresh', function () {
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         claimNextPendingRequest(db, T0)
         expect(isAnyScanInFlight(db, T0 + SCAN_HEARTBEAT_STALE_MS)).toBe(true)
     })
 
     it('stops counting a running request once its heartbeat goes stale', function () {
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         claimNextPendingRequest(db, T0)
         expect(isAnyScanInFlight(db, T0 + SCAN_HEARTBEAT_STALE_MS + 1)).toBe(false)
     })
@@ -306,13 +306,13 @@ describe('in-flight detection', function () {
     })
 
     it('excludes a stale running request from the in-flight list', function () {
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         claimNextPendingRequest(db, T0)
         expect(selectInFlightScanRequests(db, T0 + SCAN_HEARTBEAT_STALE_MS + 1)).toEqual([])
     })
 
     it('excludes finished requests from the in-flight list', function () {
-        const request = enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        const request = enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         markScanRequestDone(db, request.id, T0 + 1)
         expect(selectInFlightScanRequests(db, T0 + 2)).toEqual([])
     })
@@ -320,33 +320,33 @@ describe('in-flight detection', function () {
 
 describe('isScanInFlightForProject', function () {
     it('is true when a request targets the project directly', function () {
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         expect(isScanInFlightForProject(db, PROJECT_ID, ROOT_ID, T0)).toBe(true)
     })
 
     // A root sweep will reach this project, so its button must show scanning too.
     it('is true when a request targets the project root', function () {
-        enqueueScanRequest(db, { rootId: ROOT_ID }, T0)
+        enqueueScanRequest(db, { rootId: ROOT_ID }, T0, 'manual')
         expect(isScanInFlightForProject(db, PROJECT_ID, ROOT_ID, T0)).toBe(true)
     })
 
     it('is true during a full sweep', function () {
-        enqueueScanRequest(db, {}, T0)
+        enqueueScanRequest(db, {}, T0, 'manual')
         expect(isScanInFlightForProject(db, PROJECT_ID, ROOT_ID, T0)).toBe(true)
     })
 
     it('is false for a request targeting a different project', function () {
-        enqueueScanRequest(db, { projectId: OTHER_PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: OTHER_PROJECT_ID }, T0, 'manual')
         expect(isScanInFlightForProject(db, PROJECT_ID, ROOT_ID, T0)).toBe(false)
     })
 
     it('is false for a request targeting a different root', function () {
-        enqueueScanRequest(db, { rootId: OTHER_ROOT_ID }, T0)
+        enqueueScanRequest(db, { rootId: OTHER_ROOT_ID }, T0, 'manual')
         expect(isScanInFlightForProject(db, PROJECT_ID, ROOT_ID, T0)).toBe(false)
     })
 
     it('is false once the covering request goes stale', function () {
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         claimNextPendingRequest(db, T0)
         expect(isScanInFlightForProject(db, PROJECT_ID, ROOT_ID, T0 + SCAN_HEARTBEAT_STALE_MS + 1)).toBe(false)
     })
@@ -356,23 +356,23 @@ describe('listInFlightScanProjectIds', function () {
     // Deliberately identical scope semantics to isScanInFlightForProject, in one query rather than
     // one per row — so the two must agree.
     it('lists a directly targeted project', function () {
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         expect(listInFlightScanProjectIds(db, T0)).toEqual([PROJECT_ID])
     })
 
     it('lists every project under a targeted root', function () {
         addProject('project-3', ROOT_ID, 'sibling')
-        enqueueScanRequest(db, { rootId: ROOT_ID }, T0)
+        enqueueScanRequest(db, { rootId: ROOT_ID }, T0, 'manual')
         expect(listInFlightScanProjectIds(db, T0).sort()).toEqual([PROJECT_ID, 'project-3'])
     })
 
     it('lists every project during a full sweep', function () {
-        enqueueScanRequest(db, {}, T0)
+        enqueueScanRequest(db, {}, T0, 'manual')
         expect(listInFlightScanProjectIds(db, T0).sort()).toEqual([PROJECT_ID, OTHER_PROJECT_ID].sort())
     })
 
     it('agrees with isScanInFlightForProject for a root sweep', function () {
-        enqueueScanRequest(db, { rootId: ROOT_ID }, T0)
+        enqueueScanRequest(db, { rootId: ROOT_ID }, T0, 'manual')
         const listed = listInFlightScanProjectIds(db, T0)
         expect(listed.includes(PROJECT_ID)).toBe(isScanInFlightForProject(db, PROJECT_ID, ROOT_ID, T0))
         expect(listed.includes(OTHER_PROJECT_ID)).toBe(
@@ -381,7 +381,7 @@ describe('listInFlightScanProjectIds', function () {
     })
 
     it('excludes stale running requests', function () {
-        enqueueScanRequest(db, {}, T0)
+        enqueueScanRequest(db, {}, T0, 'manual')
         claimNextPendingRequest(db, T0)
         expect(listInFlightScanProjectIds(db, T0 + SCAN_HEARTBEAT_STALE_MS + 1)).toEqual([])
     })
@@ -393,30 +393,43 @@ describe('listInFlightScanProjectIds', function () {
 
 describe('isScanInFlightForRoot', function () {
     it('is true when a request targets the root', function () {
-        enqueueScanRequest(db, { rootId: ROOT_ID }, T0)
+        enqueueScanRequest(db, { rootId: ROOT_ID }, T0, 'manual')
         expect(isScanInFlightForRoot(db, ROOT_ID, T0)).toBe(true)
     })
 
     it('is true during a full sweep', function () {
-        enqueueScanRequest(db, {}, T0)
+        enqueueScanRequest(db, {}, T0, 'manual')
         expect(isScanInFlightForRoot(db, ROOT_ID, T0)).toBe(true)
     })
 
     // Deliberately coarser than the per-project check: a single project scan inside this root does
     // NOT light up the root button, because the user picked the strict cascade.
     it('is false for a per-project request inside the root', function () {
-        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0)
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'manual')
         expect(isScanInFlightForRoot(db, ROOT_ID, T0)).toBe(false)
     })
 
     it('is false for a different root', function () {
-        enqueueScanRequest(db, { rootId: OTHER_ROOT_ID }, T0)
+        enqueueScanRequest(db, { rootId: OTHER_ROOT_ID }, T0, 'manual')
         expect(isScanInFlightForRoot(db, ROOT_ID, T0)).toBe(false)
     })
 
     it('is false once the request goes stale', function () {
-        enqueueScanRequest(db, { rootId: ROOT_ID }, T0)
+        enqueueScanRequest(db, { rootId: ROOT_ID }, T0, 'manual')
         claimNextPendingRequest(db, T0)
         expect(isScanInFlightForRoot(db, ROOT_ID, T0 + SCAN_HEARTBEAT_STALE_MS + 1)).toBe(false)
     })
 })
+
+describe('a request\'s origin', function () {
+    it('is kept through the claim, and a cache-landed sweep is automatic', function () {
+        enqueueScanRequest(db, { projectId: PROJECT_ID }, T0, 'automatic')
+        expect(claimNextPendingRequest(db, T0 + 1)?.origin).toBe('automatic')
+        enqueueScanRequest(db, {}, T0 + 2, 'manual')
+        expect(claimNextPendingRequest(db, T0 + 3)?.origin).toBe('manual')
+        expect(enqueueFullSweepUnlessPending(db, T0 + 4)).toBe(true)
+        expect(claimNextPendingRequest(db, T0 + 5)?.origin).toBe('automatic')
+        expect(listRecentScanRequests(db).map(function origin(r) { return r.origin })).toEqual(['automatic', 'manual', 'automatic'])
+    })
+})
+

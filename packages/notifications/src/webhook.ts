@@ -48,7 +48,7 @@ function buildBody(flavor: 'json' | 'text', message: RenderedMessage): unknown {
             portalUrl: message.portalUrl
         }
     }
-    if (ctx.event === 'capability_summary') {
+    if (!isScanMessage(ctx)) {
         if (flavor === 'text') return { text: message.text }
         return { ...ctx, title: message.title, text: message.text, portalUrl: message.portalUrl }
     }
@@ -56,6 +56,11 @@ function buildBody(flavor: 'json' | 'text', message: RenderedMessage): unknown {
         return { text: ctx.advisoryText }
     }
     return buildJsonBody(ctx, message.portalUrl)
+}
+
+// About one project's scan, against the summaries, which carry their own shape whole.
+function isScanMessage(ctx: NonNullable<RenderedMessage['webhook']>): ctx is WebhookPayloadContext {
+    return ctx.event === 'findings' || ctx.event === 'scan_failure'
 }
 
 function buildJsonBody(ctx: WebhookPayloadContext, portalUrl: string | null): unknown {

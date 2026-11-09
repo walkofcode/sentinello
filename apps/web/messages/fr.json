@@ -300,7 +300,22 @@
             "webhookFlavor": "Format du payload",
             "webhookFlavorJson": "JSON structuré",
             "webhookFlavorText": "Avis en texte brut",
-            "webhookFlavorHelp": "JSON envoie la racine, le projet et les vulnérabilités pour un agent d'auto-correction. Le texte brut envoie l'export d'avis, prêt pour un LLM."
+            "webhookFlavorHelp": "JSON envoie la racine, le projet et les vulnérabilités pour un agent d'auto-correction. Le texte brut envoie l'export d'avis, prêt pour un LLM.",
+            "messages": "Messages",
+            "runSummary": "Résumé d’exécution",
+            "runSummaryHelp": "Un message par exécution planifiée ou manuelle, avec ce qui est nouveau dans tous les projets. Cette cible ne reçoit plus de messages par projet.",
+            "weeklyDigest": "Résumé hebdomadaire",
+            "weeklyDigestHelp": "Un message par semaine avec tout ce qui reste à traiter, même quand il n’y a rien.",
+            "deliveryPerProject": "Par projet",
+            "deliveryRunSummary": "Résumé d’exécution",
+            "digestOn": "Résumé hebdomadaire activé",
+            "digestOff": "Résumé hebdomadaire désactivé",
+            "digestSchedule": {
+                "title": "Planification du résumé hebdomadaire",
+                "day": "Jour",
+                "hour": "Heure",
+                "help": "Envoyé à chaque cible dont le résumé est activé, à cette heure dans le fuseau horaire de la planification ({timezone})."
+            }
         },
         "sources": {
             "metaTitle": "Sources · Paramètres",
@@ -681,7 +696,7 @@
             },
             "notifications": {
                 "purpose": "Envoyer les vulnérabilités pour lesquelles vous avez configuré des alertes : nom du projet, branche git, paquet et version, sévérité, identifiant de l’avis et un lien vers ce portail",
-                "when": "Lorsqu’une analyse produit une nouvelle vulnérabilité, une vulnérabilité résolue ou un échec d’analyse",
+                "when": "Une nouvelle vulnérabilité ou un échec d’analyse : par projet, ou dans un seul résumé d’exécution si la cible l’a choisi. Plus le résumé hebdomadaire, activé par défaut, au jour et à l’heure définis ici",
                 "disable": "Paramètres → Notifications — aucune n’existe tant que vous n’en ajoutez pas"
             },
             "pypi": {

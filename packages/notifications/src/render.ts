@@ -1,4 +1,4 @@
-import { CHAIN_UNKNOWN_TEXT, describeFix, describeScanReasons, getEcosystem, type Capability, PLAIN_FIX_STYLE, scanStateHeadline, reasonSide, summarizeRemediation, reasonCodeLabel, REASON_CODE_VALUES, SCAN_STATE_SIDE_SHORT, type Finding, type LabelledScanState, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
+import { CHAIN_UNKNOWN_TEXT, describeFix, describeScanReasons, getEcosystem, getSource, type Capability, PLAIN_FIX_STYLE, scanStateHeadline, reasonSide, summarizeRemediation, reasonCodeLabel, REASON_CODE_VALUES, SCAN_STATE_SIDE_SHORT, type Finding, type LabelledScanState, type Locale, type NotificationEvent, type ReasonCode, type Severity, type SourceCell } from '@sentinello/core'
 import type { CapabilitySummaryWebhook, RenderedMessage } from './types'
 import { CAPABILITY_SUMMARY_COPY } from './capability-copy'
 
@@ -247,7 +247,9 @@ export type RenderCapabilitySummaryInput = {
 export function renderCapabilitySummary(input: RenderCapabilitySummaryInput): RenderedMessage {
     const copy = CAPABILITY_SUMMARY_COPY[input.locale ?? 'en']
     const languages = input.capability.ecosystems.map(ecosystemLabel).join('/')
-    const title = copy.title(input.capability.since.replace(/\.0$/, ''), languages)
+    const title = input.capability.cells === undefined
+        ? copy.title(input.capability.since.replace(/\.0$/, ''), languages)
+        : copy.enabledTitle(languages, sourceLabels(input.capability.cells))
     const lines: string[] = []
     lines.push('*' + title + ':* ' + copy.counts(input.findings, input.projects, input.critical))
     if (input.sourceDisabledProjects > 0) lines.push(copy.sourceDisabled(input.sourceDisabledProjects))
@@ -256,8 +258,14 @@ export function renderCapabilitySummary(input: RenderCapabilitySummaryInput): Re
     const markdown = lines.join('\n')
     const webhook: CapabilitySummaryWebhook = {
         event: 'capability_summary',
-        capability: { id: input.capability.id, since: input.capability.since, ecosystems: [...input.capability.ecosystems] },
+        capability: { id: input.capability.id, since: input.capability.since, ecosystems: [...input.capability.ecosystems], cells: input.capability.cells },
         counts: { findings: input.findings, projects: input.projects, critical: input.critical, sourceDisabledProjects: input.sourceDisabledProjects }
     }
     return { title, text: stripMarkdown(markdown), markdown, portalUrl, webhook }
+}
+
+// The sources of an operator's baseline as a reader names them, each once.
+function sourceLabels(cells: readonly SourceCell[]): string {
+    const names = cells.map(function name(cell) { return getSource(cell.source)?.displayName ?? cell.source })
+    return Array.from(new Set(names)).join('/')
 }

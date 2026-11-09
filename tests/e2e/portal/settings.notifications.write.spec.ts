@@ -294,3 +294,55 @@ test.describe('removing a target', function () {
         await expect(page.getByText('No notification targets')).toBeVisible()
     })
 })
+
+test.describe('run summary and the weekly digest', function () {
+    test('a new target starts on per-project messages with the digest on, and says what opting in costs', async function ({ page }) {
+        await page.goto('/settings/notifications')
+        const dialog = await openAddTarget(page)
+
+        await expect(dialog.getByLabel('Run summary')).not.toBeChecked()
+        await expect(dialog.getByLabel('Weekly digest')).toBeChecked()
+        await expect(dialog.getByText('This target stops getting per-project messages.')).toBeVisible()
+    })
+
+    test('both choices persist across a reload, added and edited', async function ({ page }) {
+        await page.goto('/settings/notifications')
+        const dialog = await openAddTarget(page)
+        await fillStable(dialog.getByLabel('Slack incoming webhook URL'), SLACK_URL)
+        await dialog.getByLabel('Run summary').check()
+        await dialog.getByRole('button', { name: 'Add target' }).click()
+        await expect(dialog).toBeHidden()
+        await expect(visible(page, /Run summary · Digest on/)).toBeVisible()
+
+        await page.reload()
+        await expect(visible(page, /Run summary · Digest on/)).toBeVisible()
+
+        await visibleRole(page, 'button', 'Edit target').click()
+        const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save changes' }) }).filter({ visible: true })
+        await expect(form.getByLabel('Run summary')).toBeChecked()
+        await form.getByLabel('Run summary').uncheck()
+        await form.getByLabel('Weekly digest').uncheck()
+        await form.getByRole('button', { name: 'Save changes' }).click()
+        await expect(visible(page, /Per project · Digest off/)).toBeVisible()
+
+        await page.reload()
+        await expect(visible(page, /Per project · Digest off/)).toBeVisible()
+    })
+
+    test('the digest has one day and hour, shown with the schedule\'s timezone, and they persist', async function ({ page }) {
+        await page.goto('/settings/notifications')
+
+        await expect(page.getByText(/at this time in the schedule’s timezone \(.+\)/)).toBeVisible()
+        await page.getByRole('button', { name: 'Day' }).click()
+        await page.getByRole('option', { name: 'Wednesday' }).click()
+        await page.getByRole('button', { name: 'Hour' }).click()
+        await page.getByRole('option', { name: '14:00' }).click()
+        await expect(page.getByRole('button', { name: 'Hour' })).toContainText('14:00')
+        await expect(page.getByRole('button', { name: 'Hour' })).toBeEnabled()
+
+        await page.reload()
+        await expect(page.getByRole('button', { name: 'Day' })).toContainText('Wednesday')
+        await expect(page.getByRole('button', { name: 'Hour' })).toContainText('14:00')
+    })
+})
+

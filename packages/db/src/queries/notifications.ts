@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm'
-import type { DepTypeFilter, NotificationSourceScope, NotificationTarget, NotificationTargetConfig } from '@sentinello/core'
+import { eq, sql, type SQL } from 'drizzle-orm'
+import type { DepTypeFilter, NotificationSourceScope, NotificationTarget, NotificationTargetConfig, TargetDelivery } from '@sentinello/core'
 import { SOURCE_IDS, getEcosystem } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { notificationTargets } from '../schema'
@@ -34,7 +34,20 @@ export function getNotificationTargetById(db: DrizzleDb, id: string): Notificati
     return rowToTarget(row, rootIds, projectIds)
 }
 
+// What makes a target owed a digest: enabled and weekly_digest both true. Every writer of either flag sets
+// digest_eligible_since_at through this, in the statement that writes the flag: when the pair goes from not eligible
+// to eligible the boundary moves to now, so a target disabled at a due instant and enabled before the worker
+// restarts is not owed that week, with no tick having seen it disabled.
+function digestEligibilityPatch(next: { enabled?: boolean; weeklyDigest?: boolean }, at: number): SQL {
+    const enabled = next.enabled === undefined ? sql`enabled` : sql`${next.enabled ? 1 : 0}`
+    const weeklyDigest = next.weeklyDigest === undefined ? sql`weekly_digest` : sql`${next.weeklyDigest ? 1 : 0}`
+    return sql`CASE WHEN NOT (enabled AND weekly_digest) AND (${enabled} AND ${weeklyDigest}) THEN ${at} ELSE digest_eligible_since_at END`
+}
+
+// A target is created on 'per_project': opting in to run summary seeds what it already knows from the target's
+// scope, so it goes through setNotificationTargetDelivery once the scope rows exist.
 export function insertNotificationTarget(db: DrizzleDb, target: NotificationTarget): void {
+    if (target.delivery !== 'per_project') throw new Error('a new target starts per project; opt in with setNotificationTargetDelivery')
     db.insert(notificationTargets)
         .values({
             id: target.id,
@@ -44,13 +57,26 @@ export function insertNotificationTarget(db: DrizzleDb, target: NotificationTarg
             envFilter: target.envFilter,
             sourceScopeJson: JSON.stringify(target.sourceScope),
             enabled: target.enabled,
-            createdAt: target.createdAt
+            createdAt: target.createdAt,
+            delivery: target.delivery,
+            weeklyDigest: target.weeklyDigest,
+            digestEligibleSinceAt: target.enabled && target.weeklyDigest ? target.createdAt : null
         })
         .run()
 }
 
-export function setNotificationTargetEnabled(db: DrizzleDb, id: string, enabled: boolean): void {
-    db.update(notificationTargets).set({ enabled }).where(eq(notificationTargets.id, id)).run()
+export function setNotificationTargetEnabled(db: DrizzleDb, id: string, enabled: boolean, at: number = Date.now()): void {
+    db.update(notificationTargets)
+        .set({ enabled, digestEligibleSinceAt: digestEligibilityPatch({ enabled }, at) })
+        .where(eq(notificationTargets.id, id))
+        .run()
+}
+
+export function setNotificationTargetDigest(db: DrizzleDb, id: string, weeklyDigest: boolean, at: number = Date.now()): void {
+    db.update(notificationTargets)
+        .set({ weeklyDigest, digestEligibleSinceAt: digestEligibilityPatch({ weeklyDigest }, at) })
+        .where(eq(notificationTargets.id, id))
+        .run()
 }
 
 export function deleteNotificationTarget(db: DrizzleDb, id: string): void {
@@ -79,15 +105,20 @@ export type UpdateNotificationTargetInput = {
     envFilter?: DepTypeFilter
     sourceScope?: NotificationSourceScope
     enabled?: boolean
+    weeklyDigest?: boolean
 }
 
-export function updateNotificationTarget(db: DrizzleDb, input: UpdateNotificationTargetInput): void {
+export function updateNotificationTarget(db: DrizzleDb, input: UpdateNotificationTargetInput, at: number = Date.now()): void {
     const patch: Record<string, unknown> = {}
     if (input.config !== undefined) patch.configJson = JSON.stringify(input.config)
     if (input.severityFilter !== undefined) patch.severityFilterJson = JSON.stringify(input.severityFilter)
     if (input.envFilter !== undefined) patch.envFilter = input.envFilter
     if (input.sourceScope !== undefined) patch.sourceScopeJson = JSON.stringify(input.sourceScope)
     if (input.enabled !== undefined) patch.enabled = input.enabled
+    if (input.weeklyDigest !== undefined) patch.weeklyDigest = input.weeklyDigest
+    if (input.enabled !== undefined || input.weeklyDigest !== undefined) {
+        patch.digestEligibleSinceAt = digestEligibilityPatch({ enabled: input.enabled, weeklyDigest: input.weeklyDigest }, at)
+    }
     if (Object.keys(patch).length === 0) return
     db.update(notificationTargets).set(patch).where(eq(notificationTargets.id, input.id)).run()
 }
@@ -116,8 +147,15 @@ function rowToTarget(row: NotificationTargetRow, rootIds: string[], projectIds: 
         createdAt: row.createdAt,
         rootIds,
         projectIds,
-        sourceScope: parseSourceScope(row.sourceScopeJson)
+        sourceScope: parseSourceScope(row.sourceScopeJson),
+        delivery: parseDelivery(row.delivery),
+        weeklyDigest: row.weeklyDigest,
+        digestEligibleSinceAt: row.digestEligibleSinceAt
     }
+}
+
+export function parseDelivery(raw: string): TargetDelivery {
+    return raw === 'run_summary' ? 'run_summary' : 'per_project'
 }
 
 function parseEnvFilter(raw: string): DepTypeFilter {

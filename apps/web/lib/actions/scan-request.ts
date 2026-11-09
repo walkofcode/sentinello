@@ -17,7 +17,7 @@ export async function requestScanForProject(projectId: string): Promise<void> {
     // Dedupe: if a covering scan (this project, its root, or full sweep) is already in flight,
     // do not enqueue another. UI button is already disabled in this state — this is a race guard.
     if (isScanInFlightForProject(db, projectId, project.rootId, Date.now())) return
-    enqueueScanRequest(db, { projectId }, Date.now())
+    enqueueScanRequest(db, { projectId }, Date.now(), 'manual')
     revalidatePath('/projects/' + projectId)
     revalidatePath('/projects')
 }
@@ -25,7 +25,7 @@ export async function requestScanForProject(projectId: string): Promise<void> {
 export async function requestScanForRoot(rootId: string): Promise<void> {
     const db = getDb()
     if (isScanInFlightForRoot(db, rootId, Date.now())) return
-    enqueueScanRequest(db, { rootId }, Date.now())
+    enqueueScanRequest(db, { rootId }, Date.now(), 'manual')
     revalidatePath('/settings/roots')
     revalidatePath('/projects')
 }
@@ -33,7 +33,7 @@ export async function requestScanForRoot(rootId: string): Promise<void> {
 export async function requestFullSweep(): Promise<void> {
     const db = getDb()
     if (isAnyScanInFlight(db, Date.now())) return
-    enqueueScanRequest(db, {}, Date.now())
+    enqueueScanRequest(db, {}, Date.now(), 'manual')
     revalidatePath('/projects')
     revalidatePath('/')
 }

@@ -1,5 +1,6 @@
-import { CAPABILITIES, isCacheNotReadyReason, type Capability, type Locale } from '@sentinello/core'
+import { CAPABILITIES, baselineCovers, isCacheNotReadyReason, type Capability, type Locale } from '@sentinello/core'
 import {
+    allBaselineCapabilities,
     baselineCountsForTarget,
     claimCompletedBaselines,
     closeFinishedBaselines,
@@ -41,6 +42,7 @@ export type DispatchSummariesInput = {
     // The transport for each target. Defaults to the real sender of the target's kind; tests and the
     // live-copy verification pass a recording one.
     send?: NotificationSender
+    // The release's capabilities; the ones operators opened are read from the database at each dispatch.
     capabilities: readonly Capability[]
     portalBaseUrl?: string | null
     // The notification locale the summary is written in; English when absent.
@@ -56,20 +58,26 @@ export type DispatchSummariesInput = {
 // process, and the attempt it recorded without an outcome is retried on the next completed sweep.
 let queue: Promise<void> = Promise.resolve()
 
-export function dispatchCapabilitySummaries(input: DispatchSummariesInput): Promise<void> {
-    const run = queue.then(function next() { return dispatchOpenSummaries(input) })
+// The run summary and the weekly digest go through the same queue, so nothing fleet-wide overlaps.
+export function inSummaryQueue(work: () => Promise<void>): Promise<void> {
+    const run = queue.then(work)
     // A failed dispatch fails its own caller, never the ones queued behind it.
     queue = run.catch(function keepServing() { return undefined })
     return run
+}
+
+export function dispatchCapabilitySummaries(input: DispatchSummariesInput): Promise<void> {
+    return inSummaryQueue(function next() { return dispatchOpenSummaries(input) })
 }
 
 // Runs inside the queue only: not exported, so nothing can reach the select → recheck → attempt → send →
 // outcome path without it.
 async function dispatchOpenSummaries(input: DispatchSummariesInput): Promise<void> {
     const send = input.send ?? sendByKind
+    const capabilities = allBaselineCapabilities(input.db, input.capabilities)
     for (const row of listOpenSummaryDeliveries(input.db)) {
-        // CAPABILITIES is append-only and the ledger only holds ids it seeded.
-        const capability = input.capabilities.find(function byId(c) { return c.id === row.capabilityId }) as Capability
+        // CAPABILITIES is append-only, an operator's row is never deleted, and the ledger only holds ids they seeded.
+        const capability = capabilities.find(function byId(c) { return c.id === row.capabilityId }) as Capability
         // A row exists only while its target does (ON DELETE CASCADE), but the target may go between the
         // select and here.
         const target = getNotificationTargetById(input.db, row.targetId)
@@ -135,7 +143,7 @@ function scansWaitingOnACache(capability: Capability, outcomes: readonly Project
     const wait: CacheWait = { waiting: 0, failed: 0 }
     for (const { scan } of outcomes) {
         if (scan.status !== 'unauditable' || !isCacheNotReadyReason(scan.reasonCode)) continue
-        if (!(capability.ecosystems as string[]).includes(scan.ecosystem)) continue
+        if (!baselineCovers(capability, scan.source, scan.ecosystem)) continue
         // gemnasium's own cache, or the OSV cache of the ecosystem: OSV's scans and gemnasium's withdrawal
         // evidence both read it.
         const gemnasium = scan.reasonCode === 'gemnasium_db_not_seeded'
@@ -158,11 +166,12 @@ function sameCounts(a: BaselineCounts, b: BaselineCounts): boolean {
 // pending one the sweep answered for — a concurrent completion loses the claim — then dispatch whatever
 // summary is still owed, including retries of earlier failures. Only a sweep that processed every project
 // and was not aborted counts; an interrupted one leaves the baseline pending for the next. `outcomes` is
-// every scan the sweep made; `rebuilds` says which advisory caches failed to download.
-export async function onCompletedSweep(db: DrizzleDb, outcomes: readonly ProjectScanOutcome[], options: { rebuilds: Pick<CacheRebuilds, 'failed'>; send?: DispatchSummariesInput['send']; capabilities?: readonly Capability[] }): Promise<void> {
+// every scan the sweep made; `rebuilds` says which advisory caches failed to download; `sweepStartedAt` is when the
+// sweep began, read before it looked at any source, which is what says an operator's newest cell was in it.
+export async function onCompletedSweep(db: DrizzleDb, outcomes: readonly ProjectScanOutcome[], options: { rebuilds: Pick<CacheRebuilds, 'failed'>; sweepStartedAt: number; send?: DispatchSummariesInput['send']; capabilities?: readonly Capability[] }): Promise<void> {
     const capabilities = options.capabilities ?? CAPABILITIES
     // Only a pending baseline has anything to wait for, or to say it waits for.
-    const answered = pendingBaselineCapabilities(db, capabilities).filter(function sweptFor(capability) {
+    const answered = pendingBaselineCapabilities(db, allBaselineCapabilities(db, capabilities)).filter(function sweptFor(capability) {
         const wait = scansWaitingOnACache(capability, outcomes, options.rebuilds)
         if (wait.waiting > 0) {
             console.log('[baseline] ' + capability.id + ' stays pending: ' + scans(wait.waiting) + ' of its languages could not answer while an advisory cache was not ready')
@@ -171,7 +180,7 @@ export async function onCompletedSweep(db: DrizzleDb, outcomes: readonly Project
         if (wait.failed > 0) console.log('[baseline] ' + capability.id + ' completes without ' + scans(wait.failed) + ' whose advisory cache failed to download; they stay unauditable until a download succeeds')
         return true
     })
-    claimCompletedBaselines(db, answered, Date.now())
+    claimCompletedBaselines(db, answered, Date.now(), options.sweepStartedAt)
     await dispatchCapabilitySummaries({
         db,
         dryRun: getConfigValue<boolean>(db, CONFIG_KEYS.dryRunNotify) || false,

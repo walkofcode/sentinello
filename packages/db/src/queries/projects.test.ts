@@ -353,7 +353,10 @@ describe('cascadeDeleteProjects', function () {
             createdAt: T0 - HOUR,
             rootIds: [],
             projectIds: [],
-            sourceScope: { mode: 'all', cells: [] }
+            sourceScope: { mode: 'all', cells: [] },
+            delivery: 'per_project',
+            weeklyDigest: true,
+            digestEligibleSinceAt: null
         })
         setTargetProjects(db, 'target-1', [PROJECT_ID])
         recordAttempt(db, eventId, 'target-1', T0)

@@ -300,7 +300,22 @@
             "webhookFlavor": "Formato del payload",
             "webhookFlavorJson": "JSON estructurado",
             "webhookFlavorText": "Aviso en texto plano",
-            "webhookFlavorHelp": "JSON envía raíz, proyecto y vulnerabilidades para un agente de auto-reparación. El texto plano envía la exportación de avisos, lista para un LLM."
+            "webhookFlavorHelp": "JSON envía raíz, proyecto y vulnerabilidades para un agente de auto-reparación. El texto plano envía la exportación de avisos, lista para un LLM.",
+            "messages": "Mensajes",
+            "runSummary": "Resumen de ejecución",
+            "runSummaryHelp": "Un mensaje por cada ejecución programada o manual, con lo nuevo en todos los proyectos. Este destino deja de recibir mensajes por proyecto.",
+            "weeklyDigest": "Resumen semanal",
+            "weeklyDigestHelp": "Un mensaje a la semana con todo lo pendiente, también cuando no hay nada.",
+            "deliveryPerProject": "Por proyecto",
+            "deliveryRunSummary": "Resumen de ejecución",
+            "digestOn": "Resumen semanal activo",
+            "digestOff": "Resumen semanal inactivo",
+            "digestSchedule": {
+                "title": "Programación del resumen semanal",
+                "day": "Día",
+                "hour": "Hora",
+                "help": "Se envía a cada destino con el resumen activo, a esta hora en la zona horaria de la programación ({timezone})."
+            }
         },
         "sources": {
             "metaTitle": "Fuentes · Configuración",
@@ -681,7 +696,7 @@
             },
             "notifications": {
                 "purpose": "Enviar los hallazgos para los que configuraste alertas: nombre del proyecto, rama de git, paquete y versión, severidad, id del aviso y un enlace de vuelta a este portal",
-                "when": "Cuando un análisis produce un hallazgo nuevo, uno resuelto o un fallo de análisis",
+                "when": "Un hallazgo nuevo o un fallo de análisis: por proyecto, o en un único resumen de ejecución si el destino lo eligió. Además, el resumen semanal, activo por defecto, el día y la hora configurados aquí",
                 "disable": "Configuración → Notificaciones: no existe ninguno hasta que lo agregues"
             },
             "pypi": {

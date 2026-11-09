@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import axios from 'axios'
 import type { Finding, NotificationTarget } from '@sentinello/core'
+import { renderFleetSummary } from './fleet-summary'
 import { sendWebhook } from './webhook'
 import { validateWebhookUrl } from './ssrf'
 import type { RenderedMessage, WebhookPayloadContext } from './types'
@@ -46,7 +47,10 @@ function target(config: Record<string, unknown> = {}): NotificationTarget {
         createdAt: 0,
         rootIds: [],
         projectIds: [],
-        sourceScope: { mode: 'all', cells: [] }
+        sourceScope: { mode: 'all', cells: [] },
+        delivery: 'per_project',
+        weeklyDigest: true,
+        digestEligibleSinceAt: null
     }
 }
 
@@ -319,5 +323,17 @@ describe('sendWebhook — failures', function () {
         post.mockRejectedValue('just a string')
         const result = await sendWebhook(target(), message())
         expect(result.ok === false && result.errorText).toContain('just a string')
+    })
+})
+
+describe('the run summary and digest shapes', function () {
+    it('posts the summary whole in the JSON flavor, and its text in the text flavor', async function () {
+        const message = renderFleetSummary({ kind: 'run_summary', targetKind: 'webhook', counts: { critical: 0, high: 1, moderate: 0, unrated: 0, low: 0, info: 0 }, listed: [], resolved: [], unscannable: [], portalBaseUrl: null })
+        validate.mockResolvedValue({ ok: true, url: URL_OK })
+        post.mockResolvedValue({})
+        await sendWebhook(target(), message)
+        expect(post.mock.calls.at(-1)?.[1]).toMatchObject({ event: 'run_summary', locale: 'en', counts: { high: 1 }, listed: [], title: message.title, text: message.text })
+        await sendWebhook(target({ flavor: 'text' }), message)
+        expect(post.mock.calls.at(-1)?.[1]).toEqual({ text: message.text })
     })
 })

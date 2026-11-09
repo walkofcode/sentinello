@@ -44,7 +44,7 @@ async function doSendTelegram(target: NotificationTarget, message: RenderedMessa
 // asterisks. HTML mode is far less brittle: only '&', '<', '>' need escaping. We escape those, then
 // convert our markdown '*bold*' spans to '<b>bold</b>'. Everything else (URLs, dots, dashes) is
 // passed through untouched and renders correctly.
-function toTelegramHtml(input: string): string {
+export function toTelegramHtml(input: string): string {
     const escaped = input.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     return escaped.replace(/\*([^*\n]+)\*/g, '<b>$1</b>')
 }
