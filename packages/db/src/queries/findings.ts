@@ -60,6 +60,13 @@ export type MergeFindingsInput = {
     // resolves its finding nor drops it from a finding it saw elsewhere (SENTINEL-138, decision #51). Empty or
     // absent when every manifest was read.
     unreadManifests?: readonly string[]
+    // The manifests of the cell's known copies the scan never reached, as the worker read them from the disk before
+    // this transaction: an ignore file keeps the directory out of the walk, or the directory could not be inspected
+    // (SENTINEL-200). Nothing here reads the filesystem. A copy behind one of these (installedThrough) stays on a row
+    // the scan saw elsewhere, or the row would later close naming only the copy that was checked. Unlike an unread
+    // manifest it does not keep a row open: a row the scan no longer sees closes, naming its copies, and the run summary
+    // judges that closing. An exclusion's copies are not here: the operator's rule narrows the row (SENTINEL-172).
+    outOfSightManifests?: readonly string[]
 }
 
 export type MergeFindingsResult = {
@@ -78,7 +85,8 @@ export type MergeFindingsResult = {
 //   - identity NOT present (or only resolved rows) + present in scan -> INSERT new open episode
 //   - identity present in DB (open)  + absent from scan -> UPDATE resolved_at = scan.finishedAt, unless a copy
 //     was installed through a manifest the scan could not read (or its row predates installations and some
-//     manifest went unread): then it is kept open, untouched, because nothing re-checked it
+//     manifest went unread): then it is kept open, untouched, because nothing re-checked it. A copy the scan never
+//     reached does not keep it open (outOfSightManifests)
 //
 // Duplicate self-heal: an identity should have at most one open row, but historical inserts could
 // leave several. We bucket ALL open rows per identity (never overwrite): on a match we keep the
@@ -113,6 +121,7 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
         else openByIdentity.set(key, [row])
     }
     const unread = input.unreadManifests ?? []
+    const unchecked = unread.concat(input.outOfSightManifests ?? [])
     const active: Finding[] = []
     const resolved: Finding[] = []
     const seenIdentityKeys = new Set<string>()
@@ -127,7 +136,7 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             // Keep the earliest-detected row as the continuing episode; resolve any duplicates so a
             // stranded orphan is closed by the same scan that refreshes the real one.
             const canonical = pickOldestRow(bucket)
-            const { installedVersion, installations, depPath, isProd, isDev } = withRetainedCopies(inc, canonical, unread)
+            const { installedVersion, installations, depPath, isProd, isDev } = withRetainedCopies(inc, canonical, unchecked)
             db.update(findings)
                 .set({
                     advisoryTitle: inc.advisoryTitle,
@@ -268,17 +277,18 @@ function installedThroughUnread(installations: readonly FindingInstallation[], u
 type ContinuingFacts = Pick<IncomingFinding, 'installedVersion' | 'installations' | 'depPath' | 'isProd' | 'isDev'>
 
 // A continuing finding's copies: the ones this scan saw, plus the row's earlier ones behind manifests it could
-// not read, which are still there as far as anyone knows (decision #51). `installedVersion` stays the lowest
+// not read or never reached, which are still there as far as anyone knows (decision #51, SENTINEL-200), until the
+// manifest is gone or a scan reads it. `installedVersion` stays the lowest
 // affected installed version (by the ecosystem's comparator) across all of them. While such a copy is kept,
 // what the row said about it is kept too (SENTINEL-145): the evidence that omitted its manifest cannot clear
 // production scope or a dependency chain it may be the one to carry, so scope and chains are the row's
 // united with this scan's, as decision #42 folds copies. A scan that reads that manifest again writes them
 // from what it sees.
-function withRetainedCopies(inc: IncomingFinding, row: FindingRow, unread: readonly string[]): ContinuingFacts {
+function withRetainedCopies(inc: IncomingFinding, row: FindingRow, unchecked: readonly string[]): ContinuingFacts {
     const seen: ContinuingFacts = { installedVersion: inc.installedVersion, installations: inc.installations, depPath: inc.depPath, isProd: inc.isProd, isDev: inc.isDev }
-    if (unread.length === 0) return seen
-    // A manifest the scan could not read contributed nothing to it, so no incoming copy is from one.
-    const retained = parseFindingInstallations(row.installationsJson).filter(function behindUnread(prior) { return installedThrough(prior, unread) })
+    if (unchecked.length === 0) return seen
+    // A manifest the scan did not read contributed nothing to it, so no incoming copy is from one.
+    const retained = parseFindingInstallations(row.installationsJson).filter(function behindUnchecked(prior) { return installedThrough(prior, unchecked) })
     if (retained.length === 0) return seen
     const comparator = requireComparator(inc.ecosystem)
     let installedVersion = inc.installedVersion
@@ -357,6 +367,17 @@ export function listOpenFindingEcosystems(db: DrizzleDb, projectId: string): str
         .where(and(eq(findings.projectId, projectId), isNull(findings.resolvedAt)))
         .all()
     return rows.map(function ecosystem(r) { return r.ecosystem })
+}
+
+// Where the project's open rows say their copies are. What a scan's inventory no longer holds of these is the only thing
+// worth a look at the disk (copiesOutOfSight in the worker).
+export function listOpenFindingCopies(db: DrizzleDb, projectId: string): { ecosystem: string; installations: FindingInstallation[] }[] {
+    const rows = db
+        .selectDistinct({ ecosystem: findings.ecosystem, installationsJson: findings.installationsJson })
+        .from(findings)
+        .where(and(eq(findings.projectId, projectId), isNull(findings.resolvedAt)))
+        .all()
+    return rows.map(function copies(r) { return { ecosystem: r.ecosystem, installations: parseFindingInstallations(r.installationsJson) } })
 }
 
 // Closes the open rows of a (source, ecosystem) cell the caller has proved are no longer installed, for a source

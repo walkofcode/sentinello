@@ -6,6 +6,7 @@ import {
     getRunnableSourceCells,
     insertScan,
     listOpenFindingEcosystems,
+    listOpenFindingCopies,
     mergeFindingsForScan,
     refreshAdvisoryKeys,
     resolveFindingsNoLongerInstalled,
@@ -43,6 +44,7 @@ import { CONFIG_KEYS, DEFAULT_GLOBAL_IGNORE } from './config-loader'
 import { readGitBranch, refreshProjectInventory } from './discovery'
 import { verifyFixes } from './fix-verification'
 import { notifyForCompletedScan } from './notifier'
+import { copiesOutOfSight } from './project-sight'
 import { createDbRegistryStores } from './registry-store'
 
 const SCANNER_TIMEOUT_MS = 90_000
@@ -189,6 +191,8 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
     // npm-audit runs only for a project with an npm manifest, and is the sole scanner that touches the Node
     // toolchain (nvm).
     const resolved = await resolveManifests(project, projectPath)
+    // A copy an ignore file now keeps out of the scan never reaches the resolver, so it is not among the unread ones.
+    const outOfSight = inventoryRead ? copiesOutOfSight(project, root.path, globalIgnore, listOpenFindingCopies(input.db, project.id)) : new Map<string, string[]>()
     const resolverResults = resolved.map(function result(r) { return r.result })
     const npmGraph = graphForEcosystem(resolverResults, 'npm')
     const coverage = resolved.map(toCoverage)
@@ -234,11 +238,12 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
             // nothing about one that could not: what lives there is not resolved by its absence. npm-audit runs
             // its own audit of the project rather than this graph, and answers for it whole.
             const unreadManifests = isNpmAudit ? [] : unreadOf(cell)
+            const outOfSightManifests = isNpmAudit ? [] : outOfSight.get(ecosystem) ?? []
             // The project was read now and holds no manifest of this ecosystem at all — an incomplete walk keeps
             // those it could not see (withUnreadManifests), so this is a removal: nothing of it is installed, and
             // no source has anything to look up. The scan answers so itself, whatever the source's state.
             const nothingInstalled = inventoryRead && cell.length === 0
-            const outcome = await runOneScanner(input, project, projectPath, scanner, ecosystem, reportedByPackage, corroborations, graphForCell, coverageForCell, coverage, unreadManifests, nothingInstalled)
+            const outcome = await runOneScanner(input, project, projectPath, scanner, ecosystem, reportedByPackage, corroborations, graphForCell, coverageForCell, coverage, unreadManifests, outOfSightManifests, nothingInstalled)
             outcomes.push(outcome)
         }
     }
@@ -365,7 +370,7 @@ function evidenceByFinding(reportedByPackage: Map<string, Map<string, ReportedAd
     return out
 }
 
-// A finding the merge kept a copy of behind a manifest this scan could not read (decision #51) is settled
+// A finding the merge kept a copy of behind a manifest this scan did not read (decision #51, SENTINEL-200) is settled
 // against that copy too: the fix must be at or above every installed copy (pickReleasedFix's floor), and this
 // scan's evidence lists only the copies it read. The retained version joins the finding's own source's
 // statement — that source matched the copy against the same advisory when it last read it — as one more
@@ -546,6 +551,7 @@ async function runOneScanner(
     coverage: EcosystemCoverage[] | undefined,
     projectCoverage: EcosystemCoverage[],
     unreadManifests: readonly string[],
+    outOfSightManifests: readonly string[],
     nothingInstalled: boolean
 ): Promise<ProjectScanOutcome> {
     const startedAt = Date.now()
@@ -629,7 +635,8 @@ async function runOneScanner(
             scanId: scan.id,
             scanFinishedAt: scan.finishedAt,
             incoming,
-            unreadManifests
+            unreadManifests,
+            outOfSightManifests
         })
     })
     // Notification is deliberately NOT fired here — see the comment at the notify loop in

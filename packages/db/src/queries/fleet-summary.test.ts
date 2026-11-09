@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
+import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { NotificationTarget } from '@sentinello/core'
 import { openDb, type DrizzleDb, type SqliteDb } from '../client'
@@ -154,6 +155,76 @@ describe('listOwedResolvedFindings', function () {
         expect(listOwedResolvedFindings(db, 't', T0, ['a'])[0]?.projectName).toBe('Alias A')
         recordRunSummaryDelivered(db, { targetId: 't', events: [], resolvedFindingIds: ['closed'], unscannableProjectIds: [], at: T0 })
         expect(ids(['a'])).toEqual(['unrated'])
+    })
+
+    // A closed row whose identity has an open row again: the merge inserts a new episode rather than reopening the old
+    // one, and the closing it recorded is no longer true.
+    describe('a row its identity has gone back to open', function () {
+        const IDENTITY = { advisoryId: 'GHSA-same', packageName: 'same', source: 'osv', scanner: 'osv', ecosystem: 'RubyGems' }
+
+        function owed(scope: readonly string[] | null = null): string[] {
+            return listOwedResolvedFindings(db, 't', T0, scope).map(function id(c) { return c.finding.id }).sort()
+        }
+
+        function optedIn(overrides: Partial<NotificationTarget> = {}): void {
+            setNotificationTargetDelivery(db, target(overrides), 'run_summary', T0)
+        }
+
+        it.each([
+            ['names its manifests', JSON.stringify([{ manifestPath: 'ios/Gemfile.lock', version: '2.0.8' }])],
+            ['names no manifest, as a legacy row', '[]']
+        ])('stays owed when it %s, until the open row closes, and then both go', function (_name, installationsJson) {
+            optedIn()
+            resolvedRow('old', 'a', { ...IDENTITY, installationsJson })
+            resolvedRow('current', 'a', { ...IDENTITY, resolvedAt: null })
+            expect(owed()).toEqual([])
+            db.update(findings).set({ resolvedAt: T0 + 20 }).where(eq(findings.id, 'current')).run()
+            expect(owed()).toEqual(['current', 'old'])
+        })
+
+        it('reads a row with no source by its scanner, on either side', function () {
+            optedIn()
+            resolvedRow('old', 'a', { ...IDENTITY, source: null })
+            resolvedRow('current', 'a', { ...IDENTITY, resolvedAt: null })
+            resolvedRow('old-2', 'a', { ...IDENTITY, packageName: 'other', advisoryId: 'GHSA-other' })
+            resolvedRow('current-2', 'a', { ...IDENTITY, packageName: 'other', advisoryId: 'GHSA-other', source: null, resolvedAt: null })
+            expect(owed()).toEqual([])
+        })
+
+        it.each([
+            ['project', { projectId: 'b' }],
+            ['source', { source: 'gemnasium', scanner: 'gemnasium' }],
+            ['ecosystem', { ecosystem: 'PyPI' }],
+            ['advisory', { advisoryId: 'GHSA-another' }],
+            ['package', { packageName: 'another' }]
+        ])('does not hold for an open row of another %s', function (_name, other) {
+            optedIn()
+            resolvedRow('old', 'a', IDENTITY)
+            const { projectId, ...rest } = other as { projectId?: string }
+            resolvedRow('open-elsewhere', projectId ?? 'a', { ...IDENTITY, ...rest, resolvedAt: null })
+            expect(owed()).toEqual(['old'])
+        })
+
+        // What the target would not be told about is still open: a filter is not evidence of a fix.
+        it('holds for an open row the target\'s severity or env filter leaves out', function () {
+            optedIn({ severityFilter: ['high'], envFilter: 'prod' })
+            resolvedRow('old', 'a', { ...IDENTITY, isProd: true })
+            resolvedRow('low', 'a', { ...IDENTITY, severity: 'low', isProd: true, resolvedAt: null })
+            expect(owed()).toEqual([])
+            db.delete(findings).where(eq(findings.id, 'low')).run()
+            expect(owed()).toEqual(['old'])
+            resolvedRow('dev-only', 'a', { ...IDENTITY, isProd: false, isDev: true, resolvedAt: null })
+            expect(owed()).toEqual([])
+        })
+
+        it('judges each project of the run\'s scope by its own open rows', function () {
+            optedIn()
+            resolvedRow('old', 'a', IDENTITY)
+            resolvedRow('current', 'a', { ...IDENTITY, resolvedAt: null })
+            resolvedRow('fixed-b', 'b', IDENTITY)
+            expect(owed(['a'])).toEqual([])
+            expect(owed(['b'])).toEqual(['fixed-b'])
+        })
     })
 
     it('owes nothing to a target that never opted in', function () {

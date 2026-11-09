@@ -680,8 +680,12 @@ describe('a resolved row that names its manifests', function () {
         sent = []
     }
 
+    function rowsOf(): (typeof schema.findings.$inferSelect)[] {
+        return handle.db.select().from(schema.findings).all().filter(function ofProject(row) { return row.projectId === id('a') })
+    }
+
     function rowOf(): typeof schema.findings.$inferSelect {
-        const rows = handle.db.select().from(schema.findings).all().filter(function ofProject(row) { return row.projectId === id('a') })
+        const rows = rowsOf()
         expect(rows).toHaveLength(1)
         return rows[0] as typeof schema.findings.$inferSelect
     }
@@ -829,6 +833,199 @@ describe('a resolved row that names its manifests', function () {
         await request('manual', { projectId: id('a') }, [fakeAudit, rubyFeed])
         expect(to('summary')).toHaveLength(1)
         expect(to('summary')[0]?.markdown).toContain('*Resolved*\n• a › rack')
+    })
+
+    // The rule's lifting finds the same advisory again. The merge opens a new row for it, so the old row is no longer
+    // hidden and its closing is no longer true: the package is still vulnerable. It stays owed until that row closes too.
+    it('is not told when it goes back to open, and is told once when the new row really closes', async function () {
+        await rowThrough('ios')
+        await writeFile(join(rootPath, 'a', '.gitignore'), 'ios/')
+        ruby = new Map()
+        expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+        closedNaming('ios/Gemfile.lock')
+        await rm(join(rootPath, 'a', '.gitignore'))
+        ruby = new Map([['a', ['GHSA-a']]])
+        expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+        expect(rowsOf().map(function open(row) { return row.resolvedAt === null }).sort()).toEqual([false, true])
+        expect(handle.db.select().from(schema.runSummaryResolvedTold).all()).toEqual([])
+        ruby = new Map()
+        const told = (await sweepWithNews()).markdown
+        expect(told).toContain('*Resolved*\n• a › rack (Ruby): 1 advisory')
+        expect(rowsOf().every(function closed(row) { return row.resolvedAt !== null })).toBe(true)
+        expect(handle.db.select().from(schema.runSummaryResolvedTold).all()).toHaveLength(2)
+        expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+    })
+
+    // An edit to the ignore file while another copy is still reported: the scan sees one copy of a row that has two.
+    describe.each([['.gitignore'], ['.sentinelloignore']])('and has a copy a %s hides while another is still reported', function (ignoreFile) {
+        const IOS = { manifestPath: 'ios/Gemfile.lock', version: '2.0.7' }
+        const WEB = { manifestPath: 'web/Gemfile.lock', version: '2.0.8' }
+
+        function installations(): { manifestPath: string; version: string }[] {
+            return (JSON.parse(rowOf().installationsJson) as { manifestPath: string; version: string }[]).sort(function byPath(x, y) { return x.manifestPath.localeCompare(y.manifestPath) })
+        }
+
+        // The row as a first scan left it, with facts only the ios copy carries; then that copy goes out of the scan.
+        async function hiddenBesideReported(): Promise<void> {
+            await rowThrough('ios', 'web')
+            handle.sqlite.prepare('UPDATE findings SET installations_json = ?, installed_version = ?, dep_path_json = ?, is_dev = 1 WHERE project_id = ?')
+                .run(JSON.stringify([IOS, WEB]), '2.0.7', JSON.stringify(['ios-app > rack']), id('a'))
+            await writeFile(join(rootPath, 'a', ignoreFile), 'ios/')
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+            expect(rowOf().resolvedAt).toBeNull()
+            expect(installations()).toEqual([IOS, WEB])
+            expect(rowOf()).toMatchObject({ installedVersion: '2.0.7', isProd: true, isDev: true })
+            expect(JSON.parse(rowOf().depPathJson)).toEqual(['ios-app > rack'])
+        }
+
+        it('keeps the copy and its facts, is not told when the other goes clean, and is told once the lockfile is gone', async function () {
+            await hiddenBesideReported()
+            ruby = new Map()
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+            expect(rowOf().resolvedAt).not.toBeNull()
+            expect(installations()).toEqual([IOS, WEB])
+            // Held, not acknowledged.
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+            expect(handle.db.select().from(schema.runSummaryResolvedTold).all()).toEqual([])
+            await rm(join(rootPath, 'a', 'ios'), { recursive: true })
+            expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack')
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+        })
+
+        it('drops the copy once its lockfile is gone while the row goes on', async function () {
+            await hiddenBesideReported()
+            await rm(join(rootPath, 'a', 'ios', 'Gemfile.lock'))
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+            expect(rowOf().resolvedAt).toBeNull()
+            expect(installations()).toEqual([{ ...WEB, version: '2.0.8' }])
+            expect(rowOf().installedVersion).toBe('2.0.8')
+            expect(rowOf().isDev).toBe(false)
+        })
+
+        it('drops the copy once the rule is lifted and a scan reads it clean, and tells the row when the other goes clean', async function () {
+            await hiddenBesideReported()
+            await writeFile(join(rootPath, 'a', 'ios', 'Gemfile.lock'), GEMFILE_LOCK.replace('rack (2.0.8)', 'rack (3.1.0)'))
+            await rm(join(rootPath, 'a', ignoreFile))
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+            expect(rowOf().resolvedAt).toBeNull()
+            expect(installations()).toEqual([WEB])
+            ruby = new Map()
+            expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack')
+        })
+
+        it('writes what a scan sees once the rule is lifted and the copy still reports the advisory, and tells nothing', async function () {
+            await hiddenBesideReported()
+            await rm(join(rootPath, 'a', ignoreFile))
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+            expect(rowOf().resolvedAt).toBeNull()
+            expect(installations()).toEqual([{ ...IOS, version: '2.0.8' }, WEB])
+            expect(rowOf()).toMatchObject({ installedVersion: '2.0.8', isDev: false })
+        })
+
+        it('is not told when the other goes clean, the rule is lifted and the copy still reports the advisory', async function () {
+            await hiddenBesideReported()
+            ruby = new Map()
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+            await rm(join(rootPath, 'a', ignoreFile))
+            ruby = new Map([['a', ['GHSA-a']]])
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+            ruby = new Map()
+            expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack (Ruby): 1 advisory')
+        })
+    })
+
+    it('keeps a copy in a directory neither walk can read, beside one still reported', async function () {
+        await rowThrough('ios', 'web')
+        await writeFile(join(rootPath, 'a', '.gitignore'), 'ios/')
+        await chmod(join(rootPath, 'a', 'ios'), 0o000)
+        try {
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+            expect(rowOf().resolvedAt).toBeNull()
+            expect(JSON.parse(rowOf().installationsJson)).toHaveLength(2)
+        } finally {
+            await chmod(join(rootPath, 'a', 'ios'), 0o755)
+        }
+    })
+
+    // An operator's exclusion keeps its own rule: a row in both places narrows to what is scanned (SENTINEL-172).
+    it.each([
+        ['an exclusion', ['a/ios'], false],
+        ['an exclusion and an ignore file', ['a/ios'], true]
+    ] as const)('narrows to what is scanned when %s covers the copy', async function (_name, exclusions, alsoIgnored) {
+        await rowThrough('ios', 'web')
+        setConfigValue(handle.db, 'globalIgnore', [...exclusions])
+        if (alsoIgnored) await writeFile(join(rootPath, 'a', '.gitignore'), 'ios/')
+        await sweepWithNews()
+        expect(rowOf().resolvedAt).toBeNull()
+        expect((JSON.parse(rowOf().installationsJson) as { manifestPath: string }[]).map(function path(copy) { return copy.manifestPath })).toEqual(['web/Gemfile.lock'])
+    })
+
+    it('keeps nothing when an ignore file hides a manifest the row never named', async function () {
+        await rowThrough('web')
+        await mkdir(join(rootPath, 'a', 'other'))
+        await writeFile(join(rootPath, 'a', 'other', 'Gemfile.lock'), GEMFILE_LOCK)
+        await writeFile(join(rootPath, 'a', '.gitignore'), 'other/')
+        await sweepWithNews()
+        expect((JSON.parse(rowOf().installationsJson) as { manifestPath: string }[]).map(function path(copy) { return copy.manifestPath })).toEqual(['web/Gemfile.lock'])
+    })
+
+    // An exclusion over one copy says nothing about that copy, whatever the checked one beside it says. The walk skips
+    // only directories, so a rule naming the file never reaches `hidden`: the copy is asked about what is on the disk.
+    describe.each([
+        ['directory', 'a/ios'],
+        ['file pattern', 'a/ios/Gemfile.lock']
+    ])('and has one copy a %s exclusion covers, the other read clean', function (_kind, exclusion) {
+        async function excludedBesideClean(): Promise<void> {
+            await rowThrough('ios', 'web')
+            setConfigValue(handle.db, 'globalIgnore', [exclusion])
+            ruby = new Map()
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+            closedNaming('ios/Gemfile.lock', 'web/Gemfile.lock')
+        }
+
+        it('is not told, is not acknowledged, and is told once the excluded lockfile is gone', async function () {
+            await excludedBesideClean()
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+            expect(handle.db.select().from(schema.runSummaryResolvedTold).all()).toEqual([])
+            await rm(join(rootPath, 'a', 'ios'), { recursive: true })
+            expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack')
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+        })
+
+        it('is told once the exclusion is lifted and a scan reads both clean', async function () {
+            await excludedBesideClean()
+            setConfigValue(handle.db, 'globalIgnore', [])
+            expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack')
+        })
+
+        it('is not told when the exclusion is lifted and the copy still reports the advisory', async function () {
+            await excludedBesideClean()
+            setConfigValue(handle.db, 'globalIgnore', [])
+            ruby = new Map([['a', ['GHSA-a']]])
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+        })
+
+        it('is held by the bare manifest its lockfile left, and not by a manifest of another ecosystem', async function () {
+            await excludedBesideClean()
+            await writeFile(join(rootPath, 'a', 'ios', 'Gemfile'), "gem 'rack'\n")
+            await rm(join(rootPath, 'a', 'ios', 'Gemfile.lock'))
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+            await rm(join(rootPath, 'a', 'ios', 'Gemfile'))
+            await writeFile(join(rootPath, 'a', 'ios', 'requirements.txt'), 'flask==2.0.0\n')
+            expect((await sweepWithNews()).markdown).toContain('*Resolved*\n• a › rack')
+        })
+    })
+
+    it('is held by an excluded copy in a directory it cannot read', async function () {
+        await rowThrough('ios', 'web')
+        setConfigValue(handle.db, 'globalIgnore', ['a/ios'])
+        ruby = new Map()
+        await chmod(join(rootPath, 'a', 'ios'), 0o000)
+        try {
+            expect((await sweepWithNews()).markdown).not.toContain('Resolved')
+        } finally {
+            await chmod(join(rootPath, 'a', 'ios'), 0o755)
+        }
     })
 
     it('is not told while an exclusion covers every copy, even once the lockfile is gone', async function () {
