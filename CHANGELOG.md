@@ -1,5 +1,24 @@
 # Changelog
 
+## [3.8.2](https://github.com/walkofcode/sentinello/compare/v3.8.1...v3.8.2) (2026-11-09)
+
+
+### Features
+
+* **notifications:** one message for the whole system, a weekly digest, and one summary when a source is switched on ([c3436ee](https://github.com/walkofcode/sentinello/commit/c3436ee056f32d890a5d4fd9ba798ab14fa19a31))
+
+
+### Bug Fixes
+
+* **findings:** keep what a move to Bun did not fix, and let no partial evidence clear or grade ([f549dd4](https://github.com/walkofcode/sentinello/commit/f549dd4908eab0f225da6aae9c6b1d4e1348f017))
+* **findings:** make what findings say and count true ([20aea58](https://github.com/walkofcode/sentinello/commit/20aea5836fc9beaf465f4d0b5c3519593e95790d))
+* **notifications:** judge a resolved row by its advisory across sources and episodes ([9ebdd19](https://github.com/walkofcode/sentinello/commit/9ebdd191db4bb4a0072702fafd290967d7becc2c))
+* **notifications:** keep a recovery a later scan would overwrite, and do not call an excluded legacy finding resolved ([18dce45](https://github.com/walkofcode/sentinello/commit/18dce45b4184591d31535e074d1d67791ad55751))
+* **notifications:** keep owed a legacy finding whose manifest an ignore file hides ([b468b25](https://github.com/walkofcode/sentinello/commit/b468b2566f7cdd5338257d23d40ce5a022afdc6f))
+* **notifications:** keep owed a named finding whose manifest an ignore file hides ([f023de4](https://github.com/walkofcode/sentinello/commit/f023de47377a8c17d95f3c368fa7fa42fdc7b720))
+* **notifications:** look past ignore files before calling an excluded legacy finding resolved ([a61a037](https://github.com/walkofcode/sentinello/commit/a61a037194b9838fd21d08936a8b2e3d1142a232))
+* **notifications:** tell nothing as resolved while a copy or the advisory is still there ([df6890b](https://github.com/walkofcode/sentinello/commit/df6890b2ad2d9a3775f31705038618ce97180a3d))
+
 ## [3.8.1](https://github.com/walkofcode/sentinello/compare/v3.8.0...v3.8.1) (2026-10-30)
 
 
