@@ -538,6 +538,39 @@ describe('a resolved row that names no manifest', function () {
         expect(to('summary')[0]?.markdown).toContain('*Resolved*\n• a › rack')
     })
 
+    // An ignore file over the same directory must not hide the excluded manifest from the check: the row still went
+    // because nobody looks there. Named by where the rule sits: the project, or a directory above it.
+    it.each([
+        ['.gitignore in the project', join('a', '.gitignore'), 'ios/'],
+        ['.sentinelloignore in the project', join('a', '.sentinelloignore'), 'ios/'],
+        ['.gitignore at the root', '.gitignore', 'a/ios/'],
+        ['.sentinelloignore at the root', '.sentinelloignore', 'a/ios/']
+    ])('is not told when a %s also covers the excluded manifest', async function (_name, ignoreFile, rule) {
+        await legacyRows('a', 'c')
+        setConfigValue(handle.db, 'globalIgnore', ['a/ios'])
+        await writeFile(join(rootPath, ignoreFile), rule)
+        ruby = new Map()
+        audit.set('b', [high('GHSA-b')])
+        await sweep([fakeAudit, rubyFeed])
+        closedNamingNoManifest('a')
+        closedNamingNoManifest('c')
+        expect(to('summary')[0]?.markdown).toContain('*Resolved*\n• c › rack')
+        expect(to('summary')[0]?.markdown).not.toContain('a › rack')
+    })
+
+    // Ignore files alone are not the exclusions this asks about: a directory a project merely ignores must not hold
+    // back its rows, or almost every project's legacy rows would stay owed for good.
+    it('is told when only an ignore file covers a manifest of its project', async function () {
+        await legacyRows('a')
+        setConfigValue(handle.db, 'globalIgnore', ['elsewhere'])
+        await writeFile(join(rootPath, 'a', '.gitignore'), 'ios/')
+        ruby = new Map()
+        audit.set('b', [high('GHSA-b')])
+        await sweep([fakeAudit, rubyFeed])
+        closedNamingNoManifest('a')
+        expect(to('summary')[0]?.markdown).toContain('*Resolved*\n• a › rack')
+    })
+
     it('is told when no exclusion is set', async function () {
         await legacyRows('a')
         ruby = new Map()

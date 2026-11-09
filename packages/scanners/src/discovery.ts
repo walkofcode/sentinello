@@ -140,6 +140,7 @@ export function discoverProjectsInTree(options: DiscoveryOptions): DiscoveredPro
         excludeMatcher,
         hasExcludes: Boolean(options.excludes && options.excludes.length > 0),
         layers,
+        readIgnoreFiles: true,
         onSkip: options.onSkip,
         onError: options.onError,
         ecosystems,
@@ -158,6 +159,9 @@ export type ProjectRediscoveryOptions = {
     rootPath: string
     projectPath: string
     excludes?: string[]
+    // False reads what the project's tree holds whatever its ignore files say, to ask what is on the disk rather than
+    // what a scan would see. The directories the walk never searches stay skipped. True by default.
+    readIgnoreFiles?: boolean
     ecosystems?: readonly EcosystemDefinition[]
 }
 
@@ -184,10 +188,11 @@ export function rediscoverProject(options: ProjectRediscoveryOptions): ProjectRe
     if (options.excludes && options.excludes.length > 0) excludeMatcher.add(options.excludes)
     // The ignore layers the root-down walk would have stacked above the project; walk() adds the project's own.
     const layers: IgnoreLayer[] = []
+    const readIgnoreFiles = options.readIgnoreFiles ?? true
     const segments = rel === '' ? [] : rel.split(sep)
     let dir = rootPath
     for (const segment of segments) {
-        const layer = loadIgnoreLayer(dir)
+        const layer = readIgnoreFiles ? loadIgnoreLayer(dir) : null
         if (layer) layers.push(layer)
         dir = join(dir, segment)
     }
@@ -201,6 +206,7 @@ export function rediscoverProject(options: ProjectRediscoveryOptions): ProjectRe
         excludeMatcher,
         hasExcludes: Boolean(options.excludes && options.excludes.length > 0),
         layers,
+        readIgnoreFiles,
         onSkip: undefined,
         onError: function record(error) {
             errors.push(error)
@@ -257,6 +263,7 @@ type WalkState = {
     excludeMatcher: ReturnType<typeof ignoreFactory>
     hasExcludes: boolean
     layers: IgnoreLayer[]
+    readIgnoreFiles: boolean
     onSkip: ((skip: DiscoverySkip) => void) | undefined
     onError: ((error: DiscoveryError) => void) | undefined
     ecosystems: readonly EcosystemDefinition[]
@@ -285,7 +292,7 @@ function walk(state: WalkState): void {
     if (owner?.npm && state.subEcosystems.length === 0) return
     if (state.maxDepth !== null && state.depth >= state.maxDepth) return
     // An ignore file in this directory governs its descendants, so push the layer before reading entries.
-    const localLayer = loadIgnoreLayer(state.currentDir)
+    const localLayer = state.readIgnoreFiles ? loadIgnoreLayer(state.currentDir) : null
     const layers = localLayer ? state.layers.concat([localLayer]) : state.layers
     for (const entry of readEntries(state.currentDir, state.onError)) {
         if (!entry.isDirectory()) continue

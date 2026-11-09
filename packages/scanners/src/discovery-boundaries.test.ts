@@ -366,6 +366,27 @@ describe('rediscoverProject — one project, read as the whole walk reads it', f
         expect(rediscoverProject({ rootPath: join(root, '..service'), projectPath: root })).toEqual({ project: null, errors: [] })
     })
 
+    it('reads past ignore files when asked, and never into a directory the walk does not search', async function () {
+        const root = await makeTree({
+            '.gitignore': 'app/above/\n',
+            'app/package.json': PKG,
+            'app/.gitignore': 'native/\n',
+            'app/.sentinelloignore': 'scripts/\n',
+            'app/above/Gemfile.lock': '',
+            'app/native/Gemfile.lock': '',
+            'app/scripts/requirements.txt': '',
+            'app/vendor/Gemfile.lock': '',
+            'app/node_modules/dep/Gemfile.lock': ''
+        })
+        const paths = function paths(readIgnoreFiles?: boolean): string[] | undefined {
+            const { project } = rediscoverProject({ rootPath: root, projectPath: join(root, 'app'), readIgnoreFiles })
+            return project?.manifests.map(function path(m) { return m.path }).sort()
+        }
+        expect(paths()).toEqual(['package.json'])
+        expect(paths(true)).toEqual(['package.json'])
+        expect(paths(false)).toEqual(['above/Gemfile.lock', 'native/Gemfile.lock', 'package.json', 'scripts/requirements.txt'])
+    })
+
     it('reports a directory below the project it could not read', async function () {
         const { chmod } = await import('node:fs/promises')
         const root = await makeTree({ 'app/package.json': PKG, 'app/native/ios/Gemfile.lock': '' })

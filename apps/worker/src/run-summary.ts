@@ -98,8 +98,10 @@ function resolvedByExclusion(candidate: ResolvedCandidate, excludes: readonly st
 
 // Whether a closed row that names no manifest may have lived behind an exclusion. Read from the disk, once per project
 // for one message: with no manifest on it that the exclusions cover, wherever the row lived was either read by the scan
-// that closed it (a manifest that went unread keeps its rows open) or is gone, so the closing is true. A walk that
-// cannot see the whole project proves nothing, and the row is left out.
+// that closed it (a manifest that went unread keeps its rows open) or is gone, so the closing is true. The walk ignores
+// ignore files, which could cover the same directory and hide the very manifest it is asking about; only the directories
+// no scan ever searches stay unseen, and no row came from those. A directory it cannot read proves nothing, ignored or
+// not, and the row is left out.
 function exclusionsHiding(excludes: readonly string[]): (candidate: ResolvedCandidate) => boolean {
     const hidden = new Map<string, boolean>()
     return function projectHidden({ finding: { projectId }, rootPath, relPath }) {
@@ -113,7 +115,7 @@ function exclusionsHiding(excludes: readonly string[]): (candidate: ResolvedCand
 
 function hidesManifest(rootPath: string, relPath: string, excludes: readonly string[]): boolean {
     const projectPath = join(rootPath, relPath)
-    const { project, errors } = rediscoverProject({ rootPath, projectPath })
+    const { project, errors } = rediscoverProject({ rootPath, projectPath, readIgnoreFiles: false })
     if (project === null || errors.length > 0) return true
     return project.manifests.some(function excluded(manifest) { return isExcludedPath(rootPath, join(projectPath, manifest.path), excludes) })
 }
