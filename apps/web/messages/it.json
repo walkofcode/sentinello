@@ -536,6 +536,7 @@
         },
         "notRecheckedCannotScan": "non ricontrollato — il progetto non può essere scansionato: {reason}",
         "notRecheckedPartial": "non ricontrollato — il progetto non può essere scansionato del tutto: {reason}",
+        "notRecheckedOnly": "non ricontrollato — {reason}",
         "notRecheckedCopies": "copie in {manifests} non ricontrollate — il progetto non può essere scansionato del tutto: {reason}",
         "chainUnknown": "catena sconosciuta",
         "chainUnknownHint": "Il lockfile non registra un grafo delle dipendenze, quindi non si sa cosa introduce questo pacchetto. Non significa che non ci sia una via d’uscita.",

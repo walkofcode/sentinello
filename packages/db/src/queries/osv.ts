@@ -31,7 +31,8 @@ function toInsertRow(row: OsvAdvisoryRow): InsertRow {
         url: row.url,
         malicious: row.malicious,
         withdrawn: row.withdrawn,
-        noticeKind: row.noticeKind
+        noticeKind: row.noticeKind,
+        rangesDiscarded: row.rangesDiscarded === true
     }
 }
 
@@ -50,7 +51,8 @@ function fromSelectRow(row: SelectRow): OsvAdvisoryRow {
         url: row.url,
         malicious: row.malicious,
         withdrawn: row.withdrawn,
-        noticeKind: row.noticeKind
+        noticeKind: row.noticeKind,
+        ...(row.rangesDiscarded ? { rangesDiscarded: true } : {})
     }
 }
 
@@ -74,7 +76,8 @@ export function upsertOsvAdvisories(db: OsvDrizzleDb, rows: OsvAdvisoryRow[]): v
                         url: values.url,
                         malicious: values.malicious,
                         withdrawn: values.withdrawn,
-                        noticeKind: values.noticeKind
+                        noticeKind: values.noticeKind,
+                        rangesDiscarded: values.rangesDiscarded
                     }
                 })
                 .run()
@@ -165,7 +168,8 @@ export function lookupOsvLinksByPackages(
                 aliasesJson: osvAdvisories.aliasesJson,
                 withdrawn: osvAdvisories.withdrawn,
                 rangesJson: osvAdvisories.rangesJson,
-                versionsJson: osvAdvisories.versionsJson
+                versionsJson: osvAdvisories.versionsJson,
+                rangesDiscarded: osvAdvisories.rangesDiscarded
             })
             .from(osvAdvisories)
             .where(and(eq(osvAdvisories.ecosystem, ecosystem), inArray(osvAdvisories.packageName, slice)))
@@ -176,7 +180,8 @@ export function lookupOsvLinksByPackages(
                 aliases: parseStringArray(row.aliasesJson),
                 withdrawn: row.withdrawn,
                 ranges: parseRanges(row.rangesJson),
-                versions: parseStringArray(row.versionsJson)
+                versions: parseStringArray(row.versionsJson),
+                ...(row.rangesDiscarded ? { rangesDiscarded: true } : {})
             }
             const list = out.get(row.packageName)
             if (list) list.push(link)

@@ -85,11 +85,13 @@ export function normalizeOsvRecord(record: unknown, ecosystem: string): OsvAdvis
         const ranges = extractRanges(affected.ranges, affected.database_specific?.last_known_affected_version_range, comparator)
         const versions = extractVersions(affected.versions)
         const noticeKind = noticeKindOf(r.database_specific?.informational) ?? noticeKindOf(affected.database_specific?.informational)
+        const rangesDiscarded = Array.isArray(affected.ranges) && !affected.ranges.every(isReadableRange)
         const existing = byPackage.get(packageName)
         if (existing) {
             for (const range of ranges) existing.ranges.push(range)
             for (const version of versions) existing.versions.push(version)
             existing.noticeKind ??= noticeKind
+            if (rangesDiscarded) existing.rangesDiscarded = true
             continue
         }
         byPackage.set(packageName, {
@@ -104,7 +106,8 @@ export function normalizeOsvRecord(record: unknown, ecosystem: string): OsvAdvis
             url,
             malicious,
             withdrawn,
-            noticeKind
+            noticeKind,
+            ...(rangesDiscarded ? { rangesDiscarded } : {})
         })
     }
     for (const row of byPackage.values()) {
@@ -137,6 +140,15 @@ function extractVersions(versions: string[] | undefined): string[] {
     return out
 }
 
+// SEMVER (npm/Go/Rust) and ECOSYSTEM (PyPI PEP 440) ranges with events are retained: the ecosystem's comparator
+// interprets their version strings. GIT ranges carry commit hashes, not versions, and no comparator can evaluate
+// them, so keeping one would only add unmatchable noise. Dropping it costs the matcher nothing, since the row's
+// other ranges say which versions are affected, but the row then cannot prove a version clean: rangesDiscarded.
+function isReadableRange(range: OsvRangeRaw): boolean {
+    const type = typeof range.type === 'string' ? range.type : 'SEMVER'
+    return (type === 'SEMVER' || type === 'ECOSYSTEM') && Array.isArray(range.events)
+}
+
 function extractRanges(ranges: OsvRangeRaw[] | undefined, lastKnownAffected: string | undefined, comparator: VersionComparator): OsvRange[] {
     if (!Array.isArray(ranges)) return []
     const out: ExtractedRange[] = []
@@ -145,15 +157,11 @@ function extractRanges(ranges: OsvRangeRaw[] | undefined, lastKnownAffected: str
     // closed is never proved safe by its absence.
     const refused: OsvRange[] = []
     for (const range of ranges) {
-        // Retain SEMVER (npm/Go/Rust) and ECOSYSTEM (PyPI PEP 440) ranges — the ecosystem's comparator
-        // interprets the version strings. GIT ranges carry commit hashes, not versions, and no comparator
-        // can evaluate them, so they are dropped (keeping them would only add unmatchable noise).
+        if (!isReadableRange(range)) continue
         const type = typeof range.type === 'string' ? range.type : 'SEMVER'
-        if (type !== 'SEMVER' && type !== 'ECOSYSTEM') continue
-        if (!Array.isArray(range.events)) continue
         let introduced: string | null = null
         let lastAffected: string | null = null
-        for (const event of range.events) {
+        for (const event of range.events as OsvEvent[]) {
             if (typeof event.introduced === 'string') {
                 // A new `introduced` opens a fresh interval. Flush any prior open interval that only had a
                 // last_affected bound (no fixed) before starting the next one.

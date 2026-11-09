@@ -107,6 +107,7 @@ export const scans = sqliteTable(
                 'ambiguous_dependency_spec',
                 'unsupported_lockfile',
                 'ecosystem_source_disabled',
+                'source_not_applicable',
                 'timeout'
             ]
         }),

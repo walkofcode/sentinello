@@ -271,6 +271,9 @@ export type ReasonCode =
     | 'ambiguous_dependency_spec'
     | 'unsupported_lockfile'
     | 'ecosystem_source_disabled'
+    // Never a scan's: why a row stays not re-checked when its source cannot answer for the project's package
+    // manager (npm audit on a Bun project), so nothing ever attempts that source again.
+    | 'source_not_applicable'
     // timeout
     | 'timeout'
 
@@ -302,6 +305,7 @@ export const REASON_CODE_VALUES: ReasonCode[] = [
     'ambiguous_dependency_spec',
     'unsupported_lockfile',
     'ecosystem_source_disabled',
+    'source_not_applicable',
     'timeout'
 ]
 

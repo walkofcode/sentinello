@@ -74,7 +74,9 @@ export function NotRechecked({ reason }: { reason: NotRecheckedBecause }) {
     if (reason.manifests !== null) {
         return <span data-testid="not-rechecked" className="text-[0.625rem] text-amber-700 dark:text-amber-400">{t('notRecheckedCopies', { manifests: reason.manifests.join(', '), reason: label })}</span>
     }
-    const text = reason.projectState === 'cannot_scan' ? t('notRecheckedCannotScan', { reason: label }) : t('notRecheckedPartial', { reason: label })
+    const text = reason.projectState === 'cannot_scan'
+        ? t('notRecheckedCannotScan', { reason: label })
+        : reason.projectState === 'partial' ? t('notRecheckedPartial', { reason: label }) : t('notRecheckedOnly', { reason: label })
     const when = reason.lastOkScanAt === null
         ? t('neverScannedSuccessfully')
         : t('lastScannedSuccessfully', { date: format.dateTime(new Date(reason.lastOkScanAt), { dateStyle: 'medium' }) })

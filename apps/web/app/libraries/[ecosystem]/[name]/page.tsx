@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { getTranslations } from 'next-intl/server'
 import { getActiveSources, listActiveMutes, listLibraryUsage, listMuteLiftsForLibrary, listResolvedFindingsForLibrary } from '@sentinello/db'
 import { SEVERITY_ORDER } from '@sentinello/core'
-import { advisoryIdentity } from '@/lib/merge-findings'
+import { advisoryIdentity, withoutMixedGroupNotices } from '@/lib/merge-findings'
 import { SeverityPill } from '@/components/ui/severity-pill'
 import { EmptyState } from '@/components/ui/empty-state'
 import { ScrollToTop } from '@/components/layout/scroll-to-top'
@@ -40,7 +40,8 @@ export default async function LibraryDetailPage({ params, searchParams }: PagePr
     const defaults = getFilterDefaults(db)
     const depType = parseDepTypeParam(resolvedSearchParams.dep) || defaults.depType
     const enabledSources = orderSources(getActiveSources(db))
-    const usages = listLibraryUsage(db, packageName, now, depType, ecosystem)
+    const allUsages = listLibraryUsage(db, packageName, now, depType, ecosystem)
+    const usages = withoutMixedGroupNotices(allUsages)
     const resolvedFindings = listResolvedFindingsForLibrary(db, packageName, 50, ecosystem)
     const activeMutes = listActiveMutes(db, now)
     const muteLifts = listMuteLiftsForLibrary(db, packageName, 20, ecosystem)
@@ -51,7 +52,8 @@ export default async function LibraryDetailPage({ params, searchParams }: PagePr
     const presentSeverities = SEVERITY_ORDER.filter(function present(s) {
         return vulnerabilities.some(function has(u) { return u.severity === s })
     })
-    const bulkRows = usages.map(function toRow(u) {
+    // Every row, a notice of a mixed group included: muting the library everywhere has to reach them all.
+    const bulkRows = allUsages.map(function toRow(u) {
         return { projectId: u.projectId, source: u.source, ecosystem: u.ecosystem, advisoryId: u.advisoryId }
     })
     return (

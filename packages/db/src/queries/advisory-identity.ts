@@ -10,7 +10,9 @@ export function advisoryIdentitySql(alias: string = 'f'): SQL {
 }
 
 // The rows severity counts stand on: a notice (RUSTSEC's unmaintained, unsound) stays a finding row, listed and
-// mutable, and is not a vulnerability. The one statement of that, for every aggregate.
+// mutable, and is not a vulnerability. The one statement of that, for every aggregate. It is also what makes a
+// group holding both kinds a vulnerability graded by its vulnerability rows alone: gradedRows in
+// apps/web/lib/merge-findings.ts keeps the JS merge in lockstep.
 export function notNoticeSql(alias: string = 'f'): SQL {
     return sql.raw(`AND ${alias}.notice_kind IS NULL`)
 }

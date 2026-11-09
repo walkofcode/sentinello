@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 // findings.resolved.write.spec.ts has to write a replacement lockfile too, and a spec cannot import
 // this file — the fileURLToPath(import.meta.url) below is exactly the syntax that breaks under
 // Playwright's CJS loader. paths.ts is the half of the harness both loaders can read.
-import { bulkDeps, bulkLock, BULK_DEP_COUNT, E2E_FIXTURE_ROOT, SEEDED } from './paths'
+import { bulkDeps, bulkLock, BULK_DEP_COUNT, E2E_FIXTURE_ROOT, factsDeps, SEEDED } from './paths'
 
 // Builds the on-disk project tree the worker discovers and scans.
 //
@@ -81,6 +81,10 @@ export const FIXTURE_PROJECTS: FixtureProject[] = [
         // The same package.json as the CLI e2e suite's lockfile-less fixture. Its two findings are seeded
         // (seed.ts), as an earlier scan with a lockfile would have left them.
         purpose: 'cannot be scanned: no lockfile, with an earlier settled finding (lodash) and a legacy one (minimist)'
+    },
+    {
+        relPath: SEEDED.factsProjectName,
+        purpose: 'four findings: a notice, an unrated advisory and two unrelated advisories under one title'
     }
 ]
 
@@ -135,6 +139,16 @@ export function buildFixtureTree(): string {
     const lost = join(E2E_FIXTURE_ROOT, SEEDED.cannotScanProjectName)
     mkdirSync(lost, { recursive: true })
     copyFileSync(join(NPM_NO_LOCKFILE, 'package.json'), join(lost, 'package.json'))
+
+    const facts = join(E2E_FIXTURE_ROOT, SEEDED.factsProjectName)
+    write(join(facts, 'package.json'), JSON.stringify({
+        name: SEEDED.factsProjectName,
+        version: '1.0.0',
+        private: true,
+        dependencies: factsDeps()
+    }, null, 4) + '\n')
+    write(join(facts, 'package-lock.json'), bulkLock(SEEDED.factsProjectName, factsDeps()))
+    write(join(facts, '.git', 'HEAD'), 'ref: refs/heads/main\n')
 
     return E2E_FIXTURE_ROOT
 }

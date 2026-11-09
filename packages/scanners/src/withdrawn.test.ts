@@ -177,10 +177,13 @@ describe('clearedByOsv — gemnasium stale where upstream renumbered (SENTINEL-1
         expect(cleared([live({ ranges: [{ type: 'GIT', introduced: '0', fixed: '0.9.0', lastAffected: null }] })])).toBe(false)
         expect(cleared([live({ ranges: [], versions: [] })])).toBe(false)
         expect(cleared([live()], 'not-a-version')).toBe(false)
+        expect(cleared([live({ rangesDiscarded: true })])).toBe(false)
     })
 
-    it('reads an enumerated version it cannot normalize as no version at all', function () {
-        expect(cleared([live({ versions: ['garbage'] })])).toBe(true)
+    it('never clears past an enumerated version it cannot read, alone or beside a clearing range', function () {
+        expect(cleared([live({ ranges: [], versions: ['garbage'] })])).toBe(false)
+        expect(cleared([live({ versions: ['garbage'] })])).toBe(false)
+        expect(cleared([live({ versions: ['0.1.0'] })])).toBe(true)
     })
 
     it('stamps only the live linked records onto an advisory, and none when none links', function () {

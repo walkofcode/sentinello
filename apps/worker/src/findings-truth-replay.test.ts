@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises'
+import { rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { sourceEnabledKey, type EcosystemId, type NotificationTarget, type OsvAdvisoryRow, type Severity, type SourceId } from '@sentinello/core'
@@ -12,6 +12,7 @@ import {
     listLibraries,
     listProjectCatalog,
     listProjects,
+    listScansForProject,
     projectId,
     setConfigValue,
     upsertRoot,
@@ -551,9 +552,16 @@ describe('a project whose root is gone', function () {
 })
 
 describe('a package manager moving under a project', function () {
-    it('resolves what npm audit found once the project has moved to Bun, with one last answer of nothing', async function () {
+    const GHSA = 'GHSA-xxxx-yyyy-zzzz'
+
+    function bunLock(version: string): string {
+        return '{ "lockfileVersion": 1, "workspaces": { "": { "dependencies": { "lodash": "1" } } }, "packages": { "lodash": ["lodash@' + version + '", "", {}, "x"] } }'
+    }
+
+    // npm audit found lodash on an npm project, and the project then moved to a bun.lock.
+    async function auditedThenMoved(lock: string, installedVersion = '4.17.11') {
         enable('npm-audit', 'npm')
-        const finding = { advisoryId: '1123528', advisoryTitle: 't', advisoryUrl: 'https://github.com/advisories/GHSA-xxxx-yyyy-zzzz', packageName: 'lodash', ecosystem: 'npm', installedVersion: '4.17.11', vulnerableRange: '<4.17.21', severity: 'high' as const, fixAvailable: false, fixVersion: null, fixInputs: { source: 'npm-audit', installed: ['4.17.11'], affected: { comparator: 'semver' as const, ranges: [], exact: [], complete: false }, patched: null, patchedSet: null, statedFix: null, fixViaParent: false }, depPath: [], isProd: true, isDev: false, aliases: ['GHSA-xxxx-yyyy-zzzz'] }
+        const finding = { advisoryId: '1123528', advisoryTitle: 't', advisoryUrl: 'https://github.com/advisories/' + GHSA, packageName: 'lodash', ecosystem: 'npm', installedVersion, vulnerableRange: '<4.17.21', severity: 'high' as const, fixAvailable: false, fixVersion: null, fixInputs: { source: 'npm-audit', installed: ['4.17.11'], affected: { comparator: 'semver' as const, ranges: [], exact: [], complete: false }, patched: null, patchedSet: null, statedFix: null, fixViaParent: false }, depPath: [], isProd: true, isDev: false, aliases: [GHSA] }
         const audit = vi.fn(async function audited() { return { status: 'ok' as const, reasonCode: 'ok' as const, findings: [finding], rawJson: '{}', errorText: null, durationMs: 1 } })
         const npmAudit = { name: 'npm-audit', scan: audit }
         const path = await makeTree(handle.dir, 'code', { 'package.json': PACKAGE_JSON, 'package-lock.json': NPM_LOCK })
@@ -562,14 +570,126 @@ describe('a package manager moving under a project', function () {
         discoverProjects({ db: handle.db, roots: [root], globalIgnore: [], at: T0 })
         await scanAll([npmAudit])
         expect(rows()).toHaveLength(1)
-        const { rm } = await import('node:fs/promises')
         await rm(join(path, 'package-lock.json'))
-        await writeFile(join(path, 'bun.lock'), '{ "lockfileVersion": 1, "workspaces": { "": { "dependencies": { "lodash": "1" } } }, "packages": { "lodash": ["lodash@4.17.11", "", {}, "x"] } }')
+        await writeFile(join(path, 'bun.lock'), lock)
         audit.mockClear()
+        const scans = listScansForProject(handle.db, projectId('code', '.'), 50, 0).length
+        return { npmAudit, audit, path, scans }
+    }
+
+    function retainedReason() {
+        expect(rows().map(function id(r) { return r.advisoryId })).toContain('1123528')
+        return rows().find(function ofAudit(r) { return r.source === 'npm-audit' })?.notRecheckedBecause
+    }
+
+    it('keeps a still-installed vulnerability, not re-checked, with no feed source on, and writes no audit it never ran', async function () {
+        const { npmAudit, audit, scans } = await auditedThenMoved(bunLock('4.17.11'))
+        await scanAll([npmAudit])
+        await scanAll([npmAudit])
+        expect(audit).not.toHaveBeenCalled()
+        expect(listScansForProject(handle.db, projectId('code', '.'), 50, 0)).toHaveLength(scans)
+        expect(retainedReason()).toMatchObject({ reasonCode: 'source_not_applicable', side: 'environment', projectState: 'cannot_scan', manifests: null })
+        expect(getDashboardSummary(handle.db, T0 + 10_000).severityCounts.high).toBe(1)
+    })
+
+    it('keeps it when the feed that could answer is unavailable', async function () {
+        const { npmAudit, audit } = await auditedThenMoved(bunLock('4.17.11'))
+        enable('osv', 'npm')
+        osvBroken = true
+        await scanAll([npmAudit, osvScanner()])
+        expect(audit).not.toHaveBeenCalled()
+        expect(retainedReason()).toMatchObject({ reasonCode: 'source_not_applicable', projectState: 'cannot_scan' })
+    })
+
+    it('keeps an advisory only npm audit knew when a feed scans the project whole and does not list it', async function () {
+        const { npmAudit } = await auditedThenMoved(bunLock('4.17.11'))
+        enable('osv', 'npm')
+        await scanAll([npmAudit, osvScanner()])
+        expect(getProjectScanState(handle.db, projectId('code', '.'))).toEqual({ state: 'scanned', reasons: [] })
+        expect(retainedReason()).toMatchObject({ reasonCode: 'source_not_applicable', projectState: 'scanned' })
+    })
+
+    it('counts it once when a feed reports the same advisory, and that row is the re-checked one', async function () {
+        const { npmAudit } = await auditedThenMoved(bunLock('4.17.11'))
+        enable('osv', 'npm')
+        osvRows = osvRecord(GHSA, 'lodash', 'npm', { database_specific: { severity: 'HIGH' } })
+        await scanAll([npmAudit, osvScanner()])
+        expect(rows().map(function source(r) { return r.source }).sort()).toEqual(['npm-audit', 'osv'])
+        expect(rows().find(function ofOsv(r) { return r.source === 'osv' })?.notRecheckedBecause).toBeNull()
+        expect(getDashboardSummary(handle.db, T0 + 10_000).severityCounts.high).toBe(1)
+    })
+
+    it('closes it, with no scan behind the close, once a lockfile read whole no longer installs that version', async function () {
+        const { npmAudit, audit, scans } = await auditedThenMoved(bunLock('4.17.21'))
         await scanAll([npmAudit])
         expect(audit).not.toHaveBeenCalled()
         expect(rows()).toEqual([])
+        expect(listScansForProject(handle.db, projectId('code', '.'), 50, 0)).toHaveLength(scans)
+        const closed = handle.sqlite.prepare('SELECT resolved_at, resolved_scan_id FROM findings').get() as { resolved_at: number | null; resolved_scan_id: string | null }
+        expect(closed.resolved_at).not.toBeNull()
+        expect(closed.resolved_scan_id).toBeNull()
+    })
+
+    it('closes it when the lockfile read whole installs nothing at all', async function () {
+        const { npmAudit } = await auditedThenMoved('{ "lockfileVersion": 1, "workspaces": { "": {} }, "packages": {} }')
         await scanAll([npmAudit])
-        expect(audit).not.toHaveBeenCalled()
+        expect(rows()).toEqual([])
+    })
+
+    it('never closes it on a lockfile read in part, or not at all: the copy may be what could not be read', async function () {
+        const partial = '{ "lockfileVersion": 1, "workspaces": { "": { "dependencies": { "lodash": "1", "own": "github:acme/own" } } }, "packages": { "lodash": ["lodash@4.17.21", "", {}, "x"], "own": ["own@github:acme/own#abc", {}, "abc"] } }'
+        const { npmAudit } = await auditedThenMoved(partial)
+        await scanAll([npmAudit])
+        expect(retainedReason()?.reasonCode).toBe('source_not_applicable')
+    })
+
+    it('keeps a row that names no version while the package is installed at all', async function () {
+        const { npmAudit } = await auditedThenMoved(bunLock('4.17.21'), '')
+        await scanAll([npmAudit])
+        expect(retainedReason()?.reasonCode).toBe('source_not_applicable')
+    })
+
+    it('asks npm audit again, and clears the reason, when the project moves back to npm', async function () {
+        const { npmAudit, audit, path } = await auditedThenMoved(bunLock('4.17.11'))
+        await scanAll([npmAudit])
+        await rm(join(path, 'bun.lock'))
+        await writeFile(join(path, 'package-lock.json'), NPM_LOCK)
+        await scanAll([npmAudit])
+        expect(audit).toHaveBeenCalledOnce()
+        expect(retainedReason()).toBeNull()
+    })
+})
+
+describe('gemnasium cleared by an OSV record through the real normalizer', function () {
+    const MODULE = 'github.com/acme/mod'
+
+    function goTree(): Promise<Root> {
+        return tree({
+            'go.mod': 'module example.com/app\n\ngo 1.22\n\nrequire ' + MODULE + ' v0.14.0\n',
+            'go.sum': MODULE + ' v0.14.0 h1:x=\n' + MODULE + ' v0.14.0/go.mod h1:y=\n'
+        })
+    }
+
+    async function survivesWith(ranges: Record<string, unknown>[], versions: string[] = []): Promise<boolean> {
+        enable('gemnasium', 'Go')
+        gemnasiumRows = [gemnasiumRow(MODULE, 'CVE-2020-0009', 'high', ['GHSA-comp-comp-comp'], [{ introduced: '0', fixed: null, lastAffected: '7.0.0' }])]
+        osvRows = osvRecord('GHSA-comp-comp-comp', MODULE, 'Go', {}, { ranges, versions })
+        await goTree()
+        await scanAll([gemnasiumScanner()])
+        return rows().some(function kept(r) { return r.advisoryId === 'CVE-2020-0009' })
+    }
+
+    const CLEARING = { type: 'SEMVER', events: [{ introduced: '0' }, { fixed: '0.9.0' }] }
+
+    it('clears on a complete set', async function () {
+        expect(await survivesWith([CLEARING])).toBe(false)
+    })
+
+    it('keeps it when the normalizer discarded a range beside the clearing one', async function () {
+        expect(await survivesWith([CLEARING, { type: 'GIT', events: [{ introduced: 'abc' }, { fixed: 'def' }] }])).toBe(true)
+    })
+
+    it('keeps it when an enumerated version beside the clearing range cannot be read', async function () {
+        expect(await survivesWith([CLEARING], ['garbage'])).toBe(true)
     })
 })

@@ -536,6 +536,7 @@
         },
         "notRecheckedCannotScan": "未重新检查 — 项目无法扫描：{reason}",
         "notRecheckedPartial": "未重新检查 — 项目无法完整扫描：{reason}",
+        "notRecheckedOnly": "未重新检查 — {reason}",
         "notRecheckedCopies": "{manifests} 中的副本未重新检查 — 项目无法完整扫描：{reason}",
         "chainUnknown": "依赖链未知",
         "chainUnknownHint": "锁文件没有记录依赖关系图，因此无法得知是什么引入了此包。这并不表示没有解决办法。",

@@ -4,11 +4,11 @@ import { ECOSYSTEMS, requireEcosystemId, sourceAppliesToPackageManager, type Eco
 import {
     applyFindingCorroborations,
     getRunnableSourceCells,
-    hasOpenFindingsInCell,
     insertScan,
     listOpenFindingEcosystems,
     mergeFindingsForScan,
     refreshAdvisoryKeys,
+    resolveFindingsNoLongerInstalled,
     getRootById,
     setProjectGitBranch,
     walCheckpoint,
@@ -214,17 +214,20 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
     // than applied per scanner because each scanner has already persisted its findings by the time a
     // later source agrees with one of them.
     const corroborations: CorroborationEvent[] = []
+    // Rows closed with no scan behind them: a source that is not attempted can still lose a row (closeUninstalled).
+    const closedUnscanned: Finding[] = []
     for (const scanner of input.scanners) {
         for (const ecosystem of detected) {
             if (input.abortSignal && input.abortSignal.aborted) break
             if (!cellRunnable(runnable, scanner.name, ecosystem)) continue
-            // A source that cannot answer for this package manager is not attempted (a Bun project and npm
-            // audit). What it found before the project moved to that manager has nothing left to re-check it,
-            // so one last answer of nothing installed resolves those rows; with none open there is no scan.
-            const applies = sourceAppliesToPackageManager(scanner.name, project.packageManager)
-            if (!applies && !hasOpenFindingsInCell(input.db, project.id, scanner.name, ecosystem)) continue
-            const isNpmAudit = scanner.name === NPM_AUDIT_SCANNER_NAME
             const cell = cellResults(resolved, ecosystem)
+            // A source that cannot answer for this package manager is not attempted (a Bun project and npm audit),
+            // and not attempting it proves nothing: moving to Bun fixes no package.
+            if (!sourceAppliesToPackageManager(scanner.name, project.packageManager)) {
+                if (inventoryRead) closedUnscanned.push(...closeUninstalled(input.db, project, scanner.name, ecosystem, cell))
+                continue
+            }
+            const isNpmAudit = scanner.name === NPM_AUDIT_SCANNER_NAME
             const graphForCell = isNpmAudit ? npmGraph : mergeResolvedGraphs(cell.map(function result(r) { return r.result }))
             const coverageForCell = isNpmAudit ? undefined : cell.map(toCoverage)
             // A feed source matches the merged graph of the manifests that could be read, so its ok answer says
@@ -234,13 +237,13 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
             // The project was read now and holds no manifest of this ecosystem at all — an incomplete walk keeps
             // those it could not see (withUnreadManifests), so this is a removal: nothing of it is installed, and
             // no source has anything to look up. The scan answers so itself, whatever the source's state.
-            const nothingInstalled = !applies || (inventoryRead && cell.length === 0)
+            const nothingInstalled = inventoryRead && cell.length === 0
             const outcome = await runOneScanner(input, project, projectPath, scanner, ecosystem, reportedByPackage, corroborations, graphForCell, coverageForCell, coverage, unreadManifests, nothingInstalled)
             outcomes.push(outcome)
         }
     }
     recordCorroborations(input.db, outcomes, corroborations)
-    refreshKeysForScan(input, outcomes)
+    refreshKeysForScan(input, outcomes, closedUnscanned)
     // Fix settlement also waits for every source: the fix has to clear every source's affected set and
     // every installed copy. With it comes the way out for every finding settled `none_released`, from the
     // same registry data and the npm lockfile's node graph. Neither ever fails the scan or skips
@@ -299,6 +302,26 @@ async function resolveManifests(project: Project, projectPath: string): Promise<
 // The manifests of a cell the resolver could not read at all — they contributed nothing to its graph.
 function unreadOf(cell: readonly ResolvedManifest[]): string[] {
     return cell.filter(function unread(r) { return r.result.status === 'unauditable' }).map(function path(r) { return r.manifestPath })
+}
+
+// What a source that is not attempted left open stays open, not re-checked (findingScanContexts), until something
+// other than that source proves it gone: every manifest of the ecosystem was read whole, and none installs the
+// version the row names. A manifest read only in part, or not at all, may hold it. Rows stay open whatever
+// another source says of the advisory: an npm audit advisory OSV does not list is not thereby disproved.
+function closeUninstalled(db: DrizzleDb, project: Project, source: string, ecosystem: string, cell: readonly ResolvedManifest[]): Finding[] {
+    if (cell.some(function incomplete(r) { return r.result.status !== 'ok' })) return []
+    const graph = mergeResolvedGraphs(cell.map(function result(r) { return r.result }))
+    return resolveFindingsNoLongerInstalled(db, {
+        projectId: project.id,
+        source,
+        ecosystem,
+        at: Date.now(),
+        gone: function gone(row) {
+            const versions = splitInstalled(row.installedVersion)
+            const copies = graph?.byName(row.packageName) ?? []
+            return !copies.some(function named(pkg) { return versions.length === 0 || versions.includes(pkg.version) })
+        }
+    })
 }
 
 function cellRunnable(runnable: readonly SourceCell[], source: string, ecosystem: string): boolean {
@@ -433,12 +456,11 @@ function recordCorroborations(db: DrizzleDb, outcomes: ProjectScanOutcome[], eve
 // Recomputes which advisory each row is, for the packages this scan touched. Every open row of those packages
 // is read, across projects: a row this scan wrote can join them to another project's. A failure costs the
 // counts a stale key until the next refresh, never the scan.
-function refreshKeysForScan(input: RunProjectScansInput, outcomes: ProjectScanOutcome[]): void {
+function refreshKeysForScan(input: RunProjectScansInput, outcomes: ProjectScanOutcome[], closedUnscanned: readonly Finding[]): void {
     const packages = new Map<string, { ecosystem: string; packageName: string }>()
-    for (const outcome of outcomes) {
-        for (const finding of [...outcome.findings, ...outcome.resolved]) {
-            packages.set(finding.ecosystem + '\x00' + finding.packageName, { ecosystem: finding.ecosystem, packageName: finding.packageName })
-        }
+    const touched = [...closedUnscanned, ...outcomes.flatMap(function rows(o) { return [...o.findings, ...o.resolved] })]
+    for (const finding of touched) {
+        packages.set(finding.ecosystem + '\x00' + finding.packageName, { ecosystem: finding.ecosystem, packageName: finding.packageName })
     }
     if (packages.size === 0) return
     try {

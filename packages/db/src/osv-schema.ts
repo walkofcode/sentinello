@@ -41,7 +41,9 @@ export const osvAdvisories = sqliteTable(
         withdrawn: integer('withdrawn'),
         // `database_specific.informational` when the record is a notice and not a vulnerability (RUSTSEC:
         // unmaintained, unsound, notice); null otherwise.
-        noticeKind: text('notice_kind')
+        noticeKind: text('notice_kind'),
+        // True when normalizing dropped a range of this package it cannot read: gemnasium's clearance reads it.
+        rangesDiscarded: integer('ranges_discarded', { mode: 'boolean' }).notNull().default(false)
     },
     function osvAdvisoriesIndexes(table) {
         return {

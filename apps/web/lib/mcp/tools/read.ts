@@ -180,7 +180,8 @@ export function registerReadTools(server: McpServer): void {
                 if (!includeMuted && f.isMuted) return false
                 if (ecosystem && f.ecosystem !== ecosystem) return false
                 if (source && f.source !== source) return false
-                if (minSeverity) return meetsSeverityFloor(f.severity, minSeverity)
+                // A notice claims no grade, so no floor applies to it, as on the portal and in the CLI.
+                if (minSeverity && !f.noticeKind) return meetsSeverityFloor(f.severity, minSeverity)
                 return true
             }).map(function withFixKind(f) { return { ...f, fixKind: fixKindOf(f) } })
             return {
@@ -340,7 +341,8 @@ export function registerReadTools(server: McpServer): void {
             let findings = parts.findings
             if (minSeverity) {
                 findings = findings.filter(function keep(f) {
-                    return meetsSeverityFloor(f.severity, minSeverity)
+                    // The same for a notice here as in list_findings.
+                    return Boolean(f.noticeKind) || meetsSeverityFloor(f.severity, minSeverity)
                 })
             }
             // A continuation page repeats none of the 10 KB remediation prompt by default — the agent

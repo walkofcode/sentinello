@@ -176,12 +176,19 @@ function staleSuffix(check: FixCheck): string {
 // Why a retained row was not re-checked, in the words every surface uses: "not re-checked — the project
 // cannot be scanned: No lockfile (last scanned successfully 2026-10-01)". Kept copies of a row the latest scan
 // saw elsewhere name their manifests and no date, since no per-copy history is kept: "copies in ios/Gemfile
-// not re-checked — the project cannot be fully scanned: No lockfile".
+// not re-checked — the project cannot be fully scanned: No lockfile". A row whose source cannot answer for the
+// project can stand on a project every other source scanned whole, so only a project short of that says so:
+// "not re-checked — npm audit does not read bun.lock (last scanned successfully 2026-10-01)".
 export function describeNotRechecked(reason: NotRecheckedBecause): string {
-    const project = reason.projectState === 'cannot_scan' ? 'the project cannot be scanned' : 'the project cannot be fully scanned'
-    if (reason.manifests !== null) return 'copies in ' + reason.manifests.join(', ') + ' not re-checked — ' + project + ': ' + reasonCodeLabel(reason.reasonCode)
+    const project = projectCannotBeScanned(reason)
+    if (reason.manifests !== null) return 'copies in ' + reason.manifests.join(', ') + ' not re-checked — ' + project + reasonCodeLabel(reason.reasonCode)
     const when = reason.lastOkScanAt === null ? 'never scanned successfully' : 'last scanned successfully ' + isoDate(reason.lastOkScanAt)
-    return 'not re-checked — ' + project + ': ' + reasonCodeLabel(reason.reasonCode) + ' (' + when + ')'
+    return 'not re-checked — ' + project + reasonCodeLabel(reason.reasonCode) + ' (' + when + ')'
+}
+
+function projectCannotBeScanned(reason: NotRecheckedBecause): string {
+    if (reason.projectState === 'cannot_scan') return 'the project cannot be scanned: '
+    return reason.projectState === 'partial' || reason.manifests !== null ? 'the project cannot be fully scanned: ' : ''
 }
 
 // The one wording of a finding's fix, shared by the advisory export, the notifications and the CLI so they

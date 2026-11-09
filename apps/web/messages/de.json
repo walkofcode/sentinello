@@ -536,6 +536,7 @@
         },
         "notRecheckedCannotScan": "nicht erneut geprüft — das Projekt kann nicht gescannt werden: {reason}",
         "notRecheckedPartial": "nicht erneut geprüft — das Projekt kann nicht vollständig gescannt werden: {reason}",
+        "notRecheckedOnly": "nicht erneut geprüft — {reason}",
         "notRecheckedCopies": "Kopien in {manifests} nicht erneut geprüft — das Projekt kann nicht vollständig gescannt werden: {reason}",
         "chainUnknown": "Kette unbekannt",
         "chainUnknownHint": "Die Lockdatei enthält keinen Abhängigkeitsgraphen, daher ist unbekannt, was dieses Paket einbindet. Das heißt nicht, dass es keinen Ausweg gibt.",

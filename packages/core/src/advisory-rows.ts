@@ -40,13 +40,17 @@ export type OsvAdvisoryRow = {
     // `database_specific.informational` when the record says it is a notice and not a vulnerability
     // (RUSTSEC: unmaintained, unsound, notice). Null for every vulnerability.
     noticeKind: string | null
+    // True when normalizing dropped a range of this package it cannot read (a GIT range, one with no events). The
+    // matcher does not need it, since the row's other ranges still say what is affected; clearedByOsv does, since
+    // a set missing a range proves no version clean. Absent otherwise.
+    rangesDiscarded?: boolean
 }
 
 // The evidence half of an OSV row: the fields gemnasium's stamping links on. gemnasium-db records no
 // withdrawal, so an advisory GitHub withdrew is recognised by finding the OSV records that share its id or an
 // alias, for the same package, and seeing that every one of them is withdrawn. Its ranges are stale in places
 // too, so the linked rows' affected sets say whether a matched version is still affected at all.
-export type OsvAdvisoryLink = Pick<OsvAdvisoryRow, 'advisoryId' | 'aliases' | 'withdrawn' | 'ranges' | 'versions'>
+export type OsvAdvisoryLink = Pick<OsvAdvisoryRow, 'advisoryId' | 'aliases' | 'withdrawn' | 'ranges' | 'versions' | 'rangesDiscarded'>
 
 // Bump whenever normalizeOsvRecord's output shape changes in a way that requires rebuilding the cache.
 // v2: started capturing affected[].versions and real MAL- ranges (was: all-versions malware shortcut).
@@ -106,7 +110,9 @@ export type OsvAdvisoryLink = Pick<OsvAdvisoryRow, 'advisoryId' | 'aliases' | 'w
 //     2026-11-08 exports: 424 crates.io and 4,533 PyPI records carry a scorable vector and no bucket, and 521
 //     crates.io records are notices. npm, Go and RubyGems have no such record, so they keep v8 and their
 //     downloads. A CVSS v4 vector has no scorer here and reads as no vector: 89 crates.io and 567 PyPI records,
-//     none installed on the review's live data, read unrated.
+//     none installed on the review's live data, read unrated. v9 also sets rangesDiscarded on a row that lost a
+//     range. On the same exports only 1,578 PyPI rows lost one (GIT), and npm, Go, RubyGems and crates.io none, so
+//     this asks no ecosystem for a download v9 did not already need.
 //
 // PER ECOSYSTEM, because each ecosystem's cache is its own download: a change that only re-derives PyPI
 // rows must re-seed PyPI and nothing else, and npm's export alone is over 200 MB. Every store keys the

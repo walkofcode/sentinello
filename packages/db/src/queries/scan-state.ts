@@ -267,6 +267,7 @@ type ProjectScanInputs = {
     latestByCell: Map<string, LatestSourceScanRow>
     // The latest scan's coverage, per manifest (null: unknown).
     coverage: EcosystemCoverageRow[] | null
+    packageManager: string
 }
 
 // `latest` is listLatestSourceScans(db, projectIds), when the caller has already read it for its own use:
@@ -303,7 +304,8 @@ function readScanInputs(db: DrizzleDb, projectIds: readonly string[] | null, lat
                 })
             },
             latestByCell,
-            coverage
+            coverage,
+            packageManager: project.package_manager
         })
     }
     return out
@@ -369,6 +371,11 @@ export function findingScanContexts(db: DrizzleDb, projectIds: readonly string[]
             states.set(id, state)
         }
         const lastOkScanAt = lastCheckedAt(latest, row)
+        // Nothing attempts this source on this project any more, so its last scan's verdict, ok or failed, is not
+        // why an open row stands: the row is what that source said before the project moved.
+        if (row !== undefined && row.resolvedAt === null && !sourceAppliesToPackageManager(source, project.packageManager)) {
+            return { latestStatus: latest.status, latestReasonCode: 'source_not_applicable', lastOkScanAt, projectState: state.state, unreadReasonCode: 'source_not_applicable' }
+        }
         if (row !== undefined && keptUnseen(latest, row)) {
             return { latestStatus: latest.status, latestReasonCode: latest.reasonCode, lastOkScanAt, projectState: state.state, unreadReasonCode: unreadReasonCode(project.coverage, ecosystem, row.installations) }
         }

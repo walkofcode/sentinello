@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CurrentFindingRow } from '@sentinello/db'
 import type { FixCheck } from '@sentinello/core'
-import { advisoryIdentity, mergeFindings } from './merge-findings'
+import { advisoryIdentity, mergeFindings, withoutMixedGroupNotices } from './merge-findings'
 
 // The raw table stores one row per (scanner, advisory, dep-path), so one real vulnerability appears
 // many times. Merging collapses them. Both directions are dangerous: merging too eagerly HIDES a
@@ -604,5 +604,37 @@ describe('mergeFindings — unrated and notices', function () {
     it('is a notice only when every row says so: anyone reporting it as a vulnerability makes it one', function () {
         expect(mergeFindings([row({ noticeKind: 'unsound' })])[0]?.noticeKind).toBe('unsound')
         expect(mergeFindings([row({ noticeKind: 'unsound' }), row({ id: 'r2', source: 'osv', scanner: 'osv' })])[0]?.noticeKind).toBeNull()
+    })
+
+    // A failed source keeps its old row while another refreshes its own to a notice (SENTINEL-191).
+    it('grades a mixed group, and takes its fix and text, from its vulnerability rows alone', function () {
+        const notice = row({ id: 'n', source: 'osv', scanner: 'osv', advisoryId: 'RUSTSEC-1', noticeKind: 'unsound', severity: 'high', advisoryUrl: 'https://example.test/notice', fixVersion: '9.0.0', vulnerableRange: 'notice', corroborations: [{ source: 'other', advisoryId: 'O-1', severity: 'critical' }] })
+        const real = row({ id: 'r', source: 'gemnasium', scanner: 'gemnasium', advisoryId: 'CVE-1', severity: 'low', advisoryUrl: null, fixVersion: '1.0.0', vulnerableRange: 'real' })
+        for (const rows of [[notice, real], [real, notice]]) {
+            const [merged] = mergeFindings(rows)
+            expect(merged).toMatchObject({ noticeKind: null, severity: 'low', advisoryId: 'CVE-1', fixVersion: '1.0.0', vulnerableRange: 'real', scanners: ['osv', 'gemnasium', 'other'] })
+            expect(merged?.grades).toEqual([{ source: 'gemnasium', advisoryId: 'CVE-1', severity: 'low' }])
+            expect(merged?.identities.map(function source(i) { return i.source }).sort()).toEqual(['gemnasium', 'osv'])
+        }
+    })
+
+    it('reads an all-notice group from its notices', function () {
+        const [merged] = mergeFindings([row({ noticeKind: 'unsound', severity: 'low' }), row({ id: 'r2', source: 'osv', scanner: 'osv', noticeKind: 'unsound', severity: 'high' })])
+        expect(merged).toMatchObject({ noticeKind: 'unsound', severity: 'high' })
+        expect(merged?.grades).toHaveLength(2)
+    })
+})
+
+describe('withoutMixedGroupNotices', function () {
+    const usage = { source: 'osv', advisoryId: 'A', advisoryKey: 'k' }
+    it('drops a notice only where its own project holds a vulnerability of the same advisory', function () {
+        const kept = withoutMixedGroupNotices([
+            { ...usage, projectId: 'mixed', noticeKind: 'unsound' },
+            { ...usage, projectId: 'mixed', noticeKind: null },
+            { ...usage, projectId: 'notice-only', noticeKind: 'unsound' },
+            { ...usage, projectId: 'other-advisory', noticeKind: 'unsound', advisoryKey: 'k2' },
+            { ...usage, projectId: 'other-advisory', noticeKind: null }
+        ])
+        expect(kept.map(function shape(u) { return u.projectId + ':' + (u.noticeKind ?? 'real') })).toEqual(['mixed:real', 'notice-only:unsound', 'other-advisory:unsound', 'other-advisory:real'])
     })
 })

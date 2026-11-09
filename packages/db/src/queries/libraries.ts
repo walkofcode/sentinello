@@ -80,33 +80,45 @@ export function listLibraries(db: DrizzleDb, at: number, depType: DepTypeFilter 
         }>(
             sql`
             SELECT
-                f.ecosystem AS ecosystem,
-                f.package_name AS package_name,
-                COUNT(DISTINCT CASE WHEN f.notice_kind IS NULL THEN ${advisoryIdentitySql('f')} END) AS distinct_advisories,
-                COUNT(DISTINCT CASE WHEN f.notice_kind IS NULL THEN f.project_id END) AS distinct_projects,
-                COUNT(DISTINCT CASE WHEN f.notice_kind IS NOT NULL THEN ${advisoryIdentitySql('f')} END) AS distinct_notices,
-                GROUP_CONCAT(DISTINCT CASE WHEN f.notice_kind IS NULL THEN f.severity END) AS severities
-            FROM findings f
-            INNER JOIN projects p ON p.id = f.project_id
-            WHERE f.resolved_at IS NULL
-              ${depFilter}
-              ${sourceFilter}
-              AND NOT EXISTS (
-                SELECT 1 FROM mutes m
-                WHERE (m.expires_at IS NULL OR m.expires_at > ${at})
-                  AND (
-                    (m.scope = 'project' AND m.project_id = p.id)
-                    OR (
-                      m.scope = 'finding'
-                      AND (m.project_id IS NULL OR m.project_id = p.id)
-                      AND m.scanner = COALESCE(f.source, f.scanner)
-                      AND (m.ecosystem IS NULL OR m.ecosystem = f.ecosystem)
-                      AND m.advisory_id = f.advisory_id
-                      AND m.package_name = f.package_name
-                    )
+                ecosystem,
+                package_name,
+                COUNT(DISTINCT CASE WHEN notice_kind IS NULL THEN advisory_identity END) AS distinct_advisories,
+                COUNT(DISTINCT CASE WHEN notice_kind IS NULL THEN project_id END) AS distinct_projects,
+                COUNT(DISTINCT CASE WHEN group_is_vulnerability = 0 THEN advisory_identity END) AS distinct_notices,
+                GROUP_CONCAT(DISTINCT CASE WHEN notice_kind IS NULL THEN severity END) AS severities
+            FROM (
+                SELECT
+                    f.ecosystem AS ecosystem,
+                    f.package_name AS package_name,
+                    f.project_id AS project_id,
+                    f.notice_kind AS notice_kind,
+                    f.severity AS severity,
+                    ${advisoryIdentitySql('f')} AS advisory_identity,
+                    -- A project's group holding both kinds is a vulnerability, and its notice rows count as no
+                    -- notice: withoutMixedGroupNotices in apps/web/lib/merge-findings.ts says the same.
+                    MAX(CASE WHEN f.notice_kind IS NULL THEN 1 ELSE 0 END) OVER (PARTITION BY f.project_id, f.ecosystem, f.package_name, ${advisoryIdentitySql('f')}) AS group_is_vulnerability
+                FROM findings f
+                INNER JOIN projects p ON p.id = f.project_id
+                WHERE f.resolved_at IS NULL
+                  ${depFilter}
+                  ${sourceFilter}
+                  AND NOT EXISTS (
+                    SELECT 1 FROM mutes m
+                    WHERE (m.expires_at IS NULL OR m.expires_at > ${at})
+                      AND (
+                        (m.scope = 'project' AND m.project_id = p.id)
+                        OR (
+                          m.scope = 'finding'
+                          AND (m.project_id IS NULL OR m.project_id = p.id)
+                          AND m.scanner = COALESCE(f.source, f.scanner)
+                          AND (m.ecosystem IS NULL OR m.ecosystem = f.ecosystem)
+                          AND m.advisory_id = f.advisory_id
+                          AND m.package_name = f.package_name
+                        )
+                      )
                   )
-              )
-            GROUP BY f.ecosystem, f.package_name
+            )
+            GROUP BY ecosystem, package_name
             ORDER BY distinct_projects DESC, package_name ASC
         `
         )

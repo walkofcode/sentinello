@@ -20,7 +20,8 @@ export type MergedFinding = {
     installations: FindingInstallation[]
     severity: Severity
     // Set when every row of the group is a notice, not a vulnerability: anyone reporting it as a vulnerability
-    // makes it one. A notice row has no place in the counts (notNoticeSql), and the page lists it apart.
+    // makes it one, and then only those rows speak for it (gradedRows). A notice row has no place in the counts
+    // (notNoticeSql), and the page lists it apart.
     noticeKind: string | null
     malicious: boolean
     scanners: string[]
@@ -66,6 +67,25 @@ const SCANNER_ORDER: Record<string, number> = { 'npm-audit': 0, osv: 1, gemnasiu
 // in packages/db, so SQL counts and these JS counts agree. Exported so the library views dedupe the same way.
 export function advisoryIdentity(row: { advisoryKey: string | null; source: string; advisoryId: string }): string {
     return row.advisoryKey ?? row.source + ':' + row.advisoryId
+}
+
+// A group holding both kinds is a vulnerability, and a notice claims no grade: its severity, its fix and its
+// advisory text come from the rows that report a vulnerability, exactly as the SQL buckets exclude notices
+// (notNoticeSql) before taking their maximum. A notice row keeps its place in the group's sources, identities and
+// installed copies. This can happen when a source that failed keeps its old row while another refreshes its own to
+// a notice. An all-notice group has only its notices to read.
+function gradedRows(bucket: [CurrentFindingRow, ...CurrentFindingRow[]]): [CurrentFindingRow, ...CurrentFindingRow[]] {
+    const real = bucket.filter(function vulnerability(r) { return r.noticeKind === null })
+    return real.length > 0 ? real as [CurrentFindingRow, ...CurrentFindingRow[]] : bucket
+}
+
+// The library views list rows rather than merged ones, so they apply the same rule by dropping the notice rows of
+// a project's group that also holds a vulnerability; list_libraries' distinct_notices does so in SQL. Only rows
+// the caller passes are weighed, as with the counts' own filters.
+export function withoutMixedGroupNotices<T extends { projectId: string; noticeKind: string | null; advisoryKey: string | null; source: string; advisoryId: string }>(rows: readonly T[]): T[] {
+    function groupOf(row: T): string { return row.projectId + '\x00' + advisoryIdentity(row) }
+    const vulnerable = new Set(rows.filter(function real(r) { return r.noticeKind === null }).map(groupOf))
+    return rows.filter(function keep(r) { return r.noticeKind === null || !vulnerable.has(groupOf(r)) })
 }
 
 // npm audit joins multiple hoisted copies into one comma-separated installedVersion ("4.17.21, 4.17.11")
@@ -123,14 +143,15 @@ function betterFix(candidate: CurrentFindingRow, current: CurrentFindingRow): bo
 // without an unreachable emptiness guard.
 function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingRow[]]): MergedFinding {
     const [first] = bucket
-    let severity = first.severity
+    const graded = gradedRows(bucket)
+    let severity = graded[0].severity
     let malicious = false
     let isProd = false
     let isDev = false
     let firstDetectedAt: number | null = null
     let lastSeenAt: number | null = null
-    let advisoryRow = first
-    let fixRow = first
+    let advisoryRow = graded[0]
+    let fixRow = graded[0]
     const scannerSet = new Set<string>()
     const identityKeys = new Set<string>()
     const identities: { source: string; ecosystem: string; scanner: string; advisoryId: string }[] = []
@@ -143,7 +164,6 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
     const installations = new Map<string, FindingInstallation>()
     for (const r of bucket) {
         for (const i of r.installations) installations.set(i.manifestPath + '\x00' + i.version, i)
-        severity = maxSeverity([severity, r.severity])
         if (r.advisoryId.startsWith('MAL-')) malicious = true
         if (r.isProd) isProd = true
         if (r.isDev) isDev = true
@@ -156,17 +176,7 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
         scannerSet.add(r.scanner)
         // A source that reported this same advisory at scan time but was reconciled away still counts
         // as having reported it: its badge belongs here exactly as much as a row-level one.
-        for (const c of r.corroborations) {
-            scannerSet.add(c.source)
-            if (!gradeKeys.has(c.source)) {
-                gradeKeys.add(c.source)
-                grades.push({ source: c.source, advisoryId: c.advisoryId, severity: c.severity as Severity })
-            }
-        }
-        if (!gradeKeys.has(r.source)) {
-            gradeKeys.add(r.source)
-            grades.push({ source: r.source, advisoryId: r.advisoryId, severity: r.severity as Severity })
-        }
+        for (const c of r.corroborations) scannerSet.add(c.source)
         const identityKey = r.source + '\x00' + r.ecosystem + '\x00' + r.advisoryId
         if (!identityKeys.has(identityKey)) {
             identityKeys.add(identityKey)
@@ -175,6 +185,19 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
         if (!depPathKeys.has(r.depPathJson)) {
             depPathKeys.add(r.depPathJson)
             depPaths.push(parseJsonArray(r.depPathJson))
+        }
+    }
+    for (const r of graded) {
+        severity = maxSeverity([severity, r.severity])
+        for (const c of r.corroborations) {
+            if (!gradeKeys.has(c.source)) {
+                gradeKeys.add(c.source)
+                grades.push({ source: c.source, advisoryId: c.advisoryId, severity: c.severity as Severity })
+            }
+        }
+        if (!gradeKeys.has(r.source)) {
+            gradeKeys.add(r.source)
+            grades.push({ source: r.source, advisoryId: r.advisoryId, severity: r.severity as Severity })
         }
         if (preferAdvisory(r, advisoryRow)) advisoryRow = r
         if (betterFix(r, fixRow)) fixRow = r

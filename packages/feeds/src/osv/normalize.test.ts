@@ -253,6 +253,24 @@ describe('normalizeOsvRecord — range extraction', function () {
         )
         expect(rows[0]?.ranges).toEqual([])
         expect(rows[0]?.versions).toEqual(['1.0.0'])
+        expect(rows[0]?.rangesDiscarded).toBe(true)
+    })
+
+    // The matcher never needs the range it could not read; a claim that a version is clean does (SENTINEL-190).
+    it('marks a row that lost a range, across every affected entry of the package, and only that row', function () {
+        const semver = { type: 'SEMVER', events: [{ introduced: '0' }, { fixed: '1.0.0' }] }
+        const git = { type: 'GIT', events: [{ introduced: 'abc' }] }
+        const rows = normalizeOsvRecord(record({
+            affected: [
+                { package: { name: 'first', ecosystem: 'npm' }, ranges: [semver] },
+                { package: { name: 'first', ecosystem: 'npm' }, ranges: [git] },
+                { package: { name: 'noevents', ecosystem: 'npm' }, ranges: [semver, { type: 'SEMVER' }] },
+                { package: { name: 'whole', ecosystem: 'npm' }, ranges: [semver] },
+                { package: { name: 'noranges', ecosystem: 'npm' }, versions: ['1.0.0'] }
+            ]
+        }), 'npm')
+        const discarded = Object.fromEntries(rows.map(function pair(r) { return [r.packageName, r.rangesDiscarded] }))
+        expect(discarded).toEqual({ first: true, noevents: true, whole: undefined, noranges: undefined })
     })
 
     // A range object with no events array bounds nothing. Dropping it is the safe reading: the row

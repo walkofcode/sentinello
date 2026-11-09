@@ -536,6 +536,7 @@
         },
         "notRecheckedCannotScan": "not re-checked — the project cannot be scanned: {reason}",
         "notRecheckedPartial": "not re-checked — the project cannot be fully scanned: {reason}",
+        "notRecheckedOnly": "not re-checked — {reason}",
         "notRecheckedCopies": "copies in {manifests} not re-checked — the project cannot be fully scanned: {reason}",
         "chainUnknown": "chain unknown",
         "chainUnknownHint": "The lockfile records no dependency graph, so what pulls this package in is unknown. It is not a sign that there is no way out.",

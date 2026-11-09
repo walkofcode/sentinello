@@ -153,6 +153,13 @@ describe('describeFix — not re-checked', function () {
             .toBe('not re-checked — the project cannot be scanned: Package manager not on PATH (never scanned successfully)')
     })
 
+    it('claims nothing about the project when it is scanned and only this row\'s source cannot answer', function () {
+        for (const projectState of ['scanned', 'not_scanned_yet'] as const) {
+            expect(describeNotRechecked({ reasonCode: 'source_not_applicable', side: 'environment', projectState, lastOkScanAt: null, manifests: null }))
+                .toBe('not re-checked — npm audit does not read bun.lock (never scanned successfully)')
+        }
+    })
+
     it('names the kept copies\' manifests, and no date, for a row the latest scan saw through its other copies', function () {
         const kept: NotRecheckedBecause = { reasonCode: 'no_lockfile', side: 'project', projectState: 'partial', lastOkScanAt: null, manifests: ['ios/Gemfile', 'macos/Gemfile'] }
         expect(describeFix(facts({ fixStatus: 'released', fixVersion: '2.5.0', fixAvailable: true, notRecheckedBecause: kept }), PLAIN_FIX_STYLE))

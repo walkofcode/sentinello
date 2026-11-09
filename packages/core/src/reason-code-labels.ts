@@ -39,6 +39,7 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         ambiguous_dependency_spec: 'Ambiguous dependency spec',
         unsupported_lockfile: 'Unsupported lockfile',
         ecosystem_source_disabled: 'No source enabled for ecosystem',
+        source_not_applicable: 'npm audit does not read bun.lock',
         timeout: 'Timeout'
     },
     'es': {
@@ -70,6 +71,7 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         ambiguous_dependency_spec: 'Especificación de dependencia ambigua',
         unsupported_lockfile: 'Lockfile no compatible',
         ecosystem_source_disabled: 'Sin fuente habilitada para el ecosistema',
+        source_not_applicable: 'npm audit no lee bun.lock',
         timeout: 'Tiempo de espera agotado'
     },
     'fr': {
@@ -101,6 +103,7 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         ambiguous_dependency_spec: 'Spécification de dépendance ambiguë',
         unsupported_lockfile: 'Lockfile non pris en charge',
         ecosystem_source_disabled: 'Aucune source activée pour l’écosystème',
+        source_not_applicable: 'npm audit ne lit pas bun.lock',
         timeout: 'Délai dépassé'
     },
     'de': {
@@ -132,6 +135,7 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         ambiguous_dependency_spec: 'Mehrdeutige Abhängigkeitsangabe',
         unsupported_lockfile: 'Nicht unterstützte Lockfile',
         ecosystem_source_disabled: 'Keine Quelle für Ökosystem aktiviert',
+        source_not_applicable: 'npm audit liest bun.lock nicht',
         timeout: 'Zeitüberschreitung'
     },
     'pt-BR': {
@@ -163,6 +167,7 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         ambiguous_dependency_spec: 'Especificação de dependência ambígua',
         unsupported_lockfile: 'Lockfile não suportado',
         ecosystem_source_disabled: 'Nenhuma fonte habilitada para o ecossistema',
+        source_not_applicable: 'npm audit não lê bun.lock',
         timeout: 'Tempo esgotado'
     },
     'it': {
@@ -194,6 +199,7 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         ambiguous_dependency_spec: 'Specifica di dipendenza ambigua',
         unsupported_lockfile: 'Lockfile non supportato',
         ecosystem_source_disabled: 'Nessuna fonte abilitata per l’ecosistema',
+        source_not_applicable: 'npm audit non legge bun.lock',
         timeout: 'Timeout scaduto'
     },
     'ja': {
@@ -225,6 +231,7 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         ambiguous_dependency_spec: '依存関係の指定が曖昧',
         unsupported_lockfile: '未対応のロックファイル',
         ecosystem_source_disabled: 'エコシステムに有効なソースがありません',
+        source_not_applicable: 'npm audit は bun.lock を読み取りません',
         timeout: 'タイムアウト'
     },
     'zh-CN': {
@@ -256,6 +263,7 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         ambiguous_dependency_spec: '依赖项规范不明确',
         unsupported_lockfile: '不支持的锁文件',
         ecosystem_source_disabled: '该生态系统未启用任何来源',
+        source_not_applicable: 'npm audit 不读取 bun.lock',
         timeout: '超时'
     },
     'ko': {
@@ -287,6 +295,7 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         ambiguous_dependency_spec: '모호한 의존성 명세',
         unsupported_lockfile: '지원하지 않는 잠금 파일',
         ecosystem_source_disabled: '생태계에 활성화된 소스 없음',
+        source_not_applicable: 'npm audit는 bun.lock을 읽지 않음',
         timeout: '시간 초과'
     },
     'ru': {
@@ -318,6 +327,7 @@ export const REASON_CODE_LABELS: Record<Locale, Record<ReasonKey, string>> = {
         ambiguous_dependency_spec: 'Неоднозначная спецификация зависимости',
         unsupported_lockfile: 'Неподдерживаемый lockfile',
         ecosystem_source_disabled: 'Нет источника для экосистемы',
+        source_not_applicable: 'npm audit не читает bun.lock',
         timeout: 'Тайм-аут'
     }
 }

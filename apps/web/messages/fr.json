@@ -536,6 +536,7 @@
         },
         "notRecheckedCannotScan": "non revérifié — le projet ne peut pas être analysé : {reason}",
         "notRecheckedPartial": "non revérifié — le projet ne peut pas être entièrement analysé : {reason}",
+        "notRecheckedOnly": "non revérifié — {reason}",
         "notRecheckedCopies": "copies dans {manifests} non revérifiées — le projet ne peut pas être entièrement analysé : {reason}",
         "chainUnknown": "chaîne inconnue",
         "chainUnknownHint": "Le lockfile n’enregistre aucun graphe de dépendances : on ne sait pas ce qui introduit ce paquet. Cela ne veut pas dire qu’il n’y a pas d’issue.",

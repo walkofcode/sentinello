@@ -58,20 +58,23 @@ function liveLinks(advisory: GemnasiumAdvisory, links: readonly OsvAdvisoryLink[
 // version, OSV has cleared it and the match is dropped.
 //
 // Clearing takes proof. No linked record means OSV has nothing to say, and gemnasium stands alone. A version no
-// comparator can read, a record with no version data, a refused range part and a range of a type this
-// comparator may not evaluate each count as containing the version: an incomplete affected set never clears
-// anything. Same complete-snapshot contract as the stamp above, since these records are stamped with it.
+// comparator can read, a record with no version data, an enumerated version it cannot read, a refused range part,
+// a range of a type this comparator may not evaluate and a range the normalizer had to discard each count as
+// containing the version: an incomplete affected set never clears anything. Same complete-snapshot contract as the
+// stamp above, since these records are stamped with it.
 export function clearedByOsv(records: readonly OsvAdvisoryLink[] | undefined, version: string, comparator: VersionComparator, acceptedRangeTypes: readonly string[]): boolean {
     if (records === undefined || records.length === 0) return false
     if (comparator.normalize(version) === null) return false
     return !records.some(function contains(record) {
+        if (record.rangesDiscarded === true) return true
         if (record.ranges.length === 0 && record.versions.length === 0) return true
         if (record.versions.includes(version)) return true
         if (record.ranges.some(function unreadable(range) { return isRefused(range) || range.type === undefined || !acceptedRangeTypes.includes(range.type) })) return true
         const exact = new Set<string>()
         for (const raw of record.versions) {
             const normalized = comparator.normalize(raw)
-            if (normalized !== null) exact.add(normalized)
+            if (normalized === null) return true
+            exact.add(normalized)
         }
         return versionInSet(version, record.ranges, exact, comparator, undefined)
     })

@@ -291,7 +291,7 @@ function withRetainedCopies(inc: IncomingFinding, row: FindingRow, unread: reado
 
 // Resolve a single open row against this scan and return the closed Finding. Shared by the
 // duplicate-collapse path and the absent-identity path so both close rows identically.
-function resolveFindingRow(db: DrizzleDb, row: FindingRow, scanFinishedAt: number, scanId: string): Finding {
+function resolveFindingRow(db: DrizzleDb, row: FindingRow, scanFinishedAt: number, scanId: string | null): Finding {
     db.update(findings)
         .set({ resolvedAt: scanFinishedAt, resolvedScanId: scanId, lastSeenAt: row.lastSeenAt })
         .where(eq(findings.id, row.id))
@@ -359,15 +359,16 @@ export function listOpenFindingEcosystems(db: DrizzleDb, projectId: string): str
     return rows.map(function ecosystem(r) { return r.ecosystem })
 }
 
-// Whether a (source, ecosystem) cell still has open findings on a project.
-export function hasOpenFindingsInCell(db: DrizzleDb, projectId: string, source: string, ecosystem: string): boolean {
-    const row = db
-        .select({ id: findings.id })
+// Closes the open rows of a (source, ecosystem) cell the caller has proved are no longer installed, for a source
+// that is not attempted on this project and so can never close them by answering. No scan of that source ran, so
+// none is named as the resolving one: its scan history stays what it did.
+export function resolveFindingsNoLongerInstalled(db: DrizzleDb, input: { projectId: string; source: string; ecosystem: string; at: number; gone: (row: { packageName: string; installedVersion: string }) => boolean }): Finding[] {
+    const open = db
+        .select()
         .from(findings)
-        .where(and(eq(findings.projectId, projectId), sql`COALESCE(${findings.source}, ${findings.scanner}) = ${source}`, eq(findings.ecosystem, ecosystem), isNull(findings.resolvedAt)))
-        .limit(1)
-        .get()
-    return row !== undefined
+        .where(and(eq(findings.projectId, input.projectId), sql`COALESCE(${findings.source}, ${findings.scanner}) = ${input.source}`, eq(findings.ecosystem, input.ecosystem), isNull(findings.resolvedAt)))
+        .all()
+    return open.filter(input.gone).map(function close(row) { return resolveFindingRow(db, row, input.at, null) })
 }
 
 // The ecosystems an identity without one could mean: every ecosystem with an open finding of this source,

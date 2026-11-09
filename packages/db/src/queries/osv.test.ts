@@ -160,6 +160,15 @@ describe('lookupOsvLinksByPackages', function () {
         ])
     })
 
+    it('says a row lost a range, surviving an upsert over the row, and says nothing of one that did not', function () {
+        upsertOsvAdvisories(db, [advisory({ rangesDiscarded: true }), advisory({ advisoryId: 'GHSA-2', rangesDiscarded: true })])
+        upsertOsvAdvisories(db, [advisory({ advisoryId: 'GHSA-2' })])
+        const links = lookupOsvLinksByPackages(db, 'npm', ['lodash']).get('lodash')
+        expect(links?.find(function one(l) { return l.advisoryId === 'GHSA-1' })?.rangesDiscarded).toBe(true)
+        expect(links?.find(function two(l) { return l.advisoryId === 'GHSA-2' })).not.toHaveProperty('rangesDiscarded')
+        expect(lookupOsvByPackages(db, 'npm', ['lodash']).get('lodash')?.some(function marked(r) { return (r as { rangesDiscarded?: boolean }).rangesDiscarded === true })).toBe(true)
+    })
+
     it('keys results by package name and omits a package with no rows', function () {
         upsertOsvAdvisories(db, [advisory(), advisory({ packageName: 'braces' })])
         const links = lookupOsvLinksByPackages(db, 'npm', ['lodash', 'braces', 'left-pad'])
