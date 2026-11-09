@@ -1,13 +1,14 @@
 import { join } from 'node:path'
 import { describeScanReasons, type Locale, type NotificationTarget, type ScanRequestOrigin } from '@sentinello/core'
 import {
+    applyScanRecoveries,
     findingScanContexts,
     getConfigValue,
     getProjectById,
     listEnabledNotificationTargets,
     listOwedResolvedFindings,
     listUnscannableTold,
-    observeScanRecoveries,
+    readScanRecoveries,
     recordAttempt,
     recordFailure,
     recordRunSummaryDelivered,
@@ -27,7 +28,7 @@ import {
     type FleetUnscannableLine,
     type NotificationSender
 } from '@sentinello/notifications'
-import { isExcludedPath } from '@sentinello/scanners'
+import { isExcludedPath, rediscoverProject } from '@sentinello/scanners'
 import { inSummaryQueue } from './capability-baseline'
 import { CONFIG_KEYS, DEFAULT_GLOBAL_IGNORE } from './config-loader'
 import { matchEventsToFindings } from './notifier'
@@ -45,16 +46,22 @@ export type RunFinished = {
     projectIds: readonly string[] | null
     completed: boolean
     send?: NotificationSender
+    // A completed sweep's baseline work. Its summaries wait in the same queue as everything here, so it starts once
+    // this run's recoveries are read and queued.
+    baselines?: () => Promise<void>
 }
 
-// What a run does once it has ended and its baselines are handled. An aborted or failed run does nothing, and
-// everything stays owed. Every completed run observes recoveries, because that records a fact and sends nothing. An
-// automatic run stops there: what it found waits for the next scheduled sweep, or a manual scan of that project.
+// What a run does once it has ended. An aborted or failed run does nothing, and everything stays owed. Every completed
+// run observes recoveries, because that records a fact and sends nothing: read now, since a scan does not wait for this
+// queue and could replace what this one saw, and applied in the queue, after any send in flight has recorded what it
+// told. An automatic run stops there: what it found waits for the next scheduled sweep, or a manual scan of that project.
 export async function onRunFinished(db: DrizzleDb, run: RunFinished): Promise<void> {
     if (!run.completed) return
-    await inSummaryQueue(async function afterRun() {
-        observeScanRecoveries(db, run.projectIds)
-        if (run.kind === 'automatic') return
+    const recovered = readScanRecoveries(db, run.projectIds)
+    const applied = inSummaryQueue(async function applyRecoveries() { applyScanRecoveries(db, recovered) })
+    await Promise.all([applied, run.baselines?.()])
+    if (run.kind === 'automatic') return
+    await inSummaryQueue(async function summaries() {
         for (const target of listEnabledNotificationTargets(db)) {
             if (target.delivery !== 'run_summary') continue
             // One target failing outright fails only that target: the channel's own failures come back as a result,
@@ -79,13 +86,36 @@ function projectNames(db: DrizzleDb): (projectId: string) => string {
 }
 
 // An exclusion is not a fix (SENTINEL-172): a row whose every installation lives under a path the current exclusions
-// cover went because nobody looks there any more, and says nothing about the package.
-function resolvedByExclusion(candidate: ResolvedCandidate, excludes: readonly string[]): boolean {
+// cover went because nobody looks there any more, and says nothing about the package. A row written before 3.8 names
+// no manifest, so it is judged by its whole project.
+function resolvedByExclusion(candidate: ResolvedCandidate, excludes: readonly string[], projectHidden: (candidate: ResolvedCandidate) => boolean): boolean {
     const installations = candidate.finding.installations
-    if (installations.length === 0) return false
+    if (installations.length === 0) return projectHidden(candidate)
     return installations.every(function excluded(installation) {
         return isExcludedPath(candidate.rootPath, join(candidate.rootPath, candidate.relPath, installation.manifestPath), excludes)
     })
+}
+
+// Whether a closed row that names no manifest may have lived behind an exclusion. Read from the disk, once per project
+// for one message: with no manifest on it that the exclusions cover, wherever the row lived was either read by the scan
+// that closed it (a manifest that went unread keeps its rows open) or is gone, so the closing is true. A walk that
+// cannot see the whole project proves nothing, and the row is left out.
+function exclusionsHiding(excludes: readonly string[]): (candidate: ResolvedCandidate) => boolean {
+    const hidden = new Map<string, boolean>()
+    return function projectHidden({ finding: { projectId }, rootPath, relPath }) {
+        const known = hidden.get(projectId)
+        if (known !== undefined) return known
+        const hides = excludes.length > 0 && hidesManifest(rootPath, relPath, excludes)
+        hidden.set(projectId, hides)
+        return hides
+    }
+}
+
+function hidesManifest(rootPath: string, relPath: string, excludes: readonly string[]): boolean {
+    const projectPath = join(rootPath, relPath)
+    const { project, errors } = rediscoverProject({ rootPath, projectPath })
+    if (project === null || errors.length > 0) return true
+    return project.manifests.some(function excluded(manifest) { return isExcludedPath(rootPath, join(projectPath, manifest.path), excludes) })
 }
 
 function resolvedLines(candidates: readonly ResolvedCandidate[]): FleetResolvedLine[] {
@@ -125,7 +155,8 @@ async function dispatchForTarget(db: DrizzleDb, target: NotificationTarget, run:
     // Nothing new means no send. Resolved rows never trigger one: they ride along, and stay owed until a message goes.
     if (matched.length === 0 && newlyUnscannable.length === 0) return
     const excludes = getConfigValue<string[]>(db, CONFIG_KEYS.globalIgnore) || DEFAULT_GLOBAL_IGNORE
-    const resolved = listOwedResolvedFindings(db, target.id, at, run.projectIds).filter(function notExcluded(candidate) { return !resolvedByExclusion(candidate, excludes) })
+    const projectHidden = exclusionsHiding(excludes)
+    const resolved = listOwedResolvedFindings(db, target.id, at, run.projectIds).filter(function notExcluded(candidate) { return !resolvedByExclusion(candidate, excludes, projectHidden) })
     const { counts, listed } = summarizeFleetFindings(matched.map(function row(m) { return m.finding }), projectNames(db))
     const message = renderFleetSummary({
         kind: 'run_summary',

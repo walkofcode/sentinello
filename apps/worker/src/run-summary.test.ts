@@ -1,4 +1,4 @@
-import { rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { sourceEnabledKey, type NotificationTarget, type Severity } from '@sentinello/core'
@@ -9,6 +9,7 @@ import {
     insertNotificationTarget,
     listProjects,
     projectId,
+    recordSourceCellEnabled,
     schema,
     setConfigValue,
     setNotificationTargetDelivery,
@@ -474,6 +475,203 @@ describe('a row a move to Bun closed, with no scan behind it', function () {
         audit.set('c', [high('GHSA-c')])
         await sweep([fakeAudit, quietFeed])
         expect(to('summary')[0]?.markdown).not.toContain('Resolved')
+    })
+})
+
+// A row written before 3.8 names no manifest. Exclude the sub-manifest that supplied it and the merge can close it as
+// absent, with the parent project intact: nothing then says the package went, only that nobody looks there any more.
+describe('a resolved row that names no manifest', function () {
+    const GEMFILE_LOCK = ['GEM', '  remote: https://rubygems.org/', '  specs:', '    rack (2.0.8)', '', 'PLATFORMS', '  ruby', '', 'DEPENDENCIES', '  rack', ''].join('\n')
+
+    // What the Ruby cell answers for each project; nothing for one not named.
+    let ruby: Map<string, string[]>
+
+    const rubyFeed: ScannerPlugin = {
+        name: 'osv',
+        scan: async function scan(path, options) {
+            const advisories = options.ecosystem === 'RubyGems' ? ruby.get(path.split('/').pop() as string) ?? [] : []
+            const findings = advisories.map(function row(advisoryId) { return { ...rawFinding({ advisoryId, packageName: 'rack', severity: 'high' }), ecosystem: 'RubyGems' } })
+            return { status: 'ok', reasonCode: 'ok', findings, rawJson: '{}', errorText: null, durationMs: 1 }
+        }
+    } as ScannerPlugin
+
+    // Each named project holds ios/Gemfile.lock and a finding from it, made legacy as a pre-3.8 row reads.
+    async function legacyRows(...names: string[]): Promise<void> {
+        target('summary', 'run_summary')
+        setConfigValue(handle.db, sourceEnabledKey('osv', 'RubyGems'), true)
+        ruby = new Map()
+        for (const name of names) {
+            await mkdir(join(rootPath, name, 'ios'))
+            await writeFile(join(rootPath, name, 'ios', 'Gemfile.lock'), GEMFILE_LOCK)
+            ruby.set(name, ['GHSA-' + name, 'GHSA-' + name + '2'])
+        }
+        await sweep([fakeAudit, rubyFeed])
+        handle.sqlite.prepare('UPDATE findings SET installations_json = ?').run('[]')
+        sent = []
+    }
+
+    function closedNamingNoManifest(name: string): void {
+        const rows = handle.db.select().from(schema.findings).all().filter(function ofProject(row) { return row.projectId === id(name) })
+        expect(rows).toHaveLength(2)
+        for (const row of rows) {
+            expect(row.resolvedAt).not.toBeNull()
+            expect(row.installationsJson).toBe('[]')
+        }
+    }
+
+    it('is not told while an exclusion hides a manifest of its project, and a proven one still rides along', async function () {
+        await legacyRows('a', 'c')
+        setConfigValue(handle.db, 'globalIgnore', ['a/ios'])
+        ruby = new Map()
+        audit.set('b', [high('GHSA-b')])
+        await sweep([fakeAudit, rubyFeed])
+        closedNamingNoManifest('a')
+        closedNamingNoManifest('c')
+        expect(to('summary')).toHaveLength(1)
+        expect(to('summary')[0]?.markdown).toContain('*Resolved*\n• c › rack')
+        expect(to('summary')[0]?.markdown).not.toContain('a › rack')
+        // Once the manifest itself is gone, nothing hides it: the row closed for a reason that holds.
+        await rm(join(rootPath, 'a', 'ios'), { recursive: true })
+        sent = []
+        audit.set('b', [high('GHSA-b'), high('GHSA-b2', 'axios')])
+        await sweep([fakeAudit, rubyFeed])
+        expect(to('summary')[0]?.markdown).toContain('*Resolved*\n• a › rack')
+    })
+
+    it('is told when no exclusion is set', async function () {
+        await legacyRows('a')
+        ruby = new Map()
+        audit.set('b', [high('GHSA-b')])
+        await sweep([fakeAudit, rubyFeed])
+        closedNamingNoManifest('a')
+        expect(to('summary')[0]?.markdown).toContain('*Resolved*\n• a › rack')
+    })
+
+    it('is not told while a directory of its project cannot be read', async function () {
+        await legacyRows('a')
+        setConfigValue(handle.db, 'globalIgnore', ['elsewhere'])
+        ruby = new Map()
+        await sweep([fakeAudit, rubyFeed])
+        closedNamingNoManifest('a')
+        await chmod(join(rootPath, 'a', 'ios'), 0o000)
+        try {
+            audit.set('b', [high('GHSA-b')])
+            await sweep([fakeAudit, rubyFeed])
+            expect(to('summary')[0]?.markdown).toContain('b › lodash')
+            expect(to('summary')[0]?.markdown).not.toContain('Resolved')
+        } finally {
+            await chmod(join(rootPath, 'a', 'ios'), 0o755)
+        }
+    })
+
+    it('is not told when its project\'s directory is gone', async function () {
+        await legacyRows('a')
+        setConfigValue(handle.db, 'globalIgnore', ['elsewhere'])
+        ruby = new Map()
+        await sweep([fakeAudit, rubyFeed])
+        closedNamingNoManifest('a')
+        await rm(join(rootPath, 'a'), { recursive: true })
+        await request('manual', { projectId: id('a') }, [fakeAudit, rubyFeed])
+        expect(to('summary')).toHaveLength(1)
+        expect(to('summary')[0]?.markdown).not.toContain('Resolved')
+    })
+})
+
+// Scans do not wait for the summary queue. A recovery has to be read when its run ends, or a later scan overwrites it
+// before anything sees it, and the told row silences that later failure until another recovery.
+describe('a recovery while a send holds the queue', function () {
+    function held(): { send: NotificationSender; release: () => void } {
+        let release: () => void = function notYet() {}
+        const gate = new Promise<void>(function wait(resolve) { release = resolve })
+        return {
+            release: function open() { release() },
+            send: async function waiting(t, message) {
+                sent.push({ targetId: t.id, message })
+                await gate
+                return { ok: true }
+            }
+        }
+    }
+
+    function sendStarted(count: number): Promise<void> {
+        return vi.waitFor(function started() { expect(sent).toHaveLength(count) })
+    }
+
+    // The poller's line right after a scan, written just before the run's end is handled.
+    function scansFinished(count: number): Promise<void> {
+        return vi.waitFor(function finished() {
+            const lines = vi.mocked(console.log).mock.calls.filter(function line(call) { return String(call[0]).includes('single-project scan finished') })
+            expect(lines).toHaveLength(count)
+        })
+    }
+
+    async function toldFailure(name: string): Promise<void> {
+        target('summary', 'run_summary')
+        audit.set(name, 'fail')
+        await sweep()
+        expect(to('summary')[0]?.markdown).toContain('• ' + name + ':')
+        sent = []
+    }
+
+    it('survives another scan failing before the send settles, so that failure is told', async function () {
+        await toldFailure('a')
+        const hold = held()
+        audit.set('b', [high('GHSA-b')])
+        const running = sweepProjects({ db: handle.db, sqlite: handle.sqlite, runtime, send: hold.send }, async function list() { return [fakeAudit] })
+        await sendStarted(1)
+        audit.set('a', [])
+        const recovery = request('automatic', { projectId: id('a') })
+        await scansFinished(1)
+        audit.set('a', 'fail')
+        const failure = request('automatic', { projectId: id('a') })
+        await scansFinished(2)
+        hold.release()
+        await Promise.all([running, recovery, failure])
+        sent = []
+        await sweep()
+        expect(to('summary')).toHaveLength(1)
+        expect(to('summary')[0]?.markdown).toContain('*Newly unscannable*\n• a:')
+    })
+
+    it('still goes after a told row the send in flight writes', async function () {
+        target('summary', 'run_summary')
+        const hold = held()
+        audit.set('a', 'fail')
+        const running = sweepProjects({ db: handle.db, sqlite: handle.sqlite, runtime, send: hold.send }, async function list() { return [fakeAudit] })
+        await sendStarted(1)
+        audit.set('a', [])
+        const recovery = request('automatic', { projectId: id('a') })
+        await scansFinished(1)
+        hold.release()
+        await Promise.all([running, recovery])
+        expect(handle.db.select().from(schema.runSummaryUnscannableTold).all()).toEqual([])
+    })
+
+    it('is read by a full sweep before it waits for a baseline summary', async function () {
+        await toldFailure('a')
+        const newFeed: ScannerPlugin = {
+            name: 'osv',
+            scan: async function scan(path) {
+                const findings = path.endsWith('/b') ? [rawFinding(high('GHSA-baseline'))] : []
+                return { status: 'ok', reasonCode: 'ok', findings, rawJson: '{}', errorText: null, durationMs: 1 }
+            }
+        } as ScannerPlugin
+        setConfigValue(handle.db, sourceEnabledKey('osv', 'npm'), true)
+        recordSourceCellEnabled(handle.db, { source: 'osv', ecosystem: 'npm' }, Date.now())
+        await new Promise(function later(resolve) { setTimeout(resolve, 3) })
+        const hold = held()
+        audit.set('a', [])
+        const running = sweepProjects({ db: handle.db, sqlite: handle.sqlite, runtime, send: hold.send }, async function list() { return [fakeAudit, newFeed] })
+        await sendStarted(1)
+        expect(sent[0]?.message.title).toBe('Sentinello now checks Node.js with OSV')
+        audit.set('a', 'fail')
+        const failure = request('automatic', { projectId: id('a') }, [fakeAudit, newFeed])
+        await scansFinished(1)
+        hold.release()
+        await Promise.all([running, failure])
+        // The sweep's own summary follows its baseline's, and reads the failure as new.
+        expect(to('summary')).toHaveLength(2)
+        expect(to('summary')[1]?.markdown).toContain('*Newly unscannable*\n• a:')
     })
 })
 

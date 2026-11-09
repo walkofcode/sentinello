@@ -14,7 +14,7 @@ import { setTargetProjects } from './notification-target-projects'
 import { setTargetRoots } from './notification-target-roots'
 import { upsertProject } from './projects'
 import { insertScan } from './scans'
-import { listOwedResolvedFindings, listUnscannableTold, observeScanRecoveries, outstandingForTarget, recordRunSummaryDelivered, setNotificationTargetDelivery, unscannableForTarget } from './fleet-summary'
+import { applyScanRecoveries, listOwedResolvedFindings, listUnscannableTold, outstandingForTarget, readScanRecoveries, recordRunSummaryDelivered, setNotificationTargetDelivery, unscannableForTarget } from './fleet-summary'
 
 const MIGRATIONS = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'drizzle')
 const T0 = Date.UTC(2026, 0, 1)
@@ -110,25 +110,29 @@ describe('opting in and out', function () {
     })
 })
 
-describe('observeScanRecoveries', function () {
-    it('deletes the told row of a project fully scanned now, for every target, and only in the run\'s scope', function () {
-        const t = target()
-        setNotificationTargetDelivery(db, t, 'run_summary', T0)
-        function recovered(id: string): void {
-            insertScan(db, { id: 'ok-' + id, projectId: id, startedAt: T0 + 1, finishedAt: T0 + 1, scanner: 'npm-audit', source: 'npm-audit', ecosystem: 'npm', status: 'ok', reasonCode: 'ok', durationMs: 1, errorText: null, rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'ok', reasonCode: null, manifestPath: 'package-lock.json' }] }) })
-        }
+describe('readScanRecoveries and applyScanRecoveries', function () {
+    function recovered(id: string): void {
+        insertScan(db, { id: 'ok-' + id, projectId: id, startedAt: T0 + 1, finishedAt: T0 + 1, scanner: 'npm-audit', source: 'npm-audit', ecosystem: 'npm', status: 'ok', reasonCode: 'ok', durationMs: 1, errorText: null, rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'ok', reasonCode: null, manifestPath: 'package-lock.json' }] }) })
+    }
+
+    it('reads the projects of the run\'s scope fully scanned now, and applying deletes their told rows for every target', function () {
+        setNotificationTargetDelivery(db, target(), 'run_summary', T0)
         recovered('a')
         recovered('b')
-        observeScanRecoveries(db, ['a'])
+        expect(readScanRecoveries(db, ['a'])).toEqual(['a'])
+        expect(readScanRecoveries(db, null).sort()).toEqual(['a', 'b'])
+        expect(readScanRecoveries(db, [])).toEqual([])
+        applyScanRecoveries(db, ['a'])
         expect(Array.from(listUnscannableTold(db, 't'))).toEqual(['b'])
-        observeScanRecoveries(db, null)
+        applyScanRecoveries(db, ['a', 'b'])
         expect(listUnscannableTold(db, 't').size).toBe(0)
-        observeScanRecoveries(db, null)
+        applyScanRecoveries(db, ['a'])
     })
 
-    it('keeps it while the project still fails', function () {
+    it('reads no recovery while the project still fails, and applying nothing keeps every row', function () {
         setNotificationTargetDelivery(db, target(), 'run_summary', T0)
-        observeScanRecoveries(db, null)
+        expect(readScanRecoveries(db, null)).toEqual([])
+        applyScanRecoveries(db, [])
         expect(listUnscannableTold(db, 't').size).toBe(2)
     })
 })

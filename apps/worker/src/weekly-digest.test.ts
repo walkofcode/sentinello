@@ -255,7 +255,7 @@ describe('schedule edits', function () {
 
     it('a timezone edit across a week boundary does not mint a second week', async function () {
         target('t')
-        // Sunday 2026-11-01 23:00 in Pacific/Kiritimati's far side: Monday 09:00 UTC+14 is Sunday 19:00 UTC, in W44 there.
+        // Monday 2026-11-02 09:00 in Pacific/Kiritimati, UTC+14, is Sunday 2026-11-01 19:00 UTC: week 45 there, week 44 in UTC.
         schedule(1, 9)
         zone('Pacific/Kiritimati')
         const kiritimatiMonday = Date.UTC(2026, 10, 1, 19)

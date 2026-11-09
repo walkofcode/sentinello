@@ -7,7 +7,7 @@ import type { SeverityCounts } from './dashboard'
 import { listFindingsByIds } from './findings'
 import { findingEligibleForTargetSql, findingSeverityInFilterSql, recordSuccess } from './notification-deliveries'
 import { setFirstNotifiedAt } from './notification-events'
-import { listScanStatesForProjects } from './scan-state'
+import { listProjectScanStates, listScanStatesForProjects } from './scan-state'
 import { activeSourceCellClause } from './sources'
 
 // What the run summary and the weekly digest read: who is outstanding, unscannable or resolved under one target's
@@ -69,17 +69,19 @@ export function listUnscannableTold(db: DrizzleDb, targetId: string): Set<string
 // fully scanned now go, for every target, even on a quiet run, so the same failure later is told again. A project
 // whose only reasons are `not_yet_run` or a cache not ready has not recovered, since nothing answered for it, and
 // keeps its row, or a cache rebuild would re-report every old failure.
-export function observeScanRecoveries(db: DrizzleDb, projectIds: readonly string[] | null): void {
-    const told = db.selectDistinct({ projectId: runSummaryUnscannableTold.projectId })
-        .from(runSummaryUnscannableTold)
-        .where(projectIds === null ? undefined : inArray(runSummaryUnscannableTold.projectId, [...projectIds]))
-        .all()
-        .map(function id(row) { return row.projectId })
-    if (told.length === 0) return
-    const states = listScanStatesForProjects(db, told)
-    const recovered = told.filter(function scanned(id) { return states.get(id)?.state === 'scanned' })
-    if (recovered.length === 0) return
-    db.delete(runSummaryUnscannableTold).where(inArray(runSummaryUnscannableTold.projectId, recovered)).run()
+//
+// Two steps, because scans do not wait for the summary queue and sends do. The read happens the moment the run ends:
+// read later, another scan's failure could already have replaced the state it saw. It looks at every project of the
+// run, told or not, since a send in flight may be about to write the told row. The write happens in the queue, after
+// that send has recorded what it told.
+export function readScanRecoveries(db: DrizzleDb, projectIds: readonly string[] | null): string[] {
+    const states = projectIds === null ? listProjectScanStates(db) : listScanStatesForProjects(db, projectIds)
+    return Array.from(states.entries()).filter(function scanned([, state]) { return state.state === 'scanned' }).map(function id([projectId]) { return projectId })
+}
+
+export function applyScanRecoveries(db: DrizzleDb, projectIds: readonly string[]): void {
+    if (projectIds.length === 0) return
+    db.delete(runSummaryUnscannableTold).where(inArray(runSummaryUnscannableTold.projectId, [...projectIds])).run()
 }
 
 // Opting in or out. In one transaction: opting in sets the point resolved rows are owed from and seeds the told rows

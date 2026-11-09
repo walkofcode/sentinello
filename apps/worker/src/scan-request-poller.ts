@@ -143,8 +143,13 @@ async function runFullSweep(input: StartPollerInput, request: ScanRequest): Prom
     console.log('[scan-request-poller] full sweep started (request=' + requestId + ', ' + projects.length + ' project' + (projects.length === 1 ? '' : 's') + ')')
     if (projects.length === 0) {
         console.log('[scan-request-poller] full sweep finished (request=' + requestId + ', 0 projects, ' + formatDurationMs(Date.now() - startedAt) + ')')
-        await onCompletedSweep(input.db, [], { rebuilds: input.runtime.rebuilds, sweepStartedAt: startedAt, send: input.send })
-        await onRunFinished(input.db, { kind: request.origin, projectIds: null, completed: true, send: input.send })
+        await onRunFinished(input.db, {
+            kind: request.origin,
+            projectIds: null,
+            completed: true,
+            send: input.send,
+            baselines: function nothingToWaitFor() { return onCompletedSweep(input.db, [], { rebuilds: input.runtime.rebuilds, sweepStartedAt: startedAt, send: input.send }) }
+        })
         return
     }
     const parallelism = (getConfigValue<number>(input.db, CONFIG_KEYS.parallelism)) || DEFAULT_PARALLELISM
@@ -159,8 +164,13 @@ async function runFullSweep(input: StartPollerInput, request: ScanRequest): Prom
     })
     console.log('[scan-request-poller] full sweep finished (request=' + requestId + ', ' + projects.length + ' project' + (projects.length === 1 ? '' : 's') + ', ' + formatDurationMs(Date.now() - startedAt) + ')')
     // A requested full sweep is a sweep like the scheduled one: a completed one completes the baselines.
-    if (batch.completed) await onCompletedSweep(input.db, batch.outcomes, { rebuilds: input.runtime.rebuilds, sweepStartedAt: startedAt, send: input.send })
-    await onRunFinished(input.db, { kind: request.origin, projectIds: null, completed: batch.completed, send: input.send })
+    await onRunFinished(input.db, {
+        kind: request.origin,
+        projectIds: null,
+        completed: batch.completed,
+        send: input.send,
+        baselines: function completedSweep() { return onCompletedSweep(input.db, batch.outcomes, { rebuilds: input.runtime.rebuilds, sweepStartedAt: startedAt, send: input.send }) }
+    })
 }
 
 async function runRootSweep(input: StartPollerInput, rootId: string, request: ScanRequest): Promise<void> {

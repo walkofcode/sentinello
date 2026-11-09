@@ -33,6 +33,8 @@ let runtime: WorkerRuntime
 let sent: { targetId: string; message: RenderedMessage }[]
 let feedState: 'ok' | 'not_seeded'
 let duringScan: (() => void) | null
+// An advisory the feeds start reporting for project a once it is set.
+let laterAdvisory: string | null
 
 const send: NotificationSender = async function recording(target, message) {
     sent.push({ targetId: target.id, message })
@@ -68,7 +70,9 @@ function feed(name: SourceId): ScannerPlugin {
         scan: async function scan(path: string) {
             hook()
             if (feedState === 'not_seeded') return { status: 'unauditable', reasonCode: name === 'gemnasium' ? 'gemnasium_db_not_seeded' : 'osv_db_not_seeded', findings: [], rawJson: '', errorText: null, durationMs: 1 }
-            return { status: 'ok', reasonCode: 'ok', findings: [reported(name + '-' + path.split('/').pop())], rawJson: '{}', errorText: null, durationMs: 1 }
+            const project = path.split('/').pop() as string
+            const later = laterAdvisory !== null && project === 'a' ? [reported(laterAdvisory)] : []
+            return { status: 'ok', reasonCode: 'ok', findings: [reported(name + '-' + project), ...later], rawJson: '{}', errorText: null, durationMs: 1 }
         }
     } as ScannerPlugin
 }
@@ -107,6 +111,7 @@ beforeEach(async function setup() {
     sent = []
     feedState = 'ok'
     duringScan = null
+    laterAdvisory = null
     const spec: Record<string, string> = {}
     for (const name of ['a', 'b', 'c']) {
         spec[name + '/package.json'] = JSON.stringify({ name, dependencies: { lodash: '1.0.0' } })
@@ -149,7 +154,20 @@ describe('enabling a source after a sweep has run', function () {
         await tick()
         await sweep([NPM_AUDIT, feed('osv')])
         sent = []
-        await sweep([NPM_AUDIT, feed('osv'), { ...feed('osv'), name: 'gemnasium' } as ScannerPlugin])
+        // What the baseline covered stays silent.
+        await sweep([NPM_AUDIT, feed('osv')])
+        expect(sent).toEqual([])
+        // A new identity from the enabled cell is told as any finding is, and once.
+        laterAdvisory = 'osv-later'
+        await sweep([NPM_AUDIT, feed('osv')])
+        expect(sent.map(function who(s) { return s.targetId })).toEqual(['per-project'])
+        expect(sent[0]?.message.title).toBe('Sentinello found vulnerabilities in a:')
+        expect(sent[0]?.message.text).toContain('osv-later')
+        const after = handle.db.select().from(schema.notificationEvents).all()
+        expect(after.filter(function normal(e) { return e.baselineOf === null })).toHaveLength(1)
+        expect(after.filter(function baseline(e) { return e.baselineOf !== null })).toHaveLength(3)
+        sent = []
+        await sweep([NPM_AUDIT, feed('osv')])
         expect(sent).toEqual([])
     })
 
