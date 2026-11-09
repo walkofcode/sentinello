@@ -558,12 +558,62 @@ describe('a resolved row that names no manifest', function () {
         expect(to('summary')[0]?.markdown).not.toContain('a › rack')
     })
 
-    // Ignore files alone are not the exclusions this asks about: a directory a project merely ignores must not hold
-    // back its rows, or almost every project's legacy rows would stay owed for good.
-    it('is told when only an ignore file covers a manifest of its project', async function () {
+    // An ignore file over the manifest takes it out of the scan as surely as an exclusion does, and nothing read it
+    // when the row closed. The row stays owed until the manifest is gone, whatever the configured exclusions say.
+    const IGNORE_ONLY = [
+        ['.gitignore in the project', join('a', '.gitignore'), 'ios/'],
+        ['.sentinelloignore in the project', join('a', '.sentinelloignore'), 'ios/'],
+        ['.gitignore at the root', '.gitignore', 'a/ios/'],
+        ['.sentinelloignore at the root', '.sentinelloignore', 'a/ios/']
+    ] as const
+    const NO_RELEVANT_EXCLUSION: readonly (readonly [string, string[]])[] = [['no exclusions', []], ['an unrelated exclusion', ['elsewhere']]]
+
+    it.each(IGNORE_ONLY.flatMap(function perExclusion([where, ignoreFile, rule]) {
+        return NO_RELEVANT_EXCLUSION.map(function combined([label, exclusions]) { return [where + ' with ' + label, ignoreFile, rule, exclusions] as const })
+    }))('is not told while a %s hides its manifest, and is told once the manifest is gone', async function (_name, ignoreFile, rule, exclusions) {
         await legacyRows('a')
-        setConfigValue(handle.db, 'globalIgnore', ['elsewhere'])
+        setConfigValue(handle.db, 'globalIgnore', exclusions)
+        await writeFile(join(rootPath, ignoreFile), rule)
+        ruby = new Map()
+        audit.set('b', [high('GHSA-b')])
+        await sweep([fakeAudit, rubyFeed])
+        closedNamingNoManifest('a')
+        expect(to('summary')[0]?.markdown).toContain('b › lodash')
+        expect(to('summary')[0]?.markdown).not.toContain('Resolved')
+        await rm(join(rootPath, 'a', 'ios'), { recursive: true })
+        sent = []
+        audit.set('b', [high('GHSA-b'), high('GHSA-b2', 'axios')])
+        await sweep([fakeAudit, rubyFeed])
+        expect(to('summary')[0]?.markdown).toContain('*Resolved*\n• a › rack')
+    })
+
+    it('is told once the rule is lifted and a scan reads the manifest it hid', async function () {
+        await legacyRows('a')
+        setConfigValue(handle.db, 'globalIgnore', [])
         await writeFile(join(rootPath, 'a', '.gitignore'), 'ios/')
+        ruby = new Map()
+        audit.set('b', [high('GHSA-b')])
+        await sweep([fakeAudit, rubyFeed])
+        expect(to('summary')[0]?.markdown).not.toContain('Resolved')
+        await rm(join(rootPath, 'a', '.gitignore'))
+        sent = []
+        audit.set('b', [high('GHSA-b'), high('GHSA-b2', 'axios')])
+        await sweep([fakeAudit, rubyFeed])
+        expect(to('summary')[0]?.markdown).toContain('*Resolved*\n• a › rack')
+    })
+
+    // Ignoring something holds nothing back by itself, or almost every project's legacy rows would stay owed for good:
+    // an ignored directory with no manifest hides none, and no scan ever searches a vendored one.
+    it.each([
+        ['with no manifest in it', 'tmp', 'notes.txt', 'scratch'],
+        ['that holds only vendored dependencies', 'vendor', 'Gemfile.lock', GEMFILE_LOCK]
+    ])('is told when an ignored directory %s is all its ignore file covers', async function (_name, directory, file, content) {
+        await legacyRows('a')
+        await rm(join(rootPath, 'a', 'ios'), { recursive: true })
+        setConfigValue(handle.db, 'globalIgnore', [])
+        await mkdir(join(rootPath, 'a', directory))
+        await writeFile(join(rootPath, 'a', directory, file), content)
+        await writeFile(join(rootPath, 'a', '.gitignore'), directory + '/')
         ruby = new Map()
         audit.set('b', [high('GHSA-b')])
         await sweep([fakeAudit, rubyFeed])
