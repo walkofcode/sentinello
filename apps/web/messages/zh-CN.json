@@ -169,7 +169,8 @@
         "stateSideEnvironment": "此 Sentinello 安装方",
         "stateSourceDisabled": "{languages} 未启用任何来源",
         "sourceDisabledNotice": "{count} 个项目的 {languages} 未启用任何来源，因此不会被扫描。",
-        "sourceDisabledAction": "请在“设置 → 来源”中启用一个"
+        "sourceDisabledAction": "请在“设置 → 来源”中启用一个",
+        "libraryNoticeCount": "{count, plural, other {+ # 条通知}}"
     },
     "WhatsNew": {
         "pillLabel": "新功能",
@@ -299,7 +300,22 @@
             "webhookFlavor": "负载格式",
             "webhookFlavorJson": "结构化 JSON",
             "webhookFlavorText": "纯文本公告",
-            "webhookFlavorHelp": "JSON 会发送根目录、项目和漏洞，供自动修复代理使用。纯文本会发送公告导出内容，可直接交给 LLM。"
+            "webhookFlavorHelp": "JSON 会发送根目录、项目和漏洞，供自动修复代理使用。纯文本会发送公告导出内容，可直接交给 LLM。",
+            "messages": "消息",
+            "runSummary": "运行摘要",
+            "runSummaryHelp": "每次定时或手动扫描运行发送一条消息，汇总所有项目的新情况。此目标不再接收按项目发送的消息。",
+            "weeklyDigest": "每周摘要",
+            "weeklyDigestHelp": "每周一条消息，列出所有待处理项，没有待处理项时也会发送。",
+            "deliveryPerProject": "按项目",
+            "deliveryRunSummary": "运行摘要",
+            "digestOn": "每周摘要已开启",
+            "digestOff": "每周摘要已关闭",
+            "digestSchedule": {
+                "title": "每周摘要时间",
+                "day": "星期",
+                "hour": "时间",
+                "help": "在计划时区（{timezone}）的此时间发送给所有开启摘要的目标。"
+            }
         },
         "sources": {
             "metaTitle": "来源 · 设置",
@@ -389,6 +405,7 @@
             "scanRetentionDaysHelp": "早于此期限的扫描记录会被删除，但每个项目最近的 100 条始终保留。发现项、静默设置和通知历史不会被删除——仅涉及扫描日志。项目页面显示的扫描历史会变短。",
             "portalBaseUrl": "门户基础 URL（用于通知中的深度链接）",
             "globalIgnore": "全局忽略模式（每行一个）",
+            "globalIgnoreHelp": "使用 gitignore 语法，相对于每个根目录。被排除路径下的发现会被解决且不发出警报。排除整个项目会将其连同静音和历史一起移除。",
             "watcherLabel": "锁文件监视器（变更时扫描）——总开关。当被监视的锁文件发生变化时，工作进程会加入一个 scan_request。",
             "watchedRoots": "受监视的根目录（按根目录选择启用）",
             "noRoots": "尚未配置任何根目录。请先在“设置 → 根目录”下添加一个根目录。",
@@ -440,7 +457,8 @@
             "selected": "选定来源",
             "selectedHelp": "仅对你在下方选择的来源/语言单元格进行通知。",
             "selectionError": "请至少选择一个单元格，或选择“所有来源”。"
-        }
+        },
+        "severityModerateAndUnrated": "中危及未评级"
     },
     "Findings": {
         "columns": {
@@ -533,12 +551,17 @@
         },
         "notRecheckedCannotScan": "未重新检查 — 项目无法扫描：{reason}",
         "notRecheckedPartial": "未重新检查 — 项目无法完整扫描：{reason}",
+        "notRecheckedOnly": "未重新检查 — {reason}",
         "notRecheckedCopies": "{manifests} 中的副本未重新检查 — 项目无法完整扫描：{reason}",
         "chainUnknown": "依赖链未知",
         "chainUnknownHint": "锁文件没有记录依赖关系图，因此无法得知是什么引入了此包。这并不表示没有解决办法。",
         "installedThrough": "位于 {manifests}",
         "lastScannedSuccessfully": "上次成功扫描于 {date}",
-        "neverScannedSuccessfully": "从未成功扫描"
+        "neverScannedSuccessfully": "从未成功扫描",
+        "noticesHeading": "{count, plural, other {# 条通知}}",
+        "noticesHelp": "这些不是漏洞：公告说明该软件包已停止维护、不健全或值得留意。它们不计入任何总数，也不会向任何人发出警报。",
+        "noticeNoFix": "没有需要追踪的修复",
+        "fixUntaggedCommit": "未打标签的提交：没有打标签的版本包含此修复"
     },
     "Triage": {
         "alias": {
@@ -673,7 +696,7 @@
             },
             "notifications": {
                 "purpose": "发送你已配置告警的漏洞信息——项目名称、git 分支、包与版本、严重程度、公告 ID，以及返回本门户的链接",
-                "when": "当扫描产生新漏洞、已修复漏洞或扫描失败时",
+                "when": "新漏洞或扫描失败时：按项目发送，或在目标选择后合并为一条运行摘要。另有每周摘要（默认开启），在此处设置的星期和时间发送",
                 "disable": "设置 → 通知——在你添加之前不存在任何通知目标"
             },
             "pypi": {
@@ -771,11 +794,14 @@
             },
             "cannotScanTitle": "项目无法扫描",
             "cannotScanBody": "没有任何来源能读取此项目。下面的发现是之前的扫描记录的，未经重新检查；此处零发现意味着未知，而非安全。",
+            "cannotScanBodyNoFindings": "没有任何来源能读取此项目，因此未检查任何内容；此处零发现意味着未知，而非安全。",
             "partialScanTitle": "项目无法完整扫描",
             "partialScanBody": "此项目的一部分无法扫描，因此其发现可能不完整。无法扫描它的来源所给出的发现未经重新检查。",
+            "partialScanBodyNoEarlier": "此项目的一部分无法扫描，因此其发现可能不完整。",
             "scanReasonSideProject": "项目方的问题：项目中的某个文件导致无法读取，修改该文件即可解决",
             "scanReasonSideEnvironment": "此 Sentinello 安装方的问题：安装无法执行扫描，需由运维人员解决",
             "scanReasonNotYetRun": "尚无任何检查：下一次扫描会进行",
+            "scanReasonFix": "修复方法：{fix}",
             "sourceDisabledReason": "{languages} 未启用任何来源",
             "sourceDisabledAction": "请在“设置 → 来源”中启用一个",
             "noFindingsUnknownTitle": "没有记录的发现",

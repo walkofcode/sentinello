@@ -31,6 +31,7 @@ function advisory(overrides: Partial<OsvAdvisory> = {}): OsvAdvisory {
         url: 'https://ghsa.example/1',
         malicious: false,
         withdrawn: null,
+        noticeKind: null,
         ...overrides
     }
 }
@@ -237,5 +238,13 @@ describe('matchPackages advisory normalization', function () {
     it('reports nothing when the lookup knows the ecosystem but not the package', function () {
         const { lookup } = recordingLookup({ npm: { other: [advisory()] } })
         expect(matchPackages([pkg('lodash', '4.17.20')], lookup, always(true), always(true))).toEqual([])
+    })
+})
+
+describe('createOsvScanner — alias evidence', function () {
+    it('answers from the lookup once the ecosystem is seeded, and with nothing before', function () {
+        const lookup = function lookup() { return new Map([['lodash', [advisory()]]]) }
+        expect(createOsvScanner({ lookup, isSeeded: function no() { return false }, isEnabled: function yes() { return true } }).aliasEvidence?.('npm', ['lodash'])).toBeNull()
+        expect(createOsvScanner({ lookup, isSeeded: function yes() { return true }, isEnabled: function yes() { return true } }).aliasEvidence?.('npm', ['lodash'])?.get('lodash')).toEqual([advisory()])
     })
 })

@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { listRecentScanRequests, projectId as makeProjectId, upsertRoot } from '@sentinello/db'
+import { listRecentScanRequests, projectId as makeProjectId, setConfigValue, upsertRoot } from '@sentinello/db'
+import { CONFIG_KEYS } from './config-loader'
 import {
     PKG_JSON,
     T0,
@@ -188,6 +189,7 @@ describe('which events count', function () {
         emit('change', join(rootPath, 'web', 'package-lock.json'))
         vi.advanceTimersByTime(DEBOUNCE)
         expect(requests()).toHaveLength(1)
+        expect(requests()[0]?.origin).toBe('automatic')
     })
 
     it('enqueues a scan when a lockfile is created', function () {
@@ -346,6 +348,19 @@ describe('what gets enqueued', function () {
         emit('change', join(other, 'tool', 'package-lock.json'))
         vi.advanceTimersByTime(DEBOUNCE)
         expect(requests()[0]).toMatchObject({ projectId: null })
+    })
+})
+
+describe('an excluded path', function () {
+    it('wakes no scan, by the setting as it stands when the event fires', async function () {
+        setConfigValue(handle.db, CONFIG_KEYS.globalIgnore, ['.dependencies'])
+        startLockfileWatcher({ db: handle.db, rootPaths: [rootPath], debounceMs: DEBOUNCE })
+        emit('change', join(rootPath, '.dependencies', 'zed', 'Cargo.lock'))
+        await vi.advanceTimersByTimeAsync(DEBOUNCE)
+        expect(requests()).toEqual([])
+        emit('change', join(rootPath, 'web', 'package-lock.json'))
+        await vi.advanceTimersByTimeAsync(DEBOUNCE)
+        expect(requests()).toHaveLength(1)
     })
 })
 

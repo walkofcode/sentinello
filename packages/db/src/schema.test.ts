@@ -72,7 +72,10 @@ describe('exported tables', function () {
             'muteLifts',
             'notificationDeliveries',
             'capabilityBaselines',
-            'capabilitySummaryDeliveries'
+            'capabilitySummaryDeliveries',
+            'runSummaryResolvedTold',
+            'runSummaryUnscannableTold',
+            'digestDeliveries'
         ])
     })
 
@@ -150,8 +153,18 @@ describe('foreign keys', function () {
         expect(byColumn.get('capability_id')).toBeUndefined()
     })
 
+    // What a target was told, and what it is owed this week, mean nothing once the target, the finding or the
+    // project is gone.
+    it('cascades the run summary and digest ledgers', function () {
+        for (const table of [schema.runSummaryResolvedTold, schema.runSummaryUnscannableTold, schema.digestDeliveries]) {
+            for (const fk of getTableConfig(table).foreignKeys) expect(fk.onDelete).toBe('cascade')
+        }
+    })
+
     it('leaves every other foreign key on the default action', function () {
+        const ledgers = ['run_summary_resolved_told', 'run_summary_unscannable_told', 'digest_deliveries']
         for (const [, table] of TABLES) {
+            if (ledgers.includes(getTableConfig(table).name)) continue
             for (const fk of getTableConfig(table).foreignKeys) {
                 const column = fk.reference().columns[0]?.name
                 if (getTableConfig(table).name === 'notification_deliveries' && column === 'target_id') continue

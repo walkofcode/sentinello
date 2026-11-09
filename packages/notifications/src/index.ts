@@ -6,6 +6,7 @@ import type { NotificationSender } from './types'
 
 export * from './types'
 export * from './render'
+export * from './fleet-summary'
 export * from './redact'
 export * from './resolve'
 export { sendSlack } from './slack'

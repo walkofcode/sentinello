@@ -169,7 +169,8 @@
         "stateSideEnvironment": "esta instalação do Sentinello",
         "stateSourceDisabled": "Nenhuma fonte habilitada para {languages}",
         "sourceDisabledNotice": "{count, plural, one {# projeto não tem} other {# projetos não têm}} nenhuma fonte habilitada para {languages}, então nada {count, plural, one {o} other {os}} verifica.",
-        "sourceDisabledAction": "Ative uma em Configurações → Fontes"
+        "sourceDisabledAction": "Ative uma em Configurações → Fontes",
+        "libraryNoticeCount": "{count, plural, one {+ # aviso} other {+ # avisos}}"
     },
     "WhatsNew": {
         "pillLabel": "Novidades",
@@ -299,7 +300,22 @@
             "webhookFlavor": "Formato do payload",
             "webhookFlavorJson": "JSON estruturado",
             "webhookFlavorText": "Aviso em texto simples",
-            "webhookFlavorHelp": "JSON envia raiz, projeto e vulnerabilidades para um agente de correção automática. Texto simples envia a exportação de avisos, pronta para um LLM."
+            "webhookFlavorHelp": "JSON envia raiz, projeto e vulnerabilidades para um agente de correção automática. Texto simples envia a exportação de avisos, pronta para um LLM.",
+            "messages": "Mensagens",
+            "runSummary": "Resumo de execução",
+            "runSummaryHelp": "Uma mensagem por execução agendada ou manual, com o que há de novo em todos os projetos. Este destino deixa de receber mensagens por projeto.",
+            "weeklyDigest": "Resumo semanal",
+            "weeklyDigestHelp": "Uma mensagem por semana com tudo o que está pendente, mesmo quando não há nada.",
+            "deliveryPerProject": "Por projeto",
+            "deliveryRunSummary": "Resumo de execução",
+            "digestOn": "Resumo semanal ligado",
+            "digestOff": "Resumo semanal desligado",
+            "digestSchedule": {
+                "title": "Agendamento do resumo semanal",
+                "day": "Dia",
+                "hour": "Hora",
+                "help": "Enviado a cada destino com o resumo ligado, neste horário no fuso horário do agendamento ({timezone})."
+            }
         },
         "sources": {
             "metaTitle": "Fontes · Configurações",
@@ -389,6 +405,7 @@
             "scanRetentionDaysHelp": "As linhas de varredura mais antigas que isso são excluídas, exceto as 100 mais recentes de cada projeto, que são sempre mantidas. Constatações, silenciamentos e histórico de notificações nunca são afetados — apenas o registro de varreduras. As páginas de projeto mostrarão um histórico mais curto.",
             "portalBaseUrl": "URL base do portal (usada em links diretos de notificação)",
             "globalIgnore": "Padrões de ignorar globais (um por linha)",
+            "globalIgnoreHelp": "Sintaxe do gitignore, relativa a cada raiz. Descobertas em um caminho excluído são resolvidas sem alerta. Excluir um projeto inteiro o remove, com seus silenciamentos e histórico.",
             "watcherLabel": "Observador de lockfile (varredura ao alterar) — chave mestra. O worker enfileira um scan_request quando um lockfile observado é alterado.",
             "watchedRoots": "Raízes observadas (opcional por raiz)",
             "noRoots": "Nenhuma raiz configurada ainda. Adicione uma raiz em Configurações → Raízes primeiro.",
@@ -440,7 +457,8 @@
             "selected": "Fontes selecionadas",
             "selectedHelp": "Notificar apenas para as células de fonte/linguagem que você escolher abaixo.",
             "selectionError": "Escolha pelo menos uma célula ou selecione “Todas as fontes”."
-        }
+        },
+        "severityModerateAndUnrated": "Moderada e sem classificação"
     },
     "Findings": {
         "columns": {
@@ -533,12 +551,17 @@
         },
         "notRecheckedCannotScan": "não verificado novamente — o projeto não pode ser escaneado: {reason}",
         "notRecheckedPartial": "não verificado novamente — o projeto não pode ser escaneado por completo: {reason}",
+        "notRecheckedOnly": "não verificado novamente — {reason}",
         "notRecheckedCopies": "cópias em {manifests} não verificadas novamente — o projeto não pode ser escaneado por completo: {reason}",
         "chainUnknown": "cadeia desconhecida",
         "chainUnknownHint": "O lockfile não registra um grafo de dependências, então não se sabe o que traz este pacote. Isso não significa que não haja saída.",
         "installedThrough": "em {manifests}",
         "lastScannedSuccessfully": "último escaneamento bem-sucedido em {date}",
-        "neverScannedSuccessfully": "nunca escaneado com sucesso"
+        "neverScannedSuccessfully": "nunca escaneado com sucesso",
+        "noticesHeading": "{count, plural, one {# aviso} other {# avisos}}",
+        "noticesHelp": "Não são vulnerabilidades: o aviso diz que o pacote está sem manutenção, é inseguro ou merece atenção. Não entram em nenhuma contagem e não alertam ninguém.",
+        "noticeNoFix": "Nenhuma correção a buscar",
+        "fixUntaggedCommit": "commit sem tag: nenhuma versão com tag tem a correção"
     },
     "Triage": {
         "alias": {
@@ -673,7 +696,7 @@
             },
             "notifications": {
                 "purpose": "Envia os achados para os quais você configurou alertas — nome do projeto, branch do git, pacote e versão, severidade, id do aviso e um link de volta para este portal",
-                "when": "Quando uma varredura produz um achado novo, um achado resolvido ou uma falha de varredura",
+                "when": "Um achado novo ou uma falha de varredura: por projeto, ou em um único resumo de execução se o destino optou por ele. Além do resumo semanal, ligado por padrão, no dia e na hora definidos aqui",
                 "disable": "Configurações → Notificações — nenhum existe até você adicionar um"
             },
             "pypi": {
@@ -771,11 +794,14 @@
             },
             "cannotScanTitle": "O projeto não pode ser escaneado",
             "cannotScanBody": "Nenhuma fonte conseguiu ler este projeto. As descobertas abaixo são as que um escaneamento anterior registrou e não foram verificadas novamente; zero descobertas aqui significa desconhecido, não seguro.",
+            "cannotScanBodyNoFindings": "Nenhuma fonte conseguiu ler este projeto, então nada foi verificado; aqui, zero descobertas significa desconhecido, não seguro.",
             "partialScanTitle": "O projeto não pode ser escaneado por completo",
             "partialScanBody": "Uma parte deste projeto não pôde ser escaneada, então suas descobertas podem estar incompletas. As descobertas de uma fonte que não conseguiu escaneá-lo não foram verificadas novamente.",
+            "partialScanBodyNoEarlier": "Uma parte deste projeto não pôde ser escaneada, então suas descobertas podem estar incompletas.",
             "scanReasonSideProject": "do lado do projeto: um arquivo do projeto impede que ele seja lido, e a correção é alterá-lo ali",
             "scanReasonSideEnvironment": "do lado desta instalação do Sentinello: a instalação não conseguiu fazer o escaneamento, e a correção cabe ao operador",
             "scanReasonNotYetRun": "nada o verificou ainda: o próximo escaneamento fará isso",
+            "scanReasonFix": "Para corrigir: {fix}",
             "sourceDisabledReason": "Nenhuma fonte habilitada para {languages}",
             "sourceDisabledAction": "Ative uma em Configurações → Fontes",
             "noFindingsUnknownTitle": "Nenhuma descoberta registrada",

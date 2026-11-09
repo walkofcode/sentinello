@@ -68,7 +68,10 @@ function seedLiveShapedDb(path: string): void {
     setConfigValue(db, CONFIG_KEYS.dryRunNotify, false)
     insertNotificationTarget(db, {
         id: 'hook-1', kind: 'webhook', config: { url: 'https://hooks.example.test/incoming' }, severityFilter: ['critical', 'high'],
-        envFilter: 'all', enabled: true, createdAt: T0, rootIds: [], projectIds: [], sourceScope: { mode: 'all', cells: [] }
+        envFilter: 'all', enabled: true, createdAt: T0, rootIds: [], projectIds: [], sourceScope: { mode: 'all', cells: [] },
+        delivery: 'per_project',
+        weeklyDigest: true,
+        digestEligibleSinceAt: null
     })
     sqlite.pragma('wal_checkpoint(TRUNCATE)')
     sqlite.close()
@@ -167,7 +170,10 @@ describe('openScratchEnv — recording senders', function () {
         const { db, sqlite } = openDb({ dbPath: livePath })
         insertNotificationTarget(db, {
             id: 'tg-1', kind: 'telegram', config: { botToken: 'env:SENTINELLO_TEST_TELEGRAM_TOKEN', chatId: 'not-a-real-chat' }, severityFilter: ['critical', 'high'],
-            envFilter: 'all', enabled: true, createdAt: T0, rootIds: [], projectIds: [], sourceScope: { mode: 'all', cells: [] }
+            envFilter: 'all', enabled: true, createdAt: T0, rootIds: [], projectIds: [], sourceScope: { mode: 'all', cells: [] },
+            delivery: 'per_project',
+            weeklyDigest: true,
+            digestEligibleSinceAt: null
         })
         sqlite.pragma('wal_checkpoint(TRUNCATE)')
         sqlite.close()

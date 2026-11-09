@@ -340,10 +340,10 @@ describe('matchAdvisories — severity mapping', function () {
     })
 
     // Never silently downgrade a real advisory to info just because the vocabulary was unfamiliar.
-    it('falls back to moderate for an unknown or absent severity', function () {
-        expect(severityFor('spicy')).toBe('moderate')
-        expect(severityFor(null)).toBe('moderate')
-        expect(severityFor('')).toBe('moderate')
+    it('reads an unknown or absent severity as unrated, which ranks as moderate and claims nothing', function () {
+        expect(severityFor('spicy')).toBe('unrated')
+        expect(severityFor(null)).toBe('unrated')
+        expect(severityFor('')).toBe('unrated')
     })
 })
 

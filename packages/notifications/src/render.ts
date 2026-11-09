@@ -1,4 +1,4 @@
-import { CHAIN_UNKNOWN_TEXT, describeFix, describeScanReasons, getEcosystem, type Capability, PLAIN_FIX_STYLE, scanStateHeadline, reasonSide, summarizeRemediation, reasonCodeLabel, REASON_CODE_VALUES, SCAN_STATE_SIDE_SHORT, type Finding, type LabelledScanState, type Locale, type NotificationEvent, type ReasonCode, type Severity } from '@sentinello/core'
+import { CHAIN_UNKNOWN_TEXT, describeFix, describeScanReasons, getEcosystem, getSource, type Capability, PLAIN_FIX_STYLE, scanStateHeadline, reasonSide, summarizeRemediation, reasonCodeLabel, REASON_CODE_VALUES, SCAN_STATE_SIDE_SHORT, type Finding, type LabelledScanState, type Locale, type NotificationEvent, type ReasonCode, type Severity, type SourceCell } from '@sentinello/core'
 import type { CapabilitySummaryWebhook, RenderedMessage } from './types'
 import { CAPABILITY_SUMMARY_COPY } from './capability-copy'
 
@@ -69,6 +69,7 @@ const SEVERITY_LABEL: Record<Severity, string> = {
     critical: 'CRITICAL',
     high: 'HIGH',
     moderate: 'MODERATE',
+    unrated: 'UNRATED',
     low: 'LOW',
     info: 'INFO'
 }
@@ -128,7 +129,7 @@ export function renderBatchedFindings(input: RenderBatchedFindingsInput): Render
     const markdownLines: string[] = []
     markdownLines.push(headline)
     pushBranchLine(markdownLines, input.gitBranch)
-    pushScanStateLine(markdownLines, input.scanState ?? null, input.locale || 'en')
+    pushScanStateLine(markdownLines, input.scanState ?? null, input.locale || 'en', input.findings)
     markdownLines.push(top + more)
     if (portalLink) {
         markdownLines.push('')
@@ -177,12 +178,18 @@ export function renderScanFailure(input: RenderScanFailureInput): RenderedMessag
     }
 }
 
-// "*Project cannot be scanned:* No lockfile (the project) — …". Only for the two states that mean a scan
-// failed: `not_scanned_yet` cannot carry findings, and `scanned` needs no line.
-function pushScanStateLine(lines: string[], scanState: LabelledScanState | null, locale: Locale): void {
+// "*Project cannot be scanned:* No lockfile (the project): commit the lockfile … — …". Only for the two states
+// that mean a scan failed: `not_scanned_yet` cannot carry findings, and `scanned` needs no line. A source that has
+// not run yet is something the next scan does, not a failure, so `not_yet_run` alone says nothing here: the
+// verdict and the webhook's scanState stay as they are, and this line is not printed (SENTINEL-173). What an
+// earlier scan recorded is mentioned only when the message lists one.
+function pushScanStateLine(lines: string[], scanState: LabelledScanState | null, locale: Locale, findings: readonly Finding[]): void {
     if (scanState === null || (scanState.state !== 'cannot_scan' && scanState.state !== 'partial')) return
-    lines.push('*' + scanStateHeadline(scanState.state) + ':* ' + describeScanReasons(scanState.reasons, locale) +
-        ' — findings an earlier scan recorded are marked "not re-checked"')
+    const failures = scanState.reasons.filter(function failure(reason) { return reason.reasonCode !== 'not_yet_run' })
+    if (failures.length === 0) return
+    const earlier = findings.some(function notRechecked(f) { return (f.notRecheckedBecause ?? null) !== null })
+    lines.push('*' + scanStateHeadline(scanState.state) + ':* ' + describeScanReasons(failures, locale, true) +
+        (earlier ? ' — findings an earlier scan recorded are marked "not re-checked"' : ''))
 }
 
 function formatLine(finding: Finding): string {
@@ -240,7 +247,9 @@ export type RenderCapabilitySummaryInput = {
 export function renderCapabilitySummary(input: RenderCapabilitySummaryInput): RenderedMessage {
     const copy = CAPABILITY_SUMMARY_COPY[input.locale ?? 'en']
     const languages = input.capability.ecosystems.map(ecosystemLabel).join('/')
-    const title = copy.title(input.capability.since.replace(/\.0$/, ''), languages)
+    const title = input.capability.cells === undefined
+        ? copy.title(input.capability.since.replace(/\.0$/, ''), languages)
+        : copy.enabledTitle(languages, sourceLabels(input.capability.cells))
     const lines: string[] = []
     lines.push('*' + title + ':* ' + copy.counts(input.findings, input.projects, input.critical))
     if (input.sourceDisabledProjects > 0) lines.push(copy.sourceDisabled(input.sourceDisabledProjects))
@@ -249,8 +258,14 @@ export function renderCapabilitySummary(input: RenderCapabilitySummaryInput): Re
     const markdown = lines.join('\n')
     const webhook: CapabilitySummaryWebhook = {
         event: 'capability_summary',
-        capability: { id: input.capability.id, since: input.capability.since, ecosystems: [...input.capability.ecosystems] },
+        capability: { id: input.capability.id, since: input.capability.since, ecosystems: [...input.capability.ecosystems], cells: input.capability.cells },
         counts: { findings: input.findings, projects: input.projects, critical: input.critical, sourceDisabledProjects: input.sourceDisabledProjects }
     }
     return { title, text: stripMarkdown(markdown), markdown, portalUrl, webhook }
+}
+
+// The sources of an operator's baseline as a reader names them, each once.
+function sourceLabels(cells: readonly SourceCell[]): string {
+    const names = cells.map(function name(cell) { return getSource(cell.source)?.displayName ?? cell.source })
+    return Array.from(new Set(names)).join('/')
 }

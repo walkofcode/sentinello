@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CACHE_NOT_READY_FAILURE_SIGNATURES, SEVERITY_ORDER, compareSeverity, isCacheNotReadyReason, isSourceUnavailableReason, findingIdentity, installedThrough, manifestDirOf, maxSeverity, meetsSeverityFloor, parseFindingInstallations, severityWeight } from './types'
+import { CACHE_NOT_READY_FAILURE_SIGNATURES, SEVERITY_ORDER, compareSeverity, isCacheNotReadyReason, isSourceUnavailableReason, findingIdentity, installedThrough, manifestDirOf, maxSeverity, meetsSeverityFloor, outranksSeverity, parseFindingInstallations, severityInFilter, severityWeight, TARGET_SEVERITY_VALUES } from './types'
 import type { Severity } from './types'
 
 // There used to be four SEVERITY_RANK tables in this repo — one here, one in merge-findings.ts, and one
@@ -10,7 +10,26 @@ describe('severityWeight', function () {
     it('ranks the declared severities worst-first', function () {
         const weights = SEVERITY_ORDER.map(severityWeight)
         expect(weights).toEqual([...weights].sort(function descending(a, b) { return b - a }))
-        expect(new Set(weights).size).toBe(SEVERITY_ORDER.length)
+        // Only moderate and unrated tie: an unknown grade is never downgraded.
+        expect(new Set(weights).size).toBe(SEVERITY_ORDER.length - 1)
+        expect(severityWeight('unrated')).toBe(severityWeight('moderate'))
+    })
+
+    it('states moderate over unrated in a tie, and unrated over low', function () {
+        expect(maxSeverity(['unrated', 'moderate'])).toBe('moderate')
+        expect(maxSeverity(['moderate', 'unrated'])).toBe('moderate')
+        expect(maxSeverity(['unrated', 'low'])).toBe('unrated')
+        expect(outranksSeverity('moderate', 'unrated')).toBe(true)
+        expect(outranksSeverity('unrated', 'moderate')).toBe(false)
+        expect(outranksSeverity('moderate', 'moderate')).toBe(false)
+        expect(outranksSeverity('high', 'moderate')).toBe(true)
+    })
+
+    it('covers unrated with a filter holding moderate, and only then', function () {
+        expect(severityInFilter(['moderate'], 'unrated')).toBe(true)
+        expect(severityInFilter(['high'], 'unrated')).toBe(false)
+        expect(severityInFilter(['high'], 'high')).toBe(true)
+        expect(TARGET_SEVERITY_VALUES).not.toContain('unrated')
     })
 
     it('weighs critical above info', function () {

@@ -8,6 +8,7 @@ import {
     insertScan,
     mergeFindingsForScan,
     openDb,
+    refreshAdvisoryKeys,
     runMigrations,
     setConfigValue,
     setProjectAlias,
@@ -68,10 +69,9 @@ function seedProject(overrides: Record<string, unknown> = {}): void {
     })
 }
 
-// The advisory title defaults to one derived from the id, because the normalized title IS the
-// cross-source identity (advisory-identity.ts / merge-findings.ts:advisoryKey). Distinct ids
-// therefore describe distinct vulnerabilities by default; the dedup suite below opts into a SHARED
-// title explicitly, since sharing it is the whole mechanism under test.
+// Distinct ids describe distinct vulnerabilities by default; the dedup suite below opts into a shared
+// identifier explicitly (an alias, refreshed into advisory_key), since sharing one is the whole mechanism
+// under test.
 function incoming(overrides: Partial<IncomingFinding> = {}): IncomingFinding {
     const advisoryId = overrides.advisoryId ?? 'GHSA-abc'
     return {
@@ -203,12 +203,13 @@ describe('buildProjectAdvisoryExport — resolution', function () {
 
 describe('buildProjectAdvisoryExport — deduplication', function () {
     // The 60-vs-36 report that prompted this: npm-audit and OSV both report the CVE under their own
-    // advisory ids, and the shared title is what identifies them as the same vulnerability.
+    // advisory ids, and the alias they share is what identifies them as the same vulnerability.
     const SHARED = 'Prototype pollution in lodash'
 
     function bothSourcesReportOneVulnerability(): void {
         scanWith([incoming({ advisoryTitle: SHARED })])
-        scanWith([incoming({ advisoryId: 'CVE-2026-1', advisoryTitle: SHARED })], 'osv')
+        scanWith([incoming({ advisoryId: 'CVE-2026-1', advisoryTitle: SHARED, aliases: ['GHSA-abc'] })], 'osv')
+        refreshAdvisoryKeys(db, [])
     }
 
     it('renders one entry when two sources report the same vulnerability', function () {
@@ -338,7 +339,8 @@ describe('buildProjectAdvisoryExport — mute accounting across sources', functi
 
     function bothSourcesReportOneVulnerability(): void {
         scanWith([incoming({ advisoryTitle: SHARED })])
-        scanWith([incoming({ advisoryId: 'CVE-2026-1', advisoryTitle: SHARED })], 'osv')
+        scanWith([incoming({ advisoryId: 'CVE-2026-1', advisoryTitle: SHARED, aliases: ['GHSA-abc'] })], 'osv')
+        refreshAdvisoryKeys(db, [])
     }
 
     function muteLodash(source: string): void {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+    fixKindOf,
     describeFix,
     describeFixDisagreement,
     describeNotRechecked,
@@ -152,6 +153,13 @@ describe('describeFix — not re-checked', function () {
             .toBe('not re-checked — the project cannot be scanned: Package manager not on PATH (never scanned successfully)')
     })
 
+    it('claims nothing about the project when it is scanned and only this row\'s source cannot answer', function () {
+        for (const projectState of ['scanned', 'not_scanned_yet'] as const) {
+            expect(describeNotRechecked({ reasonCode: 'source_not_applicable', side: 'environment', projectState, lastOkScanAt: null, manifests: null }))
+                .toBe('not re-checked — npm audit does not read bun.lock (never scanned successfully)')
+        }
+    })
+
     it('names the kept copies\' manifests, and no date, for a row the latest scan saw through its other copies', function () {
         const kept: NotRecheckedBecause = { reasonCode: 'no_lockfile', side: 'project', projectState: 'partial', lastOkScanAt: null, manifests: ['ios/Gemfile', 'macos/Gemfile'] }
         expect(describeFix(facts({ fixStatus: 'released', fixVersion: '2.5.0', fixAvailable: true, notRecheckedBecause: kept }), PLAIN_FIX_STYLE))
@@ -183,5 +191,29 @@ describe('describeFixDisagreement', function () {
     it('only lists the disagreement when there is no released fix', function () {
         expect(describeFixDisagreement(facts({ fixStatus: 'none_released', fixCheck: two }), PLAIN_FIX_STYLE))
             .toBe('sources disagree: npm-audit <1.1.0, osv <1.2.0')
+    })
+})
+
+describe('an untagged commit named as a fix (SENTINEL-175)', function () {
+    const PSEUDO = 'v0.58.1-0.20261009181718-2f1f834330b2'
+
+    it('tells a pseudo-version from a release, and nothing from no released fix', function () {
+        expect(fixKindOf({ ecosystem: 'Go', fixStatus: 'released', fixVersion: PSEUDO })).toBe('untagged_commit')
+        expect(fixKindOf({ ecosystem: 'Go', fixStatus: 'released', fixVersion: 'v0.59.0' })).toBe('release')
+        expect(fixKindOf({ ecosystem: 'npm', fixStatus: 'released', fixVersion: '1.2.3' })).toBe('release')
+        expect(fixKindOf({ ecosystem: 'Go', fixStatus: 'unverified', fixVersion: PSEUDO })).toBeNull()
+        expect(fixKindOf({ ecosystem: 'Go', fixStatus: 'released', fixVersion: null })).toBeNull()
+        expect(fixKindOf({ ecosystem: 'unknown', fixStatus: 'released', fixVersion: '1.0.0' })).toBe('release')
+    })
+
+    it('says so wherever the fix is worded', function () {
+        const f = facts({ ecosystem: 'Go', fixStatus: 'released', fixVersion: PSEUDO, fixAvailable: true, fixCheck: check() })
+        expect(describeFix(f, PLAIN_FIX_STYLE)).toBe('upgrade to ' + PSEUDO + ' (an untagged commit: no tagged release has the fix)')
+    })
+})
+
+describe('a notice has no fix to chase (SENTINEL-168)', function () {
+    it('reads the kind before any fix field', function () {
+        expect(describeFix(facts({ noticeKind: 'unsound', fixCheck: null }), PLAIN_FIX_STYLE)).toBe('no fix to chase — this is a notice (unsound), not a vulnerability')
     })
 })

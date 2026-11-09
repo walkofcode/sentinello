@@ -111,8 +111,8 @@ test.describe('what the page refuses to show', function () {
     test('renders every finding-bearing library and no pagination control', async function ({ page }) {
         await page.goto('/libraries')
 
-        // 30 bulk packages plus lodash. minimist is dev-scope and the default view is production, so
-        // the catalogue is BULK_DEP_COUNT + 1 under the default filter.
+        // 30 bulk packages, lodash and advisory-facts' three. minimist is dev-scope and the default view is
+        // production, so the catalogue is BULK_DEP_COUNT + 4 under the default filter.
         await expect(visible(page, 'fixture-pkg-' + String(BULK_DEP_COUNT).padStart(2, '0'))).toBeVisible()
         // There is deliberately no pagination here — the whole list renders and the filters narrow it.
         await expect(page.getByRole('button', { name: 'Next page' })).toHaveCount(0)

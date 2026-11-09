@@ -2,6 +2,7 @@ import {
     DEFAULT_ECOSYSTEM,
     ECOSYSTEMS,
     projectScanState,
+    sourceAppliesToPackageManager,
     type EcosystemId,
     type FindingInstallation,
     type Remediation,
@@ -269,7 +270,7 @@ export async function scanProject(
     for (const scanner of scanners) {
         for (const ecosystem of ecosystems) {
             if (setup.abortSignal && setup.abortSignal.aborted) break
-            if (!cellRuns(setup, scanner.name, ecosystem)) continue
+            if (!cellRuns(setup, scanner.name, ecosystem) || !sourceAppliesToPackageManager(scanner.name, resolved.project.packageManager)) continue
             const isNpmAudit = scanner.name === NPM_AUDIT_SCANNER_NAME
             const cell = resolved.manifests.filter(function of(m) { return m.result.ecosystem === ecosystem })
             const startedAt = Date.now()
@@ -324,7 +325,8 @@ export async function scanProject(
         }
     }
     const settled = await settleProject({
-        findings: [...survivors.values()],
+        // A notice has no fix to chase, so it is not settled.
+        findings: [...survivors.values()].filter(function vulnerability(reported) { return !reported.finding.noticeKind }),
         evidence,
         graph: resolved.npmGraph,
         registry: setup.registry,
@@ -335,8 +337,9 @@ export async function scanProject(
     const installations = new Map<RawFinding, FindingInstallation[]>()
     for (const [finding, reported] of survivors) {
         const key = fixEvidenceKey(reported)
-        // settleProject settles every identity it is given.
-        fixes.set(finding, settled.settlements.get(key) as FixSettlement)
+        // settleProject settles every identity it is given, which is every one but a notice's.
+        const settlement = settled.settlements.get(key)
+        if (settlement) fixes.set(finding, settlement)
         const remediation = settled.remediations.get(key)
         if (remediation) remediations.set(finding, remediation)
         installations.set(finding, installationsFor(finding, resolved.npmGraph))
@@ -375,7 +378,7 @@ export function installationsFor(raw: RawFinding, graph: ResolvedGraph | null): 
 // run never reached (aborted) has no outcome and reads as not yet run.
 export function cliScanState(
     setup: Pick<ScanSetup, 'cells' | 'includeNpmAudit'>,
-    resolved: Pick<ResolvedProject, 'manifests'>,
+    resolved: Pick<ResolvedProject, 'manifests'> & { project: Pick<ResolvedProject['project'], 'packageManager'> },
     scanners: readonly Pick<ScannerPlugin, 'name'>[],
     outcomes: readonly ScannerOutcome[]
 ): ScanState {
@@ -383,7 +386,7 @@ export function cliScanState(
     const expectedCells: { source: string; ecosystem: string }[] = []
     for (const scanner of scanners) {
         for (const ecosystem of ecosystems) {
-            if (cellRuns(setup, scanner.name, ecosystem)) expectedCells.push({ source: scanner.name, ecosystem })
+            if (cellRuns(setup, scanner.name, ecosystem) && sourceAppliesToPackageManager(scanner.name, resolved.project.packageManager)) expectedCells.push({ source: scanner.name, ecosystem })
         }
     }
     return projectScanState({

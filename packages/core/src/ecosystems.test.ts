@@ -211,7 +211,7 @@ describe('3.8', function () {
 
     it('maps every manifest kind to its package manager, and lists a project\'s managers once each', function () {
         expect(ECOSYSTEMS.flatMap(function kinds(e) { return [...e.resolverKinds, ...e.manifestKinds] }).map(packageManagerOfManifest)).toEqual([
-            'npm', 'pnpm', 'yarn', 'unknown',
+            'npm', 'pnpm', 'yarn', 'bun', 'bun', 'unknown',
             'poetry', 'pipenv', 'pip', 'uv', 'unknown', 'pipenv',
             'go', 'go',
             'cargo', 'cargo',

@@ -135,7 +135,7 @@ async function main(): Promise<void> {
     // 1. Trigger a full sweep so findings reflect the live (new) engine, then wait for it to drain.
     if (!noScan) {
         console.log('[audit] enqueuing full sweep…')
-        enqueueScanRequest(db, {}, Date.now())
+        enqueueScanRequest(db, {}, Date.now(), 'manual')
         const deadlineMs = Date.now() + 10 * 60 * 1000
         while (Date.now() < deadlineMs) {
             const pending = sqlite.prepare("select count(*) c from scan_requests where status in ('pending','running')").get() as { c: number }

@@ -34,6 +34,8 @@ export type OsvAdvisory = {
     // it in — was structurally incapable of honouring it and reported retracted advisories as live
     // findings. 585 of the rows in a real npm cache carry one.
     withdrawn: number | null
+    // `database_specific.informational` when the record is a notice and not a vulnerability; null otherwise.
+    noticeKind: string | null
 }
 
 // Injected by the worker: given an ecosystem (the canonical OSV id, e.g. 'npm' | 'PyPI' | 'Go' |
@@ -96,7 +98,13 @@ export function createOsvScanner(deps: OsvScannerDeps): ScannerPlugin {
             durationMs: Date.now() - startedAt
         }
     }
-    return { name: OSV_SCANNER_NAME, scan }
+    return {
+        name: OSV_SCANNER_NAME,
+        scan,
+        aliasEvidence: function aliasEvidence(ecosystem, packageNames) {
+            return deps.isSeeded(ecosystem) ? deps.lookup(ecosystem, packageNames) : null
+        }
+    }
 }
 
 // Looks up the advisories for the resolved packages, normalizes them to CanonicalAdvisory, and runs the
@@ -148,7 +156,8 @@ function toCanonicalAdvisory(packageName: string, ecosystem: string, advisory: O
         severity: advisory.severity,
         summary: advisory.summary,
         url: advisory.url,
-        withdrawn: advisory.withdrawn
+        withdrawn: advisory.withdrawn,
+        noticeKind: advisory.noticeKind
     }
 }
 

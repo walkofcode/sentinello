@@ -89,7 +89,7 @@ describe('summarize — counting', function () {
         )
 
         expect(summary.totalFindings).toBe(3)
-        expect(summary.counts).toEqual({ critical: 0, high: 2, moderate: 0, low: 1, info: 0 })
+        expect(summary.counts).toEqual({ critical: 0, high: 2, moderate: 0, unrated: 0, low: 1, info: 0 })
         expect(summary.projects[0]?.findingCount).toBe(2)
         expect(summary.projects[1]?.findingCount).toBe(1)
         expect(summary.projects[0]?.counts.high).toBe(1)
@@ -265,15 +265,16 @@ describe('hasUnavailableSource — "we could not look", not "we found nothing"',
                 name: 'web',
                 relPath: '.',
                 findingCount: 0,
-                counts: { critical: 0, high: 0, moderate: 0, low: 0, info: 0 },
+                counts: { critical: 0, high: 0, moderate: 0, unrated: 0, low: 0, info: 0 },
                 scanState: SCANNED,
                 unauditable: reasonCodes.map(function entry(reasonCode) {
                     return { scanner: 'osv', ecosystem: 'npm', reasonCode, errorText: null }
                 })
             }],
             totalFindings: 0,
-            counts: { critical: 0, high: 0, moderate: 0, low: 0, info: 0 },
-            findings: []
+            counts: { critical: 0, high: 0, moderate: 0, unrated: 0, low: 0, info: 0 },
+            findings: [],
+            notices: []
         } as Parameters<typeof hasUnavailableSource>[0]
     }
 
@@ -312,7 +313,7 @@ describe('hasUnavailableSource — "we could not look", not "we found nothing"',
             name: 'api',
             relPath: 'api',
             findingCount: 0,
-            counts: { critical: 0, high: 0, moderate: 0, low: 0, info: 0 },
+            counts: { critical: 0, high: 0, moderate: 0, unrated: 0, low: 0, info: 0 },
             scanState: SCANNED,
             unauditable: [{ scanner: 'osv', ecosystem: 'npm', reasonCode: 'osv_db_not_seeded', errorText: null }]
         })
@@ -325,8 +326,9 @@ describe('shouldFail — the exit-code gate', function () {
         return {
             projects: [],
             totalFindings: total,
-            counts: { critical: 0, high: 0, moderate: 0, low: 0, info: 0, ...counts },
-            findings: []
+            counts: { critical: 0, high: 0, moderate: 0, unrated: 0, low: 0, info: 0, ...counts },
+            findings: [],
+            notices: []
         } as Parameters<typeof shouldFail>[0]
     }
 
@@ -346,7 +348,7 @@ describe('shouldFail — the exit-code gate', function () {
     })
 
     it('does not fail when every finding is below the named severity', function () {
-        expect(shouldFail(summaryWith({ moderate: 5, low: 5 }, 10), 'high')).toBe(false)
+        expect(shouldFail(summaryWith({ moderate: 5, unrated: 0, low: 5 }, 10), 'high')).toBe(false)
     })
 
     it('does not fail on an empty run regardless of threshold', function () {
@@ -368,7 +370,7 @@ describe('renderJson', function () {
         expect(doc.depType).toBe('prod')
         expect(doc.minSeverity).toBe('high')
         expect(doc.totalFindings).toBe(1)
-        expect(doc.totals).toEqual({ critical: 0, high: 1, moderate: 0, low: 0, info: 0 })
+        expect(doc.totals).toEqual({ critical: 0, high: 1, moderate: 0, unrated: 0, low: 0, info: 0 })
         expect(doc.findings).toHaveLength(1)
         expect(doc.findings[0].packageName).toBe('lodash')
     })
@@ -380,7 +382,7 @@ describe('renderJson', function () {
                 name: 'a',
                 path: 'apps/a',
                 findingCount: 1,
-                counts: { critical: 0, high: 1, moderate: 0, low: 0, info: 0 },
+                counts: { critical: 0, high: 1, moderate: 0, unrated: 0, low: 0, info: 0 },
                 unauditable: [],
                 scanState: { state: 'scanned', reasons: [] }
             }
@@ -454,8 +456,8 @@ describe('project cannot be scanned — the report', function () {
         expect(doc.projects[0].scanState).toEqual({
             state: 'cannot_scan',
             reasons: [
-                { source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' },
-                { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' }
+                { source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile', fixHint: 'commit the lockfile your package manager writes' },
+                { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile', fixHint: 'commit the lockfile your package manager writes' }
             ]
         })
     })
@@ -467,5 +469,33 @@ describe('project cannot be scanned — the report', function () {
         expect(md).toContain('## Projects that could not be fully scanned')
         expect(md).toContain('- **ddns** — Project cannot be scanned\n    - No lockfile — npm audit, npm — on the project\'s side')
         expect(md).not.toContain('- **web**')
+    })
+})
+
+describe('notices (SENTINEL-168)', function () {
+    function withNotice() {
+        const notice = finding({ advisoryId: 'RUSTSEC-2026-0374', packageName: 'basic-toml', severity: 'unrated', noticeKind: 'unmaintained' })
+        const real = finding()
+        const base = result(project('web', 'web'), [real], [outcome()])
+        base.findings.push(notice)
+        base.installations.set(notice, [])
+        return summarize([base], optionsWith([]))
+    }
+
+    it('counts none, and lists them apart with their kind and no fix', function () {
+        const summary = withNotice()
+        expect(summary.totalFindings).toBe(1)
+        expect(summary.counts.unrated).toBe(0)
+        expect(summary.findings.map(function id(f) { return f.advisoryId })).toEqual(['GHSA-1'])
+        expect(summary.notices).toEqual([expect.objectContaining({ advisoryId: 'RUSTSEC-2026-0374', noticeKind: 'unmaintained', fixStatus: 'unverified', fixCheck: null, fixVersion: null, fixAvailable: false })])
+    })
+
+    it('never trips --fail-on, and reaches the JSON and the document', function () {
+        const summary = withNotice()
+        const onlyNotices = { ...summary, totalFindings: 0, counts: { critical: 0, high: 0, moderate: 0, unrated: 0, low: 0, info: 0 }, findings: [] }
+        expect(shouldFail(onlyNotices, 'any')).toBe(false)
+        expect(shouldFail(onlyNotices, 'moderate')).toBe(false)
+        expect(JSON.parse(renderJson(summary, optionsWith([]), 0)).notices[0].noticeKind).toBe('unmaintained')
+        expect(renderMarkdown(summary, optionsWith([]), '', 0)).toContain('## Notices')
     })
 })

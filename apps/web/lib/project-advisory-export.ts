@@ -103,6 +103,7 @@ export function buildProjectAdvisoryParts(
             remediation: m.remediation,
             notRecheckedBecause: m.notRecheckedBecause,
             severity: m.severity,
+            noticeKind: m.noticeKind,
             advisoryId: m.advisoryId,
             advisoryTitle: m.advisoryTitle,
             advisoryUrl: m.advisoryUrl,
@@ -163,7 +164,8 @@ export function buildProjectAdvisoryExport(
         projectId: parts.projectId,
         projectName: parts.projectName,
         depType: parts.depType,
-        findingCount: parts.findings.length,
+        // Vulnerabilities: a notice is listed apart in the document and counted nowhere.
+        findingCount: parts.findings.filter(function vulnerability(f) { return !f.noticeKind }).length,
         mutedExcludedCount: parts.mutedExcludedCount,
         generatedAt
     }

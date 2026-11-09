@@ -22,9 +22,10 @@ import type { OsvAdvisoryRow } from '../../../packages/core/src/advisory-rows'
 //
 // tests/fixtures/advisories/osv-npm.ndjson is already exactly OsvAdvisoryRow[], the shape
 // upsertOsvAdvisories takes, and is the same file the CLI e2e suite seeds its cache from.
+// osv-npm-portal-facts.ndjson is the portal's alone: advisories no CLI e2e expectation should have to know about.
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const FIXTURE = resolve(HERE, '..', '..', 'fixtures', 'advisories', 'osv-npm.ndjson')
+const FIXTURES = ['osv-npm.ndjson', 'osv-npm-portal-facts.ndjson'].map(function path(file) { return resolve(HERE, '..', '..', 'fixtures', 'advisories', file) })
 
 // Fixed rather than Date.now(): it is displayed in Settings → Sources as "last refreshed", and a
 // moving value would make that panel unassertable.
@@ -34,8 +35,7 @@ export function seedOsvCache(): { path: string; count: number } {
     const { db, sqlite, dbPath } = openOsvDb(E2E_OSV_DB_PATH)
     runOsvMigrations(db)
 
-    const rows = readFileSync(FIXTURE, 'utf8')
-        .split('\n')
+    const rows = FIXTURES.flatMap(function lines(file) { return readFileSync(file, 'utf8').split('\n') })
         .filter(function nonEmpty(line) { return line.trim().length > 0 })
         .map(function parse(line) { return JSON.parse(line) as OsvAdvisoryRow })
     upsertOsvAdvisories(db, rows)

@@ -12,6 +12,7 @@ import { setConfigValue, upsertRoot } from './config'
 import { upsertProject } from './projects'
 import { insertScan } from './scans'
 import { mergeFindingsForScan, type IncomingFinding } from './findings'
+import { refreshAdvisoryKeys } from './advisory-keys'
 import { insertMute } from './mutes'
 import { listLibraries, listLibraryUsage } from './libraries'
 
@@ -166,7 +167,8 @@ describe('listLibraries — aggregation', function () {
                 packageName: 'lodash',
                 distinctAdvisories: 1,
                 distinctProjects: 1,
-                severities: ['high']
+                severities: ['high'],
+                distinctNotices: 0
             }
         ])
     })
@@ -189,8 +191,15 @@ describe('listLibraries — aggregation', function () {
     // the triage view overstates how many distinct problems a library has.
     it('counts one vulnerability once even when two sources report it', function () {
         scanProject('project-1', [finding({ advisoryId: 'GHSA-x', advisoryTitle: 'Prototype pollution' })], 'npm-audit')
-        scanProject('project-1', [finding({ advisoryId: 'CVE-2024-1', advisoryTitle: 'Prototype pollution' })], 'osv')
+        scanProject('project-1', [finding({ advisoryId: 'CVE-2024-1', aliases: ['GHSA-x'], advisoryTitle: 'Prototype pollution' })], 'osv')
+        refreshAdvisoryKeys(db, [])
         expect(listLibraries(db, AT)[0]?.distinctAdvisories).toBe(1)
+    })
+
+    it('keeps a library whose only rows are notices listed, with no vulnerabilities in its totals', function () {
+        scanProject('project-1', [finding({ advisoryId: 'RUSTSEC-1', noticeKind: 'unmaintained' })])
+        expect(listLibraries(db, AT)).toEqual([{ ecosystem: 'npm', packageName: 'lodash', distinctAdvisories: 0, distinctProjects: 0, severities: [], distinctNotices: 1 }])
+        expect(listLibraryUsage(db, 'lodash', AT)[0]?.noticeKind).toBe('unmaintained')
     })
 
     it('counts genuinely different advisories separately', function () {

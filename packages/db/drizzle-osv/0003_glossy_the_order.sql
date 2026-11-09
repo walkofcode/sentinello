@@ -1,0 +1,1 @@
+ALTER TABLE `osv_advisories` ADD `ranges_discarded` integer DEFAULT false NOT NULL;

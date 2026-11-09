@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, isNull, sql, inArray } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import { escalatedSeverity, installedThrough, parseFindingCorroborations, parseFindingInstallations, parseRemediation, readFixFields, requireComparator, type EcosystemId, type FixCheck, type FixFields, type FixStatus, type Finding, type FindingCorroboration, type FindingInstallation, type FindingScanContext, type Remediation } from '@sentinello/core'
 import { compareVersions } from '@sentinello/versions'
@@ -29,6 +29,10 @@ export type IncomingFinding = {
     installations: FindingInstallation[]
     vulnerableRange: string
     severity: Finding['severity']
+    // Set when the advisory is a notice rather than a vulnerability (Finding.noticeKind). Absent means null.
+    noticeKind?: string | null
+    // The cross-references the source lists for its advisory, stored as evidence for advisoryKey.
+    aliases?: readonly string[]
     // The fix the source STATES. Written unsettled (fix_status NULL) and settled by applyFixSettlement
     // once every source has run; until then readers withhold it.
     fixAvailable: boolean
@@ -56,6 +60,13 @@ export type MergeFindingsInput = {
     // resolves its finding nor drops it from a finding it saw elsewhere (SENTINEL-138, decision #51). Empty or
     // absent when every manifest was read.
     unreadManifests?: readonly string[]
+    // The manifests of the cell's known copies the scan never reached, as the worker read them from the disk before
+    // this transaction: an ignore file keeps the directory out of the walk, or the directory could not be inspected
+    // (SENTINEL-200). Nothing here reads the filesystem. A copy behind one of these (installedThrough) stays on a row
+    // the scan saw elsewhere, or the row would later close naming only the copy that was checked. Unlike an unread
+    // manifest it does not keep a row open: a row the scan no longer sees closes, naming its copies, and the run summary
+    // judges that closing. An exclusion's copies are not here: the operator's rule narrows the row (SENTINEL-172).
+    outOfSightManifests?: readonly string[]
 }
 
 export type MergeFindingsResult = {
@@ -74,7 +85,8 @@ export type MergeFindingsResult = {
 //   - identity NOT present (or only resolved rows) + present in scan -> INSERT new open episode
 //   - identity present in DB (open)  + absent from scan -> UPDATE resolved_at = scan.finishedAt, unless a copy
 //     was installed through a manifest the scan could not read (or its row predates installations and some
-//     manifest went unread): then it is kept open, untouched, because nothing re-checked it
+//     manifest went unread): then it is kept open, untouched, because nothing re-checked it. A copy the scan never
+//     reached does not keep it open (outOfSightManifests)
 //
 // Duplicate self-heal: an identity should have at most one open row, but historical inserts could
 // leave several. We bucket ALL open rows per identity (never overwrite): on a match we keep the
@@ -109,6 +121,7 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
         else openByIdentity.set(key, [row])
     }
     const unread = input.unreadManifests ?? []
+    const unchecked = unread.concat(input.outOfSightManifests ?? [])
     const active: Finding[] = []
     const resolved: Finding[] = []
     const seenIdentityKeys = new Set<string>()
@@ -123,7 +136,7 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             // Keep the earliest-detected row as the continuing episode; resolve any duplicates so a
             // stranded orphan is closed by the same scan that refreshes the real one.
             const canonical = pickOldestRow(bucket)
-            const { installedVersion, installations, depPath, isProd, isDev } = withRetainedCopies(inc, canonical, unread)
+            const { installedVersion, installations, depPath, isProd, isDev } = withRetainedCopies(inc, canonical, unchecked)
             db.update(findings)
                 .set({
                     advisoryTitle: inc.advisoryTitle,
@@ -132,6 +145,8 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
                     installationsJson: JSON.stringify(installations),
                     vulnerableRange: inc.vulnerableRange,
                     severity: inc.severity,
+                    noticeKind: inc.noticeKind ?? null,
+                    aliasesJson: JSON.stringify(inc.aliases ?? []),
                     fixAvailable: inc.fixAvailable,
                     fixVersion: inc.fixVersion,
                     // Unsettled until applyFixSettlement runs for this scan: last scan's verdict was about
@@ -154,6 +169,8 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
                 installationsJson: JSON.stringify(installations),
                 vulnerableRange: inc.vulnerableRange,
                 severity: inc.severity,
+                noticeKind: inc.noticeKind ?? null,
+                aliasesJson: JSON.stringify(inc.aliases ?? []),
                 fixAvailable: inc.fixAvailable,
                 fixVersion: inc.fixVersion,
                 fixStatus: null,
@@ -186,6 +203,10 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             installationsJson: JSON.stringify(inc.installations),
             vulnerableRange: inc.vulnerableRange,
             severity: inc.severity,
+            noticeKind: inc.noticeKind ?? null,
+            aliasesJson: JSON.stringify(inc.aliases ?? []),
+            // Written by refreshAdvisoryKeys at the end of the project scan, once every source's row is in.
+            advisoryKey: null,
             // Left empty here and rewritten by applyFindingCorroborations at the end of the project
             // scan: a later source cannot have agreed yet at the moment this row is written.
             corroborationsJson: '[]',
@@ -219,6 +240,9 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             vulnerableRange: inc.vulnerableRange,
             severity: inc.severity,
             corroborations: [],
+            noticeKind: inc.noticeKind ?? null,
+            aliases: [...(inc.aliases ?? [])],
+            advisoryKey: null,
             // Read back exactly as a reader would see the unsettled row.
             ...readFixFields({ fixStatus: null, fixVersion: inc.fixVersion, fixAvailable: inc.fixAvailable, fixCheckJson: null, remediationJson: null }),
             depPath: inc.depPath,
@@ -253,17 +277,18 @@ function installedThroughUnread(installations: readonly FindingInstallation[], u
 type ContinuingFacts = Pick<IncomingFinding, 'installedVersion' | 'installations' | 'depPath' | 'isProd' | 'isDev'>
 
 // A continuing finding's copies: the ones this scan saw, plus the row's earlier ones behind manifests it could
-// not read, which are still there as far as anyone knows (decision #51). `installedVersion` stays the lowest
+// not read or never reached, which are still there as far as anyone knows (decision #51, SENTINEL-200), until the
+// manifest is gone or a scan reads it. `installedVersion` stays the lowest
 // affected installed version (by the ecosystem's comparator) across all of them. While such a copy is kept,
 // what the row said about it is kept too (SENTINEL-145): the evidence that omitted its manifest cannot clear
 // production scope or a dependency chain it may be the one to carry, so scope and chains are the row's
 // united with this scan's, as decision #42 folds copies. A scan that reads that manifest again writes them
 // from what it sees.
-function withRetainedCopies(inc: IncomingFinding, row: FindingRow, unread: readonly string[]): ContinuingFacts {
+function withRetainedCopies(inc: IncomingFinding, row: FindingRow, unchecked: readonly string[]): ContinuingFacts {
     const seen: ContinuingFacts = { installedVersion: inc.installedVersion, installations: inc.installations, depPath: inc.depPath, isProd: inc.isProd, isDev: inc.isDev }
-    if (unread.length === 0) return seen
-    // A manifest the scan could not read contributed nothing to it, so no incoming copy is from one.
-    const retained = parseFindingInstallations(row.installationsJson).filter(function behindUnread(prior) { return installedThrough(prior, unread) })
+    if (unchecked.length === 0) return seen
+    // A manifest the scan did not read contributed nothing to it, so no incoming copy is from one.
+    const retained = parseFindingInstallations(row.installationsJson).filter(function behindUnchecked(prior) { return installedThrough(prior, unchecked) })
     if (retained.length === 0) return seen
     const comparator = requireComparator(inc.ecosystem)
     let installedVersion = inc.installedVersion
@@ -276,7 +301,7 @@ function withRetainedCopies(inc: IncomingFinding, row: FindingRow, unread: reado
 
 // Resolve a single open row against this scan and return the closed Finding. Shared by the
 // duplicate-collapse path and the absent-identity path so both close rows identically.
-function resolveFindingRow(db: DrizzleDb, row: FindingRow, scanFinishedAt: number, scanId: string): Finding {
+function resolveFindingRow(db: DrizzleDb, row: FindingRow, scanFinishedAt: number, scanId: string | null): Finding {
     db.update(findings)
         .set({ resolvedAt: scanFinishedAt, resolvedScanId: scanId, lastSeenAt: row.lastSeenAt })
         .where(eq(findings.id, row.id))
@@ -342,6 +367,29 @@ export function listOpenFindingEcosystems(db: DrizzleDb, projectId: string): str
         .where(and(eq(findings.projectId, projectId), isNull(findings.resolvedAt)))
         .all()
     return rows.map(function ecosystem(r) { return r.ecosystem })
+}
+
+// Where the project's open rows say their copies are. What a scan's inventory no longer holds of these is the only thing
+// worth a look at the disk (copiesOutOfSight in the worker).
+export function listOpenFindingCopies(db: DrizzleDb, projectId: string): { ecosystem: string; installations: FindingInstallation[] }[] {
+    const rows = db
+        .selectDistinct({ ecosystem: findings.ecosystem, installationsJson: findings.installationsJson })
+        .from(findings)
+        .where(and(eq(findings.projectId, projectId), isNull(findings.resolvedAt)))
+        .all()
+    return rows.map(function copies(r) { return { ecosystem: r.ecosystem, installations: parseFindingInstallations(r.installationsJson) } })
+}
+
+// Closes the open rows of a (source, ecosystem) cell the caller has proved are no longer installed, for a source
+// that is not attempted on this project and so can never close them by answering. No scan of that source ran, so
+// none is named as the resolving one: its scan history stays what it did.
+export function resolveFindingsNoLongerInstalled(db: DrizzleDb, input: { projectId: string; source: string; ecosystem: string; at: number; gone: (row: { packageName: string; installedVersion: string }) => boolean }): Finding[] {
+    const open = db
+        .select()
+        .from(findings)
+        .where(and(eq(findings.projectId, input.projectId), sql`COALESCE(${findings.source}, ${findings.scanner}) = ${input.source}`, eq(findings.ecosystem, input.ecosystem), isNull(findings.resolvedAt)))
+        .all()
+    return open.filter(input.gone).map(function close(row) { return resolveFindingRow(db, row, input.at, null) })
 }
 
 // The ecosystems an identity without one could mean: every ecosystem with an open finding of this source,
@@ -417,6 +465,9 @@ export function listResolvedFindingsForLibrary(
         vulnerable_range: string
         severity: string
         corroborations_json: string
+        notice_kind: string | null
+        aliases_json: string
+        advisory_key: string | null
         fix_available: number
         fix_version: string | null
         fix_status: string | null
@@ -456,6 +507,9 @@ export function listResolvedFindingsForLibrary(
             vulnerableRange: row.vulnerable_range,
             severity: row.severity as Finding['severity'],
             corroborations: parseFindingCorroborations(row.corroborations_json),
+            noticeKind: row.notice_kind,
+            aliases: parseFindingAliases(row.aliases_json),
+            advisoryKey: row.advisory_key,
             ...readFixFields({ fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json, remediationJson: row.remediation_json }),
             depPath: parseDepPath(row.dep_path_json),
             isProd: row.is_prod === 1,
@@ -501,6 +555,12 @@ export function findFindingByIdentity(
     }))
 }
 
+// Rows by id, as they stand, with no scan context: a reader that only wants the facts, not whether they are stale.
+export function listFindingsByIds(db: DrizzleDb, ids: readonly string[]): Finding[] {
+    if (ids.length === 0) return []
+    return db.select().from(findings).where(inArray(findings.id, [...ids])).all().map(rowToFinding)
+}
+
 // In-memory dedup key for the lifecycle merge. First component is the persisted source identity, not
 // the scanner plugin name (see findingIdentityKey in ../identity for the durable hashed form).
 function identityKey(source: string, ecosystem: string, advisoryId: string, packageName: string): string {
@@ -531,6 +591,9 @@ function rowToFindingInContext(row: FindingRow, scanContext: FindingScanContext 
         vulnerableRange: row.vulnerableRange,
         severity: row.severity,
         corroborations: parseFindingCorroborations(row.corroborationsJson),
+        noticeKind: row.noticeKind,
+        aliases: parseFindingAliases(row.aliasesJson),
+        advisoryKey: row.advisoryKey,
         ...readFixFields(row, scanContext),
         depPath: parseDepPath(row.depPathJson),
         isProd: row.isProd,
@@ -540,6 +603,11 @@ function rowToFindingInContext(row: FindingRow, scanContext: FindingScanContext 
         resolvedAt: row.resolvedAt,
         resolvedScanId: row.resolvedScanId
     }
+}
+
+// Degrades like parseDepPath below: these are evidence, and a corrupted column only loses the evidence.
+function parseFindingAliases(json: string): string[] {
+    return parseDepPath(json)
 }
 
 // Degrades rather than throws, in line with the two checks below it. dep_path_json is display-only
@@ -582,7 +650,7 @@ export type ApplyCorroborationsResult = {
 export function applyFindingCorroborations(
     db: DrizzleDb,
     touchedIds: string[],
-    byFindingId: Map<string, { own: Finding['severity']; corroborations: FindingCorroboration[] }>
+    byFindingId: Map<string, { own: Finding['severity']; corroborations: FindingCorroboration[]; clearNotice?: boolean }>
 ): ApplyCorroborationsResult {
     const severities = new Map<string, Finding['severity']>()
     if (touchedIds.length === 0) return { written: 0, severities }
@@ -593,9 +661,11 @@ export function applyFindingCorroborations(
             for (const id of touchedIds.slice(i, i + CHUNK)) {
                 const entry = byFindingId.get(id)
                 const corroborations = entry ? entry.corroborations : []
-                const values: { corroborationsJson: string; severity?: Finding['severity'] } = {
+                const values: { corroborationsJson: string; severity?: Finding['severity']; noticeKind?: null } = {
                     corroborationsJson: JSON.stringify(corroborations)
                 }
+                // Another source reported this notice as a vulnerability, which makes it one.
+                if (entry?.clearNotice === true) values.noticeKind = null
                 // Only the corroborated rows need their severity reconsidered; an uncorroborated one is
                 // already reported at its own source's grade.
                 if (entry && corroborations.length > 0) {

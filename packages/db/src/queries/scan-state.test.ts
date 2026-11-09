@@ -204,6 +204,28 @@ describe('scan state — listLatestSourceScans', function () {
     })
 })
 
+describe('scan state — a Bun project', function () {
+    function setBun(): void {
+        upsertProject(db, { id: PROJECT_ID, rootId: ROOT_ID, relPath: PROJECT_ID, name: PROJECT_ID, alias: null, packageManager: 'bun', nvmrcVersion: null, gitBranch: null, ecosystems: ['npm'], manifests: [], muted: false, tags: [], createdAt: T0, updatedAt: T0 })
+    }
+
+    it('does not expect npm audit, whatever a stale row of it says, and reads the project by its feed source', function () {
+        setBun()
+        enable('npm-audit')
+        enable('osv')
+        failed('npm-audit', T0, 'no_lockfile')
+        expect(expectedScanInputs(db, [PROJECT_ID]).get(PROJECT_ID)?.expectedCells).toEqual([{ source: 'osv', ecosystem: 'npm' }])
+        ok('osv', T0 + 1, { coverage: [{ ecosystem: 'npm', status: 'ok' }] })
+        expect(getProjectScanState(db, PROJECT_ID)).toEqual({ state: 'scanned', reasons: [] })
+    })
+
+    it('reads "no source enabled" with only npm audit on, which is true', function () {
+        setBun()
+        enable('npm-audit')
+        expect(expectedScanInputs(db, [PROJECT_ID]).get(PROJECT_ID)?.sourceDisabled).toEqual([{ kind: 'ecosystem', id: 'npm' }])
+    })
+})
+
 describe('scan state — activeScanRows', function () {
     it('drops the rows of a source the operator switched off', function () {
         ok('npm-audit', T0)

@@ -1,5 +1,6 @@
 import { getSource } from './ecosystems'
 import { reasonCodeLabel } from './reason-code-labels'
+import { reasonFixHint } from './reason-fix-hints'
 import { NOT_YET_RUN_LABELS, type ScanState, type ScanStateReason, type ScanStateSide, type ScanStateValue } from './scan-state'
 import type { Locale } from './types'
 
@@ -7,8 +8,9 @@ import type { Locale } from './types'
 // markdown, MCP and the notifications — so "cannot be scanned" never reads differently in two places. The
 // portal renders the same structure from its own messages, in the reader's locale.
 
-// One reason with its label in the requested locale. What MCP, the webhook and the CLI's JSON carry.
-export type LabelledScanStateReason = ScanStateReason & { label: string }
+// One reason with its label in the requested locale, and what would fix it when that is the project's to do.
+// What MCP, the webhook and the CLI's JSON carry.
+export type LabelledScanStateReason = ScanStateReason & { label: string; fixHint: string | null }
 
 export type LabelledScanState = {
     state: ScanStateValue
@@ -25,7 +27,7 @@ export function labelScanState(state: ScanState, locale: Locale = 'en'): Labelle
     return {
         state: state.state,
         reasons: state.reasons.map(function labelled(reason) {
-            return { ...reason, label: scanReasonLabel(reason, locale) }
+            return { ...reason, label: scanReasonLabel(reason, locale), fixHint: reasonFixHint(reason.reasonCode, locale) }
         })
     }
 }
@@ -69,6 +71,8 @@ export type GroupedScanReason = {
     side: ScanStateSide | null
     label: string
     subjects: string[]
+    // What would fix it, when that is the project's to do; null otherwise.
+    fixHint: string | null
 }
 
 export function groupScanReasons(reasons: readonly ScanStateReason[], locale: Locale = 'en'): GroupedScanReason[] {
@@ -80,17 +84,19 @@ export function groupScanReasons(reasons: readonly ScanStateReason[], locale: Lo
             if (!group.subjects.includes(subject)) group.subjects.push(subject)
             continue
         }
-        out.push({ reasonCode: reason.reasonCode, side: reason.side, label: scanReasonLabel(reason, locale), subjects: [subject] })
+        out.push({ reasonCode: reason.reasonCode, side: reason.side, label: scanReasonLabel(reason, locale), subjects: [subject], fixHint: reasonFixHint(reason.reasonCode, locale) })
     }
     return out
 }
 
 // One line: "No lockfile (the project) · npm: Has not run yet". A failure says whose fix it is; the
-// side-less "has not run yet" says instead what has not run, since that is all there is to it.
-export function describeScanReasons(reasons: readonly ScanStateReason[], locale: Locale = 'en'): string {
+// side-less "has not run yet" says instead what has not run, since that is all there is to it. `withFix`
+// also names the fix of a reason on the project's side, for a reader who has to act on the line alone.
+export function describeScanReasons(reasons: readonly ScanStateReason[], locale: Locale = 'en', withFix: boolean = false): string {
     return groupScanReasons(reasons, locale).map(function line(g) {
         if (g.side === null) return g.subjects.join(', ') + ': ' + g.label
-        return g.label + ' (' + SCAN_STATE_SIDE_SHORT[g.side] + ')'
+        const whose = g.label + ' (' + SCAN_STATE_SIDE_SHORT[g.side] + ')'
+        return withFix && g.fixHint !== null ? whose + ': ' + g.fixHint : whose
     }).join(' · ')
 }
 

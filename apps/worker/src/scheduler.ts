@@ -1,4 +1,5 @@
 import cron, { type ScheduledTask } from 'node-cron'
+import { errText } from '@sentinello/core'
 import {
     getConfigValue,
     listProjects,
@@ -19,6 +20,8 @@ import { type GemnasiumController } from './gemnasium-runtime'
 import { discoverProjects } from './discovery'
 import { runBatch } from './runner'
 import { onCompletedSweep } from './capability-baseline'
+import { onRunFinished } from './run-summary'
+import { runDigestTick } from './weekly-digest'
 import type { WorkerRuntime } from './runtime'
 import type { NotificationSender } from '@sentinello/notifications'
 import type { ScannerPlugin } from '@sentinello/scanners'
@@ -59,6 +62,14 @@ export function startScheduler(input: StartSchedulerInput): SchedulerHandles {
 
     const initialSchedule: Schedule = (getConfigValue<Schedule>(input.db, CONFIG_KEYS.schedule)) || DEFAULT_SCHEDULE
     buildAndStart(initialSchedule)
+    // The weekly digest's clock (SENTINEL-184). Every current IANA offset is a multiple of 15 minutes, so UTC quarter
+    // hours land on every local hour: 09:00 in Asia/Kathmandu is 03:15 UTC. The tick reads the day, hour and timezone
+    // itself, so an edit to them needs no reload, and most ticks stop at finding this week's rows closed.
+    const digestTask = cron.schedule('*/15 * * * *', function digestTick() {
+        const work = runDigestTick({ db: input.db, send: input.send }).catch(logDigestError)
+        input.runtime.track(work)
+        return work
+    }, { timezone: 'UTC' })
 
     function reload(): void {
         const next: Schedule = (getConfigValue<Schedule>(input.db, CONFIG_KEYS.schedule)) || DEFAULT_SCHEDULE
@@ -76,6 +87,7 @@ export function startScheduler(input: StartSchedulerInput): SchedulerHandles {
         reload,
         stop() {
             activeTask.stop()
+            digestTask.stop()
         }
     }
 }
@@ -86,7 +98,7 @@ export async function sweepActiveProjects(input: StartSchedulerInput): Promise<v
 
 export type SweepInput = Pick<StartSchedulerInput, 'db' | 'sqlite' | 'runtime' | 'send'>
 
-// The sweep itself: discovery, one batch over every project, and the silent baseline's completion. Only the
+// The sweep itself: discovery, one batch over every project, the silent baseline's completion and the run summary. Only the
 // scanners are the caller's: the scheduler reads them from its live source controllers; the live-copy
 // verification passes ones bound to copies of the feed databases, and runs this same path.
 export async function sweepProjects(input: SweepInput, scanners: () => Promise<ScannerPlugin[]>): Promise<void> {
@@ -100,7 +112,13 @@ export async function sweepProjects(input: SweepInput, scanners: () => Promise<S
     if (projects.length === 0) {
         console.log('[scheduler] active sweep finished (0 projects, ' + formatDurationMs(Date.now() - startedAt) + ')')
         // Nothing to scan is a completed sweep: a baseline must not wait for projects that may never come.
-        await onCompletedSweep(input.db, [], { rebuilds: input.runtime.rebuilds, send: input.send })
+        await onRunFinished(input.db, {
+            kind: 'scheduled',
+            projectIds: null,
+            completed: true,
+            send: input.send,
+            baselines: function nothingToWaitFor() { return onCompletedSweep(input.db, [], { rebuilds: input.runtime.rebuilds, sweepStartedAt: startedAt, send: input.send }) }
+        })
         return
     }
     const parallelism = (getConfigValue<number>(input.db, CONFIG_KEYS.parallelism)) || DEFAULT_PARALLELISM
@@ -115,12 +133,22 @@ export async function sweepProjects(input: SweepInput, scanners: () => Promise<S
     })
     console.log('[scheduler] active sweep finished (' + projects.length + ' project' + (projects.length === 1 ? '' : 's') + ', ' + formatDurationMs(Date.now() - startedAt) + ')')
     // Resolution of runBatch is not proof the sweep completed: an abort returns early with projects left.
-    if (batch.completed) await onCompletedSweep(input.db, batch.outcomes, { rebuilds: input.runtime.rebuilds, send: input.send })
+    await onRunFinished(input.db, {
+        kind: 'scheduled',
+        projectIds: null,
+        completed: batch.completed,
+        send: input.send,
+        baselines: function completedSweep() { return onCompletedSweep(input.db, batch.outcomes, { rebuilds: input.runtime.rebuilds, sweepStartedAt: startedAt, send: input.send }) }
+    })
 }
 
 function logSweepError(kind: string, err: unknown): void {
     const message = err instanceof Error && err.message || String(err)
     console.error('[scheduler] ' + kind + ' sweep failed: ' + message)
+}
+
+function logDigestError(err: unknown): void {
+    console.error('[digest] tick failed: ' + errText(err))
 }
 
 function formatDurationMs(ms: number): string {

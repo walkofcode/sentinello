@@ -169,7 +169,8 @@
         "stateSideEnvironment": "この Sentinello 環境側",
         "stateSourceDisabled": "{languages} に有効なソースがありません",
         "sourceDisabledNotice": "{count} 件のプロジェクトで {languages} に有効なソースがないため、スキャンされていません。",
-        "sourceDisabledAction": "設定 → ソースで有効にしてください"
+        "sourceDisabledAction": "設定 → ソースで有効にしてください",
+        "libraryNoticeCount": "{count, plural, other {+ お知らせ # 件}}"
     },
     "WhatsNew": {
         "pillLabel": "新着情報",
@@ -299,7 +300,22 @@
             "webhookFlavor": "ペイロード形式",
             "webhookFlavorJson": "構造化 JSON",
             "webhookFlavorText": "プレーンテキストのアドバイザリ",
-            "webhookFlavorHelp": "JSON はルート・プロジェクト・脆弱性を自動修正エージェント向けに送信します。プレーンテキストは LLM にそのまま渡せるアドバイザリのエクスポートを送信します。"
+            "webhookFlavorHelp": "JSON はルート・プロジェクト・脆弱性を自動修正エージェント向けに送信します。プレーンテキストは LLM にそのまま渡せるアドバイザリのエクスポートを送信します。",
+            "messages": "メッセージ",
+            "runSummary": "実行サマリー",
+            "runSummaryHelp": "定期または手動のスキャン実行ごとに、全プロジェクトの新着をまとめて 1 通送ります。この通知先にはプロジェクトごとのメッセージは届かなくなります。",
+            "weeklyDigest": "週次ダイジェスト",
+            "weeklyDigestHelp": "未対応の項目をまとめて週に 1 通送ります。何もない週にも送ります。",
+            "deliveryPerProject": "プロジェクトごと",
+            "deliveryRunSummary": "実行サマリー",
+            "digestOn": "週次ダイジェスト オン",
+            "digestOff": "週次ダイジェスト オフ",
+            "digestSchedule": {
+                "title": "週次ダイジェストのスケジュール",
+                "day": "曜日",
+                "hour": "時刻",
+                "help": "ダイジェストがオンのすべての通知先に、スケジュールのタイムゾーン（{timezone}）のこの時刻に送信します。"
+            }
         },
         "sources": {
             "metaTitle": "ソース · 設定",
@@ -389,6 +405,7 @@
             "scanRetentionDaysHelp": "これより古いスキャン行は削除されます。ただし各プロジェクトの最新100件は常に保持されます。検出結果、ミュート、通知履歴が削除されることはありません — 対象はスキャンログのみです。プロジェクトページのスキャン履歴は短くなります。",
             "portalBaseUrl": "ポータルのベース URL（通知のディープリンクで使用）",
             "globalIgnore": "グローバル無視パターン（1行に1つ）",
+            "globalIgnoreHelp": "gitignore 構文で、各ルートからの相対パスです。除外したパス配下の検出結果は通知なしで解決されます。プロジェクト全体を除外すると、ミュートと履歴ごと削除されます。",
             "watcherLabel": "ロックファイルウォッチャー（変更時スキャン） — マスタースイッチ。監視中のロックファイルが変更されると、ワーカーが scan_request をキューに登録します。",
             "watchedRoots": "監視対象ルート（ルートごとにオプトイン）",
             "noRoots": "ルートがまだ設定されていません。先に 設定 → ルート でルートを追加してください。",
@@ -440,7 +457,8 @@
             "selected": "選択したソース",
             "selectedHelp": "以下で選択したソース／言語のセルについてのみ通知します。",
             "selectionError": "少なくとも 1 つのセルを選択するか、「すべてのソース」を選んでください。"
-        }
+        },
+        "severityModerateAndUnrated": "Moderate と未評価"
     },
     "Findings": {
         "columns": {
@@ -533,12 +551,17 @@
         },
         "notRecheckedCannotScan": "再確認されていません — プロジェクトをスキャンできません: {reason}",
         "notRecheckedPartial": "再確認されていません — プロジェクトを完全にはスキャンできません: {reason}",
+        "notRecheckedOnly": "再確認されていません — {reason}",
         "notRecheckedCopies": "{manifests} のコピーは再確認されていません — プロジェクトを完全にはスキャンできません: {reason}",
         "chainUnknown": "チェーン不明",
         "chainUnknownHint": "ロックファイルに依存関係グラフがないため、このパッケージを取り込んでいるものは不明です。解決策がないという意味ではありません。",
         "installedThrough": "{manifests} 内",
         "lastScannedSuccessfully": "最後に成功したスキャン {date}",
-        "neverScannedSuccessfully": "一度もスキャンに成功していません"
+        "neverScannedSuccessfully": "一度もスキャンに成功していません",
+        "noticesHeading": "{count, plural, other {お知らせ # 件}}",
+        "noticesHelp": "脆弱性ではありません。パッケージがメンテナンス終了、健全性に問題がある、または注意が必要であることを示すものです。どの集計にも含まれず、通知もされません。",
+        "noticeNoFix": "追うべき修正はありません",
+        "fixUntaggedCommit": "タグなしのコミット: タグ付きリリースに修正は含まれていません"
     },
     "Triage": {
         "alias": {
@@ -673,7 +696,7 @@
             },
             "notifications": {
                 "purpose": "アラートを設定した検出結果を送信します — プロジェクト名、git ブランチ、パッケージとバージョン、深刻度、アドバイザリ ID、このポータルへのリンク",
-                "when": "スキャンで新規の検出、解決済みの検出、またはスキャン失敗が発生したとき",
+                "when": "新規の検出またはスキャン失敗: プロジェクトごと、または通知先が選択した場合は 1 通の実行サマリーで。加えて週次ダイジェスト（既定でオン）を、ここで設定した曜日と時刻に",
                 "disable": "設定 → 通知 — 追加するまで通知先は存在しません"
             },
             "pypi": {
@@ -771,11 +794,14 @@
             },
             "cannotScanTitle": "プロジェクトをスキャンできません",
             "cannotScanBody": "どのソースもこのプロジェクトを読み取れませんでした。以下の検出結果は以前のスキャンで記録されたもので、再確認されていません。ここで検出ゼロは「安全」ではなく「不明」を意味します。",
+            "cannotScanBodyNoFindings": "どのソースもこのプロジェクトを読み取れなかったため、何も確認されていません。ここで検出ゼロは「安全」ではなく「不明」を意味します。",
             "partialScanTitle": "プロジェクトを完全にはスキャンできません",
             "partialScanBody": "このプロジェクトの一部をスキャンできなかったため、検出結果が不完全な可能性があります。スキャンできなかったソースの検出結果は再確認されていません。",
+            "partialScanBodyNoEarlier": "このプロジェクトの一部をスキャンできなかったため、検出結果が不完全な可能性があります。",
             "scanReasonSideProject": "プロジェクト側の問題: プロジェクト内のファイルが読み取りを妨げており、そこを変更することが対処です",
             "scanReasonSideEnvironment": "この Sentinello 環境側の問題: 環境がスキャンを実行できず、運用者が対処します",
             "scanReasonNotYetRun": "まだ何も確認していません: 次回のスキャンで確認されます",
+            "scanReasonFix": "修正方法: {fix}",
             "sourceDisabledReason": "{languages} に有効なソースがありません",
             "sourceDisabledAction": "設定 → ソースで有効にしてください",
             "noFindingsUnknownTitle": "記録された検出結果はありません",

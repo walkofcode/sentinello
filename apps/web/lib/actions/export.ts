@@ -6,6 +6,7 @@ import { getConfigValue, listLibraryUsage, listScanStatesForProjects, setConfigV
 import type { DepTypeFilter, ExportScanState, Severity } from '@sentinello/core'
 import { getDb } from '@/lib/db'
 import { run, type ActionResult } from '@/lib/actions/action-result'
+import { withoutMixedGroupNotices } from '@/lib/merge-findings'
 import { buildProjectAdvisoryExport } from '@/lib/project-advisory-export'
 import {
     buildAdvisoryMarkdown,
@@ -41,7 +42,7 @@ export async function exportLibraryAdvisoryMarkdownAction(
     const now = Date.now()
     // Scope the export to the (ecosystem, packageName) cell the detail page is showing so a same-named
     // package in another ecosystem isn't folded into the same advisory dump.
-    const rows = listLibraryUsage(db, trimmed, now, parsedDep, ecosystem)
+    const rows = withoutMixedGroupNotices(listLibraryUsage(db, trimmed, now, parsedDep, ecosystem))
     const findings: ExportFinding[] = rows.map(function toExport(r): ExportFinding {
         return {
             ecosystem: r.ecosystem,
@@ -55,6 +56,7 @@ export async function exportLibraryAdvisoryMarkdownAction(
             remediation: r.remediation,
             notRecheckedBecause: r.notRecheckedBecause,
             severity: r.severity as Severity,
+            noticeKind: r.noticeKind,
             advisoryId: r.advisoryId,
             advisoryTitle: r.advisoryTitle,
             advisoryUrl: r.advisoryUrl,

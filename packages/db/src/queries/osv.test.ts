@@ -41,6 +41,7 @@ function advisory(overrides: Partial<OsvAdvisoryRow> = {}): OsvAdvisoryRow {
         url: 'https://ghsa.example/1',
         malicious: false,
         withdrawn: null,
+        noticeKind: null,
         ...overrides
     }
 }
@@ -149,14 +150,23 @@ describe('lookupOsvByPackages', function () {
 // The withdrawal evidence gemnasium stamps from: every row's identity, withdrawn or not, which is the one
 // thing lookupOsvByPackages must never return.
 describe('lookupOsvLinksByPackages', function () {
-    it('returns withdrawn and active rows alike, with only their identity', function () {
+    it('returns withdrawn and active rows alike, with their identity and affected set', function () {
         const at = Date.UTC(2026, 9, 23)
         upsertOsvAdvisories(db, [advisory(), advisory({ advisoryId: 'GHSA-2', aliases: [], withdrawn: at })])
         const links = lookupOsvLinksByPackages(db, 'npm', ['lodash']).get('lodash')
         expect(links?.slice().sort(function byId(a, b) { return a.advisoryId.localeCompare(b.advisoryId) })).toEqual([
-            { advisoryId: 'GHSA-1', aliases: ['CVE-2024-1'], withdrawn: null },
-            { advisoryId: 'GHSA-2', aliases: [], withdrawn: at }
+            { advisoryId: 'GHSA-1', aliases: ['CVE-2024-1'], withdrawn: null, ranges: [{ type: 'SEMVER', introduced: '0', fixed: '4.17.21', lastAffected: null }], versions: [] },
+            { advisoryId: 'GHSA-2', aliases: [], withdrawn: at, ranges: [{ type: 'SEMVER', introduced: '0', fixed: '4.17.21', lastAffected: null }], versions: [] }
         ])
+    })
+
+    it('says a row lost a range, surviving an upsert over the row, and says nothing of one that did not', function () {
+        upsertOsvAdvisories(db, [advisory({ rangesDiscarded: true }), advisory({ advisoryId: 'GHSA-2', rangesDiscarded: true })])
+        upsertOsvAdvisories(db, [advisory({ advisoryId: 'GHSA-2' })])
+        const links = lookupOsvLinksByPackages(db, 'npm', ['lodash']).get('lodash')
+        expect(links?.find(function one(l) { return l.advisoryId === 'GHSA-1' })?.rangesDiscarded).toBe(true)
+        expect(links?.find(function two(l) { return l.advisoryId === 'GHSA-2' })).not.toHaveProperty('rangesDiscarded')
+        expect(lookupOsvByPackages(db, 'npm', ['lodash']).get('lodash')?.some(function marked(r) { return (r as { rangesDiscarded?: boolean }).rangesDiscarded === true })).toBe(true)
     })
 
     it('keys results by package name and omits a package with no rows', function () {

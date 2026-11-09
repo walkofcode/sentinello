@@ -360,3 +360,34 @@ describe('resolveManifest — RubyGems', function () {
         expect(result.status === 'ok' && result.graph.packages.map(function nv(p) { return p.name + '@' + p.version })).toEqual(['rack@2.2.8'])
     })
 })
+
+describe('resolveManifest — lockfiles present and unread', function () {
+    it('says a bun.lockb is unsupported and how to fix it, and reads a bun.lock', async function () {
+        const dir = await mkdtemp(join(tmpdir(), 'sentinello-bun-kinds-'))
+        try {
+            await writeFile(join(dir, 'bun.lockb'), 'binary', 'utf8')
+            expect(await resolveManifest(dir, { kind: 'bun.lockb', ecosystem: 'npm', absolutePath: join(dir, 'bun.lockb') })).toEqual({
+                status: 'unauditable', ecosystem: 'npm', reasonCode: 'unsupported_lockfile',
+                details: ['bun.lockb is Bun\'s binary lockfile, which cannot be read: run bun install --save-text-lockfile to write bun.lock']
+            })
+            await writeFile(join(dir, 'bun.lock'), '{ "packages": {} }', 'utf8')
+            expect(await resolveManifest(dir, { kind: 'bun.lock', ecosystem: 'npm', absolutePath: join(dir, 'bun.lock') })).toMatchObject({ status: 'ok' })
+        } finally {
+            await rm(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('says a lockfileVersion 1 file is unsupported, not missing', async function () {
+        const dir = await mkdtemp(join(tmpdir(), 'sentinello-npm-v1-'))
+        try {
+            await writeFile(join(dir, 'package-lock.json'), JSON.stringify({ lockfileVersion: 1, dependencies: { a: { version: '1.0.0' } } }), 'utf8')
+            const manifest = { kind: 'package-lock.json', ecosystem: 'npm', absolutePath: join(dir, 'package-lock.json') }
+            const result = await resolveManifest(dir, manifest)
+            expect(result).toMatchObject({ status: 'unauditable', reasonCode: 'unsupported_lockfile' })
+            expect(JSON.stringify(result)).toContain('lockfileVersion 1')
+            expect(await resolveProject(dir, { kind: 'package-lock.json', packageManager: 'npm', absolutePath: join(dir, 'package-lock.json') })).toBeNull()
+        } finally {
+            await rm(dir, { recursive: true, force: true })
+        }
+    })
+})

@@ -219,9 +219,15 @@ describe('pickReleasedFix — in the ecosystem\'s own comparator', function () {
 
     // Some Go modules are only ever fixed in a commit. A pseudo-version the advisory states, in `published`
     // because the registry confirmed it, is the fix.
-    it('admits a Go pseudo-version the advisory states', function () {
+    it('prefers a tagged version over a stated Go pseudo-version, even a higher one', function () {
         const fix = 'v0.0.0-20210101000000-abcdefabcdef'
-        expect(pickReleasedFix({ published: published(fix, 'v0.1.0'), evidence: [goEvidence('0.0.0-20210101000000-abcdefabcdef')], installed: ['v0.0.0-20200101000000-aaaaaaaaaaaa'] }))
+        expect(pickReleasedFix({ published: published(fix, 'v0.1.0'), evidence: [goEvidence('0.0.0-20210101000000-abcdefabcdef')], installed: ['v0.0.0-20200101000000-abcdefabcdef'] }))
+            .toEqual({ kind: 'released', version: 'v0.1.0' })
+    })
+
+    it('admits a Go pseudo-version the advisory states when no tagged version qualifies', function () {
+        const fix = 'v0.0.0-20210101000000-abcdefabcdef'
+        expect(pickReleasedFix({ published: published(fix), evidence: [goEvidence('0.0.0-20210101000000-abcdefabcdef')], installed: ['v0.0.0-20200101000000-aaaaaaaaaaaa'] }))
             .toEqual({ kind: 'released', version: fix })
     })
 

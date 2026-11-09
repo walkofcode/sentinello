@@ -160,7 +160,8 @@ export type PickReleasedFixArgs = {
 
 // The lowest version that is published, not a prerelease, not below the highest installed copy, outside
 // EVERY evidence's affected set and inside every stated patched set — a non-deprecated one when any
-// qualifies, else a deprecated one. `none` only when every input could be evaluated; anything that cannot
+// qualifies, else a deprecated one — and a tagged one over a stated pseudo-version, which is a commit nobody
+// tagged: only when no tagged version qualifies is the pseudo-version the fix (SENTINEL-175). `none` only when every input could be evaluated; anything that cannot
 // be evaluated is `unknown`, which the caller must never turn into "released" or "no fix released".
 //
 // Every comparison is the finding's own comparator's (FixEvidence.affected.comparator), so a PyPI fix is
@@ -192,8 +193,14 @@ export function pickReleasedFix(args: PickReleasedFixArgs): ReleasedFixResult {
 
     // Compared in normalized form, so an alternate spelling of an affected version is still affected;
     // returned in the registry's own spelling, which is what an install names.
-    let lowest: { version: string; spelled: string } | null = null
-    let lowestCurrent: { version: string; spelled: string } | null = null
+    type Candidate = { version: string; spelled: string }
+    function lowest(current: Candidate | null, candidate: Candidate): Candidate {
+        return current === null || (comparator as VersionComparator).lt(candidate.version, current.version) ? candidate : current
+    }
+    let tagged: Candidate | null = null
+    let taggedCurrent: Candidate | null = null
+    let pseudo: Candidate | null = null
+    let pseudoCurrent: Candidate | null = null
     for (const p of args.published) {
         const v = comparator.normalize(p.version)
         if (v === null) continue
@@ -203,10 +210,15 @@ export function pickReleasedFix(args: PickReleasedFixArgs): ReleasedFixResult {
         if (affected.some(function hits(ev) { return evaluableContains(ev, v) })) continue
         if (!patched.every(function inside(ev) { return evaluableContains(ev, v) })) continue
         const candidate = { version: v, spelled: p.version }
-        if (lowest === null || comparator.lt(v, lowest.version)) lowest = candidate
-        if (!p.deprecated && (lowestCurrent === null || comparator.lt(v, lowestCurrent.version))) lowestCurrent = candidate
+        if (kind === 'pseudo') {
+            pseudo = lowest(pseudo, candidate)
+            if (!p.deprecated) pseudoCurrent = lowest(pseudoCurrent, candidate)
+        } else {
+            tagged = lowest(tagged, candidate)
+            if (!p.deprecated) taggedCurrent = lowest(taggedCurrent, candidate)
+        }
     }
-    const chosen = lowestCurrent ?? lowest
+    const chosen = taggedCurrent ?? tagged ?? pseudoCurrent ?? pseudo
     if (chosen === null) return { kind: 'none' }
     return { kind: 'released', version: chosen.spelled }
 }

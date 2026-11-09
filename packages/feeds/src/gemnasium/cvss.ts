@@ -4,7 +4,7 @@ import type { Severity } from '@sentinello/core'
 // records carry. To produce the same severity vocabulary the matcher consumes (critical/high/moderate/
 // low), we compute the CVSS base score from the vector and bucket it per the CVSS spec. v3 is preferred
 // when present; v2 is the fallback. Returns null when no usable vector is available — the matcher then
-// defaults the finding to 'moderate' rather than silently downgrading.
+// reads the finding as 'unrated', which ranks as moderate, rather than silently downgrading.
 //
 // Implements the CVSS v3.1 and v2.0 base-score formulas (the canonical specs). Only base metrics are
 // used; temporal/environmental metrics are ignored (advisories carry base vectors).

@@ -1,15 +1,20 @@
 import { sql, type SQL } from 'drizzle-orm'
 
-// Cross-source identity of a vulnerability, mirroring apps/web/lib/merge-findings.ts:advisoryKey so
-// SQL aggregate counts agree with the merged "by advisory" view. npm-audit and OSV assign different
-// advisory ids to the same CVE but share the title, so the normalized title is the identity when
-// present, else the raw advisory id. The 't:' / 'a:' prefixes match the JS so a title can never
-// collide with an id. The alias points at whichever findings alias the caller used (defaults to 'f').
+// Cross-source identity of a vulnerability: the key refreshAdvisoryKeys wrote, mirroring advisoryIdentity in
+// apps/web/lib/merge-findings.ts so SQL aggregate counts agree with the merged "by advisory" view. Keep the two
+// in lockstep. The fallback covers only an old resolved row and the moment between migration and boot: a row's
+// own source and id, never its title, since a generic title merges different vulnerabilities (SENTINEL-174). The
+// alias points at whichever findings alias the caller used (defaults to 'f').
 export function advisoryIdentitySql(alias: string = 'f'): SQL {
-    return sql.raw(
-        `CASE WHEN ${alias}.advisory_title IS NOT NULL AND trim(${alias}.advisory_title) <> '' ` +
-        `THEN 't:' || lower(trim(${alias}.advisory_title)) ELSE 'a:' || ${alias}.advisory_id END`
-    )
+    return sql.raw(`COALESCE(${alias}.advisory_key, COALESCE(${alias}.source, ${alias}.scanner) || ':' || ${alias}.advisory_id)`)
+}
+
+// The rows severity counts stand on: a notice (RUSTSEC's unmaintained, unsound) stays a finding row, listed and
+// mutable, and is not a vulnerability. The one statement of that, for every aggregate. It is also what makes a
+// group holding both kinds a vulnerability graded by its vulnerability rows alone: gradedRows in
+// apps/web/lib/merge-findings.ts keeps the JS merge in lockstep.
+export function notNoticeSql(alias: string = 'f'): SQL {
+    return sql.raw(`AND ${alias}.notice_kind IS NULL`)
 }
 
 // Numeric severity weight mirroring severityWeight in @sentinello/core, so a merged group's severity is
@@ -17,7 +22,7 @@ export function advisoryIdentitySql(alias: string = 'f'): SQL {
 // in lockstep: the weights, the case/whitespace normalization, and the unknown fallback all match.
 //
 // An unrecognized severity ranks as 'moderate' (3), NOT as its own out-of-band value. Callers bucket
-// ranks 5..1 into critical/high/moderate/low/info and sum them; a rank outside that range would put a
+// ranks 5..1 into critical/high/moderate-or-unrated/low/info and sum them; a rank outside that range would put a
 // group in the deduped set while adding to no bucket, so the severity counts would silently undercount
 // and a project whose only finding had a bad severity string would render as clean. Moderate matches
 // the deliberate fallback in scanners/engine/matcher.ts:mapSeverity — an unknown advisory is never
@@ -26,7 +31,16 @@ export function advisoryIdentitySql(alias: string = 'f'): SQL {
 export function severityRankSql(alias: string = 'f'): SQL {
     return sql.raw(
         `CASE lower(trim(${alias}.severity)) WHEN 'critical' THEN 5 WHEN 'high' THEN 4 WHEN 'moderate' THEN 3 ` +
-        `WHEN 'low' THEN 2 WHEN 'info' THEN 1 ELSE 3 END`
+        `WHEN 'unrated' THEN 3 WHEN 'low' THEN 2 WHEN 'info' THEN 1 ELSE 3 END`
+    )
+}
+
+// 1 for a rank-3 row that states a grade, 0 for anything else. Moderate and unrated share rank 3, so the
+// buckets split it with a MAX of this: a merged group counts as unrated only when no row of it states
+// moderate, as in the JS merge (maxSeverity). An unrecognized severity ranks 3 and is in the moderate bucket.
+export function statesModerateSql(alias: string = 'f'): SQL {
+    return sql.raw(
+        `CASE WHEN lower(trim(${alias}.severity)) IN ('critical', 'high', 'unrated', 'low', 'info') THEN 0 ELSE 1 END`
     )
 }
 

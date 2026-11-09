@@ -111,14 +111,14 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     const findingEcosystems = orderEcosystems(findings.map(function pickEco(f) { return f.ecosystem }))
     // The header count matches the "by advisory" tab: distinct vulnerabilities after merging the
     // per-dep-path and per-source duplicates, not raw finding rows.
-    const mergedFindingCount = mergeFindings(findings).length
+    const mergedFindingCount = mergeFindings(findings).filter(function vulnerability(m) { return m.noticeKind === null }).length
     // "All clear" under a prod or dev filter is only a fact about that side. When it is clean, count what
     // the other side still holds, on the same grain and the same muted rule, so the page can say so
     // instead of congratulating a project whose dev dependencies are full of advisories.
     let otherSideCount = 0
     if (findings.length === 0 && depType !== 'all' && scanState.state === 'scanned') {
         const everyDep = listCurrentFindingsForProject(db, project.id, now, 'all')
-        otherSideCount = mergeFindings(showMuted ? everyDep : everyDep.filter(function notMuted(f) { return !f.isMuted })).length
+        otherSideCount = mergeFindings(showMuted ? everyDep : everyDep.filter(function notMuted(f) { return !f.isMuted })).filter(function vulnerability(m) { return m.noticeKind === null }).length
     }
 
     const resolvedTotal = countResolvedFindingsForProject(db, project.id)
@@ -236,7 +236,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                 ) : null}
             </header>
 
-            <ScanStateBanner scanState={scanState} locale={locale} />
+            <ScanStateBanner scanState={scanState} locale={locale} hasEarlierFindings={allFindings.some(function retained(f) { return f.notRecheckedBecause !== null })} />
 
             <section className="space-y-3">
                 {/* The filter bar renders in every state. It used to appear only beside a findings table,

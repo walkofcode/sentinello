@@ -5,10 +5,11 @@ import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { ExternalLink } from 'lucide-react'
 import type { LibraryProjectUsage } from '@sentinello/db'
-import { compareSeverity, severityWeight, type Mute, type Severity } from '@sentinello/core'
+import { compareSeverity, outranksSeverity, type Mute, type Severity } from '@sentinello/core'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { SeverityPill } from '@/components/ui/severity-pill'
+import { NoticeKindBadge } from './notice-kind-badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { MuteDialog } from '@/components/triage/mute-dialog'
 import { cn } from '@/lib/cn'
@@ -25,8 +26,7 @@ type Props = {
 }
 
 // A group is one vulnerability across sources. npm-audit and OSV give the same CVE different advisory
-// ids but share the title, so we bucket by the cross-source identity (advisoryIdentity) — matching the
-// deduped counts. Each usage keeps its OWN scanner + advisoryId for mute targeting; the group only
+// ids, so we bucket by the cross-source identity (advisoryIdentity) — matching the deduped counts. Each usage keeps its OWN scanner + advisoryId for mute targeting; the group only
 // carries representative display fields (worst severity, a row that has a URL for the link).
 type AdvisoryGroup = {
     identityKey: string
@@ -34,6 +34,7 @@ type AdvisoryGroup = {
     advisoryTitle: string | null
     advisoryUrl: string | null
     severity: Severity
+    noticeKind: string | null
     vulnerableRange: string
     usages: LibraryProjectUsage[]
 }
@@ -42,7 +43,7 @@ function groupByAdvisory(usages: LibraryProjectUsage[]): AdvisoryGroup[] {
     // Non-empty tuple: see groupByLibrary for why the buckets are seeded rather than pushed-into.
     const byAdvisory = new Map<string, [LibraryProjectUsage, ...LibraryProjectUsage[]]>()
     for (const u of usages) {
-        const key = advisoryIdentity(u.advisoryTitle, u.advisoryId)
+        const key = advisoryIdentity(u)
         const bucket = byAdvisory.get(key)
         if (bucket) bucket.push(u)
         else byAdvisory.set(key, [u])
@@ -53,7 +54,7 @@ function groupByAdvisory(usages: LibraryProjectUsage[]): AdvisoryGroup[] {
         const [first] = rows
         let head = first
         for (const r of rows) {
-            if (severityWeight(r.severity) > severityWeight(head.severity)) head = r
+            if (outranksSeverity(r.severity, head.severity)) head = r
         }
         const withUrl = rows.find(function hasUrl(r) { return Boolean(r.advisoryUrl) })
         groups.push({
@@ -62,6 +63,7 @@ function groupByAdvisory(usages: LibraryProjectUsage[]): AdvisoryGroup[] {
             advisoryTitle: head.advisoryTitle,
             advisoryUrl: (withUrl || head).advisoryUrl,
             severity: head.severity as Severity,
+            noticeKind: head.noticeKind,
             vulnerableRange: head.vulnerableRange,
             usages: rows
         })
@@ -159,7 +161,7 @@ function AdvisoryRows({ packageName, group, activeMutes, isOpen, onToggle, now }
                     />
                 </TableCell>
                 <TableCell onClick={function flip() { onToggle(group.identityKey) }}>
-                    <SeverityPill variant={group.severity} size="sm" />
+                    {group.noticeKind ? <NoticeKindBadge kind={group.noticeKind} /> : <SeverityPill variant={group.severity} size="sm" />}
                 </TableCell>
                 <TableCell onClick={function flip() { onToggle(group.identityKey) }} className="text-xs">
                     {(group.advisoryUrl && (
@@ -213,7 +215,7 @@ function AdvisoryCard({ packageName, group, activeMutes, isOpen, onToggle, now }
                         onToggle={function flip() { onToggle(group.identityKey) }}
                     />
                 </span>
-                <SeverityPill variant={group.severity} size="sm" />
+                {group.noticeKind ? <NoticeKindBadge kind={group.noticeKind} /> : <SeverityPill variant={group.severity} size="sm" />}
                 <div className="min-w-0 flex-1">
                     <div className="min-w-0 break-words text-sm font-medium">
                         {(group.advisoryUrl && (

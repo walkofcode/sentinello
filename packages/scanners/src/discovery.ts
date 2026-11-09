@@ -13,6 +13,7 @@ import {
 } from '@sentinello/core'
 import { detectManifestsInSync, type DetectedManifest } from './resolver'
 import { isWithin } from './resolver/paths'
+import { crateNameOfManifest, ownCratesOfLock } from './resolver/rust'
 
 // Project discovery: walk a directory tree and report every project in it, with every manifest it owns.
 // Shared by the worker (which walks mounted /roots on a schedule and reconciles the
@@ -38,7 +39,9 @@ import { isWithin } from './resolver/paths'
 const LOCKFILE_TO_PM: Record<string, PackageManager> = {
     'pnpm-lock.yaml': 'pnpm',
     'package-lock.json': 'npm',
-    'yarn.lock': 'yarn'
+    'yarn.lock': 'yarn',
+    'bun.lock': 'bun',
+    'bun.lockb': 'bun'
 }
 
 // Never descended, under any configuration. `node_modules` holds dependencies, not user-authored
@@ -137,6 +140,7 @@ export function discoverProjectsInTree(options: DiscoveryOptions): DiscoveredPro
         excludeMatcher,
         hasExcludes: Boolean(options.excludes && options.excludes.length > 0),
         layers,
+        readIgnoreFiles: true,
         onSkip: options.onSkip,
         onError: options.onError,
         ecosystems,
@@ -155,6 +159,9 @@ export type ProjectRediscoveryOptions = {
     rootPath: string
     projectPath: string
     excludes?: string[]
+    // False reads what the project's tree holds whatever its ignore files say, to ask what is on the disk rather than
+    // what a scan would see. The directories the walk never searches stay skipped. True by default.
+    readIgnoreFiles?: boolean
     ecosystems?: readonly EcosystemDefinition[]
 }
 
@@ -181,10 +188,11 @@ export function rediscoverProject(options: ProjectRediscoveryOptions): ProjectRe
     if (options.excludes && options.excludes.length > 0) excludeMatcher.add(options.excludes)
     // The ignore layers the root-down walk would have stacked above the project; walk() adds the project's own.
     const layers: IgnoreLayer[] = []
+    const readIgnoreFiles = options.readIgnoreFiles ?? true
     const segments = rel === '' ? [] : rel.split(sep)
     let dir = rootPath
     for (const segment of segments) {
-        const layer = loadIgnoreLayer(dir)
+        const layer = readIgnoreFiles ? loadIgnoreLayer(dir) : null
         if (layer) layers.push(layer)
         dir = join(dir, segment)
     }
@@ -198,6 +206,7 @@ export function rediscoverProject(options: ProjectRediscoveryOptions): ProjectRe
         excludeMatcher,
         hasExcludes: Boolean(options.excludes && options.excludes.length > 0),
         layers,
+        readIgnoreFiles,
         onSkip: undefined,
         onError: function record(error) {
             errors.push(error)
@@ -254,6 +263,7 @@ type WalkState = {
     excludeMatcher: ReturnType<typeof ignoreFactory>
     hasExcludes: boolean
     layers: IgnoreLayer[]
+    readIgnoreFiles: boolean
     onSkip: ((skip: DiscoverySkip) => void) | undefined
     onError: ((error: DiscoveryError) => void) | undefined
     ecosystems: readonly EcosystemDefinition[]
@@ -282,7 +292,7 @@ function walk(state: WalkState): void {
     if (owner?.npm && state.subEcosystems.length === 0) return
     if (state.maxDepth !== null && state.depth >= state.maxDepth) return
     // An ignore file in this directory governs its descendants, so push the layer before reading entries.
-    const localLayer = loadIgnoreLayer(state.currentDir)
+    const localLayer = state.readIgnoreFiles ? loadIgnoreLayer(state.currentDir) : null
     const layers = localLayer ? state.layers.concat([localLayer]) : state.layers
     for (const entry of readEntries(state.currentDir, state.onError)) {
         if (!entry.isDirectory()) continue
@@ -357,10 +367,11 @@ function addManifests(project: DiscoveredProject, found: DetectedManifest[]): vo
     }
 }
 
-// Orders the manifests independently of directory read order (which differs between filesystems): the
-// project's own first, then by directory, keeping registry order within one directory. Then derives the
-// ecosystems from them.
+// Drops what a sibling lock covers, then orders the manifests independently of directory read order (which
+// differs between filesystems): the project's own first, then by directory, keeping registry order within one
+// directory. Then derives the ecosystems from them.
 function finishProject(project: DiscoveredProject, ecosystems: readonly EcosystemDefinition[]): void {
+    project.manifests = withoutLockedCrates(project)
     project.manifests.sort(function byDirectory(a, b) {
         return manifestDirOf(a.path).localeCompare(manifestDirOf(b.path))
     })
@@ -369,6 +380,34 @@ function finishProject(project: DiscoveredProject, ecosystems: readonly Ecosyste
             return project.manifests.some(function ofEco(m) { return m.ecosystem === eco.id })
         })
         .map(function id(eco) { return eco.id })
+}
+
+// A Cargo.toml with no lock beside it or above it is still covered when any Cargo.lock in the project lists
+// its crate as one of its own (a source-less package): it is built from that lock, and calling it unlocked
+// makes the project look less scanned than it is (SENTINEL-171). By name alone, because a lock records no path;
+// a manifest no lock lists keeps its `no_lockfile`. A lock or manifest that cannot be read covers nothing.
+function withoutLockedCrates(project: DiscoveredProject): ProjectManifest[] {
+    const bare = project.manifests.filter(function isBare(m) { return m.kind === 'Cargo.toml' })
+    if (bare.length === 0) return project.manifests
+    const locked = new Set<string>()
+    for (const m of project.manifests) {
+        if (m.kind !== 'Cargo.lock') continue
+        for (const name of ownCratesOfLock(readFileOrEmpty(join(project.absolutePath, m.path)))) locked.add(name)
+    }
+    if (locked.size === 0) return project.manifests
+    return project.manifests.filter(function uncovered(m) {
+        if (m.kind !== 'Cargo.toml') return true
+        const name = crateNameOfManifest(readFileOrEmpty(join(project.absolutePath, m.path)))
+        return name === null || !locked.has(name)
+    })
+}
+
+function readFileOrEmpty(path: string): string {
+    try {
+        return readFileSync(path, 'utf8')
+    } catch {
+        return ''
+    }
 }
 
 function isNpm(eco: EcosystemDefinition): boolean {
@@ -409,6 +448,18 @@ function classifySkip(
         return 'gitignore'
     }
     return null
+}
+
+// Whether the operator's exclude patterns cover a path below the walk root, with the rule the walk applies:
+// patterns are rooted at the root, and a path below an excluded directory is excluded with it. The watcher
+// asks, so an edit under an excluded directory wakes no scan.
+export function isExcludedPath(rootPath: string, absolutePath: string, excludes: readonly string[]): boolean {
+    if (excludes.length === 0) return false
+    const root = resolve(rootPath)
+    const path = resolve(absolutePath)
+    const rel = relative(root, path)
+    if (rel === '' || !isWithin(root, path)) return false
+    return ignoreFactory().add([...excludes]).ignores(rel.split(sep).join('/'))
 }
 
 // Composes this directory's .gitignore and .sentinelloignore into one matcher, or returns null when

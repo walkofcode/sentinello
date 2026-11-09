@@ -1,0 +1,352 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { tmpdir } from 'node:os'
+import { eq } from 'drizzle-orm'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { NotificationTarget } from '@sentinello/core'
+import { openDb, type DrizzleDb, type SqliteDb } from '../client'
+import { runMigrations } from '../migrate'
+import { findings, runSummaryResolvedTold, runSummaryUnscannableTold } from '../schema'
+import { upsertRoot } from './config'
+import { deleteNotificationTarget, getNotificationTargetById, insertNotificationTarget } from './notifications'
+import { selectPendingEventsForTarget } from './notification-deliveries'
+import { setTargetProjects } from './notification-target-projects'
+import { setTargetRoots } from './notification-target-roots'
+import { upsertProject } from './projects'
+import { insertScan } from './scans'
+import { applyScanRecoveries, listOwedResolvedFindings, listUnscannableTold, outstandingForTarget, readScanRecoveries, recordRunSummaryDelivered, setNotificationTargetDelivery, unscannableForTarget } from './fleet-summary'
+
+const MIGRATIONS = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'drizzle')
+const T0 = Date.UTC(2026, 0, 1)
+
+let db: DrizzleDb
+let sqlite: SqliteDb
+let dir: string
+
+function target(overrides: Partial<NotificationTarget> = {}): NotificationTarget {
+    insertNotificationTarget(db, {
+        id: 't', kind: 'slack', config: { webhookUrl: 'https://hooks.example/' }, severityFilter: ['critical', 'high', 'moderate'], envFilter: 'all', enabled: true, createdAt: T0,
+        rootIds: [], projectIds: [], sourceScope: { mode: 'all', cells: [] }, delivery: 'per_project', weeklyDigest: true, digestEligibleSinceAt: null, ...overrides
+    })
+    return getNotificationTargetById(db, overrides.id ?? 't') as NotificationTarget
+}
+
+function project(id: string, rootId: string, alias: string | null = null): void {
+    upsertProject(db, { id, rootId, relPath: id, name: id, alias, packageManager: 'npm', nvmrcVersion: null, gitBranch: null, ecosystems: ['npm'], manifests: [], muted: false, tags: [], createdAt: T0, updatedAt: T0 })
+}
+
+function failing(id: string): void {
+    insertScan(db, { id: 'scan-' + id, projectId: id, startedAt: T0, finishedAt: T0, scanner: 'npm-audit', source: 'npm-audit', ecosystem: 'npm', status: 'error', reasonCode: 'audit_spawn_error', durationMs: 1, errorText: null, rawJson: '{}' })
+}
+
+function resolvedRow(id: string, projectId: string, overrides: Partial<typeof findings.$inferInsert> = {}): void {
+    db.insert(findings).values({ id, scanId: 'scan-' + projectId, projectId, scanner: 'npm-audit', source: 'npm-audit', ecosystem: 'npm', advisoryId: 'GHSA-' + id, packageName: id, installedVersion: '1', vulnerableRange: '<2', severity: 'high', resolvedAt: T0 + 10, ...overrides }).run()
+}
+
+beforeEach(async function setup() {
+    dir = await mkdtemp(join(tmpdir(), 'sentinello-fleet-summary-'))
+    const opened = openDb({ dbPath: join(dir, 'test.sqlite') })
+    db = opened.db
+    sqlite = opened.sqlite
+    runMigrations(db, { migrationsFolder: MIGRATIONS })
+    upsertRoot(db, { id: 'r1', path: '/r1', label: null, createdAt: T0 })
+    upsertRoot(db, { id: 'r2', path: '/r2', label: null, createdAt: T0 })
+    project('a', 'r1', 'Alias A')
+    project('b', 'r2')
+    failing('a')
+    failing('b')
+})
+
+afterEach(async function teardown() {
+    sqlite.close()
+    await rm(dir, { recursive: true, force: true })
+})
+
+describe('unscannableForTarget', function () {
+    it('reads the target\'s scope, the run\'s scope, and a project\'s alias', function () {
+        expect(unscannableForTarget(db, target(), T0).map(function name(p) { return p.projectName }).sort()).toEqual(['Alias A', 'b'])
+        const scoped = target({ id: 'by-root' })
+        setTargetRoots(db, 'by-root', ['r2'])
+        expect(unscannableForTarget(db, getNotificationTargetById(db, 'by-root') as NotificationTarget, T0).map(function id(p) { return p.projectId })).toEqual(['b'])
+        target({ id: 'by-project' })
+        setTargetProjects(db, 'by-project', ['a'])
+        expect(unscannableForTarget(db, getNotificationTargetById(db, 'by-project') as NotificationTarget, T0).map(function id(p) { return p.projectId })).toEqual(['a'])
+        expect(unscannableForTarget(db, scoped, T0, ['b']).map(function id(p) { return p.projectId })).toEqual(['b'])
+        expect(unscannableForTarget(db, scoped, T0, [])).toEqual([])
+    })
+
+    it('does not read a project with only a reason that says nothing answered yet as unscannable', function () {
+        insertScan(db, { id: 'scan-a2', projectId: 'a', startedAt: T0 + 1, finishedAt: T0 + 1, scanner: 'npm-audit', source: 'npm-audit', ecosystem: 'npm', status: 'unauditable', reasonCode: 'osv_db_not_seeded', durationMs: 1, errorText: null, rawJson: '{}' })
+        expect(unscannableForTarget(db, target(), T0, ['a'])).toEqual([])
+    })
+})
+
+describe('opting in and out', function () {
+    it('seeds what already fails, is a no-op when nothing changes, and clears both ledgers on the way out', function () {
+        const t = target()
+        setNotificationTargetDelivery(db, t, 'per_project', T0)
+        expect(listUnscannableTold(db, 't').size).toBe(0)
+        setNotificationTargetDelivery(db, t, 'run_summary', T0)
+        const optedIn = getNotificationTargetById(db, 't') as NotificationTarget
+        expect(optedIn.delivery).toBe('run_summary')
+        expect(Array.from(listUnscannableTold(db, 't')).sort()).toEqual(['a', 'b'])
+        // Choosing it again must not forget what is owed.
+        db.delete(runSummaryUnscannableTold).run()
+        setNotificationTargetDelivery(db, optedIn, 'run_summary', T0 + 5)
+        expect(listUnscannableTold(db, 't').size).toBe(0)
+        resolvedRow('x', 'a')
+        recordRunSummaryDelivered(db, { targetId: 't', events: [], resolvedFindingIds: ['x', 'x'], unscannableProjectIds: ['a', 'a'], at: T0 + 20 })
+        expect(db.select().from(runSummaryResolvedTold).all()).toHaveLength(1)
+        setNotificationTargetDelivery(db, optedIn, 'per_project', T0 + 30)
+        expect(db.select().from(runSummaryResolvedTold).all()).toEqual([])
+        expect(listUnscannableTold(db, 't').size).toBe(0)
+    })
+
+    it('goes with its target, and with its finding or project', function () {
+        const t = target()
+        setNotificationTargetDelivery(db, t, 'run_summary', T0)
+        deleteNotificationTarget(db, 't')
+        expect(db.select().from(runSummaryUnscannableTold).all()).toEqual([])
+    })
+})
+
+describe('readScanRecoveries and applyScanRecoveries', function () {
+    function recovered(id: string): void {
+        insertScan(db, { id: 'ok-' + id, projectId: id, startedAt: T0 + 1, finishedAt: T0 + 1, scanner: 'npm-audit', source: 'npm-audit', ecosystem: 'npm', status: 'ok', reasonCode: 'ok', durationMs: 1, errorText: null, rawJson: JSON.stringify({ coverage: [{ ecosystem: 'npm', status: 'ok', reasonCode: null, manifestPath: 'package-lock.json' }] }) })
+    }
+
+    it('reads the projects of the run\'s scope fully scanned now, and applying deletes their told rows for every target', function () {
+        setNotificationTargetDelivery(db, target(), 'run_summary', T0)
+        recovered('a')
+        recovered('b')
+        expect(readScanRecoveries(db, ['a'])).toEqual(['a'])
+        expect(readScanRecoveries(db, null).sort()).toEqual(['a', 'b'])
+        expect(readScanRecoveries(db, [])).toEqual([])
+        applyScanRecoveries(db, ['a'])
+        expect(Array.from(listUnscannableTold(db, 't'))).toEqual(['b'])
+        applyScanRecoveries(db, ['a', 'b'])
+        expect(listUnscannableTold(db, 't').size).toBe(0)
+        applyScanRecoveries(db, ['a'])
+    })
+
+    it('reads no recovery while the project still fails, and applying nothing keeps every row', function () {
+        setNotificationTargetDelivery(db, target(), 'run_summary', T0)
+        expect(readScanRecoveries(db, null)).toEqual([])
+        applyScanRecoveries(db, [])
+        expect(listUnscannableTold(db, 't').size).toBe(2)
+    })
+})
+
+describe('listOwedResolvedFindings', function () {
+    it('admits a row no scan closed, keeps to the run\'s scope, and honors the severity filter', function () {
+        setNotificationTargetDelivery(db, target(), 'run_summary', T0)
+        resolvedRow('closed', 'a', { resolvedScanId: null })
+        resolvedRow('elsewhere', 'b')
+        resolvedRow('too-low', 'a', { severity: 'low' })
+        resolvedRow('open', 'a', { resolvedAt: null })
+        resolvedRow('before', 'a', { resolvedAt: T0 - 1 })
+        resolvedRow('notice', 'a', { noticeKind: 'unmaintained' })
+        resolvedRow('unrated', 'a', { severity: 'unrated' })
+        const ids = function ids(scope: readonly string[] | null) { return listOwedResolvedFindings(db, 't', T0, scope).map(function id(c) { return c.finding.id }).sort() }
+        expect(ids(null)).toEqual(['closed', 'elsewhere', 'unrated'])
+        expect(ids(['a'])).toEqual(['closed', 'unrated'])
+        expect(ids([])).toEqual([])
+        expect(listOwedResolvedFindings(db, 't', T0, ['a'])[0]?.projectName).toBe('Alias A')
+        recordRunSummaryDelivered(db, { targetId: 't', events: [], resolvedFindingIds: ['closed'], unscannableProjectIds: [], at: T0 })
+        expect(ids(['a'])).toEqual(['unrated'])
+    })
+
+    // A closed row whose identity has an open row again: the merge inserts a new episode rather than reopening the old
+    // one, and the closing it recorded is no longer true.
+    describe('a row its identity has gone back to open', function () {
+        const IDENTITY = { advisoryId: 'GHSA-same', packageName: 'same', source: 'osv', scanner: 'osv', ecosystem: 'RubyGems' }
+
+        function owed(scope: readonly string[] | null = null): string[] {
+            return listOwedResolvedFindings(db, 't', T0, scope).map(function id(c) { return c.finding.id }).sort()
+        }
+
+        function optedIn(overrides: Partial<NotificationTarget> = {}): void {
+            setNotificationTargetDelivery(db, target(overrides), 'run_summary', T0)
+        }
+
+        it.each([
+            ['names its manifests', JSON.stringify([{ manifestPath: 'ios/Gemfile.lock', version: '2.0.8' }])],
+            ['names no manifest, as a legacy row', '[]']
+        ])('stays owed when it %s, until the open row closes, and then both go', function (_name, installationsJson) {
+            optedIn()
+            resolvedRow('old', 'a', { ...IDENTITY, installationsJson })
+            resolvedRow('current', 'a', { ...IDENTITY, resolvedAt: null })
+            expect(owed()).toEqual([])
+            db.update(findings).set({ resolvedAt: T0 + 20 }).where(eq(findings.id, 'current')).run()
+            expect(owed()).toEqual(['current', 'old'])
+        })
+
+        it('reads a row with no source by its scanner, on either side', function () {
+            optedIn()
+            resolvedRow('old', 'a', { ...IDENTITY, source: null })
+            resolvedRow('current', 'a', { ...IDENTITY, resolvedAt: null })
+            resolvedRow('old-2', 'a', { ...IDENTITY, packageName: 'other', advisoryId: 'GHSA-other' })
+            resolvedRow('current-2', 'a', { ...IDENTITY, packageName: 'other', advisoryId: 'GHSA-other', source: null, resolvedAt: null })
+            expect(owed()).toEqual([])
+        })
+
+        it.each([
+            ['project', { projectId: 'b' }],
+            ['ecosystem', { ecosystem: 'PyPI' }],
+            ['advisory', { advisoryId: 'GHSA-another' }],
+            ['package', { packageName: 'another' }]
+        ])('does not hold for an open row of another %s', function (_name, other) {
+            optedIn()
+            resolvedRow('old', 'a', IDENTITY)
+            const { projectId, ...rest } = other as { projectId?: string }
+            resolvedRow('open-elsewhere', projectId ?? 'a', { ...IDENTITY, ...rest, resolvedAt: null })
+            expect(owed()).toEqual(['old'])
+        })
+
+        // What the target would not be told about is still open: a filter is not evidence of a fix.
+        it('holds for an open row the target\'s severity or env filter leaves out', function () {
+            optedIn({ severityFilter: ['high'], envFilter: 'prod' })
+            resolvedRow('old', 'a', { ...IDENTITY, isProd: true })
+            resolvedRow('low', 'a', { ...IDENTITY, severity: 'low', isProd: true, resolvedAt: null })
+            expect(owed()).toEqual([])
+            db.delete(findings).where(eq(findings.id, 'low')).run()
+            expect(owed()).toEqual(['old'])
+            resolvedRow('dev-only', 'a', { ...IDENTITY, isProd: false, isDev: true, resolvedAt: null })
+            expect(owed()).toEqual([])
+        })
+
+        it('judges each project of the run\'s scope by its own open rows', function () {
+            optedIn()
+            resolvedRow('old', 'a', IDENTITY)
+            resolvedRow('current', 'a', { ...IDENTITY, resolvedAt: null })
+            resolvedRow('fixed-b', 'b', IDENTITY)
+            expect(owed(['a'])).toEqual([])
+            expect(owed(['b'])).toEqual(['fixed-b'])
+        })
+    })
+
+    // Sources disagree: one closes its row while another still reports the advisory. Only what the rows themselves state
+    // says they are one advisory: refreshAdvisoryKeys touches open rows only, so a closed row's key may be stale or null.
+    describe('a row another source still has open', function () {
+        const PACKAGE = { packageName: 'same', ecosystem: 'npm' }
+        const NPM = { ...PACKAGE, source: 'npm-audit', scanner: 'npm-audit' }
+        const OSV = { ...PACKAGE, source: 'osv', scanner: 'osv' }
+        const GEMNASIUM = { ...PACKAGE, source: 'gemnasium', scanner: 'gemnasium' }
+        const GHSA = 'GHSA-aaaa-bbbb-cccc'
+
+        function owed(): string[] {
+            return listOwedResolvedFindings(db, 't', T0, null).map(function id(c) { return c.finding.id }).sort()
+        }
+
+        function optedIn(overrides: Partial<NotificationTarget> = {}): void {
+            setNotificationTargetDelivery(db, target(overrides), 'run_summary', T0)
+        }
+
+        it.each([
+            ['equal keys, with nothing else in common', { ...NPM, advisoryId: '1234', advisoryKey: 'ghsa-x' }, { ...OSV, advisoryId: 'GO-2026-1', advisoryKey: 'ghsa-x' }],
+            ['one named id, no keys', { ...NPM, advisoryId: GHSA }, { ...OSV, advisoryId: GHSA }],
+            ['one named id in another case', { ...NPM, advisoryId: GHSA.toLowerCase() }, { ...OSV, advisoryId: GHSA }],
+            ['a numeric id whose url names the open row, as a legacy row with a null key', { ...NPM, advisoryId: '1234', advisoryUrl: 'https://github.com/advisories/' + GHSA, advisoryKey: null }, { ...OSV, advisoryId: GHSA, advisoryKey: GHSA.toLowerCase() }],
+            ['an alias of the closed row, with a null key', { ...OSV, advisoryId: GHSA, aliasesJson: '["CVE-2026-1"]', advisoryKey: null }, { ...GEMNASIUM, advisoryId: 'CVE-2026-1', advisoryKey: 'cve-2026-1' }],
+            ['an alias of the open row, with a null key', { ...GEMNASIUM, advisoryId: 'CVE-2026-1', advisoryKey: null }, { ...OSV, advisoryId: GHSA, aliasesJson: '["CVE-2026-1"]', advisoryKey: GHSA.toLowerCase() }],
+            ['a corroboration naming the numeric id its own source gave', { ...OSV, advisoryId: GHSA, corroborationsJson: JSON.stringify([{ source: 'npm-audit', advisoryId: '1234', severity: 'high' }]) }, { ...NPM, advisoryId: '1234' }],
+            ['a stale key the open row has left behind, still its alias', { ...GEMNASIUM, advisoryId: 'GMS-2026-1', advisoryKey: 'cve-2026-1' }, { ...OSV, advisoryId: GHSA, aliasesJson: '["CVE-2026-1"]', advisoryKey: GHSA.toLowerCase() }],
+            ['a stale key that is a source-namespaced id', { ...OSV, advisoryId: GHSA, advisoryKey: 'gemnasium:1234' }, { ...GEMNASIUM, advisoryId: '1234', advisoryKey: 'ghsa-other' }],
+            ['a row with no source, read by its scanner', { ...NPM, source: null, advisoryId: '1234', corroborationsJson: '[]', advisoryUrl: 'https://github.com/advisories/' + GHSA }, { ...OSV, advisoryId: GHSA }],
+            ['a link through another owed row', { ...NPM, advisoryId: '1234', advisoryUrl: 'https://github.com/advisories/' + GHSA }, { ...OSV, advisoryId: 'CVE-2026-1' }, { ...GEMNASIUM, advisoryId: GHSA, aliasesJson: '["CVE-2026-1"]' }]
+        ] as const)('is held on %s, and goes when that row closes', function (_name, closed, open, bridge?: Partial<typeof findings.$inferInsert>) {
+            optedIn()
+            resolvedRow('closed', 'a', closed)
+            if (bridge !== undefined) resolvedRow('bridge', 'a', bridge)
+            resolvedRow('open', 'a', { ...open, resolvedAt: null })
+            expect(owed()).toEqual([])
+            db.update(findings).set({ resolvedAt: T0 + 20 }).where(eq(findings.id, 'open')).run()
+            const candidates = listOwedResolvedFindings(db, 't', T0, null)
+            expect(candidates.map(function id(c) { return c.finding.id }).sort()).toEqual(bridge === undefined ? ['closed', 'open'] : ['bridge', 'closed', 'open'])
+            // One claim: every row of it reads as the same advisory.
+            expect(new Set(candidates.map(function identity(c) { return c.identity })).size).toBe(1)
+        })
+
+        it.each([
+            ['a shared title alone', { ...NPM, advisoryId: 'GHSA-one', advisoryTitle: 'Path traversal' }, { ...OSV, advisoryId: 'GHSA-two', advisoryTitle: 'Path traversal' }],
+            ['the same bare number in two sources', { ...NPM, advisoryId: '1234' }, { ...GEMNASIUM, advisoryId: '1234' }],
+            ['a bare number as an alias, against another source\'s id', { ...OSV, advisoryId: GHSA, aliasesJson: '["1234"]' }, { ...NPM, advisoryId: '1234' }],
+            ['a bare number in a url', { ...NPM, advisoryId: 'GHSA-one', advisoryUrl: 'https://npmjs.com/advisories/1234' }, { ...OSV, advisoryId: '1234' }],
+            ['a corroboration of another advisory', { ...OSV, advisoryId: 'GHSA-one', corroborationsJson: JSON.stringify([{ source: 'npm-audit', advisoryId: '99', severity: 'high' }]) }, { ...NPM, advisoryId: '1234' }],
+            ['different keys and ids', { ...NPM, advisoryId: 'GHSA-one', advisoryKey: 'ghsa-one' }, { ...OSV, advisoryId: 'GHSA-two', advisoryKey: 'ghsa-two' }],
+            ['corrupt evidence columns', { ...NPM, advisoryId: 'GHSA-one', aliasesJson: 'not json', corroborationsJson: 'not json' }, { ...OSV, advisoryId: 'GHSA-two', aliasesJson: '{"not":"a list"}' }]
+        ] as const)('is told beside an open row linked by %s', function (_name, closed, open) {
+            optedIn()
+            resolvedRow('closed', 'a', closed)
+            resolvedRow('open', 'a', { ...open, resolvedAt: null })
+            expect(owed()).toEqual(['closed'])
+        })
+
+        it.each([
+            ['project', { projectId: 'b' }],
+            ['ecosystem', { ecosystem: 'PyPI' }],
+            ['package', { packageName: 'another' }]
+        ])('is told beside an open row of the same advisory in another %s', function (_name, other) {
+            optedIn()
+            resolvedRow('closed', 'a', { ...NPM, advisoryId: GHSA, advisoryKey: GHSA.toLowerCase() })
+            const { projectId, ...rest } = other as { projectId?: string }
+            resolvedRow('open', projectId ?? 'a', { ...OSV, advisoryId: GHSA, advisoryKey: GHSA.toLowerCase(), ...rest, resolvedAt: null })
+            expect(owed()).toEqual(['closed'])
+        })
+
+        it('holds for an open row of another source the target\'s severity or env filter leaves out', function () {
+            optedIn({ severityFilter: ['high'], envFilter: 'prod' })
+            resolvedRow('closed', 'a', { ...NPM, advisoryId: GHSA, isProd: true })
+            resolvedRow('low', 'a', { ...OSV, advisoryId: GHSA, severity: 'low', isProd: true, resolvedAt: null })
+            expect(owed()).toEqual([])
+            db.delete(findings).where(eq(findings.id, 'low')).run()
+            expect(owed()).toEqual(['closed'])
+            resolvedRow('dev-only', 'a', { ...OSV, advisoryId: GHSA, isProd: false, isDev: true, resolvedAt: null })
+            expect(owed()).toEqual([])
+        })
+
+        it('reads each row of no shared evidence as its own advisory, and keeps projects, ecosystems and packages apart', function () {
+            optedIn()
+            resolvedRow('numeric', 'a', { ...NPM, advisoryId: '1234' })
+            resolvedRow('same-number', 'a', { ...GEMNASIUM, advisoryId: '1234' })
+            resolvedRow('named', 'a', { ...OSV, advisoryId: GHSA })
+            resolvedRow('other-project', 'b', { ...OSV, advisoryId: GHSA })
+            resolvedRow('other-ecosystem', 'a', { ...OSV, advisoryId: GHSA, ecosystem: 'PyPI' })
+            resolvedRow('other-package', 'a', { ...OSV, advisoryId: GHSA, packageName: 'another' })
+            const candidates = listOwedResolvedFindings(db, 't', T0, null)
+            expect(candidates).toHaveLength(6)
+            expect(new Set(candidates.map(function identity(c) { return c.identity })).size).toBe(6)
+        })
+    })
+
+    it('owes nothing to a target that never opted in', function () {
+        target()
+        resolvedRow('closed', 'a')
+        expect(listOwedResolvedFindings(db, 't', T0, null)).toEqual([])
+    })
+})
+
+describe('selectPendingEventsForTarget', function () {
+    it('selects nothing for an empty scope', function () {
+        target()
+        expect(selectPendingEventsForTarget(db, 't', T0, [])).toEqual([])
+        expect(selectPendingEventsForTarget(db, 't', T0, null)).toEqual([])
+    })
+})
+
+describe('outstandingForTarget', function () {
+    it('reads nothing outstanding as zeros, not nulls', function () {
+        expect(outstandingForTarget(db, target(), T0)).toEqual({ counts: { critical: 0, high: 0, moderate: 0, unrated: 0, low: 0, info: 0 }, severe: [] })
+    })
+
+    it('judges a group on its one grade', function () {
+        const t = target({ severityFilter: ['high'] })
+        resolvedRow('mixed-1', 'a', { resolvedAt: null, advisoryKey: 'K', severity: 'critical' })
+        resolvedRow('mixed-2', 'a', { resolvedAt: null, advisoryKey: 'K', source: 'osv', severity: 'high', packageName: 'mixed-1' })
+        const out = outstandingForTarget(db, t, T0)
+        expect(out.severe).toEqual([])
+        expect(out.counts.critical).toBe(0)
+        expect(out.counts.high).toBe(0)
+    })
+})

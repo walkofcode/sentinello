@@ -4,7 +4,7 @@ import {
     labelScanState,
     requireEcosystemId,
     resolveExportPrompt,
-    CAPABILITIES,
+    baselineCovers,
     type ExportFinding,
     type Finding,
     type LabelledScanState,
@@ -29,6 +29,7 @@ import {
     getProjectScanState,
     getScanEcosystem,
     findingScanContexts,
+    allBaselineCapabilities,
     pendingBaselineCapabilities,
     type DispatchablePair,
     type FindingScanContextLookup,
@@ -71,10 +72,12 @@ export async function notifyForCompletedScan(input: NotifyForCompletedScanInput)
     // npm events and scan failures are never held back. A scan that failed only because an advisory cache is
     // still downloading or rebuilding is not a scan failure at all: the install is not ready, the project is
     // fine, and the re-scan queued when the cache lands replaces the verdict. It records no event.
-    const silentBaselines = pendingBaselineCapabilities(input.db, CAPABILITIES)
+    const silentBaselines = pendingBaselineCapabilities(input.db, allBaselineCapabilities(input.db))
     for (const finding of input.outcome.findings) {
+        // A notice is not a vulnerability, and alerts nobody: it records no event at all.
+        if (finding.noticeKind !== null) continue
         const ecosystem = requireEcosystemId(finding.ecosystem)
-        const baseline = silentBaselines.find(function covers(c) { return c.ecosystems.includes(ecosystem) })
+        const baseline = silentBaselines.find(function covers(c) { return baselineCovers(c, finding.source, ecosystem) })
         upsertFindingEvent(input.db, {
             projectId: finding.projectId,
             source: finding.source,
@@ -83,6 +86,7 @@ export async function notifyForCompletedScan(input: NotifyForCompletedScanInput)
             advisoryId: finding.advisoryId,
             packageName: finding.packageName,
             severity: finding.severity,
+            gradeAnswers: input.outcome.gradeAnswers.get(finding.id) ?? {},
             firstScanId: input.outcome.scan.id,
             at
         })
@@ -102,7 +106,8 @@ export async function notifyForCompletedScan(input: NotifyForCompletedScanInput)
             at
         })
     }
-    // Step 2: select dispatchable pairs (event × target) for this project.
+    // Step 2: select dispatchable pairs (event × target) for this project. Per-project targets only: a run-summary
+    // target hears about these events when its run finishes (run-summary.ts).
     const pairs = selectDispatchablePairs(input.db, input.outcome.project.id, at)
     if (pairs.length === 0) return
     // Group pairs by target so each target receives one batched message per scan, not one per finding.
@@ -327,7 +332,7 @@ function indexFindingsByEventId(findings: Finding[], _projectId: string): Map<st
 // One event and the finding it describes. Kept as a pair rather than two positionally-aligned arrays:
 // the arrays could not stay aligned, because an event with no finding has to be dropped from one and not
 // the other.
-type MatchedEvent = { event: NotificationEvent; finding: Finding }
+export type MatchedEvent = { event: NotificationEvent; finding: Finding }
 
 // Resolves each event to its finding, preferring the scan that just ran and falling back to the findings
 // table. An event with no open finding — resolved since it was recorded, or belonging to a source whose
@@ -337,7 +342,7 @@ type MatchedEvent = { event: NotificationEvent; finding: Finding }
 // A finding from this scan was just re-checked by its own source. One hydrated from the table may be what a
 // failed scan retained — the event was pending when the project lost its lockfile — so it carries its
 // source's scan context and says it was not re-checked, as the portal says it.
-function matchEventsToFindings(
+export function matchEventsToFindings(
     db: DrizzleDb,
     events: NotificationEvent[],
     findingsByKey: Map<string, Finding>,
@@ -402,6 +407,7 @@ export function toExportFinding(f: Finding): ExportFinding {
         remediation: f.remediation,
         notRecheckedBecause: f.notRecheckedBecause ?? null,
         severity: f.severity,
+        noticeKind: f.noticeKind,
         advisoryId: f.advisoryId,
         advisoryTitle: f.advisoryTitle,
         advisoryUrl: f.advisoryUrl,

@@ -35,6 +35,7 @@ const FIXTURE_RELEASES: Record<string, string[]> = {
     'totally-not-malware': ['1.0.0'],
     'fixture-pkg-safe': ['1.0.0']
 }
+for (const name of ['fixture-notice', 'fixture-unrated', 'fixture-same-title']) FIXTURE_RELEASES[name] = ['1.0.0', '2.0.0']
 for (let i = 1; i <= 30; i++) FIXTURE_RELEASES['fixture-pkg-' + String(i).padStart(2, '0')] = ['1.0.0', '2.0.0']
 
 // Fixed publish dates for the fixture packages, a day apart. None of them reaches the way-out guidance

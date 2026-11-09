@@ -495,7 +495,8 @@ async function seedVulnerableLodash(): Promise<void> {
                 summary: 'Prototype pollution',
                 url: 'https://example.test/GHSA-vulnerable-lodash',
                 malicious: false,
-                withdrawn: null
+                withdrawn: null,
+                noticeKind: null
             }],
             lastModified: '2026-07-01T00:00:00Z'
         }
@@ -547,7 +548,7 @@ describe('gemnasium withdrawals', function () {
                 rows: [{
                     advisoryId: CVE, ecosystem: 'npm', packageName: 'braces', aliases: [GHSA],
                     ranges: [{ introduced: '0', fixed: null, lastAffected: '3.0.3' }], versions: [],
-                    severity: 'high', summary: 'Uncontrolled resource consumption', url: null, malicious: false, withdrawn: null
+                    severity: 'high', summary: 'Uncontrolled resource consumption', url: null, malicious: false, withdrawn: null, noticeKind: null
                 }]
             }
         })
@@ -1026,7 +1027,8 @@ describe('a polyglot tree', function () {
             summary: 'Fixture advisory',
             url: null,
             malicious: false,
-            withdrawn: null
+            withdrawn: null,
+            noticeKind: null
         }
     }
 

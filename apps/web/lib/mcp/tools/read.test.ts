@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { insertMute, muteWriteOf, setConfigValue } from '@sentinello/db'
+import { insertMute, listCurrentFindingsForProject, muteWriteOf, refreshAdvisoryKeys, setConfigValue } from '@sentinello/db'
 import { sourceEnabledKey, type EcosystemId, type Mute, type SourceId } from '@sentinello/core'
 import {
     closePortalTestDb,
@@ -13,6 +13,7 @@ import {
     T0,
     type PortalTestDb
 } from '@/lib/portal-test-db.fixture'
+import { mergeFindings } from '@/lib/merge-findings'
 import { connectMcp, jsonOf, textOf, type McpHarness } from '@/lib/mcp/mcp-client.fixture'
 
 // These tools are what an agent sees of the estate. The failure that matters is a filter that
@@ -355,6 +356,84 @@ describe('list_findings', function () {
 
     it('rejects a call with no project id', async function () {
         expect(await expectSchemaRejection('list_findings', {})).toContain('expected string, received undefined')
+    })
+})
+
+// A notice claims no grade, so a floor cannot judge it: the portal and the CLI keep it too (SENTINEL-192).
+describe('a severity floor over a notice', function () {
+    beforeEach(function seedFindings() {
+        scanProject(handle.db, 'project-1', [
+            finding({ advisoryId: 'RUSTSEC-1', packageName: 'old-pkg', severity: 'unrated', noticeKind: 'unmaintained' }),
+            finding({ advisoryId: 'CVE-LOW', packageName: 'low-pkg', severity: 'low' }),
+            finding({ advisoryId: 'CVE-CRIT', packageName: 'crit-pkg', severity: 'critical' })
+        ])
+    })
+
+    for (const minSeverity of ['high', 'critical']) {
+        it('list_findings keeps it at a ' + minSeverity + ' floor, and drops what the floor is for', async function () {
+            const rows = jsonOf<{ advisoryId: string }[]>(await mcp.call('list_findings', { projectId: 'project-1', minSeverity }))
+            expect(rows.map(function id(f) { return f.advisoryId }).sort()).toEqual(['CVE-CRIT', 'RUSTSEC-1'])
+        })
+
+        it('get_project_advisory keeps it at a ' + minSeverity + ' floor, and drops what the floor is for', async function () {
+            const text = textOf(await mcp.call('get_project_advisory', { projectId: 'project-1', minSeverity }))
+            expect(text).toContain('old-pkg')
+            expect(text).toContain('notice: unmaintained')
+            expect(text).toContain('crit-pkg')
+            expect(text).not.toContain('low-pkg')
+        })
+    }
+
+    it('still honours the other filters', async function () {
+        seedMute('mute-notice', { advisoryId: 'RUSTSEC-1', packageName: 'old-pkg' })
+        const rows = jsonOf<{ advisoryId: string }[]>(await mcp.call('list_findings', { projectId: 'project-1', minSeverity: 'high' }))
+        expect(rows.map(function id(f) { return f.advisoryId })).toEqual(['CVE-CRIT'])
+        const other = jsonOf<unknown[]>(await mcp.call('list_findings', { projectId: 'project-1', minSeverity: 'high', source: 'osv' }))
+        expect(other).toEqual([])
+    })
+})
+
+// One rule, on every surface, for a group holding both kinds (SENTINEL-191): gemnasium's scan failed and left its
+// low vulnerability, while OSV's succeeded and refreshed its own row of the advisory to a high notice.
+describe('an advisory that is a notice to one source and a vulnerability to a failed one', function () {
+    beforeEach(function seed() {
+        enableSourceCell('osv', 'npm')
+        enableSourceCell('gemnasium', 'npm')
+        const shared = { packageName: 'shared-pkg', aliases: ['GHSA-mixd-mixd-mixd'] }
+        scanProject(handle.db, 'project-1', [finding({ ...shared, advisoryId: 'CVE-MIXED', severity: 'low' })], { scanner: 'gemnasium' })
+        scanProject(handle.db, 'project-1', [], { scanner: 'gemnasium', status: 'error', reasonCode: 'gemnasium_db_unavailable' })
+        scanProject(handle.db, 'project-1', [finding({ ...shared, advisoryId: 'GHSA-mixd-mixd-mixd', severity: 'high', noticeKind: 'unsound' })], { scanner: 'osv' })
+        seedProject(handle.db, 'project-2')
+        scanProject(handle.db, 'project-2', [finding({ ...shared, projectId: 'project-2', advisoryId: 'GHSA-mixd-mixd-mixd', severity: 'high', noticeKind: 'unsound' })], { scanner: 'osv' })
+        refreshAdvisoryKeys(handle.db, [], [{ ecosystem: 'npm', packageName: 'shared-pkg' }])
+    })
+
+    it('reads low, and one vulnerability, in SQL and in the JS merge alike', async function () {
+        const [merged, ...others] = mergeFindings(listCurrentFindingsForProject(handle.db, 'project-1', T0 + 100_000))
+        expect(others).toEqual([])
+        expect(merged).toMatchObject({ severity: 'low', noticeKind: null })
+
+        const projects = jsonOf<{ id: string; severityCounts: Record<string, number> }[]>(await mcp.call('list_projects'))
+        expect(projects.find(function one(p) { return p.id === 'project-1' })?.severityCounts).toMatchObject({ high: 0, low: 1 })
+        const summary = (await mcp.call('get_dashboard_summary')).structuredContent as { severityCounts: Record<string, number> }
+        expect(summary.severityCounts).toMatchObject({ high: 0, low: 1 })
+    })
+
+    it('counts the notice only on the project where it stands alone, in list_libraries and the export alike', async function () {
+        const libraries = jsonOf<{ packageName: string; distinctAdvisories: number; distinctProjects: number; distinctNotices: number; severities: string[] }[]>(await mcp.call('list_libraries'))
+        expect(libraries.find(function one(l) { return l.packageName === 'shared-pkg' })).toMatchObject({ distinctAdvisories: 1, distinctProjects: 1, distinctNotices: 1, severities: ['low'] })
+
+        const mixed = textOf(await mcp.call('get_project_advisory', { projectId: 'project-1' }))
+        expect(mixed).toContain('— low')
+        expect(mixed).not.toContain('notice: unsound')
+        expect(textOf(await mcp.call('get_project_advisory', { projectId: 'project-2' }))).toContain('notice: unsound')
+    })
+
+    it('counts no notice at all when only the mixed project holds the advisory', async function () {
+        const twin = listCurrentFindingsForProject(handle.db, 'project-2', T0 + 100_000)[0]
+        seedMute('mute-twin', { projectId: 'project-2', scanner: 'osv', advisoryId: twin?.advisoryId, packageName: 'shared-pkg' })
+        const libraries = jsonOf<{ packageName: string; distinctNotices: number }[]>(await mcp.call('list_libraries'))
+        expect(libraries.find(function one(l) { return l.packageName === 'shared-pkg' })?.distinctNotices).toBe(0)
     })
 })
 
@@ -730,8 +809,8 @@ describe('project cannot be scanned — scanState, the counts and not re-checked
     const CANNOT_SCAN = {
         state: 'cannot_scan',
         reasons: [
-            { source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' },
-            { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' }
+            { source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile', fixHint: 'commit the lockfile your package manager writes' },
+            { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile', fixHint: 'commit the lockfile your package manager writes' }
         ]
     }
 
@@ -761,6 +840,16 @@ describe('project cannot be scanned — scanState, the counts and not re-checked
     })
 
     // issue-037: a field an agent receives is described where the agent reads it.
+    it('describes the notice floors, the new fields and every project state a retained row can read', async function () {
+        const findings = await mcp.describeTool('list_findings')
+        for (const said of ['noticeKind', 'fixKind', "'untagged_commit'", "'unrated'", 'source_not_applicable', "'scanned' (every expected source answered", "'not_scanned_yet' (no expected source"]) {
+            expect(findings).toContain(said)
+        }
+        expect(await mcp.describeTool('list_libraries')).toContain('distinctNotices')
+        expect(await mcp.describeTool('get_dashboard_summary')).toContain("'unrated' as a bucket")
+        expect(await mcp.describeTool('get_project_advisory')).toContain('A notice (unmaintained, unsound)')
+    })
+
     it('describes scanState, the counts and notRecheckedBecause in the tool descriptions', async function () {
         for (const tool of ['list_projects', 'get_project']) {
             const description = await mcp.describeTool(tool)

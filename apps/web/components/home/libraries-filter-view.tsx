@@ -172,7 +172,10 @@ export function LibrariesFilterView({ libraries, depType, defaultDepType }: Prop
                                     </div>
                                     <dl className="mt-3 grid grid-cols-[8.5rem_1fr] gap-x-3 gap-y-1.5 text-xs">
                                         <dt className="uppercase tracking-wide text-muted-foreground">{t('colAdvisories')}</dt>
-                                        <dd className="font-mono">{lib.distinctAdvisories}</dd>
+                                        <dd className="font-mono">
+                                            {lib.distinctAdvisories}
+                                            {lib.distinctNotices > 0 ? <span className="ml-1 text-muted-foreground">{t('libraryNoticeCount', { count: lib.distinctNotices })}</span> : null}
+                                        </dd>
                                         <dt className="uppercase tracking-wide text-muted-foreground">{t('colAffectedProjects')}</dt>
                                         <dd className="font-mono">{lib.distinctProjects}</dd>
                                     </dl>
@@ -209,7 +212,10 @@ export function LibrariesFilterView({ libraries, depType, defaultDepType }: Prop
                                                 </Link>
                                             </TableCell>
                                             <TableCell><EcosystemBadge ecosystem={lib.ecosystem} /></TableCell>
-                                            <TableCell>{lib.distinctAdvisories}</TableCell>
+                                            <TableCell>
+                                                {lib.distinctAdvisories}
+                                                {lib.distinctNotices > 0 ? <span className="ml-1 text-xs text-muted-foreground">{t('libraryNoticeCount', { count: lib.distinctNotices })}</span> : null}
+                                            </TableCell>
                                             <TableCell>{lib.distinctProjects}</TableCell>
                                             <TableCell>
                                                 {maxSev ? <SeverityPill variant={maxSev} size="sm" /> : '—'}

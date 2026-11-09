@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { ExternalLink } from 'lucide-react'
 import type { LibraryProjectUsage } from '@sentinello/db'
-import { compareSeverity, severityWeight, type Mute, type Severity } from '@sentinello/core'
+import { compareSeverity, outranksSeverity, type Mute, type Severity } from '@sentinello/core'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { SeverityPill } from '@/components/ui/severity-pill'
@@ -47,7 +47,7 @@ function groupByProject(usages: LibraryProjectUsage[]): ProjectGroup[] {
         const installedVersions = Array.from(new Set(rows.map(function pickVer(r) { return r.installedVersion })))
         let maxSev: Severity = head.severity as Severity
         for (const r of rows) {
-            if (severityWeight(r.severity) > severityWeight(maxSev)) {
+            if (outranksSeverity(r.severity, maxSev)) {
                 maxSev = r.severity as Severity
             }
         }

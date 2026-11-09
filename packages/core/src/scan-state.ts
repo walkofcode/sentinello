@@ -36,6 +36,7 @@ export const REASON_SIDE: Record<Exclude<ReasonCode, 'ok'>, ScanStateSide> = {
     gemnasium_db_not_seeded: 'environment',
     gemnasium_db_unavailable: 'environment',
     ecosystem_source_disabled: 'environment',
+    source_not_applicable: 'environment',
     timeout: 'environment'
 }
 

@@ -18,13 +18,16 @@ type NpmLockEntry = {
     devDependencies?: Record<string, string>
 }
 type NpmLockDoc = {
+    lockfileVersion?: unknown
     packages?: Record<string, NpmLockEntry>
 }
 
 // package-lock.json resolver. npm marks each `packages[nodePath]` with a `dev`/`devOptional` flag we
 // trust, then we force any name listed under the root package.json `dependencies` back to prod (a direct
 // prod dep should always read as prod even when a dev tree shares the same node). Returns null on
-// read/parse failure so the caller fails open.
+// read/parse failure so the caller fails open, and for a lockfileVersion 1 file: that format predates the
+// `packages` map, and reading it as an empty graph told every feed source the project had nothing installed
+// (SENTINEL-173). npm audit still reads it; here the lockfile is present and unsupported (isNpmLockV1).
 export async function parseNpmLock(projectPath: string, absolutePath: string, manifestPath: string): Promise<ResolvedGraph | null> {
     let text: string
     try {
@@ -40,6 +43,7 @@ export async function parseNpmLock(projectPath: string, absolutePath: string, ma
     }
     if (!parsed || typeof parsed !== 'object') return null
     const doc = parsed as NpmLockDoc
+    if (doc.lockfileVersion === 1) return null
     const packages = doc.packages || {}
     const direct = await readDirectDeps(projectPath)
     const out: ResolvedPackage[] = []
@@ -78,6 +82,15 @@ export async function parseNpmLock(projectPath: string, absolutePath: string, ma
         })
     }
     return makeGraph(out, doc.packages ? buildNodeGraph(packages) : null)
+}
+
+// Why parseNpmLock had nothing to say about a file, when the reason is its format.
+export async function isNpmLockV1(absolutePath: string): Promise<boolean> {
+    try {
+        return (JSON.parse(await readFile(absolutePath, 'utf8')) as NpmLockDoc | null)?.lockfileVersion === 1
+    } catch {
+        return false
+    }
 }
 
 // The lock's node graph. Every `node_modules/...` entry is a node keyed by its lock path; the project

@@ -1,4 +1,5 @@
 import type { OsvAdvisoryLink } from '@sentinello/core'
+import { isRefused, versionInSet, type VersionComparator } from '@sentinello/versions'
 import type { GemnasiumAdvisory } from './gemnasium'
 
 // gemnasium-db has no withdrawn field, so an advisory GitHub withdrew stays live there indefinitely (its
@@ -26,7 +27,9 @@ import type { GemnasiumAdvisory } from './gemnasium'
 export function stampWithdrawn(advisories: readonly GemnasiumAdvisory[], links: readonly OsvAdvisoryLink[]): GemnasiumAdvisory[] {
     return advisories.map(function stamp(advisory): GemnasiumAdvisory {
         const withdrawn = withdrawnAt(advisory, links)
-        return withdrawn === null ? advisory : { ...advisory, withdrawn }
+        if (withdrawn !== null) return { ...advisory, withdrawn }
+        const osvRecords = liveLinks(advisory, links)
+        return osvRecords.length === 0 ? advisory : { ...advisory, osvRecords }
     })
 }
 
@@ -41,6 +44,40 @@ export function stampWithdrawnByPackage(
         out.set(name, stampWithdrawn(advisories, linksByPackage.get(name) ?? []))
     }
     return out
+}
+
+// The linked OSV records still live: the second opinion clearedByOsv reads after matching.
+function liveLinks(advisory: GemnasiumAdvisory, links: readonly OsvAdvisoryLink[]): OsvAdvisoryLink[] {
+    const identity = new Set<string>([advisory.advisoryId, ...advisory.aliases])
+    return links.filter(function live(link) { return link.withdrawn === null && sharesIdentifier(identity, link) })
+}
+
+// gemnasium's ranges go stale where upstream renumbered: it says u-root `<=7.0.0`, and u-root's newer releases
+// sort below 7.0.0, so the current v0.14.0 reads as affected by CVEs fixed in 0.9.0 (SENTINEL-169). When OSV has
+// a live record of the same advisory for this package, and none of those records contains the installed
+// version, OSV has cleared it and the match is dropped.
+//
+// Clearing takes proof. No linked record means OSV has nothing to say, and gemnasium stands alone. A version no
+// comparator can read, a record with no version data, an enumerated version it cannot read, a refused range part,
+// a range of a type this comparator may not evaluate and a range the normalizer had to discard each count as
+// containing the version: an incomplete affected set never clears anything. Same complete-snapshot contract as the
+// stamp above, since these records are stamped with it.
+export function clearedByOsv(records: readonly OsvAdvisoryLink[] | undefined, version: string, comparator: VersionComparator, acceptedRangeTypes: readonly string[]): boolean {
+    if (records === undefined || records.length === 0) return false
+    if (comparator.normalize(version) === null) return false
+    return !records.some(function contains(record) {
+        if (record.rangesDiscarded === true) return true
+        if (record.ranges.length === 0 && record.versions.length === 0) return true
+        if (record.versions.includes(version)) return true
+        if (record.ranges.some(function unreadable(range) { return isRefused(range) || range.type === undefined || !acceptedRangeTypes.includes(range.type) })) return true
+        const exact = new Set<string>()
+        for (const raw of record.versions) {
+            const normalized = comparator.normalize(raw)
+            if (normalized === null) return true
+            exact.add(normalized)
+        }
+        return versionInSet(version, record.ranges, exact, comparator, undefined)
+    })
 }
 
 function withdrawnAt(advisory: GemnasiumAdvisory, links: readonly OsvAdvisoryLink[]): number | null {

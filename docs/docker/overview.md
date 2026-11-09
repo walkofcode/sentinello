@@ -230,12 +230,25 @@ Notification language** (default English), since a notification has no per-viewe
 
 Configure targets in **Settings → Notifications**: **Slack**, **Telegram**, or a generic
 **webhook**. Each target has a severity filter and a **scope** — "everything", or specific **roots**
-and/or individual **projects**. One message is sent per project per scan.
+and/or individual **projects**. Per target, you also choose what it receives:
+
+- **Per-project messages**, the default: one message per project per scan.
+- **Run summary** (off by default), instead of those: one message per scheduled sweep or manual scan,
+  with CRITICAL and HIGH listed by project and package, the rest as counts, resolved items, newly
+  unscannable projects and a portal link. Nothing new means no message, and lockfile-watcher scans wait
+  for the next scheduled sweep. Telegram's lists are cut to its 4096 characters; counts never are.
+- **Weekly digest** (on by default): one message a week, also when nothing is outstanding. Day and hour
+  are set once in **Settings → Notifications** (default Monday 09:00), in the schedule's timezone.
+
+A project under a project mute triggers nothing and appears in neither. Switching a source on in
+**Settings → Sources** after a scan has run is told as one message per target, not one per finding.
 
 The generic webhook offers two **payload flavors**: **Structured JSON** (`{ root, project,
 vulnerabilities[] }`, each vulnerability carrying library, version, recommended version, severity and
 advisory — ready for an auto-fix agent), or **Plain-text advisory** (`{ "text": "<markdown>" }`, the
-same advisory export the portal produces, ready to feed an LLM). Slack/Telegram credentials may be
+same advisory export the portal produces, ready to feed an LLM). The summaries post `"event": "run_summary"`
+or `"weekly_digest"` with `counts`, `listed`, `resolved`, `unscannable` and `locale`, or their message text in the
+plain-text flavor. Slack/Telegram credentials may be
 literals or `env:NAME` references; **generic webhook URLs and headers are sent literally** (no `env:`
 resolution), so a webhook can't be used to read the container environment.
 

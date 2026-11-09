@@ -124,7 +124,7 @@ function projectSummary(overrides: Partial<RunSummary['projects'][number]> = {})
         name: 'web',
         relPath: 'web',
         findingCount: 0,
-        counts: { critical: 0, high: 0, moderate: 0, low: 0, info: 0 },
+        counts: { critical: 0, high: 0, moderate: 0, unrated: 0, low: 0, info: 0 },
         unauditable: [],
         scanState: { state: 'scanned', reasons: [] },
         ...overrides
@@ -135,7 +135,8 @@ function summary(overrides: Partial<RunSummary> = {}): RunSummary {
     return {
         projects: [],
         totalFindings: 0,
-        counts: { critical: 0, high: 0, moderate: 0, low: 0, info: 0 },
+        notices: [],
+        counts: { critical: 0, high: 0, moderate: 0, unrated: 0, low: 0, info: 0 },
         findings: [],
         ...overrides
     } as RunSummary
@@ -179,11 +180,11 @@ describe('summary — a project that cannot be scanned is never clean', function
     it('counts both kinds beside the findings, pluralised', function () {
         ui().summary(summary({
             totalFindings: 1,
-            counts: { critical: 0, high: 1, moderate: 0, low: 0, info: 0 },
+            counts: { critical: 0, high: 1, moderate: 0, unrated: 0, low: 0, info: 0 },
             projects: [
                 projectSummary({ relPath: 'a', scanState: CANNOT }),
                 projectSummary({ relPath: 'b', scanState: CANNOT }),
-                projectSummary({ relPath: 'c', scanState: PARTIAL, findingCount: 1, counts: { critical: 0, high: 1, moderate: 0, low: 0, info: 0 } })
+                projectSummary({ relPath: 'c', scanState: PARTIAL, findingCount: 1, counts: { critical: 0, high: 1, moderate: 0, unrated: 0, low: 0, info: 0 } })
             ]
         }), null)
         expect(out()).toContain('2 projects cannot be scanned · 1 project cannot be fully scanned')
@@ -845,7 +846,7 @@ describe('summary', function () {
     it('breaks the total down by severity, worst first, omitting empty buckets', function () {
         ui().summary(summary({
             totalFindings: 7,
-            counts: { critical: 1, high: 0, moderate: 4, low: 2, info: 0 },
+            counts: { critical: 1, high: 0, moderate: 4, unrated: 0, low: 2, info: 0 },
             projects: []
         }), null)
         const text = out()
@@ -865,12 +866,12 @@ describe('summary', function () {
         const status = function status(fixStatus: string) { return { fixStatus } as RunSummary['findings'][number] }
         ui().summary(summary({
             totalFindings: 4,
-            counts: { critical: 0, high: 4, moderate: 0, low: 0, info: 0 },
+            counts: { critical: 0, high: 4, moderate: 0, unrated: 0, low: 0, info: 0 },
             findings: [status('released'), status('none_released'), status('none_released'), status('unverified')]
         }), null)
         expect(out()).toContain('1 with a released fix · 2 with no released fix · 1 not checked against the registry')
         written.length = 0
-        ui().summary(summary({ totalFindings: 1, counts: { critical: 0, high: 1, moderate: 0, low: 0, info: 0 }, findings: [status('none_released')] }), null)
+        ui().summary(summary({ totalFindings: 1, counts: { critical: 0, high: 1, moderate: 0, unrated: 0, low: 0, info: 0 }, findings: [status('none_released')] }), null)
         expect(out()).toContain('1 with no released fix')
         expect(out()).not.toContain('released fix ·')
         expect(out()).not.toContain('not checked')
@@ -879,7 +880,7 @@ describe('summary', function () {
     it('singularises a lone finding', function () {
         ui().summary(summary({
             totalFindings: 1,
-            counts: { critical: 0, high: 1, moderate: 0, low: 0, info: 0 },
+            counts: { critical: 0, high: 1, moderate: 0, unrated: 0, low: 0, info: 0 },
             projects: []
         }), null)
         expect(out()).toContain('1 finding ')
@@ -897,9 +898,9 @@ describe('summary', function () {
     it('lists each project that has findings and skips the clean ones', function () {
         ui().summary(summary({
             totalFindings: 3,
-            counts: { critical: 0, high: 3, moderate: 0, low: 0, info: 0 },
+            counts: { critical: 0, high: 3, moderate: 0, unrated: 0, low: 0, info: 0 },
             projects: [
-                projectSummary({ relPath: 'web', findingCount: 3, counts: { critical: 0, high: 3, moderate: 0, low: 0, info: 0 } }),
+                projectSummary({ relPath: 'web', findingCount: 3, counts: { critical: 0, high: 3, moderate: 0, unrated: 0, low: 0, info: 0 } }),
                 projectSummary({ relPath: 'clean-one' })
             ]
         }), null)
@@ -918,6 +919,21 @@ describe('summary', function () {
         ui().summary(summary(), null)
         expect(out()).not.toContain('Advisory written to')
     })
+
+    // A notice sits in no count, so this line is the only thing in the summary that says one exists.
+    it('names the notices apart from the counts, singular and plural, and is silent with none', function () {
+        function notices(count: number): RunSummary['notices'] {
+            return Array.from({ length: count }, function notice() { return {} }) as RunSummary['notices']
+        }
+        ui().summary(summary({ notices: notices(1) }), null)
+        expect(out()).toContain('1 notice (unmaintained, unsound), not vulnerabilities: listed in the report, in no count above.')
+        written.length = 0
+        ui().summary(summary({ notices: notices(2) }), null)
+        expect(out()).toContain('2 notices (unmaintained, unsound), not vulnerabilities: listed in the report, in no count above.')
+        written.length = 0
+        ui().summary(summary(), null)
+        expect(out()).not.toContain('notice')
+    })
 })
 
 describe('colour', function () {
@@ -934,7 +950,7 @@ describe('colour', function () {
     it('gives each severity its own colour', function () {
         ui({ color: true }).summary(summary({
             totalFindings: 5,
-            counts: { critical: 1, high: 1, moderate: 1, low: 1, info: 1 },
+            counts: { critical: 1, high: 1, moderate: 1, unrated: 0, low: 1, info: 1 },
             projects: []
         }), null)
         const text = out()

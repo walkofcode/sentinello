@@ -202,10 +202,10 @@ describe('pickSeverity, pickFixAvailability, pickVulnerableRange', function () {
     // The default is 'moderate', not 'info': npm has told us there IS a vulnerability and only withheld
     // its grade, so calling it informational is a downgrade of our own invention that drops it out of
     // every filter set above the floor.
-    it('prefers the via severity over the vulnerability severity, defaulting to moderate', function () {
+    it('prefers the via severity over the vulnerability severity, defaulting to unrated', function () {
         expect(pickSeverity(via({ severity: 'critical' }), vuln({ severity: 'low' }))).toBe('critical')
         expect(pickSeverity(via(), vuln({ severity: 'low' }))).toBe('low')
-        expect(pickSeverity(via(), vuln())).toBe('moderate')
+        expect(pickSeverity(via(), vuln())).toBe('unrated')
     })
 
     it('reads fix availability from all three shapes', function () {
@@ -512,7 +512,7 @@ describe('normalizePnpmAuditOutput — the pnpm shape', function () {
             packageName: 'lodash',
             installedVersion: '',
             vulnerableRange: '',
-            severity: 'moderate',
+            severity: 'unrated',
             fixAvailable: false,
             fixVersion: null,
             depPath: []
@@ -836,7 +836,7 @@ describe('normalizePnpmAuditOutput — the remaining arms', function () {
         expect(out[0]?.depPath).toEqual([])
     })
 
-    it('defaults a missing severity to moderate rather than dropping the advisory', function () {
+    it('defaults a missing severity to unrated rather than dropping the advisory', function () {
         const doc = pnpmDoc({
             1234: {
                 id: 1234,
@@ -847,7 +847,7 @@ describe('normalizePnpmAuditOutput — the remaining arms', function () {
                 findings: [{ version: '4.17.11', paths: ['lodash'] }]
             }
         })
-        expect(normalizePnpmAuditOutput(doc, PROD_CLASSIFIER)[0]?.severity).toBe('moderate')
+        expect(normalizePnpmAuditOutput(doc, PROD_CLASSIFIER)[0]?.severity).toBe('unrated')
     })
 
     // A grade npm has never emitted before must cost that one advisory its precision, not cost the
@@ -873,7 +873,7 @@ describe('normalizePnpmAuditOutput — the remaining arms', function () {
         expect(result.success).toBe(true)
         const out = normalizePnpmAuditOutput(result.data as PnpmAudit, PROD_CLASSIFIER)
         expect(out).toHaveLength(1)
-        expect(out[0]?.severity).toBe('moderate')
+        expect(out[0]?.severity).toBe('unrated')
     })
 
     // The leniency must catch an unreadable value WITHOUT also filling in an absent one. z.optional

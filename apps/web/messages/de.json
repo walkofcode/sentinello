@@ -169,7 +169,8 @@
         "stateSideEnvironment": "diese Sentinello-Installation",
         "stateSourceDisabled": "Keine Quelle für {languages} aktiviert",
         "sourceDisabledNotice": "{count, plural, one {# Projekt hat} other {# Projekte haben}} keine aktivierte Quelle für {languages}, daher {count, plural, one {wird es} other {werden sie}} nicht gescannt.",
-        "sourceDisabledAction": "Aktiviere eine unter Einstellungen → Quellen"
+        "sourceDisabledAction": "Aktiviere eine unter Einstellungen → Quellen",
+        "libraryNoticeCount": "{count, plural, one {+ # Hinweis} other {+ # Hinweise}}"
     },
     "WhatsNew": {
         "pillLabel": "Neuigkeiten",
@@ -299,7 +300,22 @@
             "webhookFlavor": "Payload-Format",
             "webhookFlavorJson": "Strukturiertes JSON",
             "webhookFlavorText": "Klartext-Advisory",
-            "webhookFlavorHelp": "JSON sendet Root, Projekt und Schwachstellen für einen Auto-Fix-Agenten. Klartext sendet den Advisory-Export, bereit für ein LLM."
+            "webhookFlavorHelp": "JSON sendet Root, Projekt und Schwachstellen für einen Auto-Fix-Agenten. Klartext sendet den Advisory-Export, bereit für ein LLM.",
+            "messages": "Nachrichten",
+            "runSummary": "Laufzusammenfassung",
+            "runSummaryHelp": "Eine Nachricht pro geplantem oder manuellem Scan-Lauf, mit allem Neuen über alle Projekte. Dieses Ziel erhält keine Nachrichten pro Projekt mehr.",
+            "weeklyDigest": "Wochenübersicht",
+            "weeklyDigestHelp": "Eine Nachricht pro Woche mit allem, was offen ist, auch wenn nichts offen ist.",
+            "deliveryPerProject": "Pro Projekt",
+            "deliveryRunSummary": "Laufzusammenfassung",
+            "digestOn": "Wochenübersicht an",
+            "digestOff": "Wochenübersicht aus",
+            "digestSchedule": {
+                "title": "Zeitplan der Wochenübersicht",
+                "day": "Tag",
+                "hour": "Stunde",
+                "help": "Wird an jedes Ziel mit aktiver Wochenübersicht gesendet, zu dieser Zeit in der Zeitzone des Zeitplans ({timezone})."
+            }
         },
         "sources": {
             "metaTitle": "Quellen · Einstellungen",
@@ -389,6 +405,7 @@
             "scanRetentionDaysHelp": "Ältere Scan-Einträge werden gelöscht, mit Ausnahme der 100 neuesten pro Projekt, die immer erhalten bleiben. Funde, Stummschaltungen und der Benachrichtigungsverlauf bleiben unberührt — nur das Scan-Protokoll. Projektseiten zeigen dann einen kürzeren Scan-Verlauf.",
             "portalBaseUrl": "Portal-Basis-URL (verwendet in Benachrichtigungs-Deeplinks)",
             "globalIgnore": "Globale Ignoriermuster (eines pro Zeile)",
+            "globalIgnoreHelp": "Gitignore-Syntax, relativ zu jedem Root. Befunde unter einem ausgeschlossenen Pfad werden ohne Alarm aufgelöst. Ein ganz ausgeschlossenes Projekt wird entfernt, samt Stummschaltungen und Verlauf.",
             "watcherLabel": "Lockfile-Watcher (Scan bei Änderung) — Hauptschalter. Der Worker reiht eine scan_request ein, wenn sich eine überwachte Lockfile ändert.",
             "watchedRoots": "Überwachte Wurzeln (Opt-in pro Wurzel)",
             "noRoots": "Noch keine Wurzeln konfiguriert. Fügen Sie zuerst unter Einstellungen → Wurzeln eine Wurzel hinzu.",
@@ -440,7 +457,8 @@
             "selected": "Ausgewählte Quellen",
             "selectedHelp": "Nur für die unten ausgewählten Quellen-/Sprachzellen benachrichtigen.",
             "selectionError": "Wählen Sie mindestens eine Zelle aus oder wählen Sie „Alle Quellen“."
-        }
+        },
+        "severityModerateAndUnrated": "Moderat und unbewertet"
     },
     "Findings": {
         "columns": {
@@ -533,12 +551,17 @@
         },
         "notRecheckedCannotScan": "nicht erneut geprüft — das Projekt kann nicht gescannt werden: {reason}",
         "notRecheckedPartial": "nicht erneut geprüft — das Projekt kann nicht vollständig gescannt werden: {reason}",
+        "notRecheckedOnly": "nicht erneut geprüft — {reason}",
         "notRecheckedCopies": "Kopien in {manifests} nicht erneut geprüft — das Projekt kann nicht vollständig gescannt werden: {reason}",
         "chainUnknown": "Kette unbekannt",
         "chainUnknownHint": "Die Lockdatei enthält keinen Abhängigkeitsgraphen, daher ist unbekannt, was dieses Paket einbindet. Das heißt nicht, dass es keinen Ausweg gibt.",
         "installedThrough": "in {manifests}",
         "lastScannedSuccessfully": "zuletzt erfolgreich gescannt am {date}",
-        "neverScannedSuccessfully": "nie erfolgreich gescannt"
+        "neverScannedSuccessfully": "nie erfolgreich gescannt",
+        "noticesHeading": "{count, plural, one {# Hinweis} other {# Hinweise}}",
+        "noticesHelp": "Keine Schwachstellen: Die Meldung besagt, dass das Paket nicht gewartet wird, unsound ist oder Beachtung verdient. Sie zählen in keiner Summe und alarmieren niemanden.",
+        "noticeNoFix": "Kein Fix zu verfolgen",
+        "fixUntaggedCommit": "Commit ohne Tag: Kein getaggtes Release enthält den Fix"
     },
     "Triage": {
         "alias": {
@@ -673,7 +696,7 @@
             },
             "notifications": {
                 "purpose": "Sendet die Funde, für die du Benachrichtigungen eingerichtet hast — Projektname, Git-Branch, Paket und Version, Schweregrad, Advisory-ID und ein Link zurück zu diesem Portal",
-                "when": "Wenn ein Scan einen neuen Fund, einen behobenen Fund oder einen Scan-Fehler ergibt",
+                "when": "Ein neuer Fund oder ein Scan-Fehler: pro Projekt, oder in einer Laufzusammenfassung, wenn das Ziel sie gewählt hat. Dazu die Wochenübersicht, standardmäßig an, am hier eingestellten Tag und zur hier eingestellten Stunde",
                 "disable": "Einstellungen → Benachrichtigungen — es existiert keine, bis du eine hinzufügst"
             },
             "pypi": {
@@ -771,11 +794,14 @@
             },
             "cannotScanTitle": "Projekt kann nicht gescannt werden",
             "cannotScanBody": "Keine Quelle konnte dieses Projekt lesen. Die Befunde unten stammen aus einem früheren Scan und wurden nicht erneut geprüft; null Befunde bedeuten hier unbekannt, nicht sicher.",
+            "cannotScanBodyNoFindings": "Keine Quelle konnte dieses Projekt lesen, daher wurde nichts geprüft; null Befunde bedeuten hier unbekannt, nicht sicher.",
             "partialScanTitle": "Projekt kann nicht vollständig gescannt werden",
             "partialScanBody": "Ein Teil dieses Projekts konnte nicht gescannt werden, daher sind seine Befunde möglicherweise unvollständig. Befunde einer Quelle, die es nicht scannen konnte, wurden nicht erneut geprüft.",
+            "partialScanBodyNoEarlier": "Ein Teil dieses Projekts konnte nicht gescannt werden, daher sind seine Befunde möglicherweise unvollständig.",
             "scanReasonSideProject": "auf Seiten des Projekts: Eine Datei im Projekt verhindert, dass es gelesen wird, und sie dort zu ändern ist die Lösung",
             "scanReasonSideEnvironment": "auf Seiten dieser Sentinello-Installation: Die Installation konnte den Scan nicht durchführen, die Lösung liegt beim Betreiber",
             "scanReasonNotYetRun": "noch hat nichts nachgesehen: Der nächste Scan tut es",
+            "scanReasonFix": "So beheben: {fix}",
             "sourceDisabledReason": "Keine Quelle für {languages} aktiviert",
             "sourceDisabledAction": "Aktiviere eine unter Einstellungen → Quellen",
             "noFindingsUnknownTitle": "Keine Befunde erfasst",

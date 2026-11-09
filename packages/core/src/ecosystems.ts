@@ -84,7 +84,7 @@ export const ECOSYSTEMS: EcosystemDefinition[] = [
         status: 'stable',
         osvEcosystem: 'npm',
         gemnasiumPackageType: 'npm',
-        resolverKinds: ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock'],
+        resolverKinds: ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'],
         manifestKinds: ['package.json'],
         comparator: 'semver',
         wayOut: true,
@@ -204,6 +204,15 @@ export function sourceSupportsEcosystem(source: SourceId, ecosystem: EcosystemId
     return def.supportedEcosystems === null || def.supportedEcosystems.includes(ecosystem)
 }
 
+// Whether a source can answer for a project under this package manager. `npm audit` reads the project's
+// npm, pnpm or yarn lockfile and cannot read Bun's, so a Bun project never expects it: no scan is attempted,
+// and it never leaves the project partial. Every other source answers from the resolved graph, whatever
+// manager wrote the lockfile. The one statement of the rule, used by the runner's cell loop, the scan state's
+// expected cells and the CLI.
+export function sourceAppliesToPackageManager(source: string, packageManager: string): boolean {
+    return !(source === 'npm-audit' && packageManager === 'bun')
+}
+
 // The source ids that can answer for one ecosystem, in SOURCE_IDS (dedup-priority) order.
 export function sourcesForEcosystem(ecosystem: EcosystemId): SourceId[] {
     const out: SourceId[] = []
@@ -286,6 +295,8 @@ const MANIFEST_PACKAGE_MANAGERS: Record<string, PackageManager> = {
     'package-lock.json': 'npm',
     'pnpm-lock.yaml': 'pnpm',
     'yarn.lock': 'yarn',
+    'bun.lock': 'bun',
+    'bun.lockb': 'bun',
     'package.json': 'unknown',
     'poetry.lock': 'poetry',
     'Pipfile.lock': 'pipenv',

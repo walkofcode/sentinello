@@ -1,4 +1,4 @@
-import { DEFAULT_ECOSYSTEM, escalatedSeverity, requireComparator, type FindingCorroboration, type FindingInstallation, type Severity } from '@sentinello/core'
+import { DEFAULT_ECOSYSTEM, escalatedSeverity, maxSeverity, requireComparator, type FindingCorroboration, type FindingInstallation, type Severity } from '@sentinello/core'
 import { compareVersions, highestVersion } from '@sentinello/versions'
 import type { RawFinding } from '../types'
 import type { FixEvidence } from '../version-fix'
@@ -90,6 +90,12 @@ export function reconcileAgainstReported(
             // (ios/ and android/ Gemfile.locks) or another copy in one lockfile. Still one finding: it lists
             // every installation. That is not agreement, so it is not a corroboration either.
             foldInstallation(target.finding, finding)
+            // Or two records of one source naming one vulnerability (RUSTSEC-x aliasing GHSA-y): whichever
+            // came first, the row states the worst grade either gave, so a GHSA's HIGH is not lost behind an
+            // ungraded record. The survivor is re-graded the same way as a corroborated one.
+            target.severity = maxSeverity([target.severity, finding.severity])
+            target.finding.severity = escalatedSeverity(target.severity, target.finding.corroborations ?? [])
+            clearNoticeWhenReal(target.finding, finding)
             target.evidence.push(finding.fixInputs)
             continue
         }
@@ -105,6 +111,7 @@ export function reconcileAgainstReported(
             if (!attached.some(function already(c) { return c.source === by.source })) attached.push(by)
             target.finding.corroborations = attached
             target.finding.severity = escalatedSeverity(target.severity, attached)
+            clearNoticeWhenReal(target.finding, finding)
             // A second source: its evidence still bears on the fix even though it is not a second finding.
             target.evidence.push(finding.fixInputs)
             continue
@@ -152,6 +159,12 @@ function foldInstallation(survivor: RawFinding, copy: RawFinding): void {
 
 function installationsOf(finding: RawFinding): FindingInstallation[] {
     return finding.installations ? finding.installations.slice() : []
+}
+
+// Anyone reporting it as a vulnerability makes it one: a RUSTSEC `unsound` notice that a GHSA also lists is
+// not hidden from the counts because the notice record happened to be read first.
+function clearNoticeWhenReal(survivor: RawFinding, other: RawFinding): void {
+    if (!other.noticeKind) survivor.noticeKind = null
 }
 
 function firstReported(existing: Map<string, ReportedAdvisory>, keys: string[]): ReportedAdvisory | null {

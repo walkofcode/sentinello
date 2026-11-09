@@ -14,21 +14,26 @@ import {
     enqueueScanRequest,
     enqueueWorkerSignal,
     getRunnableSourceCells,
+    getSourceEnabled,
     getNotificationTargetById,
     getRootById,
     getRootByPath,
     insertNotificationTarget,
     listProjects,
     listRoots,
+    recordSourceCellDisabled,
+    recordSourceCellEnabled,
     rootId,
     selectInFlightScanRequests,
     setConfigValue,
+    setNotificationTargetDelivery,
     setNotificationTargetEnabled,
     setTargetProjects,
     setTargetRoots,
     updateNotificationTarget,
     updateRootLabel,
     upsertRoot,
+    WEEKLY_DIGEST_CONFIG_KEY,
     type DrizzleDb
 } from '@sentinello/db'
 import type {
@@ -37,14 +42,15 @@ import type {
     NotificationTarget,
     NotificationTargetConfig,
     NotificationTargetKind,
-    Severity
+    Severity,
+    TargetDelivery,
+    WeeklyDigestSchedule
 } from '@sentinello/core'
-import { errText, getEcosystem, getSource, sourceEnabledKey, sourceSupportsEcosystem, type EcosystemId, type SourceId } from '@sentinello/core'
+import { errText, getEcosystem, getSource, isEcosystemStable, sourceEnabledKey, sourceSupportsEcosystem, TARGET_SEVERITY_VALUES, type EcosystemId, type SourceId } from '@sentinello/core'
 import { senderFor } from '@sentinello/notifications'
 import { getDb } from '@/lib/db'
 import { run, UserFacingError, type ActionResult } from '@/lib/actions/action-result'
 
-const SEVERITY_VALUES = ['critical', 'high', 'moderate', 'low', 'info'] as const
 
 // --- Roots ---
 
@@ -172,7 +178,8 @@ export async function updateScheduleAction(intervalHours: number, startHour = 0,
 
 // --- Notifications ---
 
-const severityFilterSchema = z.array(z.enum(SEVERITY_VALUES)).min(1)
+// A stored filter never holds `unrated`: moderate covers it (severityInFilter), so this refuses the value.
+const severityFilterSchema = z.array(z.enum(TARGET_SEVERITY_VALUES)).min(1)
 
 const targetConfigSchemas: Record<NotificationTargetKind, z.ZodTypeAny> = {
     slack: z.object({ webhookUrl: z.string().min(1) }),
@@ -195,6 +202,13 @@ const sourceScopeSchema = z
         cells: z.array(z.object({ source: z.string().min(1), ecosystem: z.string().min(1) })).default([])
     })
     .default({ mode: 'all', cells: [] })
+
+const deliverySchema = z.enum(['per_project', 'run_summary'])
+
+// One target's own delivery, once its scope rows are in place: opting in seeds what it already knows from that scope.
+function applyDelivery(db: DrizzleDb, targetId: string, delivery: TargetDelivery): void {
+    setNotificationTargetDelivery(db, getNotificationTargetById(db, targetId) as NotificationTarget, delivery, Date.now())
+}
 
 // Guards that every id refers to a real root. Empty list is fine (= "all roots"). Throws on the
 // first unknown id rather than silently dropping it — operators should see a clear error if the UI
@@ -225,6 +239,8 @@ export async function upsertNotificationTargetAction(input: {
     rootIds: string[]
     projectIds: string[]
     sourceScope?: NotificationSourceScope
+    delivery?: TargetDelivery
+    weeklyDigest?: boolean
 }): Promise<void> {
     const schema = targetConfigSchemas[input.kind]
     schema.parse(input.config)
@@ -233,6 +249,9 @@ export async function upsertNotificationTargetAction(input: {
     const rootIds = rootIdsSchema.parse(input.rootIds)
     const projectIds = projectIdsSchema.parse(input.projectIds)
     const sourceScope = sourceScopeSchema.parse(input.sourceScope) as NotificationSourceScope
+    // Per-project messages and the weekly digest are every target's default.
+    const delivery = deliverySchema.parse(input.delivery ?? 'per_project')
+    const weeklyDigest = z.boolean().parse(input.weeklyDigest ?? true)
     const db = getDb()
     validateRootIds(db, rootIds)
     validateProjectIds(db, projectIds)
@@ -246,11 +265,15 @@ export async function upsertNotificationTargetAction(input: {
         createdAt: Date.now(),
         rootIds,
         projectIds,
-        sourceScope
+        sourceScope,
+        delivery: 'per_project',
+        weeklyDigest,
+        digestEligibleSinceAt: null
     }
     insertNotificationTarget(db, target)
     setTargetRoots(db, target.id, rootIds)
     setTargetProjects(db, target.id, projectIds)
+    applyDelivery(db, target.id, delivery)
     revalidatePath('/settings/notifications')
 }
 
@@ -281,6 +304,8 @@ export async function updateNotificationTargetAction(input: {
     projectIds?: string[]
     // When provided, the (source, ecosystem) cell scope is replaced wholesale.
     sourceScope?: NotificationSourceScope
+    delivery?: TargetDelivery
+    weeklyDigest?: boolean
 }): Promise<void> {
     const db = getDb()
     const existing = getNotificationTargetById(db, input.id)
@@ -292,7 +317,8 @@ export async function updateNotificationTargetAction(input: {
         severityFilter,
         envFilter,
         sourceScope: input.sourceScope !== undefined ? (sourceScopeSchema.parse(input.sourceScope) as NotificationSourceScope) : undefined,
-        enabled: input.enabled
+        enabled: input.enabled,
+        weeklyDigest: input.weeklyDigest !== undefined ? z.boolean().parse(input.weeklyDigest) : undefined
     })
     if (input.rootIds !== undefined) {
         const rootIds = rootIdsSchema.parse(input.rootIds)
@@ -304,7 +330,21 @@ export async function updateNotificationTargetAction(input: {
         validateProjectIds(db, projectIds)
         setTargetProjects(db, input.id, projectIds)
     }
+    if (input.delivery !== undefined) applyDelivery(db, input.id, deliverySchema.parse(input.delivery))
     revalidatePath('/settings/notifications')
+}
+
+// The weekly digest's one day and hour. The worker reads them on each tick, so no signal is needed.
+const weeklyDigestScheduleSchema = z.object({
+    day: z.number().int().min(0).max(6),
+    hour: z.number().int().min(0).max(23)
+})
+
+export async function updateWeeklyDigestScheduleAction(input: WeeklyDigestSchedule): Promise<ActionResult> {
+    return await run(function body() {
+        setConfigValue(getDb(), WEEKLY_DIGEST_CONFIG_KEY, weeklyDigestScheduleSchema.parse(input))
+        revalidatePath('/settings/notifications')
+    })
 }
 
 // Server-side clone of a notification target. Copies the source row's kind, config (including the
@@ -326,11 +366,15 @@ export async function duplicateNotificationTargetAction(id: string): Promise<{ i
         createdAt: Date.now(),
         rootIds: source.rootIds,
         projectIds: source.projectIds,
-        sourceScope: source.sourceScope
+        sourceScope: source.sourceScope,
+        delivery: 'per_project',
+        weeklyDigest: source.weeklyDigest,
+        digestEligibleSinceAt: null
     }
     insertNotificationTarget(db, clone)
     setTargetRoots(db, clone.id, clone.rootIds)
     setTargetProjects(db, clone.id, clone.projectIds)
+    applyDelivery(db, clone.id, source.delivery)
     revalidatePath('/settings/notifications')
     return { id: clone.id }
 }
@@ -453,7 +497,7 @@ export async function turnOnSourceForEcosystemAction(input: { source: string; ec
         const sweepWaiting = selectInFlightScanRequests(db, at).some(function pendingSweep(request) {
             return request.status === 'pending' && request.projectId === null && request.rootId === null
         })
-        if (!sweepWaiting) enqueueScanRequest(db, {}, at)
+        if (!sweepWaiting) enqueueScanRequest(db, {}, at, 'manual')
         revalidatePath('/settings/sources')
         revalidatePath('/')
     })
@@ -501,8 +545,18 @@ function writeSourceCell(db: DrizzleDb, rawSource: string, rawEcosystem: string,
             throw new UserFacingError('At least one vulnerability source must stay enabled — Sentinello cannot run with zero sources.')
         }
     }
-    setConfigValue(db, sourceEnabledKey(source, ecosystem), enabled)
-    enqueueWorkerSignal(db, 'reload-sources', Date.now())
+    // In one transaction with the flag: a cell that goes from off to on opens or joins an operator's silent baseline,
+    // so what it finds on the next sweep is one summary, not a message per project. A preview ecosystem cannot run,
+    // so nothing will ever answer for it.
+    db.transaction(function persist(tx) {
+        const at = Date.now()
+        const cell = { source, ecosystem }
+        const wasOn = getSourceEnabled(tx, source, ecosystem)
+        setConfigValue(tx, sourceEnabledKey(source, ecosystem), enabled)
+        if (enabled && !wasOn && isEcosystemStable(ecosystem)) recordSourceCellEnabled(tx, cell, at)
+        if (!enabled && wasOn) recordSourceCellDisabled(tx, cell, at)
+        enqueueWorkerSignal(tx, 'reload-sources', at)
+    })
 }
 
 // "Refresh now" — asks the worker to re-sync a cache-backed source (OSV or gemnasium) immediately rather

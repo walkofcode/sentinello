@@ -8,6 +8,9 @@ import { languageNames } from '@/lib/project-state'
 type Props = {
     scanState: ScanState
     locale: Locale
+    // Whether any finding listed is what an earlier scan recorded and nothing re-checked. Without one, the banner
+    // says nothing about earlier findings: a project that never scanned successfully has none.
+    hasEarlierFindings: boolean
 }
 
 // "Project cannot be scanned" / "Project cannot be fully scanned", above the findings, with every reason
@@ -18,10 +21,13 @@ type Props = {
 // Nothing is shown for a fully scanned project, nor for one never scanned, which the header already says —
 // unless it has a language no source is enabled for: that is known before any scan, and no scan will
 // answer for it, so the project cannot be fully scanned.
-export async function ScanStateBanner({ scanState, locale }: Props) {
+export async function ScanStateBanner({ scanState, locale, hasEarlierFindings }: Props) {
     if (scanState.state === 'scanned' || scanState.reasons.length === 0) return null
     const t = await getTranslations('Detail')
     const cannot = scanState.state === 'cannot_scan'
+    const body = cannot
+        ? (hasEarlierFindings ? t('project.cannotScanBody') : t('project.cannotScanBodyNoFindings'))
+        : (hasEarlierFindings ? t('project.partialScanBody') : t('project.partialScanBodyNoEarlier'))
     return (
         <section
             data-testid="scan-state-banner"
@@ -33,7 +39,7 @@ export async function ScanStateBanner({ scanState, locale }: Props) {
                 <AlertTriangle className={cannot ? 'h-4 w-4 text-destructive' : 'h-4 w-4 text-amber-600 dark:text-amber-400'} aria-hidden="true" />
                 <h2 className="text-sm font-semibold">{cannot ? t('project.cannotScanTitle') : t('project.partialScanTitle')}</h2>
             </div>
-            <p className="text-xs text-muted-foreground">{cannot ? t('project.cannotScanBody') : t('project.partialScanBody')}</p>
+            <p className="text-xs text-muted-foreground">{body}</p>
             <ul className="space-y-2">
                 {groupScanReasons(scanState.reasons, locale).map(function reasonRow(group) {
                     let whose = t('project.scanReasonNotYetRun')
@@ -57,6 +63,7 @@ export async function ScanStateBanner({ scanState, locale }: Props) {
                                 return <Badge key={name} variant="outline">{name}</Badge>
                             })}
                             <span className="text-muted-foreground">— {whose}</span>
+                            {group.fixHint !== null ? <span data-testid="scan-reason-fix" className="w-full text-muted-foreground">{t('project.scanReasonFix', { fix: group.fixHint })}</span> : null}
                         </li>
                     )
                 })}

@@ -4,6 +4,7 @@ import {
     SOURCE_IDS,
     installedThrough,
     projectScanState,
+    sourceAppliesToPackageManager,
     type ExpectedCell,
     type FindingInstallation,
     type FindingScanContext,
@@ -226,7 +227,8 @@ function detectedEcosystemsOf(ecosystems: readonly string[]): readonly string[] 
 }
 
 // The cells a project should have heard from: its runnable cells (enabled, stable ecosystem) restricted to
-// the ecosystems detected in it, in source display order.
+// the ecosystems detected in it and the sources that can answer for its package manager, in source display
+// order.
 function expectedCellsFor(detected: readonly string[], runnable: readonly SourceCell[]): ExpectedCell[] {
     const out: ExpectedCell[] = []
     for (const source of SOURCE_IDS) {
@@ -235,6 +237,12 @@ function expectedCellsFor(detected: readonly string[], runnable: readonly Source
         }
     }
     return out
+}
+
+// The runnable cells that can answer for this project at all: npm audit does not read a Bun project's
+// lockfile, so with no feed source on, that project's npm ecosystem reads "No source enabled", which is true.
+function cellsForProject(runnable: readonly SourceCell[], packageManager: string): SourceCell[] {
+    return runnable.filter(function applies(cell) { return sourceAppliesToPackageManager(cell.source, packageManager) })
 }
 
 // Every detected ecosystem no runnable cell answers for: on a default install (OSV and gemnasium opt-in)
@@ -259,6 +267,7 @@ type ProjectScanInputs = {
     latestByCell: Map<string, LatestSourceScanRow>
     // The latest scan's coverage, per manifest (null: unknown).
     coverage: EcosystemCoverageRow[] | null
+    packageManager: string
 }
 
 // `latest` is listLatestSourceScans(db, projectIds), when the caller has already read it for its own use:
@@ -268,7 +277,7 @@ function readScanInputs(db: DrizzleDb, projectIds: readonly string[] | null, lat
     if (projectIds !== null && projectIds.length === 0) return out
     const runnable = getRunnableSourceCells(db)
     const projectFilter = projectIds === null ? sql`` : sql`WHERE p.id IN (${sql.join(projectIds.map(function id(p) { return sql`${p}` }), sql`, `)})`
-    const projects = db.all<{ id: string; ecosystems_json: string }>(sql`SELECT p.id AS id, p.ecosystems_json AS ecosystems_json FROM projects p ${projectFilter}`)
+    const projects = db.all<{ id: string; ecosystems_json: string; package_manager: string }>(sql`SELECT p.id AS id, p.ecosystems_json AS ecosystems_json, p.package_manager AS package_manager FROM projects p ${projectFilter}`)
     const rowsByProject = new Map<string, LatestSourceScanRow[]>()
     for (const row of latest ?? listLatestSourceScans(db, projectIds)) {
         const list = rowsByProject.get(row.projectId) ?? []
@@ -281,20 +290,22 @@ function readScanInputs(db: DrizzleDb, projectIds: readonly string[] | null, lat
         for (const row of rows) latestByCell.set(cellKey(row.source, row.ecosystem), row)
         const detected = detectedEcosystemsOf(parseEcosystems(project.ecosystems_json))
         const coverage = latestCoverage(rows)
+        const answering = cellsForProject(runnable, project.package_manager)
         out.set(project.id, {
             inputs: {
-                expectedCells: expectedCellsFor(detected, runnable),
+                expectedCells: expectedCellsFor(detected, answering),
                 latestScans: rows.map(function latest(row) {
                     return { source: row.source, ecosystem: row.ecosystem, status: row.status, reasonCode: row.reasonCode, finishedAt: row.finishedAt }
                 }),
                 detectedEcosystems: detected,
-                sourceDisabled: sourceDisabledFor(detected, runnable),
+                sourceDisabled: sourceDisabledFor(detected, answering),
                 coverage: coverage === null ? null : coverage.map(function cov(c) {
                     return { ecosystem: c.ecosystem, status: c.status, reasonCode: c.reasonCode }
                 })
             },
             latestByCell,
-            coverage
+            coverage,
+            packageManager: project.package_manager
         })
     }
     return out
@@ -360,6 +371,11 @@ export function findingScanContexts(db: DrizzleDb, projectIds: readonly string[]
             states.set(id, state)
         }
         const lastOkScanAt = lastCheckedAt(latest, row)
+        // Nothing attempts this source on this project any more, so its last scan's verdict, ok or failed, is not
+        // why an open row stands: the row is what that source said before the project moved.
+        if (row !== undefined && row.resolvedAt === null && !sourceAppliesToPackageManager(source, project.packageManager)) {
+            return { latestStatus: latest.status, latestReasonCode: 'source_not_applicable', lastOkScanAt, projectState: state.state, unreadReasonCode: 'source_not_applicable' }
+        }
         if (row !== undefined && keptUnseen(latest, row)) {
             return { latestStatus: latest.status, latestReasonCode: latest.reasonCode, lastOkScanAt, projectState: state.state, unreadReasonCode: unreadReasonCode(project.coverage, ecosystem, row.installations) }
         }

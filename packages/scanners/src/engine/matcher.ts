@@ -218,7 +218,8 @@ function buildFinding(
         depPath: pkg.depPaths,
         isProd: pkg.scope.isProd,
         isDev: pkg.scope.isDev,
-        aliases: advisory.aliases
+        aliases: advisory.aliases,
+        noticeKind: advisory.noticeKind ?? null
     }
 }
 
@@ -237,15 +238,16 @@ function rangesToDisplay(
     return parts.join(' || ')
 }
 
-// OSV/GHSA severity buckets are upper-case (CRITICAL/HIGH/MODERATE/LOW). Map to our lower-case union;
-// anything unknown or absent falls back to 'moderate' so a real advisory is never silently downgraded.
+// OSV/GHSA severity buckets are upper-case (CRITICAL/HIGH/MODERATE/LOW). Map to our lower-case union; anything
+// unknown or absent is 'unrated', which ranks as moderate so a real advisory is never silently downgraded,
+// and claims no grade nobody stated.
 function mapSeverity(severity: Severity | string | null): Severity {
-    if (!severity) return 'moderate'
+    if (!severity) return 'unrated'
     const s = String(severity).trim().toLowerCase()
     if (s === 'critical') return 'critical'
     if (s === 'high') return 'high'
     if (s === 'moderate' || s === 'medium') return 'moderate'
     if (s === 'low') return 'low'
     if (s === 'info' || s === 'none') return 'info'
-    return 'moderate'
+    return 'unrated'
 }

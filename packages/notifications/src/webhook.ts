@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Finding, NotificationTarget, WebhookTargetConfig } from '@sentinello/core'
+import { fixKindOf, type Finding, type NotificationTarget, type WebhookTargetConfig } from '@sentinello/core'
 import { redactErrorText, redactTarget } from './redact'
 import { validateWebhookUrl } from './ssrf'
 import type { NotificationSender, RenderedMessage, SendResult, WebhookPayloadContext } from './types'
@@ -48,7 +48,7 @@ function buildBody(flavor: 'json' | 'text', message: RenderedMessage): unknown {
             portalUrl: message.portalUrl
         }
     }
-    if (ctx.event === 'capability_summary') {
+    if (!isScanMessage(ctx)) {
         if (flavor === 'text') return { text: message.text }
         return { ...ctx, title: message.title, text: message.text, portalUrl: message.portalUrl }
     }
@@ -56,6 +56,11 @@ function buildBody(flavor: 'json' | 'text', message: RenderedMessage): unknown {
         return { text: ctx.advisoryText }
     }
     return buildJsonBody(ctx, message.portalUrl)
+}
+
+// About one project's scan, against the summaries, which carry their own shape whole.
+function isScanMessage(ctx: NonNullable<RenderedMessage['webhook']>): ctx is WebhookPayloadContext {
+    return ctx.event === 'findings' || ctx.event === 'scan_failure'
 }
 
 function buildJsonBody(ctx: WebhookPayloadContext, portalUrl: string | null): unknown {
@@ -90,6 +95,8 @@ export function toWebhookVulnerability(f: Finding): Record<string, unknown> {
         fixAvailable: f.fixAvailable,
         // 'released' | 'none_released' | 'unverified' — see FixStatus. Additive.
         fixStatus: f.fixStatus,
+        // 'release', or 'untagged_commit' for a fix that is a commit nobody tagged; null with no released fix. Additive.
+        fixKind: fixKindOf(f),
         // The way out for a 'none_released' finding (see Remediation in @sentinello/core); null otherwise.
         // Additive.
         remediation: f.fixStatus === 'none_released' ? f.remediation : null,

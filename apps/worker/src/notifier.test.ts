@@ -65,6 +65,9 @@ function target(overrides: Partial<NotificationTarget> = {}): NotificationTarget
         rootIds: [],
         projectIds: [],
         sourceScope: { mode: 'all', cells: [] },
+        delivery: 'per_project',
+        weeklyDigest: true,
+        digestEligibleSinceAt: null,
         ...overrides
     }
 }
@@ -111,6 +114,9 @@ function finding(overrides: Partial<Finding> = {}): Finding {
         depPath: ['lodash'],
         isProd: true,
         isDev: false,
+        noticeKind: null,
+        aliases: [],
+        advisoryKey: null,
         firstDetectedAt: T0,
         lastSeenAt: T0,
         resolvedAt: null,
@@ -137,7 +143,7 @@ function scan(overrides: Partial<Scan> = {}): Scan {
 }
 
 function outcome(findings: Finding[], scanOverrides: Partial<Scan> = {}): ProjectScanOutcome {
-    return { project: project(), scan: scan(scanOverrides), findings }
+    return { project: project(), scan: scan(scanOverrides), findings, resolved: [], gradeAnswers: new Map() }
 }
 
 async function notify(o: ProjectScanOutcome, dryRun = false): Promise<void> {
@@ -338,8 +344,8 @@ describe('notifyForCompletedScan — a project that cannot be scanned', function
         expect(message?.webhook.scanState).toEqual({
             state: 'cannot_scan',
             reasons: [
-                { source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' },
-                { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' }
+                { source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile', fixHint: 'commit the lockfile your package manager writes' },
+                { source: null, ecosystem: 'npm', reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile', fixHint: 'commit the lockfile your package manager writes' }
             ]
         })
     })
@@ -433,7 +439,7 @@ describe('notifyForCompletedScan — a project that cannot be scanned', function
         it('heads the findings message with the project\'s state', async function () {
             await retryAfterLockfileLoss(false)
 
-            expect(findingsMessage()?.text).toContain('Project cannot be scanned: No lockfile (the project) — findings an earlier scan recorded are marked "not re-checked"')
+            expect(findingsMessage()?.text).toContain('Project cannot be scanned: No lockfile (the project): commit the lockfile your package manager writes — findings an earlier scan recorded are marked "not re-checked"')
         })
 
         it('carries each finding\'s historical context in the webhook JSON', async function () {
@@ -763,7 +769,7 @@ describe('notifyForCompletedScan — during the silent baseline', function () {
 
     // Once the sweep completed, a source turned on later notifies normally, per project.
     it('notifies a Python finding normally once the baseline is swept', async function () {
-        claimCompletedBaselines(db, CAPABILITIES, T0)
+        claimCompletedBaselines(db, CAPABILITIES, T0, T0)
         await notify(outcome([finding({ ecosystem: 'PyPI', packageName: 'django' })]))
         expect(send).toHaveBeenCalledTimes(1)
     })

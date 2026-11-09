@@ -331,7 +331,7 @@ describe('startGemnasiumRuntime', function () {
         cache.sqlite.close()
         enable('npm')
         seedStaleProject()
-        enqueueScanRequest(handle.db, {}, Date.now())
+        enqueueScanRequest(handle.db, {}, Date.now(), 'manual')
         startGemnasiumRuntime(handle.db, runtime, evidence)
         expect(listRecentScanRequests(handle.db)).toHaveLength(1)
         expect(logLines()).not.toContain('[gemnasium] cache is matchable but projects still hold unauditable verdicts — enqueued a full re-scan')
@@ -500,7 +500,7 @@ describe('runSync', function () {
 
     // The live 3.8.0 upgrade: gemnasium landed first and queued its sweep; OSV landing later finds it waiting.
     it('queues no second sweep while one is still waiting', async function () {
-        enqueueScanRequest(handle.db, {}, Date.now())
+        enqueueScanRequest(handle.db, {}, Date.now(), 'manual')
         sync.syncGemnasium.mockImplementationOnce(async function seed() {
             setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.seedComplete, true)
             setGemnasiumMeta(cache.db, GEMNASIUM_META_KEYS.normalizerVersion, GEMNASIUM_NORMALIZER_VERSION)
@@ -699,7 +699,8 @@ describe('the scanner the runtime produces', function () {
             summary: 'Uncontrolled resource consumption',
             url: 'https://example.test/CVE-2026-93687',
             malicious: false,
-            withdrawn: null
+            withdrawn: null,
+
         }])
     }
 
@@ -710,7 +711,7 @@ describe('the scanner the runtime produces', function () {
     it('drops an advisory the OSV evidence shows withdrawn', async function () {
         markSeeded()
         seedBraces()
-        evidence.linkRows = new Map([['braces', [{ advisoryId: 'GHSA-vfj7-8cjw-p6xm', aliases: ['CVE-2026-93687'], withdrawn: Date.UTC(2026, 9, 23) }]]])
+        evidence.linkRows = new Map([['braces', [{ advisoryId: 'GHSA-vfj7-8cjw-p6xm', aliases: ['CVE-2026-93687'], withdrawn: Date.UTC(2026, 9, 23), ranges: [], versions: [] }]]])
         const rt = startGemnasiumRuntime(handle.db, runtime, evidence)
         const result = await scanWith(rt.scanner as never, [{ ecosystem: 'npm', name: 'braces', version: '3.0.3' }])
         expect(result.reasonCode).toBe('ok')

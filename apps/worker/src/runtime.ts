@@ -1,3 +1,6 @@
+import { errText } from '@sentinello/core'
+import { refreshAdvisoryKeys, type AliasEvidence, type DrizzleDb } from '@sentinello/db'
+
 // Shared worker runtime. Owns the AbortController that propagates to scanner subprocesses on
 // shutdown, and the in-flight Set so shutdown can await sweeps/polls already in progress.
 //
@@ -12,6 +15,22 @@ export type WorkerRuntime = {
     inFlight: Set<Promise<unknown>>
     track<T>(work: Promise<T>): Promise<T>
     rebuilds: CacheRebuilds
+    // What the feed runtimes that are up can say about an advisory's aliases, by source. Each registers on start
+    // and leaves on stop, so a refresh outside a scan (boot, a cache landing) reads what a scan would.
+    aliasEvidence: Map<string, AliasEvidence>
+}
+
+// Refreshes every open row's advisory key from what the running feeds know. Runs at boot, before anything is
+// scanned, so existing rows are backfilled whether or not their next scan succeeds; and when a cache lands, which
+// is how aliases that only just became available reach retained rows (SENTINEL-179). A failure leaves the old
+// keys, and says so: the counts are stale, nothing else is wrong.
+export function refreshAllAdvisoryKeys(db: DrizzleDb, runtime: Pick<WorkerRuntime, 'aliasEvidence'>): void {
+    try {
+        const { written } = refreshAdvisoryKeys(db, [...runtime.aliasEvidence.values()])
+        if (written > 0) console.log('[worker] advisory keys refreshed on ' + written + ' finding' + (written === 1 ? '' : 's'))
+    } catch (err) {
+        console.error('[worker] advisory keys not refreshed: ' + errText(err))
+    }
 }
 
 // The advisory-cache syncs in flight, across every source, so one source's runtime can see that another's
@@ -79,7 +98,7 @@ export function createWorkerRuntime(): WorkerRuntime {
         work.then(removeTracked, removeTracked)
         return work
     }
-    return { abortController, inFlight, track, rebuilds: createCacheRebuilds() }
+    return { abortController, inFlight, track, rebuilds: createCacheRebuilds(), aliasEvidence: new Map() }
 }
 
 // Waits for every currently-tracked promise to settle, or for graceMs to elapse, whichever comes first.

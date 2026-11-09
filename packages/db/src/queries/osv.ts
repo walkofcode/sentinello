@@ -30,7 +30,9 @@ function toInsertRow(row: OsvAdvisoryRow): InsertRow {
         summary: row.summary,
         url: row.url,
         malicious: row.malicious,
-        withdrawn: row.withdrawn
+        withdrawn: row.withdrawn,
+        noticeKind: row.noticeKind,
+        rangesDiscarded: row.rangesDiscarded === true
     }
 }
 
@@ -48,7 +50,9 @@ function fromSelectRow(row: SelectRow): OsvAdvisoryRow {
         summary: row.summary,
         url: row.url,
         malicious: row.malicious,
-        withdrawn: row.withdrawn
+        withdrawn: row.withdrawn,
+        noticeKind: row.noticeKind,
+        ...(row.rangesDiscarded ? { rangesDiscarded: true } : {})
     }
 }
 
@@ -71,7 +75,9 @@ export function upsertOsvAdvisories(db: OsvDrizzleDb, rows: OsvAdvisoryRow[]): v
                         summary: values.summary,
                         url: values.url,
                         malicious: values.malicious,
-                        withdrawn: values.withdrawn
+                        withdrawn: values.withdrawn,
+                        noticeKind: values.noticeKind,
+                        rangesDiscarded: values.rangesDiscarded
                     }
                 })
                 .run()
@@ -141,10 +147,10 @@ export function lookupOsvByPackages(
     return out
 }
 
-// The identity of EVERY cached row for the given packages in one ecosystem, withdrawn or not — unlike
-// lookupOsvByPackages, which serves matching and so skips withdrawn rows. This is the withdrawal evidence
-// gemnasium stamps from: a withdrawn row is exactly what it is looking for. Only the id fields are read,
-// so the ranges JSON of a hot package is never parsed for nothing.
+// The identity and affected set of EVERY cached row for the given packages in one ecosystem, withdrawn or
+// not — unlike lookupOsvByPackages, which serves matching and so skips withdrawn rows. This is the evidence
+// gemnasium stamps from: a withdrawn row is exactly what it is looking for, and a live row's ranges say
+// whether a matched version is still affected.
 export function lookupOsvLinksByPackages(
     db: OsvDrizzleDb,
     ecosystem: string,
@@ -160,7 +166,10 @@ export function lookupOsvLinksByPackages(
                 packageName: osvAdvisories.packageName,
                 advisoryId: osvAdvisories.advisoryId,
                 aliasesJson: osvAdvisories.aliasesJson,
-                withdrawn: osvAdvisories.withdrawn
+                withdrawn: osvAdvisories.withdrawn,
+                rangesJson: osvAdvisories.rangesJson,
+                versionsJson: osvAdvisories.versionsJson,
+                rangesDiscarded: osvAdvisories.rangesDiscarded
             })
             .from(osvAdvisories)
             .where(and(eq(osvAdvisories.ecosystem, ecosystem), inArray(osvAdvisories.packageName, slice)))
@@ -169,7 +178,10 @@ export function lookupOsvLinksByPackages(
             const link: OsvAdvisoryLink = {
                 advisoryId: row.advisoryId,
                 aliases: parseStringArray(row.aliasesJson),
-                withdrawn: row.withdrawn
+                withdrawn: row.withdrawn,
+                ranges: parseRanges(row.rangesJson),
+                versions: parseStringArray(row.versionsJson),
+                ...(row.rangesDiscarded ? { rangesDiscarded: true } : {})
             }
             const list = out.get(row.packageName)
             if (list) list.push(link)

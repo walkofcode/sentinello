@@ -372,3 +372,12 @@ describe('matchPackages', function () {
         expect(findings[0]?.aliases).toContain('GHSA-aaaa-bbbb-cccc')
     })
 })
+
+describe('createGemnasiumScanner — alias evidence', function () {
+    it('answers from the lookup once the cache is seeded, and with nothing before', function () {
+        const lookup = function lookup() { return new Map([['lodash', [advisory()]]]) }
+        const deps = { lookup, isEnabled: always(true), withdrawalEvidenceReady: always(true) }
+        expect(createGemnasiumScanner({ ...deps, isSeeded: always(false) }).aliasEvidence?.('npm', ['lodash'])).toBeNull()
+        expect(createGemnasiumScanner({ ...deps, isSeeded: always(true) }).aliasEvidence?.('npm', ['lodash'])?.get('lodash')).toEqual([advisory()])
+    })
+})

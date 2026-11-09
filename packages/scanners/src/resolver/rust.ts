@@ -41,6 +41,21 @@ const MAX_MANIFESTS = 1000
 
 type Crate = { id: string; name: string; version: string; source: string | null; dependencies: string[] }
 
+// The crates a Cargo.lock lists as the project's own: no `source`. Discovery reads them to tell a covered
+// manifest from an uncovered one, so a crate built from a lock is not reported as having none.
+export function ownCratesOfLock(text: string): string[] {
+    return parseArrayOfTables(text, 'package').flatMap(function ownName(t) {
+        const name = tomlString(t.name)
+        const source = tomlString(t.source)
+        return name !== null && (source === null || source.length === 0) ? [name] : []
+    })
+}
+
+// A Cargo.toml's `[package] name`, or null for a virtual workspace manifest.
+export function crateNameOfManifest(text: string): string | null {
+    return tomlString(tomlTable(parseTomlDocument(text).package)?.name)
+}
+
 export async function parseCargoLock(projectPath: string, absolutePath: string, manifestPath: string): Promise<ResolverResult> {
     let text: string
     try {

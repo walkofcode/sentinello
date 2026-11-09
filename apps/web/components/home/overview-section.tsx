@@ -28,7 +28,7 @@ export function OverviewSection({ counts, librariesCount, lastScanFinishedAt, no
     const t = useTranslations('Home')
     const tTime = useTranslations('Time')
     const c = counts.severityCounts
-    const pendingTotal = c.critical + c.high + c.moderate + c.low + c.info
+    const pendingTotal = c.critical + c.high + c.moderate + c.unrated + c.low + c.info
     return (
         <div className={'grid grid-cols-1 gap-4 ' + (pendingTotal > 0 ? 'lg:grid-cols-2' : '')}>
             <Card>
@@ -70,6 +70,7 @@ export function OverviewSection({ counts, librariesCount, lastScanFinishedAt, no
                             <SeverityPill variant="critical" count={c.critical} />
                             <SeverityPill variant="high" count={c.high} />
                             <SeverityPill variant="moderate" count={c.moderate} />
+                            <SeverityPill variant="unrated" count={c.unrated} />
                             <SeverityPill variant="low" count={c.low} />
                             <SeverityPill variant="info" count={c.info} />
                         </div>

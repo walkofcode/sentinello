@@ -31,12 +31,15 @@ export function LibraryFindingsSection({ packageName, usages, activeMutes, now, 
     const selected = useMemo(function parse() {
         return parseSourceParam(searchParams.get('src'), sources)
     }, [searchParams, sources])
-    const visibleUsages = useMemo(function filter() {
+    const shown = useMemo(function filter() {
         if (selected.length === 0) return usages
         return usages.filter(function keep(u) { return selected.includes(u.scanner) })
     }, [usages, selected])
+    // Notices are listed apart, below the vulnerabilities, and in neither tab's count.
+    const visibleUsages = useMemo(function vulnerabilities() { return shown.filter(function real(u) { return u.noticeKind === null }) }, [shown])
+    const notices = useMemo(function ofNotices() { return shown.filter(function notice(u) { return u.noticeKind !== null }) }, [shown])
     const advisoryCount = useMemo(function count() {
-        return new Set(visibleUsages.map(function pickAdv(u) { return advisoryIdentity(u.advisoryTitle, u.advisoryId) })).size
+        return new Set(visibleUsages.map(advisoryIdentity)).size
     }, [visibleUsages])
     const projectCount = useMemo(function count() {
         return new Set(visibleUsages.map(function pickProj(u) { return u.projectId })).size
@@ -59,6 +62,13 @@ export function LibraryFindingsSection({ packageName, usages, activeMutes, now, 
             )) || (
                 <LibraryByProjectTable packageName={packageName} usages={visibleUsages} activeMutes={activeMutes} now={now} />
             )}
+            {notices.length > 0 ? (
+                <section data-testid="notices" className="space-y-2 pt-4">
+                    <h3 className="text-sm font-semibold">{t('noticesHeading', { count: new Set(notices.map(advisoryIdentity)).size })}</h3>
+                    <p className="text-xs text-muted-foreground">{t('noticesHelp')}</p>
+                    <LibraryByAdvisoryTable packageName={packageName} usages={notices} activeMutes={activeMutes} now={now} />
+                </section>
+            ) : null}
         </div>
     )
 }

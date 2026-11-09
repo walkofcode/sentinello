@@ -162,7 +162,7 @@ describe('getDashboardSummary', function () {
     it('reports zeroes on an empty estate', function () {
         const summary = getDashboardSummary(db, T0 + DAY)
         expect(summary.projectsWithFindings).toBe(0)
-        expect(summary.severityCounts).toEqual({ critical: 0, high: 0, moderate: 0, low: 0, info: 0 })
+        expect(summary.severityCounts).toEqual({ critical: 0, high: 0, moderate: 0, unrated: 0, low: 0, info: 0 })
         expect(summary.lastScanFinishedAt).toBeNull()
     })
 
@@ -255,6 +255,7 @@ describe('getDashboardSummary', function () {
         expect(getDashboardSummary(db, T0 + HOUR).findingsLast24h).toBe(0)
 
         upsertFindingEvent(db, {
+            gradeAnswers: {},
             baselineOf: null,
             projectId: 'project-1',
             source: 'npm-audit',
@@ -271,6 +272,7 @@ describe('getDashboardSummary', function () {
     it('drops an event out of the window once it ages past a day', function () {
         const scanId = scanProject('project-1', [finding()], { at: T0 })
         upsertFindingEvent(db, {
+            gradeAnswers: {},
             baselineOf: null,
             projectId: 'project-1',
             source: 'npm-audit',
@@ -287,6 +289,7 @@ describe('getDashboardSummary', function () {
     it('excludes a muted discovery event', function () {
         const scanId = scanProject('project-1', [finding()], { at: T0 })
         upsertFindingEvent(db, {
+            gradeAnswers: {},
             baselineOf: null,
             projectId: 'project-1',
             source: 'npm-audit',
@@ -530,7 +533,7 @@ describe('getDashboardSummary — the in-flight scan freeze', function () {
 
     it('freezes at the last scan that finished before a pending request was queued', function () {
         scanProject('project-1', [finding()], { at: T0 + HOUR })
-        enqueueScanRequest(db, { projectId: 'project-1' }, T0 + 90 * 60_000)
+        enqueueScanRequest(db, { projectId: 'project-1' }, T0 + 90 * 60_000, 'manual')
         // Finished after the request was queued: part of the sweep the operator is waiting on.
         scanProject('project-1', [finding()], { at: T0 + 2 * HOUR })
 
@@ -542,7 +545,7 @@ describe('getDashboardSummary — the in-flight scan freeze', function () {
     // timestamp until someone noticed.
     it('ignores a running request whose heartbeat has gone stale', function () {
         scanProject('project-1', [finding()], { at: T0 + HOUR })
-        const request = enqueueScanRequest(db, { projectId: 'project-1' }, T0 + 90 * 60_000)
+        const request = enqueueScanRequest(db, { projectId: 'project-1' }, T0 + 90 * 60_000, 'manual')
         db.run(sql`UPDATE scan_requests SET status = 'running', heartbeat_at = ${T0} WHERE id = ${request.id}`)
         scanProject('project-1', [finding()], { at: T0 + 2 * HOUR })
 

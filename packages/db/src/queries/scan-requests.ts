@@ -1,17 +1,19 @@
 import { and, asc, eq, gte, isNull, not, or, sql } from 'drizzle-orm'
 import { ulid } from 'ulid'
-import { SCAN_HEARTBEAT_STALE_MS, type ScanRequest } from '@sentinello/core'
+import { SCAN_HEARTBEAT_STALE_MS, type ScanRequest, type ScanRequestOrigin } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { scanRequests } from '../schema'
 
 type ScanRequestRow = typeof scanRequests.$inferSelect
 
 // projectId and rootId are mutually exclusive. Callers should pass at most one; the worker treats
-// (projectId set) as single-project, (rootId set) as walk-one-root, (both null) as full sweep.
+// (projectId set) as single-project, (rootId set) as walk-one-root, (both null) as full sweep. `origin` says
+// who asked, which decides whether a run summary follows; no default, so a new caller has to say.
 export function enqueueScanRequest(
     db: DrizzleDb,
     target: { projectId?: string | null; rootId?: string | null },
-    at: number
+    at: number,
+    origin: ScanRequestOrigin
 ): ScanRequest {
     const id = ulid()
     const projectId = target.projectId || null
@@ -25,7 +27,8 @@ export function enqueueScanRequest(
             pickedUpAt: null,
             finishedAt: null,
             heartbeatAt: null,
-            status: 'pending'
+            status: 'pending',
+            origin
         })
         .run()
     return {
@@ -36,7 +39,8 @@ export function enqueueScanRequest(
         pickedUpAt: null,
         finishedAt: null,
         heartbeatAt: null,
-        status: 'pending'
+        status: 'pending',
+        origin
     }
 }
 
@@ -46,7 +50,8 @@ const isFullSweep = sql`(${scanRequests.projectId} IS NULL AND ${scanRequests.ro
 // Queues a full sweep unless one is already waiting to be claimed, and says whether it queued one. A
 // pending sweep has not started, so it already scans everything the new one would: two of them would only
 // sweep twice. A RUNNING sweep does not count — it may be the very sweep whose verdicts the new one has to
-// replace.
+// replace. Its one reason to exist is a cache that landed, so the sweep it queues is automatic: it sends no run
+// summary of its own.
 export function enqueueFullSweepUnlessPending(db: DrizzleDb, at: number): boolean {
     const waiting = db
         .select({ one: sql<number>`1` })
@@ -55,7 +60,7 @@ export function enqueueFullSweepUnlessPending(db: DrizzleDb, at: number): boolea
         .limit(1)
         .get()
     if (waiting) return false
-    enqueueScanRequest(db, {}, at)
+    enqueueScanRequest(db, {}, at, 'automatic')
     return true
 }
 
@@ -84,7 +89,8 @@ export function claimNextPendingRequest(db: DrizzleDb, at: number, options: { ho
         pickedUpAt: at,
         finishedAt: next.finishedAt,
         heartbeatAt: at,
-        status: 'running'
+        status: 'running',
+        origin: next.origin
     }
 }
 
@@ -248,6 +254,7 @@ function rowToScanRequest(row: ScanRequestRow): ScanRequest {
         pickedUpAt: row.pickedUpAt,
         finishedAt: row.finishedAt,
         heartbeatAt: row.heartbeatAt,
-        status: row.status
+        status: row.status,
+        origin: row.origin
     }
 }

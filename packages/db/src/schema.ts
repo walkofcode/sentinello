@@ -30,7 +30,7 @@ export const projects = sqliteTable(
         // manifest (it drives the npm-audit command), otherwise the manager of its anchor manifest. Every
         // manifest's own manager is derived from manifestsJson. A TS-only enum: SQLite text has no CHECK.
         packageManager: text('package_manager', {
-            enum: ['npm', 'yarn', 'pnpm', 'pip', 'poetry', 'uv', 'pipenv', 'go', 'cargo', 'bundler', 'unknown']
+            enum: ['npm', 'yarn', 'pnpm', 'bun', 'pip', 'poetry', 'uv', 'pipenv', 'go', 'cargo', 'bundler', 'unknown']
         }).notNull(),
         nvmrcVersion: text('nvmrc_version'),
         // Checked-out branch, refreshed by discovery sweeps and again at scan start so the portal
@@ -107,6 +107,7 @@ export const scans = sqliteTable(
                 'ambiguous_dependency_spec',
                 'unsupported_lockfile',
                 'ecosystem_source_disabled',
+                'source_not_applicable',
                 'timeout'
             ]
         }),
@@ -196,8 +197,18 @@ export const findings = sqliteTable(
         // right one. `corroborationsJson` keeps every source's own grade so the disagreement stays
         // visible rather than being silently overwritten.
         severity: text('severity', {
-            enum: ['critical', 'high', 'moderate', 'low', 'info']
+            enum: ['critical', 'high', 'moderate', 'unrated', 'low', 'info']
         }).notNull(),
+        // Set when the advisory is a notice rather than a vulnerability (Finding.noticeKind): unmaintained,
+        // unsound, notice. Such a row stays a finding, so mutes work unchanged, and notNoticeSql keeps it out
+        // of every severity count.
+        noticeKind: text('notice_kind'),
+        // JSON string[]: the cross-references the row's own source lists. Evidence for advisoryKey.
+        aliasesJson: text('aliases_json').notNull().default('[]'),
+        // The representative id of the rows sharing an id or alias for this (ecosystem, package), written by
+        // refreshAdvisoryKeys. Every aggregate groups on it through advisoryIdentitySql, and the JS merge
+        // reads the same expression. Null only on an old resolved row, or between migration and boot.
+        advisoryKey: text('advisory_key'),
         // JSON FindingCorroboration[]: the other sources that independently reported this same advisory
         // for this same package, each with the advisory id IT uses and the severity IT assigned. Empty
         // for a finding only one source reported. Rewritten in full at the end of every project scan, so
@@ -318,7 +329,17 @@ export const notificationTargets = sqliteTable(
         // mode 'selected' restricts dispatch to the listed cells. Parsed/validated at the query layer.
         sourceScopeJson: text('source_scope_json').notNull().default('{"mode":"all","cells":[]}'),
         enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-        createdAt: integer('created_at').notNull()
+        createdAt: integer('created_at').notNull(),
+        // TargetDelivery: 'per_project' (a message per project per scan, the default) or 'run_summary' (one
+        // message per scheduled or manual run, instead of those). Constrained at the app layer, as env_filter is.
+        delivery: text('delivery').notNull().default('per_project'),
+        // The weekly digest, on for every target until it is turned off, existing ones included.
+        weeklyDigest: integer('weekly_digest', { mode: 'boolean' }).notNull().default(true),
+        // Set on opting in to run summary, cleared on opting out. A row resolved before it was never owed.
+        runSummarySinceAt: integer('run_summary_since_at'),
+        // The last moment the target became digest-eligible (enabled and weekly_digest both true); null reads as
+        // created_at. Written by the settings writers, so it survives a worker that is down at the due instant.
+        digestEligibleSinceAt: integer('digest_eligible_since_at')
     },
     function notificationTargetsIndexes(table) {
         return {
@@ -405,7 +426,11 @@ export const scanRequests = sqliteTable(
         // A stale heartbeat (older than SCAN_HEARTBEAT_STALE_MS) means the worker crashed mid-scan;
         // the web side treats those rows as not-in-flight, and the worker resets them on startup.
         heartbeatAt: integer('heartbeat_at'),
-        status: text('status', { enum: ['pending', 'running', 'done', 'failed'] }).notNull()
+        status: text('status', { enum: ['pending', 'running', 'done', 'failed'] }).notNull(),
+        // Who asked. 'manual' (the portal, MCP) gets a run summary when it finishes; 'automatic' (the lockfile
+        // watcher, a cache that landed) sends none, and what it found waits for the next scheduled sweep. A row
+        // pending across the upgrade reads manual: at most one extra message.
+        origin: text('origin', { enum: ['manual', 'automatic'] }).notNull().default('manual')
     },
     function scanRequestsIndexes(table) {
         return {
@@ -492,7 +517,14 @@ export const notificationEvents = sqliteTable(
         packageName: text('package_name'),
         // Denormalized for finding events so selectDispatchablePairs() can filter by target.severity_filter
         // in SQL without joining back to historical findings rows. Null for scan_failure events.
-        severity: text('severity', { enum: ['critical', 'high', 'moderate', 'low', 'info'] }),
+        severity: text('severity', { enum: ['critical', 'high', 'moderate', 'unrated', 'low', 'info'] }),
+        // The corrected-grade rule (nextEventGrade): the release a sighting last read this event under, the
+        // grade a correction replaced (what a target's filter still judges it on), and what each source last
+        // answered under that release, as JSON GradeAnswers. grade_answers_json is null for an event recorded
+        // at the current version, which tracks nothing and behaves as any re-grade always has.
+        gradeVersion: integer('grade_version').notNull().default(0),
+        policySeverity: text('policy_severity', { enum: ['critical', 'high', 'moderate', 'unrated', 'low', 'info'] }),
+        gradeAnswersJson: text('grade_answers_json'),
         failureSignature: text('failure_signature'),
         firstScanId: text('first_scan_id')
             .notNull()
@@ -590,12 +622,18 @@ export const notificationDeliveries = sqliteTable(
 // recorded silently (notification_events.baseline_of). 'swept' once that sweep claimed completion and wrote
 // one summary delivery row per enabled target; nothing is stamped any more. 'done' once every delivery row
 // is closed (succeeded, dry-run, suppressed or given up). A fresh install inserts 'done' straight away.
+//
+// A row with cells_json is an operator's: switching a (source, ecosystem) cell on with scans on record opens one
+// (id sources-<ulid>), and it covers exactly those cells. scope_changed_at is when the last of them was added: only
+// a sweep started after it answers for all of them. Both are null for a CAPABILITIES entry.
 export const capabilityBaselines = sqliteTable('capability_baselines', {
     capabilityId: text('capability_id').primaryKey(),
     state: text('state', { enum: ['pending', 'swept', 'done'] }).notNull(),
     createdAt: integer('created_at').notNull(),
     sweptAt: integer('swept_at'),
-    doneAt: integer('done_at')
+    doneAt: integer('done_at'),
+    cellsJson: text('cells_json'),
+    scopeChangedAt: integer('scope_changed_at')
 })
 
 // The baseline summary ledger: one row per (capability, target), written when the sweep completed. Its
@@ -634,6 +672,88 @@ export const capabilitySummaryDeliveries = sqliteTable(
     function capabilitySummaryDeliveriesKeys(table) {
         return {
             pk: primaryKey({ columns: [table.capabilityId, table.targetId] })
+        }
+    }
+)
+
+// One row per resolved finding a successful run summary covered, for that target. A resolved row is its own
+// episode, since a recurrence inserts a new row, so the pair is stable and the acknowledgement names exactly what
+// the message told: a manual scan of one project acknowledges nothing of another's, and a row resolved while a
+// send was pending was not selected, so it stays owed.
+export const runSummaryResolvedTold = sqliteTable(
+    'run_summary_resolved_told',
+    {
+        targetId: text('target_id')
+            .notNull()
+            .references(function ref() {
+                return notificationTargets.id
+            }, { onDelete: 'cascade' }),
+        findingId: text('finding_id')
+            .notNull()
+            .references(function ref() {
+                return findings.id
+            }, { onDelete: 'cascade' }),
+        toldAt: integer('told_at').notNull()
+    },
+    function runSummaryResolvedToldKeys(table) {
+        return {
+            pk: primaryKey({ columns: [table.targetId, table.findingId] })
+        }
+    }
+)
+
+// The target knows this project cannot be fully scanned, and nobody has seen it recover. Written on a successful
+// message and on opting in; deleted by the first completed run that sees the project recovered, sent or not.
+export const runSummaryUnscannableTold = sqliteTable(
+    'run_summary_unscannable_told',
+    {
+        targetId: text('target_id')
+            .notNull()
+            .references(function ref() {
+                return notificationTargets.id
+            }, { onDelete: 'cascade' }),
+        projectId: text('project_id')
+            .notNull()
+            .references(function ref() {
+                return projects.id
+            }, { onDelete: 'cascade' }),
+        toldAt: integer('told_at').notNull()
+    },
+    function runSummaryUnscannableToldKeys(table) {
+        return {
+            pk: primaryKey({ columns: [table.targetId, table.projectId] })
+        }
+    }
+)
+
+// One row per target per calendar week, the shape of capability_summary_deliveries without frozen counts: a digest
+// is counted fresh at each attempt, so it cannot go stale. week_key is the ISO week of the due instant's local date
+// and holds neither the day nor the hour, so a schedule edit cannot mint a second week. A row reserves its week
+// against a second insertion whatever its state; only succeeded, dry run, suppressed or given up close delivery.
+export const digestDeliveries = sqliteTable(
+    'digest_deliveries',
+    {
+        targetId: text('target_id')
+            .notNull()
+            .references(function ref() {
+                return notificationTargets.id
+            }, { onDelete: 'cascade' }),
+        weekKey: text('week_key').notNull(),
+        dueAt: integer('due_at').notNull(),
+        attempts: integer('attempts').notNull().default(0),
+        firstAttemptedAt: integer('first_attempted_at'),
+        lastAttemptedAt: integer('last_attempted_at'),
+        firstSucceededAt: integer('first_succeeded_at'),
+        dryRunAt: integer('dry_run_at'),
+        gaveUpAt: integer('gave_up_at'),
+        suppressedAt: integer('suppressed_at'),
+        suppressedReason: text('suppressed_reason', { enum: ['target_disabled', 'digest_off', 'not_eligible_at_due', 'superseded'] }),
+        // Redacted like notification_deliveries.last_error_text.
+        lastErrorText: text('last_error_text')
+    },
+    function digestDeliveriesKeys(table) {
+        return {
+            pk: primaryKey({ columns: [table.targetId, table.weekKey] })
         }
     }
 )

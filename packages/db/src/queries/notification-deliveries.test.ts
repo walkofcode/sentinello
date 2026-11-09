@@ -65,6 +65,9 @@ function target(overrides: Partial<NotificationTarget> = {}): NotificationTarget
         rootIds: [],
         projectIds: [],
         sourceScope: { mode: 'all', cells: [] },
+        delivery: 'per_project',
+        weeklyDigest: true,
+        digestEligibleSinceAt: null,
         ...overrides
     }
 }
@@ -77,6 +80,7 @@ function addTarget(overrides: Partial<NotificationTarget> = {}): NotificationTar
 
 function addFindingEvent(overrides: Record<string, unknown> = {}): string {
     return upsertFindingEvent(db, {
+        gradeAnswers: {},
         projectId: PROJECT_ID,
         source: 'osv',
         ecosystem: 'npm',

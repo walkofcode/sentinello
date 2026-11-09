@@ -3,6 +3,7 @@ import { getTranslations } from 'next-intl/server'
 import { getConfigValue } from '@sentinello/db'
 import { ScheduleForm } from '@/components/settings/schedule-form'
 import { getDb } from '@/lib/db'
+import { hostTimezone } from '@/lib/host-timezone'
 
 export async function generateMetadata(): Promise<Metadata> {
     const t = await getTranslations('Settings')
@@ -22,16 +23,6 @@ function coerceInterval(value: number | undefined): IntervalHours {
 function coerceStartHour(value: number | undefined): number {
     if (typeof value === 'number' && value >= 0 && value <= 23) return Math.trunc(value)
     return 0
-}
-
-// Default the picker to the worker/host timezone (where cron actually runs) when nothing is saved,
-// so the displayed anchor is meaningful out of the box.
-function hostTimezone(): string {
-    try {
-        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-    } catch {
-        return 'UTC'
-    }
 }
 
 export default async function ScheduleSettingsPage() {

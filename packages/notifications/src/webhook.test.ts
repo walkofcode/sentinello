@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import axios from 'axios'
 import type { Finding, NotificationTarget } from '@sentinello/core'
+import { renderFleetSummary } from './fleet-summary'
 import { sendWebhook } from './webhook'
 import { validateWebhookUrl } from './ssrf'
 import type { RenderedMessage, WebhookPayloadContext } from './types'
@@ -46,7 +47,10 @@ function target(config: Record<string, unknown> = {}): NotificationTarget {
         createdAt: 0,
         rootIds: [],
         projectIds: [],
-        sourceScope: { mode: 'all', cells: [] }
+        sourceScope: { mode: 'all', cells: [] },
+        delivery: 'per_project',
+        weeklyDigest: true,
+        digestEligibleSinceAt: null
     }
 }
 
@@ -229,7 +233,7 @@ describe('sendWebhook — body shape', function () {
     })
 
     it('carries the project scan state, so a receiver can tell cannot be scanned from clean', async function () {
-        const scanState = { state: 'cannot_scan' as const, reasons: [{ source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile' as const, side: 'project' as const, label: 'No lockfile' }] }
+        const scanState = { state: 'cannot_scan' as const, reasons: [{ source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile' as const, side: 'project' as const, label: 'No lockfile', fixHint: null }] }
         await sendWebhook(target(), message({ webhook: webhookContext({ event: 'scan_failure', findings: [], scanState }) }))
         expect((post.mock.calls[0]?.[1] as Record<string, unknown>).scanState).toEqual(scanState)
     })
@@ -319,5 +323,17 @@ describe('sendWebhook — failures', function () {
         post.mockRejectedValue('just a string')
         const result = await sendWebhook(target(), message())
         expect(result.ok === false && result.errorText).toContain('just a string')
+    })
+})
+
+describe('the run summary and digest shapes', function () {
+    it('posts the summary whole in the JSON flavor, and its text in the text flavor', async function () {
+        const message = renderFleetSummary({ kind: 'run_summary', targetKind: 'webhook', counts: { critical: 0, high: 1, moderate: 0, unrated: 0, low: 0, info: 0 }, listed: [], resolved: [], unscannable: [], portalBaseUrl: null })
+        validate.mockResolvedValue({ ok: true, url: URL_OK })
+        post.mockResolvedValue({})
+        await sendWebhook(target(), message)
+        expect(post.mock.calls.at(-1)?.[1]).toMatchObject({ event: 'run_summary', locale: 'en', counts: { high: 1 }, listed: [], title: message.title, text: message.text })
+        await sendWebhook(target({ flavor: 'text' }), message)
+        expect(post.mock.calls.at(-1)?.[1]).toEqual({ text: message.text })
     })
 })

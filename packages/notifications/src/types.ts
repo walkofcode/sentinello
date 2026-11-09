@@ -1,4 +1,4 @@
-import type { Finding, LabelledScanState, NotificationTarget, ProjectManifest } from '@sentinello/core'
+import type { Finding, LabelledScanState, Locale, NotificationTarget, ProjectManifest, Severity, SourceCell } from '@sentinello/core'
 
 // Structured context the webhook sender needs to build its JSON / text flavors. Slack and Telegram
 // ignore it; it rides along on the shared RenderedMessage. The notifier populates it (with DB-derived
@@ -23,8 +23,48 @@ export type WebhookPayloadContext = {
 // message states for this target, under its own scope, filters and mutes.
 export type CapabilitySummaryWebhook = {
     event: 'capability_summary'
-    capability: { id: string; since: string; ecosystems: string[] }
+    // `since` is the release that added the capability; null, with `cells`, when an operator switched a source on.
+    capability: { id: string; since: string | null; ecosystems: string[]; cells?: SourceCell[] }
     counts: { findings: number; projects: number; critical: number; sourceDisabledProjects: number }
+}
+
+// One package of one project, as the run summary and the digest list it.
+export type FleetPackageLine = {
+    projectId: string
+    projectName: string
+    packageName: string
+    ecosystem: string
+    severity: 'critical' | 'high'
+    advisories: number
+    // The fix of its worst advisory that has one; null when none has a released fix.
+    topFix: { version: string; untagged: boolean } | null
+}
+
+// A package of a project with something resolved.
+export type FleetResolvedLine = {
+    projectId: string
+    projectName: string
+    packageName: string
+    ecosystem: string
+    advisories: number
+}
+
+export type FleetUnscannableLine = {
+    projectId: string
+    projectName: string
+    state: 'cannot_scan' | 'partial'
+    reason: string
+}
+
+// The run summary and the weekly digest as a webhook receives them (JSON flavor): the whole lists, never truncated.
+export type FleetSummaryWebhook = {
+    event: 'run_summary' | 'weekly_digest'
+    locale: Locale
+    counts: Record<Severity, number>
+    listed: FleetPackageLine[]
+    // The digest lists no resolved rows.
+    resolved: FleetResolvedLine[]
+    unscannable: FleetUnscannableLine[]
 }
 
 // The rendered shape passed to every sender. `text` is a plain text fallback;
@@ -35,7 +75,7 @@ export type RenderedMessage = {
     text: string
     markdown: string
     portalUrl: string | null
-    webhook?: WebhookPayloadContext | CapabilitySummaryWebhook
+    webhook?: WebhookPayloadContext | CapabilitySummaryWebhook | FleetSummaryWebhook
 }
 
 export type SendResult =

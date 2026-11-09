@@ -24,8 +24,9 @@ describe('sourceNormalizerVersion', function () {
 describe('osvNormalizerVersion', function () {
     // npm too since the live-cache diff: 19 ECOSYSTEM-typed npm records with CalVer fixes now keep a refused
     // part, and cached v7 rows would never gain it.
-    it('answers per ecosystem, every one at 8 for 3.8', function () {
-        for (const id of ['npm', 'PyPI', 'Go', 'crates.io', 'RubyGems']) expect(osvNormalizerVersion(id)).toBe(8)
+    it('answers per ecosystem: 3.8.2 re-derives only the two whose rows change', function () {
+        for (const id of ['npm', 'Go', 'RubyGems']) expect(osvNormalizerVersion(id)).toBe(8)
+        for (const id of ['PyPI', 'crates.io']) expect(osvNormalizerVersion(id)).toBe(9)
     })
 
     it('fails loudly for an ecosystem the registry does not know', function () {

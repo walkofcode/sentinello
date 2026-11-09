@@ -8,7 +8,7 @@ const FILTER_DEFAULTS_KEY = 'filterDefaults'
 
 export type FilterDefaults = {
     depType: DepTypeFilter
-    minSeverity: '' | Severity
+    minSeverity: '' | Exclude<Severity, 'unrated'>
     sort: string
 }
 
@@ -19,7 +19,7 @@ const BUILT_IN_DEFAULTS: FilterDefaults = {
 }
 
 const VALID_DEP_TYPES: DepTypeFilter[] = ['all', 'prod', 'dev']
-const VALID_SEVERITIES: ('' | Severity)[] = ['', 'critical', 'high', 'moderate', 'low', 'info']
+const VALID_SEVERITIES: FilterDefaults['minSeverity'][] = ['', 'critical', 'high', 'moderate', 'low', 'info']
 
 export function getFilterDefaults(db: DrizzleDb): FilterDefaults {
     const raw = getConfigValue<unknown>(db, FILTER_DEFAULTS_KEY)
@@ -30,7 +30,7 @@ export function getFilterDefaults(db: DrizzleDb): FilterDefaults {
         out.depType = obj.depType as DepTypeFilter
     }
     if (typeof obj.minSeverity === 'string' && (VALID_SEVERITIES as string[]).includes(obj.minSeverity)) {
-        out.minSeverity = obj.minSeverity as '' | Severity
+        out.minSeverity = obj.minSeverity as FilterDefaults['minSeverity']
     }
     if (typeof obj.sort === 'string') {
         out.sort = obj.sort

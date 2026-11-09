@@ -48,7 +48,7 @@ describe('requestScanForProject', function () {
         await requestScanForProject('project-1')
 
         expect(queued()).toHaveLength(1)
-        expect(queued()[0]).toMatchObject({ projectId: 'project-1', rootId: null, status: 'pending' })
+        expect(queued()[0]).toMatchObject({ projectId: 'project-1', rootId: null, status: 'pending', origin: 'manual' })
     })
 
     it('busts the project page and the projects list', async function () {
@@ -77,7 +77,7 @@ describe('requestScanForProject', function () {
     // A root sweep will visit this project anyway, so a per-project request on top of it is pure
     // duplicated work.
     it('is covered by a pending sweep of the project\'s own root', async function () {
-        enqueueScanRequest(handle.db, { rootId: ROOT_ID }, Date.now())
+        enqueueScanRequest(handle.db, { rootId: ROOT_ID }, Date.now(), 'manual')
 
         await requestScanForProject('project-1')
 
@@ -86,7 +86,7 @@ describe('requestScanForProject', function () {
     })
 
     it('is covered by a pending full sweep', async function () {
-        enqueueScanRequest(handle.db, {}, Date.now())
+        enqueueScanRequest(handle.db, {}, Date.now(), 'manual')
 
         await requestScanForProject('project-1')
 
@@ -95,7 +95,7 @@ describe('requestScanForProject', function () {
 
     // The guard must be scoped, not global: an unrelated project's scan is not a reason to refuse.
     it('still enqueues when the in-flight request targets a different project', async function () {
-        enqueueScanRequest(handle.db, { projectId: 'project-2' }, Date.now())
+        enqueueScanRequest(handle.db, { projectId: 'project-2' }, Date.now(), 'manual')
 
         await requestScanForProject('project-1')
 
@@ -103,7 +103,7 @@ describe('requestScanForProject', function () {
     })
 
     it('still enqueues when the in-flight request targets a different root', async function () {
-        enqueueScanRequest(handle.db, { rootId: 'root-2' }, Date.now())
+        enqueueScanRequest(handle.db, { rootId: 'root-2' }, Date.now(), 'manual')
 
         await requestScanForProject('project-1')
 
@@ -133,7 +133,7 @@ describe('requestScanForRoot', function () {
     })
 
     it('is covered by a pending full sweep', async function () {
-        enqueueScanRequest(handle.db, {}, Date.now())
+        enqueueScanRequest(handle.db, {}, Date.now(), 'manual')
 
         await requestScanForRoot(ROOT_ID)
 
@@ -144,7 +144,7 @@ describe('requestScanForRoot', function () {
     // root does NOT cover a root sweep, because the operator asking to scan the whole root is asking
     // for strictly more work than the single-project request already queued.
     it('still enqueues when only a single project inside the root is in flight', async function () {
-        enqueueScanRequest(handle.db, { projectId: 'project-1' }, Date.now())
+        enqueueScanRequest(handle.db, { projectId: 'project-1' }, Date.now(), 'manual')
 
         await requestScanForRoot(ROOT_ID)
 
@@ -179,7 +179,7 @@ describe('requestFullSweep', function () {
     // The broadest guard of the three: ANY in-flight request blocks a sweep, because a sweep is the
     // most expensive thing the worker can be asked to do and the queue is drained serially.
     it('is blocked by any in-flight request, including a single-project one', async function () {
-        enqueueScanRequest(handle.db, { projectId: 'project-1' }, Date.now())
+        enqueueScanRequest(handle.db, { projectId: 'project-1' }, Date.now(), 'manual')
 
         await requestFullSweep()
 
@@ -188,7 +188,7 @@ describe('requestFullSweep', function () {
     })
 
     it('is blocked by a pending root sweep', async function () {
-        enqueueScanRequest(handle.db, { rootId: ROOT_ID }, Date.now())
+        enqueueScanRequest(handle.db, { rootId: ROOT_ID }, Date.now(), 'manual')
 
         await requestFullSweep()
 

@@ -169,7 +169,8 @@
         "stateSideEnvironment": "this Sentinello install",
         "stateSourceDisabled": "No source enabled for {languages}",
         "sourceDisabledNotice": "{count, plural, one {# project has} other {# projects have}} no source enabled for {languages}, so nothing scans {count, plural, one {it} other {them}}.",
-        "sourceDisabledAction": "Turn one on in Settings → Sources"
+        "sourceDisabledAction": "Turn one on in Settings → Sources",
+        "libraryNoticeCount": "{count, plural, one {+ # notice} other {+ # notices}}"
     },
     "WhatsNew": {
         "pillLabel": "What's new",
@@ -299,7 +300,22 @@
             "webhookFlavor": "Payload format",
             "webhookFlavorJson": "Structured JSON",
             "webhookFlavorText": "Plain-text advisory",
-            "webhookFlavorHelp": "JSON sends root, project and vulnerabilities for an auto-fix agent. Plain-text sends the advisory export, ready to feed an LLM."
+            "webhookFlavorHelp": "JSON sends root, project and vulnerabilities for an auto-fix agent. Plain-text sends the advisory export, ready to feed an LLM.",
+            "messages": "Messages",
+            "runSummary": "Run summary",
+            "runSummaryHelp": "One message per scheduled or manual scan run, with what is new across every project. This target stops getting per-project messages.",
+            "weeklyDigest": "Weekly digest",
+            "weeklyDigestHelp": "One message a week with everything outstanding, also when nothing is.",
+            "deliveryPerProject": "Per project",
+            "deliveryRunSummary": "Run summary",
+            "digestOn": "Digest on",
+            "digestOff": "Digest off",
+            "digestSchedule": {
+                "title": "Weekly digest schedule",
+                "day": "Day",
+                "hour": "Hour",
+                "help": "Sent to every target with the digest on, at this time in the schedule’s timezone ({timezone})."
+            }
         },
         "sources": {
             "metaTitle": "Sources · Settings",
@@ -389,6 +405,7 @@
             "scanRetentionDaysHelp": "Scan rows older than this are deleted, except the 100 most recent per project, which are always kept. Findings, mutes and notification history are never touched — only the scan log. Project pages will show a shorter scan history.",
             "portalBaseUrl": "Portal base URL (used in notification deep links)",
             "globalIgnore": "Global ignore patterns (one per line)",
+            "globalIgnoreHelp": "Gitignore syntax, relative to each root. Findings under an excluded path resolve with no alert. Excluding a whole project removes it, with its mutes and history.",
             "watcherLabel": "Lockfile watcher (scan-on-change) — master switch. Worker enqueues a scan_request when a watched lockfile changes.",
             "watchedRoots": "Watched roots (opt-in per root)",
             "noRoots": "No roots configured yet. Add a root under Settings → Roots first.",
@@ -440,7 +457,8 @@
             "selected": "Selected sources",
             "selectedHelp": "Only notify for the source/language cells you pick below.",
             "selectionError": "Pick at least one cell, or choose “All sources”."
-        }
+        },
+        "severityModerateAndUnrated": "Moderate, and unrated"
     },
     "Findings": {
         "columns": {
@@ -533,12 +551,17 @@
         },
         "notRecheckedCannotScan": "not re-checked — the project cannot be scanned: {reason}",
         "notRecheckedPartial": "not re-checked — the project cannot be fully scanned: {reason}",
+        "notRecheckedOnly": "not re-checked — {reason}",
         "notRecheckedCopies": "copies in {manifests} not re-checked — the project cannot be fully scanned: {reason}",
         "chainUnknown": "chain unknown",
         "chainUnknownHint": "The lockfile records no dependency graph, so what pulls this package in is unknown. It is not a sign that there is no way out.",
         "installedThrough": "in {manifests}",
         "lastScannedSuccessfully": "last scanned successfully {date}",
-        "neverScannedSuccessfully": "never scanned successfully"
+        "neverScannedSuccessfully": "never scanned successfully",
+        "noticesHeading": "{count, plural, one {# notice} other {# notices}}",
+        "noticesHelp": "Not vulnerabilities: the advisory says the package is unmaintained, unsound or worth knowing about. They are in no count, and alert nobody.",
+        "noticeNoFix": "No fix to chase",
+        "fixUntaggedCommit": "untagged commit: no tagged release has the fix"
     },
     "Triage": {
         "alias": {
@@ -673,7 +696,7 @@
             },
             "notifications": {
                 "purpose": "Send the findings you configured alerts for — project name, git branch, package and version, severity, advisory id, and a link back to this portal",
-                "when": "When a scan produces a new finding, a resolved finding, or a scan failure",
+                "when": "A new finding or a scan failure: per project, or in one run summary if the target opted in. Plus the weekly digest, on by default, on the day and hour set here",
                 "disable": "Settings → Notifications — none exist until you add one"
             },
             "pypi": {
@@ -771,11 +794,14 @@
             },
             "cannotScanTitle": "Project cannot be scanned",
             "cannotScanBody": "No source could read this project. The findings below are what an earlier scan recorded and were not re-checked; zero findings here means unknown, not safe.",
+            "cannotScanBodyNoFindings": "No source could read this project, so nothing has been checked; zero findings here means unknown, not safe.",
             "partialScanTitle": "Project cannot be fully scanned",
             "partialScanBody": "Part of this project could not be scanned, so its findings may be incomplete. Findings from a source that could not scan it were not re-checked.",
+            "partialScanBodyNoEarlier": "Part of this project could not be scanned, so its findings may be incomplete.",
             "scanReasonSideProject": "on the project's side: a file in the project stops it from being read, and changing it there is the fix",
             "scanReasonSideEnvironment": "on this Sentinello install's side: the install could not do the scan, and it is the operator's fix",
             "scanReasonNotYetRun": "nothing has looked yet: the next scan does",
+            "scanReasonFix": "To fix it: {fix}",
             "sourceDisabledReason": "No source enabled for {languages}",
             "sourceDisabledAction": "Turn one on in Settings → Sources",
             "noFindingsUnknownTitle": "No findings recorded",

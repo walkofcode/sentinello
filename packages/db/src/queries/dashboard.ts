@@ -5,7 +5,7 @@ import { depTypeClause } from './dep-type'
 import { parseManifests } from './projects'
 import { activeScanRows, findingScanContexts, listLatestSourceScans, listProjectScanStates, type LatestSourceScanRow } from './scan-state'
 import { activeSourceCellClause } from './sources'
-import { advisoryIdentitySql, severityRankSql, findingMuteExclusionSql } from './advisory-identity'
+import { advisoryIdentitySql, notNoticeSql, severityRankSql, statesModerateSql, findingMuteExclusionSql } from './advisory-identity'
 
 // Aggregate queries that power the Dashboard. Each is a single SQL statement returning a small
 // fixed-shape row so the dashboard renders with one DB hit per tile (no N+1).
@@ -14,6 +14,7 @@ export type SeverityCounts = {
     critical: number
     high: number
     moderate: number
+    unrated: number
     low: number
     info: number
 }
@@ -58,6 +59,7 @@ export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeF
             FROM projects p
             INNER JOIN findings f ON f.project_id = p.id
             WHERE f.resolved_at IS NULL
+              ${notNoticeSql('f')}
               ${depFilter}
               ${sourceFilter}
               AND NOT EXISTS (
@@ -81,13 +83,15 @@ export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeF
             critical: number
             high: number
             moderate: number
+            unrated: number
             low: number
             info: number
         }>(sql`
             WITH deduped AS (
-                SELECT MAX(${severityRankSql('f')}) AS sev_rank
+                SELECT MAX(${severityRankSql('f')}) AS sev_rank, MAX(${statesModerateSql('f')}) AS states_moderate
                 FROM findings f
                 WHERE f.resolved_at IS NULL
+                  ${notNoticeSql('f')}
                   ${depFilter}
                   ${sourceFilter}
                   ${findingMuteExclusionSql(at, 'f')}
@@ -96,7 +100,8 @@ export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeF
             SELECT
                 SUM(CASE WHEN sev_rank = 5 THEN 1 ELSE 0 END) AS critical,
                 SUM(CASE WHEN sev_rank = 4 THEN 1 ELSE 0 END) AS high,
-                SUM(CASE WHEN sev_rank = 3 THEN 1 ELSE 0 END) AS moderate,
+                SUM(CASE WHEN sev_rank = 3 AND states_moderate = 1 THEN 1 ELSE 0 END) AS moderate,
+                SUM(CASE WHEN sev_rank = 3 AND states_moderate = 0 THEN 1 ELSE 0 END) AS unrated,
                 SUM(CASE WHEN sev_rank = 2 THEN 1 ELSE 0 END) AS low,
                 SUM(CASE WHEN sev_rank = 1 THEN 1 ELSE 0 END) AS info
             FROM deduped
@@ -108,6 +113,16 @@ export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeF
             FROM notification_events e
             WHERE e.event_type = 'finding'
               AND e.first_seen_at >= ${cutoff}
+              AND NOT EXISTS (
+                SELECT 1 FROM findings n
+                WHERE n.project_id = e.project_id
+                  AND COALESCE(n.source, n.scanner) = e.scanner
+                  AND n.ecosystem = e.ecosystem
+                  AND n.advisory_id = e.advisory_id
+                  AND n.package_name = e.package_name
+                  AND n.resolved_at IS NULL
+                  AND n.notice_kind IS NOT NULL
+              )
               AND NOT EXISTS (
                 SELECT 1 FROM mutes m
                 WHERE (m.expires_at IS NULL OR m.expires_at > ${at})
@@ -161,6 +176,7 @@ export function getDashboardSummary(db: DrizzleDb, at: number, depType: DepTypeF
             critical: sevRow?.critical || 0,
             high: sevRow?.high || 0,
             moderate: sevRow?.moderate || 0,
+            unrated: sevRow?.unrated || 0,
             low: sevRow?.low || 0,
             info: sevRow?.info || 0
         },
@@ -262,13 +278,15 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
         critical: number
         high: number
         moderate: number
+        unrated: number
         low: number
         info: number
     }>(sql`
         WITH deduped AS (
-            SELECT f.project_id AS project_id, MAX(${severityRankSql('f')}) AS sev_rank
+            SELECT f.project_id AS project_id, MAX(${severityRankSql('f')}) AS sev_rank, MAX(${statesModerateSql('f')}) AS states_moderate
             FROM findings f
             WHERE f.resolved_at IS NULL
+              ${notNoticeSql('f')}
               ${depFilter}
               ${sourceFilter}
               ${findingMuteExclusionSql(at, 'f')}
@@ -278,7 +296,8 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             SELECT project_id,
                 SUM(CASE WHEN sev_rank = 5 THEN 1 ELSE 0 END) AS critical,
                 SUM(CASE WHEN sev_rank = 4 THEN 1 ELSE 0 END) AS high,
-                SUM(CASE WHEN sev_rank = 3 THEN 1 ELSE 0 END) AS moderate,
+                SUM(CASE WHEN sev_rank = 3 AND states_moderate = 1 THEN 1 ELSE 0 END) AS moderate,
+                SUM(CASE WHEN sev_rank = 3 AND states_moderate = 0 THEN 1 ELSE 0 END) AS unrated,
                 SUM(CASE WHEN sev_rank = 2 THEN 1 ELSE 0 END) AS low,
                 SUM(CASE WHEN sev_rank = 1 THEN 1 ELSE 0 END) AS info
             FROM deduped
@@ -313,6 +332,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
             COALESCE(ps.critical, 0) AS critical,
             COALESCE(ps.high, 0) AS high,
             COALESCE(ps.moderate, 0) AS moderate,
+            COALESCE(ps.unrated, 0) AS unrated,
             COALESCE(ps.low, 0) AS low,
             COALESCE(ps.info, 0) AS info
         FROM projects p
@@ -342,6 +362,7 @@ export function listProjectCatalog(db: DrizzleDb, at: number, depType: DepTypeFi
                 critical: row.critical,
                 high: row.high,
                 moderate: row.moderate,
+                unrated: row.unrated,
                 low: row.low,
                 info: row.info
             }
@@ -360,6 +381,7 @@ export function countOpenFindingsByProject(db: DrizzleDb, at: number): Map<strin
             SELECT f.project_id AS project_id
             FROM findings f
             WHERE f.resolved_at IS NULL
+              ${notNoticeSql('f')}
               ${activeSourceCellClause(db)}
               ${findingMuteExclusionSql(at, 'f')}
             GROUP BY f.project_id, f.ecosystem, f.package_name, ${advisoryIdentitySql('f')}
@@ -402,6 +424,11 @@ export type CurrentFindingRow = {
     // Other sources that independently reported this same advisory for this same package, each with the
     // id IT uses and the grade IT assigned. `severity` above is already the worst of them.
     corroborations: FindingCorroboration[]
+    // Set when the row is a notice, not a vulnerability (Finding.noticeKind).
+    noticeKind: string | null
+    // The cross-source identity (refreshAdvisoryKeys). Null only between migration and boot; the merge falls
+    // back on the row's own source and id, as advisoryIdentitySql does.
+    advisoryKey: string | null
     isMuted: boolean
     isProd: boolean
     isDev: boolean
@@ -442,6 +469,8 @@ export function listCurrentFindingsForProject(
         remediation_json: string | null
         dep_path_json: string
         corroborations_json: string
+        notice_kind: string | null
+        advisory_key: string | null
         muted: number | null
         is_prod: number
         is_dev: number
@@ -451,7 +480,7 @@ export function listCurrentFindingsForProject(
         SELECT
             f.id, f.scan_id, f.project_id, f.scanner, f.source, f.ecosystem, f.advisory_id, f.advisory_title, f.advisory_url,
             f.package_name, f.installed_version, f.installations_json, f.vulnerable_range, f.severity, f.fix_available,
-            f.fix_version, f.fix_status, f.fix_check_json, f.remediation_json, f.dep_path_json, f.corroborations_json, f.is_prod, f.is_dev,
+            f.fix_version, f.fix_status, f.fix_check_json, f.remediation_json, f.dep_path_json, f.corroborations_json, f.notice_kind, f.advisory_key, f.is_prod, f.is_dev,
             f.first_detected_at, f.last_seen_at,
             (SELECT 1 FROM mutes m
                 WHERE (m.expires_at IS NULL OR m.expires_at > ${at})
@@ -501,6 +530,8 @@ export function listCurrentFindingsForProject(
             ),
             depPathJson: row.dep_path_json,
             corroborations: parseFindingCorroborations(row.corroborations_json),
+            noticeKind: row.notice_kind,
+            advisoryKey: row.advisory_key,
             isMuted: row.muted === 1,
             isProd: row.is_prod === 1,
             isDev: row.is_dev === 1,

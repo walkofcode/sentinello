@@ -4,7 +4,19 @@ import type { FixCheck } from './fix-status'
 import type { Remediation } from './remediation'
 import type { NotRecheckedBecause } from './scan-state'
 
-export type Severity = 'critical' | 'high' | 'moderate' | 'low' | 'info'
+// `unrated`: no source states a grade and no vector could be scored. It keeps moderate's rank everywhere a
+// rank decides something (sorting, floors, alerting), so an unknown is never silently downgraded, and it
+// claims no grade anybody gave. A stated moderate beats it in a tie, and it beats low.
+export type Severity = 'critical' | 'high' | 'moderate' | 'unrated' | 'low' | 'info'
+
+// What a notification target's severity filter can hold. `unrated` is not a choice there: a stored filter is
+// never migrated, and `moderate` in one also covers unrated (severityInFilter), so a target's existing choice
+// keeps the same findings it always had.
+export const TARGET_SEVERITY_VALUES = ['critical', 'high', 'moderate', 'low', 'info'] as const
+
+export function severityInFilter(filter: readonly string[], severity: string): boolean {
+    return filter.includes(severity) || (severity === 'unrated' && filter.includes('moderate'))
+}
 
 // What is known about a finding's fix version, which is a fact about the package registry and never
 // arithmetic on a range. `released` — the fix version is published (and outside every source's affected
@@ -97,7 +109,7 @@ export function installedThrough(installation: FindingInstallation, manifestPath
 // (critical = 0) and a descending one in apps/web/lib/merge-findings.ts (critical = 5), both exported
 // under the name SEVERITY_RANK. Moving a comparison between the two silently reversed it, and the
 // ascending scale's critical = 0 was a standing falsy-zero trap for `&&`/`||` defaulting.
-export const SEVERITY_ORDER: readonly Severity[] = ['critical', 'high', 'moderate', 'low', 'info']
+export const SEVERITY_ORDER: readonly Severity[] = ['critical', 'high', 'moderate', 'unrated', 'low', 'info']
 
 // Higher weight = more severe, so "the worst of a group" is a plain MAX. Mirrors severityRankSql in
 // packages/db exactly, including the unknown fallback, so JS grouping and SQL aggregates always agree.
@@ -105,6 +117,7 @@ const SEVERITY_WEIGHT: Record<Severity, number> = {
     critical: 5,
     high: 4,
     moderate: 3,
+    unrated: 3,
     low: 2,
     info: 1
 }
@@ -135,19 +148,27 @@ export function meetsSeverityFloor(severity: string, floor: string): boolean {
 }
 
 // Always returns a declared Severity: an unrecognized input can tie on weight but never wins, so the
-// raw string is never echoed back out as though it were a valid severity.
+// raw string is never echoed back out as though it were a valid severity. A stated moderate beats unrated
+// in a tie: somebody graded it.
 export function maxSeverity(severities: string[]): Severity {
     let best: Severity = 'info'
     let bestWeight = 0
     for (const s of severities) {
         const normalized = s.trim().toLowerCase() as Severity
         const known = SEVERITY_WEIGHT[normalized]
-        if (known !== undefined && known > bestWeight) {
+        if (known !== undefined && (known > bestWeight || (known === bestWeight && normalized === 'moderate'))) {
             bestWeight = known
             best = normalized
         }
     }
     return best
+}
+
+// Whether `candidate` is the worse of two grades: heavier, or a stated moderate over an unrated tie. For a caller
+// picking a row to represent a group, where maxSeverity would only name the grade.
+export function outranksSeverity(candidate: string, current: string): boolean {
+    const byWeight = severityWeight(candidate) - severityWeight(current)
+    return byWeight > 0 || (byWeight === 0 && candidate === 'moderate' && current !== 'moderate')
 }
 
 // The severity a corroborated finding is reported at: the worst grade any source gave it.
@@ -172,9 +193,9 @@ export function escalatedSeverity(own: Severity, corroborations: FindingCorrobor
 // project it is the manager of its anchor manifest. 'unknown' is a manifest no lockfile names a manager for
 // (a package.json with no recognized lockfile, a pyproject.toml on its own); the scanner records those as
 // unauditable with reason 'no_lockfile'.
-export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'pip' | 'poetry' | 'uv' | 'pipenv' | 'go' | 'cargo' | 'bundler' | 'unknown'
+export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun' | 'pip' | 'poetry' | 'uv' | 'pipenv' | 'go' | 'cargo' | 'bundler' | 'unknown'
 
-export const PACKAGE_MANAGER_VALUES: PackageManager[] = ['npm', 'yarn', 'pnpm', 'pip', 'poetry', 'uv', 'pipenv', 'go', 'cargo', 'bundler', 'unknown']
+export const PACKAGE_MANAGER_VALUES: PackageManager[] = ['npm', 'yarn', 'pnpm', 'bun', 'pip', 'poetry', 'uv', 'pipenv', 'go', 'cargo', 'bundler', 'unknown']
 
 // One manifest or lockfile discovery recorded for a project: where it sits (relative to the project
 // directory, `/` separators), which ecosystem it belongs to and which file kind it is (a resolver kind
@@ -250,6 +271,9 @@ export type ReasonCode =
     | 'ambiguous_dependency_spec'
     | 'unsupported_lockfile'
     | 'ecosystem_source_disabled'
+    // Never a scan's: why a row stays not re-checked when its source cannot answer for the project's package
+    // manager (npm audit on a Bun project), so nothing ever attempts that source again.
+    | 'source_not_applicable'
     // timeout
     | 'timeout'
 
@@ -281,6 +305,7 @@ export const REASON_CODE_VALUES: ReasonCode[] = [
     'ambiguous_dependency_spec',
     'unsupported_lockfile',
     'ecosystem_source_disabled',
+    'source_not_applicable',
     'timeout'
 ]
 
@@ -410,6 +435,15 @@ export type Finding = {
     // thirds of findings are corroborated, and without this they looked identical to the third that
     // are not.
     corroborations: FindingCorroboration[]
+    // Set when the advisory is a notice rather than a vulnerability (RUSTSEC's `informational`: unmaintained,
+    // unsound, notice): the row stays visible and mutable, is left out of every severity count and notification,
+    // and has no fix to chase. Null for every vulnerability.
+    noticeKind: string | null
+    // The cross-references the row's own source lists for its advisory (GHSA, CVE). Evidence for advisoryKey.
+    aliases: string[]
+    // Which advisory this row is, across sources: the representative id of the rows sharing an id or alias
+    // (refreshAdvisoryKeys). Null only on an old resolved row, or between the migration and the boot backfill.
+    advisoryKey: string | null
     // The fix as settled against the registry after every source ran (see FixStatus). `fixVersion` is a
     // published version only when `fixStatus` is 'released'. `fixCheck` is the verification snapshot;
     // null on a row no settlement has written yet, whose fix value is withheld (readFixFields).
@@ -458,6 +492,10 @@ export function findingIdentity(finding: Pick<Finding, 'projectId' | 'source' | 
     }
 }
 
+// 'manual': the portal or MCP asked, and a run summary follows. 'automatic': the lockfile watcher or a cache that
+// landed asked, and what it finds waits for the next scheduled sweep's summary.
+export type ScanRequestOrigin = 'manual' | 'automatic'
+
 export type ScanRequest = {
     id: string
     projectId: string | null
@@ -467,6 +505,7 @@ export type ScanRequest = {
     finishedAt: number | null
     heartbeatAt: number | null
     status: ScanRequestStatus
+    origin: ScanRequestOrigin
 }
 
 // A 'running' scan_requests row whose heartbeat is older than this is treated as dead.
@@ -505,6 +544,10 @@ export type WebhookTargetConfig = {
 
 export type NotificationTargetConfig = SlackTargetConfig | TelegramTargetConfig | WebhookTargetConfig
 
+// 'per_project': a message per project per scan, every target's default. 'run_summary': one message per scheduled
+// or manual run, instead of those.
+export type TargetDelivery = 'per_project' | 'run_summary'
+
 export type NotificationTarget = {
     id: string
     kind: NotificationTargetKind
@@ -528,6 +571,12 @@ export type NotificationTarget = {
     // fires only for findings whose (source, ecosystem) is in `cells`. Dispatch filters finding events
     // by this; operational (scan_failure) events bypass it. Defaults to { mode: 'all', cells: [] }.
     sourceScope: NotificationSourceScope
+    delivery: TargetDelivery
+    // The weekly digest, on until it is turned off.
+    weeklyDigest: boolean
+    // The last moment the target became digest-eligible (enabled and weeklyDigest both true); null reads as
+    // createdAt. A target is owed a week's digest only if this is at or before that week's due instant.
+    digestEligibleSinceAt: number | null
 }
 
 export type MuteScope = 'project' | 'finding'
@@ -583,6 +632,10 @@ export type MuteWrite = ProjectMuteWrite | FindingMuteWrite
 
 export type NotificationEventType = 'finding' | 'scan_failure'
 
+// What each source last answered about one finding event's grade: its grade, or null when it answered and did
+// not report the advisory. A source that failed or is disabled said nothing, and is simply absent.
+export type GradeAnswers = Record<string, Severity | null>
+
 export type NotificationEvent = {
     id: string
     eventType: NotificationEventType
@@ -598,6 +651,15 @@ export type NotificationEvent = {
     // target's severity_filter in SQL without reverse-mapping through historical finding rows.
     // null for scan_failure events (they bypass severity filtering).
     severity: Severity | null
+    // Bumped when a release corrects grades (EVENT_GRADE_VERSION): behind it, the event's first sighting per
+    // source reads as a correction, and never as news.
+    gradeVersion: number
+    // The grade a correction replaced, which is what a target's filter still judges the event on: a corrected
+    // grade cannot change who is owed it (eventEligibleForTargetSql). Null when nothing is held.
+    policySeverity: Severity | null
+    // Stored per source across scans (GradeAnswers); null for an event recorded at the current version, which
+    // tracks none and behaves as any re-grade always has.
+    gradeAnswers: GradeAnswers | null
     failureSignature: string | null
     firstScanId: string
     firstSeenAt: number

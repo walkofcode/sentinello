@@ -53,7 +53,8 @@ describe('a comparator with no declared accepted range types', function () {
                         summary: null,
                         url: null,
                         malicious: false,
-                        withdrawn: null
+                        withdrawn: null,
+                        noticeKind: null
                     }
                 ]
             ]

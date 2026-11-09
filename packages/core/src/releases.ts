@@ -20,6 +20,7 @@ function stripVPrefix(value: string): string {
 // needs no empty-array fallback — and an accidental truncation to [] becomes a type error rather than a
 // silently null "latest release".
 export const RELEASES: [ReleaseEntry, ...ReleaseEntry[]] = [
+    { version: '3.8.2', date: '2026-11-09' },
     { version: '3.8.1', date: '2026-10-30' },
     { version: '3.8.0', date: '2026-10-30' },
     { version: '3.7.6', date: '2026-10-25' },
@@ -64,6 +65,17 @@ export const RELEASES: [ReleaseEntry, ...ReleaseEntry[]] = [
 // this is plain TS data, not a next-intl message key (next-intl forbids '.' in keys).
 export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
     en: {
+        '3.8.2': {
+            title: 'One message for the whole system, and findings that say what they are',
+            items: [
+                'Notifications are now set per target. Each message per project stays the default. A new <strong>Run summary</strong> option replaces them with one message per scheduled sweep or manual scan: critical and high by project and package, the other severities as counts, what was resolved, newly unscannable projects and a portal link. Nothing new means no message, and lockfile-watcher scans wait for the next scheduled sweep.',
+                'A <strong>Weekly digest</strong>, on for every target until you turn it off, says what is outstanding, also when nothing is. Set its day and hour once in Settings → Notifications (Monday 09:00 by default), in the schedule’s timezone. The first one may arrive right after upgrading if this week’s time has passed.',
+                'Switching a source on in Settings → Sources after a scan has run now sends each target one message, “Sentinello now checks Python with OSV: 12 findings across 3 projects, 2 critical”, instead of one message per project. The webhook gains <code>run_summary</code> and <code>weekly_digest</code> events.',
+                'Text <code>bun.lock</code> files are now read, so a Bun project’s JavaScript dependencies are checked; npm audit is not expected for one, and <code>bun.lockb</code> says it is unsupported. Workspace crates a sibling <code>Cargo.lock</code> lists no longer report “No lockfile”, and an old <code>package-lock.json</code> reads “unsupported lockfile”.',
+                'An advisory with no stated grade now reads <strong>unrated</strong> instead of claiming moderate, and RUSTSEC CVSS vectors are scored. Unmaintained and unsound notices are labelled as notices and no longer counted or alerted as vulnerabilities. Neither correction sends a message: a target is only told when a source’s grade really changes.',
+                'GitLab advisories OSV disproves for the installed version are dropped. Rows of one vulnerability under several ids now count once, and only when the sources say so, never from a shared title. A Go fix that is only a commit reads “untagged commit”, and the lowest tagged fix is preferred. “Cannot be fully scanned” no longer appears for a source that simply has not run yet, and project-side reasons say how to fix them.'
+            ]
+        },
         '3.8.1': {
             title: 'No false scan-failure alerts while an upgrade rebuilds the advisory caches',
             items: [
@@ -376,6 +388,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Initial open-source release', items: ['The first public release of Sentinello'] }
     },
     es: {
+        '3.8.2': {
+            title: 'Un solo mensaje para todo el sistema, y hallazgos que dicen lo que son',
+            items: [
+                'Las notificaciones ahora se configuran por destino. Un mensaje por proyecto sigue siendo lo predeterminado. La nueva opción <strong>Resumen de ejecución</strong> los reemplaza por un mensaje por cada análisis programado o manual: críticos y altos por proyecto y paquete, las demás severidades como conteos, lo resuelto, los proyectos que ya no se pueden analizar y un enlace al portal. Si no hay nada nuevo no hay mensaje, y los análisis del vigilante de lockfiles esperan al siguiente análisis programado.',
+                'Un <strong>Resumen semanal</strong>, activo en todos los destinos hasta que lo desactives, dice qué está pendiente, también cuando no hay nada. Su día y hora se configuran una sola vez en Configuración → Notificaciones (lunes 09:00 por defecto), en la zona horaria de la programación. El primero puede llegar justo después de actualizar si la hora de esta semana ya pasó.',
+                'Activar una fuente en Configuración → Fuentes después de un análisis ahora envía a cada destino un solo mensaje, “Sentinello ahora revisa Python con OSV: 12 hallazgos en 3 proyectos, 2 críticos”, en lugar de un mensaje por proyecto. El webhook suma los eventos <code>run_summary</code> y <code>weekly_digest</code>.',
+                'Ahora se leen los archivos <code>bun.lock</code> de texto, así que se revisan las dependencias de JavaScript de un proyecto Bun; npm audit no se espera en ellos, y <code>bun.lockb</code> indica que no es compatible. Los crates de un workspace que un <code>Cargo.lock</code> vecino lista ya no informan “Sin lockfile”, y un <code>package-lock.json</code> antiguo dice “lockfile no compatible”.',
+                'Un aviso sin grado declarado ahora se muestra como <strong>unrated</strong> en lugar de afirmar moderate, y se puntúan los vectores CVSS de RUSTSEC. Los avisos de paquetes sin mantenimiento o no seguros se etiquetan como avisos y ya no cuentan ni alertan como vulnerabilidades. Ninguna de estas correcciones envía un mensaje: a un destino solo se le avisa cuando el grado de una fuente cambia de verdad.',
+                'Se descartan los avisos de GitLab que OSV desmiente para la versión instalada. Las filas de una misma vulnerabilidad con varios ids ahora cuentan una vez, y solo cuando las fuentes lo dicen, nunca por compartir título. Una corrección de Go que es solo un commit se muestra como “commit sin etiqueta”, y se prefiere la corrección etiquetada más baja. “No se puede analizar por completo” ya no aparece por una fuente que simplemente aún no se ejecutó, y los motivos del lado del proyecto dicen cómo resolverlos.'
+            ]
+        },
         '3.8.1': {
             title: 'Sin falsas alertas de escaneo fallido mientras una actualización reconstruye las cachés de avisos',
             items: [
@@ -691,6 +714,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primera versión de código abierto', items: ['El primer lanzamiento público de Sentinello'] }
     },
     fr: {
+        '3.8.2': {
+            title: 'Un seul message pour tout le système, et des résultats qui disent ce qu’ils sont',
+            items: [
+                'Les notifications se règlent désormais par cible. Un message par projet reste le réglage par défaut. La nouvelle option <strong>Résumé d’exécution</strong> les remplace par un message par analyse planifiée ou manuelle : critiques et élevées par projet et paquet, les autres sévérités en nombres, ce qui a été résolu, les projets devenus impossibles à analyser et un lien vers le portail. Rien de nouveau, aucun message, et les analyses du surveillant de lockfiles attendent la prochaine analyse planifiée.',
+                'Un <strong>Résumé hebdomadaire</strong>, activé pour chaque cible jusqu’à ce que vous le désactiviez, indique ce qui reste à traiter, même quand il n’y a rien. Son jour et son heure se règlent une seule fois dans Paramètres → Notifications (lundi 09:00 par défaut), dans le fuseau horaire de la planification. Le premier peut arriver juste après la mise à jour si l’heure de cette semaine est passée.',
+                'Activer une source dans Paramètres → Sources après une analyse envoie désormais à chaque cible un seul message, « Sentinello vérifie désormais Python avec OSV : 12 vulnérabilités dans 3 projets, dont 2 critiques », au lieu d’un message par projet. Le webhook gagne les événements <code>run_summary</code> et <code>weekly_digest</code>.',
+                'Les fichiers <code>bun.lock</code> texte sont désormais lus, donc les dépendances JavaScript d’un projet Bun sont vérifiées ; npm audit n’y est pas attendu, et <code>bun.lockb</code> indique qu’il n’est pas pris en charge. Les crates d’un workspace listés par un <code>Cargo.lock</code> voisin ne signalent plus « Aucun lockfile », et un ancien <code>package-lock.json</code> indique « lockfile non pris en charge ».',
+                'Un avis sans gravité déclarée se lit désormais <strong>unrated</strong> au lieu de prétendre moderate, et les vecteurs CVSS de RUSTSEC sont notés. Les avis de paquets non maintenus ou non sûrs sont étiquetés comme avis et ne sont plus comptés ni signalés comme vulnérabilités. Aucune de ces corrections n’envoie de message : une cible n’est prévenue que lorsque la gravité d’une source change vraiment.',
+                'Les avis GitLab qu’OSV dément pour la version installée sont écartés. Les lignes d’une même vulnérabilité sous plusieurs identifiants comptent désormais une fois, et seulement quand les sources le disent, jamais à cause d’un titre commun. Un correctif Go qui n’est qu’un commit se lit « commit sans tag », et le correctif tagué le plus bas est préféré. « Analyse complète impossible » n’apparaît plus pour une source qui n’a simplement pas encore tourné, et les raisons côté projet disent comment les corriger.'
+            ]
+        },
         '3.8.1': {
             title: 'Plus de fausses alertes d’analyse échouée pendant qu’une mise à jour reconstruit les caches d’avis',
             items: [
@@ -1008,6 +1042,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Première version open source', items: ['La première version publique de Sentinello'] }
     },
     de: {
+        '3.8.2': {
+            title: 'Eine Nachricht für das ganze System, und Funde, die sagen, was sie sind',
+            items: [
+                'Benachrichtigungen werden jetzt pro Ziel eingestellt. Eine Nachricht pro Projekt bleibt der Standard. Die neue Option <strong>Laufzusammenfassung</strong> ersetzt sie durch eine Nachricht pro geplantem oder manuellem Scan: kritisch und hoch nach Projekt und Paket, die übrigen Schweregrade als Zahlen, Behobenes, neu nicht scanbare Projekte und ein Link zum Portal. Nichts Neues heißt keine Nachricht, und Scans des Lockfile-Watchers warten auf den nächsten geplanten Scan.',
+                'Eine <strong>Wochenübersicht</strong>, für jedes Ziel an, bis du sie ausschaltest, sagt, was offen ist, auch wenn nichts offen ist. Tag und Stunde stellst du einmal in Einstellungen → Benachrichtigungen ein (standardmäßig Montag 09:00), in der Zeitzone des Zeitplans. Die erste kann direkt nach dem Upgrade kommen, wenn die Zeit dieser Woche vorbei ist.',
+                'Eine Quelle in Einstellungen → Quellen nach einem Scan einzuschalten, schickt jedem Ziel jetzt eine Nachricht, „Sentinello prüft jetzt Python mit OSV: 12 Befunde in 3 Projekten, 2 kritisch“, statt einer pro Projekt. Der Webhook erhält die Ereignisse <code>run_summary</code> und <code>weekly_digest</code>.',
+                'Text-Dateien <code>bun.lock</code> werden jetzt gelesen, also werden die JavaScript-Abhängigkeiten eines Bun-Projekts geprüft; npm audit wird dort nicht erwartet, und <code>bun.lockb</code> meldet, dass es nicht unterstützt wird. Workspace-Crates, die ein benachbartes <code>Cargo.lock</code> aufführt, melden nicht mehr „Kein Lockfile“, und eine alte <code>package-lock.json</code> meldet „nicht unterstütztes Lockfile“.',
+                'Ein Advisory ohne angegebenen Schweregrad heißt jetzt <strong>unrated</strong>, statt moderate zu behaupten, und CVSS-Vektoren von RUSTSEC werden bewertet. Hinweise auf ungepflegte oder unsichere Pakete werden als Hinweise gekennzeichnet und nicht mehr als Schwachstellen gezählt oder gemeldet. Keine dieser Korrekturen sendet eine Nachricht: Ein Ziel erfährt es nur, wenn sich der Schweregrad einer Quelle wirklich ändert.',
+                'GitLab-Advisories, die OSV für die installierte Version widerlegt, entfallen. Zeilen einer Schwachstelle unter mehreren IDs zählen jetzt einmal, und nur wenn die Quellen das sagen, nie wegen eines gleichen Titels. Ein Go-Fix, der nur ein Commit ist, heißt „Commit ohne Tag“, und der niedrigste getaggte Fix wird bevorzugt. „Nicht vollständig scanbar“ erscheint nicht mehr für eine Quelle, die nur noch nicht gelaufen ist, und Gründe auf Projektseite sagen, wie man sie behebt.'
+            ]
+        },
         '3.8.1': {
             title: 'Keine falschen Meldungen über fehlgeschlagene Scans mehr, während ein Update die Hinweis-Caches neu aufbaut',
             items: [
@@ -1326,6 +1371,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         }
     },
     'pt-BR': {
+        '3.8.2': {
+            title: 'Uma mensagem para o sistema inteiro, e achados que dizem o que são',
+            items: [
+                'As notificações agora são configuradas por destino. Uma mensagem por projeto continua sendo o padrão. A nova opção <strong>Resumo de execução</strong> as substitui por uma mensagem por varredura agendada ou manual: críticos e altos por projeto e pacote, as demais severidades como contagens, o que foi resolvido, projetos que não podem mais ser verificados e um link para o portal. Nada novo significa nenhuma mensagem, e as varreduras do observador de lockfiles esperam a próxima varredura agendada.',
+                'Um <strong>Resumo semanal</strong>, ligado em todos os destinos até você desligar, diz o que está pendente, mesmo quando não há nada. O dia e a hora são definidos uma vez em Configurações → Notificações (segunda 09:00 por padrão), no fuso horário do agendamento. O primeiro pode chegar logo após a atualização se o horário desta semana já passou.',
+                'Ativar uma fonte em Configurações → Fontes depois de uma varredura agora envia a cada destino uma única mensagem, “Sentinello agora verifica Python com OSV: 12 achados em 3 projetos, 2 críticos”, em vez de uma por projeto. O webhook ganha os eventos <code>run_summary</code> e <code>weekly_digest</code>.',
+                'Arquivos <code>bun.lock</code> de texto agora são lidos, então as dependências JavaScript de um projeto Bun são verificadas; o npm audit não é esperado nele, e <code>bun.lockb</code> informa que não é compatível. Crates de um workspace que um <code>Cargo.lock</code> vizinho lista não informam mais “Sem lockfile”, e um <code>package-lock.json</code> antigo informa “lockfile não compatível”.',
+                'Um alerta sem grau declarado agora aparece como <strong>unrated</strong> em vez de afirmar moderate, e os vetores CVSS do RUSTSEC são pontuados. Avisos de pacotes sem manutenção ou inseguros são rotulados como avisos e não contam nem alertam mais como vulnerabilidades. Nenhuma dessas correções envia mensagem: um destino só é avisado quando o grau de uma fonte muda de verdade.',
+                'Alertas do GitLab que o OSV desmente para a versão instalada são descartados. Linhas de uma mesma vulnerabilidade com vários ids agora contam uma vez, e só quando as fontes dizem isso, nunca por compartilhar um título. Uma correção Go que é apenas um commit aparece como “commit sem tag”, e a correção com tag mais baixa é preferida. “Não pode ser verificado por completo” não aparece mais por uma fonte que apenas ainda não rodou, e motivos do lado do projeto dizem como resolvê-los.'
+            ]
+        },
         '3.8.1': {
             title: 'Sem falsos alertas de varredura com falha enquanto uma atualização reconstrói os caches de avisos',
             items: [
@@ -1641,6 +1697,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Primeira versão de código aberto', items: ['O primeiro lançamento público do Sentinello'] }
     },
     it: {
+        '3.8.2': {
+            title: 'Un solo messaggio per tutto il sistema, e risultati che dicono cosa sono',
+            items: [
+                'Le notifiche ora si impostano per destinazione. Un messaggio per progetto resta il valore predefinito. La nuova opzione <strong>Riepilogo dell’esecuzione</strong> li sostituisce con un messaggio per ogni scansione pianificata o manuale: critici e alti per progetto e pacchetto, le altre gravità come conteggi, ciò che è stato risolto, i progetti non più analizzabili e un link al portale. Niente di nuovo significa nessun messaggio, e le scansioni del watcher dei lockfile attendono la prossima scansione pianificata.',
+                'Un <strong>Riepilogo settimanale</strong>, attivo per ogni destinazione finché non lo disattivi, dice cosa è in sospeso, anche quando non c’è nulla. Giorno e ora si impostano una volta in Impostazioni → Notifiche (lunedì 09:00 per impostazione predefinita), nel fuso orario della pianificazione. Il primo può arrivare subito dopo l’aggiornamento se l’ora di questa settimana è passata.',
+                'Attivare una fonte in Impostazioni → Fonti dopo una scansione ora invia a ogni destinazione un solo messaggio, «Sentinello ora controlla Python con OSV: 12 vulnerabilità trovate in 3 progetti, 2 critiche», invece di uno per progetto. Il webhook aggiunge gli eventi <code>run_summary</code> e <code>weekly_digest</code>.',
+                'I file <code>bun.lock</code> di testo ora vengono letti, quindi le dipendenze JavaScript di un progetto Bun sono controllate; npm audit non è previsto per esso, e <code>bun.lockb</code> dice che non è supportato. I crate di un workspace elencati da un <code>Cargo.lock</code> vicino non segnalano più «Nessun lockfile», e un vecchio <code>package-lock.json</code> segnala «lockfile non supportato».',
+                'Un advisory senza gravità dichiarata ora si legge <strong>unrated</strong> invece di affermare moderate, e i vettori CVSS di RUSTSEC vengono valutati. Gli avvisi su pacchetti non mantenuti o non sicuri sono etichettati come avvisi e non contano né allertano più come vulnerabilità. Nessuna di queste correzioni invia un messaggio: una destinazione viene avvisata solo quando la gravità di una fonte cambia davvero.',
+                'Gli advisory GitLab che OSV smentisce per la versione installata vengono scartati. Le righe di una stessa vulnerabilità con più id ora contano una volta, e solo quando le fonti lo dicono, mai per un titolo in comune. Una correzione Go che è solo un commit si legge «commit senza tag», e si preferisce la correzione con tag più bassa. «Non analizzabile del tutto» non appare più per una fonte che semplicemente non è ancora stata eseguita, e i motivi dal lato del progetto dicono come risolverli.'
+            ]
+        },
         '3.8.1': {
             title: 'Niente più falsi avvisi di scansione non riuscita mentre un aggiornamento ricostruisce le cache degli avvisi',
             items: [
@@ -1956,6 +2023,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: 'Prima versione open source', items: ['La prima versione pubblica di Sentinello'] }
     },
     ja: {
+        '3.8.2': {
+            title: 'システム全体を 1 通で把握でき、検出結果が実態どおりに表示されます',
+            items: [
+                '通知は通知先ごとに設定できるようになりました。既定はこれまでどおりプロジェクトごとのメッセージです。新しい<strong>実行サマリー</strong>を選ぶと、定期または手動のスキャンごとに 1 通にまとまります。内容は、プロジェクトとパッケージ別の critical と high、その他の深刻度の件数、解決済み、新たにスキャンできなくなったプロジェクト、ポータルへのリンクです。新着がなければ送信されず、ロックファイル監視によるスキャンの結果は次の定期スキャンで通知されます。',
+                '<strong>週次ダイジェスト</strong>は、オフにするまですべての通知先で有効で、未対応の項目を、何もない週も含めて通知します。曜日と時刻は設定 → 通知で一度だけ設定します（既定は月曜 09:00、スケジュールのタイムゾーン）。今週の時刻を過ぎていれば、アップグレード直後に最初の 1 通が届くことがあります。',
+                'スキャン実行後に設定 → ソースでソースを有効にすると、プロジェクトごとのメッセージではなく、各通知先に「Sentinello は OSV で Python をチェックするようになりました: 3 件のプロジェクトで 12 件の検出、うち重大 2 件」という 1 通が届きます。Webhook には <code>run_summary</code> と <code>weekly_digest</code> イベントが追加されました。',
+                'テキスト形式の <code>bun.lock</code> を読み取るようになり、Bun プロジェクトの JavaScript 依存関係をチェックできます。npm audit は対象外で、<code>bun.lockb</code> は未対応と表示されます。隣接する <code>Cargo.lock</code> に載っているワークスペースのクレートは「ロックファイルなし」と報告されなくなり、古い <code>package-lock.json</code> は「未対応のロックファイル」と表示されます。',
+                '深刻度の記載がないアドバイザリは moderate と見なさず <strong>unrated</strong> と表示し、RUSTSEC の CVSS ベクトルを採点するようになりました。メンテナンスされていない、または安全でないパッケージの通知は通知として表示され、脆弱性として集計も警告もされません。これらの訂正でメッセージは送信されず、ソースの深刻度が実際に変わったときだけ通知先に伝えます。',
+                'インストール済みのバージョンについて OSV が否定する GitLab のアドバイザリは除外されます。複数の ID を持つ同じ脆弱性は 1 件として数えますが、それはソースが明示している場合のみで、タイトルが同じというだけでは統合しません。コミットのみの Go の修正は「タグなしコミット」と表示し、タグ付きの最も低い修正を優先します。まだ実行されていないだけのソースについて「完全にはスキャンできません」とは表示しなくなり、プロジェクト側の理由には修正方法を示します。'
+            ]
+        },
         '3.8.1': {
             title: 'アップグレードでアドバイザリのキャッシュを再構築している間に、スキャン失敗の誤った通知が届かなくなりました',
             items: [
@@ -2267,6 +2345,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '初のオープンソースリリース', items: ['Sentinello の最初の一般公開リリース'] }
     },
     'zh-CN': {
+        '3.8.2': {
+            title: '一条消息了解整个系统，漏洞信息如实呈现',
+            items: [
+                '通知现在可按目标设置。默认仍是每个项目一条消息。新的<strong>运行摘要</strong>选项会将其替换为每次定时或手动扫描一条消息：按项目和包列出 critical 和 high，其他严重程度显示数量，以及已解决项、新增无法扫描的项目和门户链接。没有新情况就不发送，锁文件监视触发的扫描结果会在下一次定时扫描时告知。',
+                '<strong>每周摘要</strong>对所有目标默认开启，直到你关闭，它会列出待处理项，没有待处理项时也会发送。星期和时间只需在 设置 → 通知 中设置一次（默认周一 09:00，使用计划的时区）。如果本周时间已过，升级后可能马上收到第一条。',
+                '在扫描运行过之后，在 设置 → 来源 中开启来源，现在每个目标只收到一条消息：“Sentinello 现已使用 OSV 检查 Python：3 个项目中有 12 个发现，其中 2 个严重”，而不是每个项目一条。Webhook 新增 <code>run_summary</code> 和 <code>weekly_digest</code> 事件。',
+                '现在可读取文本格式的 <code>bun.lock</code>，因此会检查 Bun 项目的 JavaScript 依赖；此类项目不需要 npm audit，<code>bun.lockb</code> 会显示不受支持。相邻 <code>Cargo.lock</code> 中列出的工作区 crate 不再报告“没有锁文件”，旧版 <code>package-lock.json</code> 会显示“不受支持的锁文件”。',
+                '未声明严重程度的公告现在显示为 <strong>unrated</strong>，不再声称是 moderate，并且会为 RUSTSEC 的 CVSS 向量评分。关于无人维护或不安全包的通知会标记为通知，不再作为漏洞计数或告警。这些更正都不会发送消息：只有来源的严重程度真正变化时才会告知目标。',
+                'OSV 针对已安装版本否定的 GitLab 公告会被剔除。同一漏洞的多个 ID 现在只计一次，且仅在来源明确说明时才合并，绝不因标题相同而合并。仅为提交的 Go 修复会显示为“未打标签的提交”，并优先选择最低的带标签修复。尚未运行的来源不再导致显示“无法完整扫描”，项目方面的原因会说明如何修复。'
+            ]
+        },
         '3.8.1': {
             title: '升级重建公告缓存期间，不再误报扫描失败',
             items: [
@@ -2558,6 +2647,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '首个开源版本', items: ['Sentinello 的首个公开发布版本'] }
     },
     ko: {
+        '3.8.2': {
+            title: '시스템 전체를 한 통으로 확인하고, 발견 항목은 있는 그대로 표시합니다',
+            items: [
+                '이제 알림을 대상별로 설정합니다. 기본값은 그대로 프로젝트별 메시지입니다. 새로운 <strong>실행 요약</strong> 옵션은 이를 예약 또는 수동 스캔마다 한 통으로 대체합니다. 프로젝트와 패키지별 critical 및 high, 나머지 심각도의 개수, 해결된 항목, 새로 스캔할 수 없게 된 프로젝트, 포털 링크가 담깁니다. 새 소식이 없으면 보내지 않으며, 잠금 파일 감시로 시작된 스캔 결과는 다음 예약 스캔에서 알립니다.',
+                '<strong>주간 요약</strong>은 끄기 전까지 모든 대상에 켜져 있습니다. 미해결 항목을 알려 주며, 미해결 항목이 없을 때도 전송됩니다. 요일과 시각은 설정 → 알림에서 한 번만 설정합니다(기본값 월요일 09:00, 일정의 시간대). 이번 주 시각이 지났다면 업그레이드 직후 첫 요약이 도착할 수 있습니다.',
+                '스캔이 실행된 뒤 설정 → 소스에서 소스를 켜면 이제 프로젝트마다 한 통이 아니라 대상마다 한 통이 전송됩니다: “Sentinello가 이제 OSV(으)로 Python을(를) 검사합니다: 프로젝트 3개에서 발견 항목 12개, 그중 심각 2개”. 웹훅에는 <code>run_summary</code> 및 <code>weekly_digest</code> 이벤트가 추가되었습니다.',
+                '이제 텍스트 형식의 <code>bun.lock</code>을 읽으므로 Bun 프로젝트의 JavaScript 의존성을 검사합니다. npm audit는 기대되지 않으며 <code>bun.lockb</code>는 지원되지 않는다고 표시됩니다. 인접한 <code>Cargo.lock</code>에 나열된 워크스페이스 크레이트는 더 이상 “잠금 파일 없음”으로 보고되지 않으며, 오래된 <code>package-lock.json</code>은 “지원되지 않는 잠금 파일”로 표시됩니다.',
+                '심각도가 명시되지 않은 권고는 이제 moderate라고 주장하는 대신 <strong>unrated</strong>로 표시되며, RUSTSEC의 CVSS 벡터는 점수가 매겨집니다. 유지 관리되지 않거나 안전하지 않은 패키지에 대한 공지는 공지로 표시되며 더 이상 취약점으로 집계되거나 경고되지 않습니다. 이러한 수정으로는 메시지가 전송되지 않으며, 소스의 심각도가 실제로 바뀔 때만 대상에 알립니다.',
+                '설치된 버전에 대해 OSV가 부인하는 GitLab 권고는 제외됩니다. 여러 ID를 가진 같은 취약점은 이제 한 번만 집계되며, 소스가 그렇게 밝힐 때만 그렇습니다. 제목이 같다는 이유로 합치지 않습니다. 커밋뿐인 Go 수정은 “태그 없는 커밋”으로 표시되고, 태그가 있는 가장 낮은 수정을 우선합니다. 아직 실행되지 않은 소스 때문에 “완전히 스캔할 수 없음”이 표시되지 않으며, 프로젝트 쪽 원인에는 해결 방법을 안내합니다.'
+            ]
+        },
         '3.8.1': {
             title: '업그레이드가 권고 캐시를 다시 만드는 동안 스캔 실패 오경보가 더 이상 오지 않습니다',
             items: [
@@ -2863,6 +2963,17 @@ export const RELEASE_COPY: Record<Locale, Record<string, ReleaseCopy>> = {
         '1.0.0': { title: '첫 오픈 소스 릴리스', items: ['Sentinello의 첫 공개 릴리스'] }
     },
     ru: {
+        '3.8.2': {
+            title: 'Одно сообщение обо всей системе, и находки, которые говорят, что они такое',
+            items: [
+                'Уведомления теперь настраиваются для каждой цели. По умолчанию по-прежнему одно сообщение на проект. Новый вариант <strong>Сводка запуска</strong> заменяет их одним сообщением на каждое плановое или ручное сканирование: critical и high по проектам и пакетам, остальные уровни серьёзности в виде чисел, устранённое, проекты, которые больше не удаётся сканировать, и ссылка на портал. Нет нового — нет сообщения, а сканирования наблюдателя за lock-файлами ждут следующего планового сканирования.',
+                '<strong>Еженедельная сводка</strong>, включённая для всех целей, пока вы её не отключите, сообщает о нерешённых проблемах, даже если их нет. День и час задаются один раз в Настройки → Уведомления (по умолчанию понедельник 09:00), в часовом поясе расписания. Первая может прийти сразу после обновления, если время на этой неделе уже прошло.',
+                'Включение источника в Настройки → Источники после сканирования теперь отправляет каждой цели одно сообщение, «Sentinello теперь проверяет Python с помощью OSV: 12 находок в 3 проектах, 2 критических», а не по сообщению на проект. В вебхуке появились события <code>run_summary</code> и <code>weekly_digest</code>.',
+                'Теперь читаются текстовые файлы <code>bun.lock</code>, поэтому JavaScript-зависимости проекта на Bun проверяются; npm audit для него не ожидается, а <code>bun.lockb</code> сообщает, что не поддерживается. Крейты рабочей области, перечисленные в соседнем <code>Cargo.lock</code>, больше не сообщают «Нет lock-файла», а старый <code>package-lock.json</code> сообщает «неподдерживаемый lock-файл».',
+                'Бюллетень без указанной серьёзности теперь показан как <strong>unrated</strong>, а не как будто moderate, и векторы CVSS из RUSTSEC получают оценку. Уведомления о заброшенных или небезопасных пакетах помечены как уведомления и больше не считаются и не сообщаются как уязвимости. Ни одно из этих исправлений не отправляет сообщений: цель узнаёт только тогда, когда серьёзность у источника действительно меняется.',
+                'Бюллетени GitLab, которые OSV опровергает для установленной версии, отбрасываются. Строки одной уязвимости с несколькими идентификаторами теперь считаются один раз, и только когда это говорят сами источники, а не из-за общего заголовка. Исправление Go, которое является лишь коммитом, показано как «коммит без тега», и предпочитается самое низкое исправление с тегом. «Не удаётся просканировать полностью» больше не появляется из-за источника, который просто ещё не запускался, а причины на стороне проекта объясняют, как их устранить.'
+            ]
+        },
         '3.8.1': {
             title: 'Больше никаких ложных уведомлений о сбое сканирования, пока обновление перестраивает кэши рекомендаций',
             items: [

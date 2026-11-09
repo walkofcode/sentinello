@@ -223,7 +223,7 @@ describe('deleteRoot', function () {
     // sees them.
     it('removes root-level scan requests', function () {
         seedRootWithChildren(ROOT_ID, 'project-1')
-        enqueueScanRequest(db, { rootId: ROOT_ID }, T0)
+        enqueueScanRequest(db, { rootId: ROOT_ID }, T0, 'manual')
         expect(listRecentScanRequests(db)).toHaveLength(1)
         deleteRoot(db, ROOT_ID)
         expect(listRecentScanRequests(db)).toEqual([])
@@ -243,7 +243,10 @@ describe('deleteRoot', function () {
             createdAt: T0,
             rootIds: [],
             projectIds: [],
-            sourceScope: { mode: 'all', cells: [] }
+            sourceScope: { mode: 'all', cells: [] },
+            delivery: 'per_project',
+            weeklyDigest: true,
+            digestEligibleSinceAt: null
         })
         setTargetRoots(db, 'target-1', [ROOT_ID])
         deleteRoot(db, ROOT_ID)

@@ -6,12 +6,13 @@ import { backfillEcosystemIdentity, backfillFindingsLifecycle, seedCapabilityBas
 import { CONFIG_KEYS, DEFAULT_SCHEDULE, discoverDockerRoots, loadConfigFile, pruneDockerRoots, seedFromConfig, type IntervalHours } from './config-loader'
 import { startScheduler, sweepActiveProjects } from './scheduler'
 import { startScanRequestPoller } from './scan-request-poller'
+import { runDigestTick } from './weekly-digest'
 import { createOsvController, type OsvController } from './osv-runtime'
 import { createGemnasiumController, type GemnasiumController } from './gemnasium-runtime'
 import { startLockfileWatcher, type WatcherHandle } from './watcher'
 import { startMuteExpirySweep, type MuteExpiryHandle } from './mute-expiry'
 import { startScanRetentionSweep, type ScanRetentionHandle } from './scan-retention'
-import { createWorkerRuntime, waitForInFlight, type WorkerRuntime } from './runtime'
+import { createWorkerRuntime, refreshAllAdvisoryKeys, waitForInFlight, type WorkerRuntime } from './runtime'
 
 // The worker's boot sequence and graceful-shutdown machinery.
 //
@@ -123,6 +124,7 @@ export async function main(): Promise<void> {
     // It reads its withdrawal evidence through the OSV controller, whose cache is synced for every
     // gemnasium cell too.
     const gemnasiumController: GemnasiumController = createGemnasiumController(db, runtime, osvController.evidence)
+    refreshAllAdvisoryKeys(db, runtime)
     const scheduler = startScheduler({ db, sqlite, runtime, osvController, gemnasiumController })
     const poller = startScanRequestPoller({
         db, sqlite, runtime, scheduler, osvController, gemnasiumController,
@@ -168,6 +170,10 @@ export async function main(): Promise<void> {
     process.on('SIGINT', function onSigint() {
         shutdown('SIGINT')
     })
+    // A digest due while the worker was down goes out now; the scheduler's tick takes it from here.
+    runtime.track(runDigestTick({ db }).catch(function onDigestError(err: unknown) {
+        console.error('[digest] boot tick failed: ' + errText(err))
+    }))
     // On boot, only run an initial sweep if enough time has elapsed since the last scan
     // (i.e. we're overdue per the configured schedule). Otherwise wait for the next cron tick.
     // First-boot (no prior scans) always runs.

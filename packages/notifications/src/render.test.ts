@@ -11,6 +11,9 @@ const CHECK: FixCheck = { v: 1, checkedAt: Date.UTC(2026, 9, 3), registry: 'ok',
 function finding(overrides: Partial<Finding> = {}): Finding {
     return {
         id: 'finding-1',
+        noticeKind: null,
+        aliases: [],
+        advisoryKey: null,
         scanId: 'scan-1',
         projectId: 'project-1',
         scanner: 'npm-audit',
@@ -44,6 +47,9 @@ function finding(overrides: Partial<Finding> = {}): Finding {
 function scanFailureEvent(overrides: Partial<NotificationEvent> = {}): NotificationEvent {
     return {
         id: 'event-1',
+        gradeVersion: 1,
+        policySeverity: null,
+        gradeAnswers: null,
         eventType: 'scan_failure',
         identityKey: 'project-1|npm-audit|error|no_lockfile',
         projectId: 'project-1',
@@ -333,19 +339,44 @@ describe('renderBatchedFindings', function () {
         }
 
         it('heads a project that cannot be scanned with its reasons and whose fix they are', function () {
-            const out = render({ state: 'cannot_scan', reasons: [{ source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' }] })
-            expect(out.markdown).toContain('*Project cannot be scanned:* No lockfile (the project) — findings an earlier scan recorded are marked "not re-checked"')
+            const out = render({ state: 'cannot_scan', reasons: [{ source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile', fixHint: null }] })
+            expect(out.markdown).toContain('*Project cannot be scanned:* No lockfile (the project): commit the lockfile your package manager writes')
+            // This message lists nothing an earlier scan recorded, so it says nothing about them.
+            expect(out.markdown).not.toContain('not re-checked')
         })
 
         it('heads a partially scanned project in the notification locale', function () {
-            const out = render({ state: 'partial', reasons: [{ source: 'osv', ecosystem: null, reasonCode: 'osv_db_unavailable', side: 'environment', label: 'x' }] }, 'es')
+            const out = render({ state: 'partial', reasons: [{ source: 'osv', ecosystem: null, reasonCode: 'osv_db_unavailable', side: 'environment', label: 'x', fixHint: null }] }, 'es')
             expect(out.markdown).toContain('*Project cannot be fully scanned:* ' + reasonCodeLabel('osv_db_unavailable', 'es') + ' (this Sentinello install)')
+        })
+
+        // A source still queued is something the next scan does: on its own it is no warning (SENTINEL-173).
+        it('prints no line when the only reason is one that has not run yet, and drops it beside a failure', function () {
+            const notYet = { source: 'osv', ecosystem: null, reasonCode: 'not_yet_run', side: null, label: 'Has not run yet', fixHint: null } as const
+            expect(render({ state: 'partial', reasons: [notYet] }).markdown).not.toContain('Project cannot')
+            const both = render({ state: 'partial', reasons: [notYet, { source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile', fixHint: null }] }).markdown
+            expect(both).toContain('*Project cannot be fully scanned:* No lockfile (the project)')
+            expect(both).not.toContain('Has not run yet')
+        })
+
+        it('mentions what an earlier scan recorded only when the message lists one', function () {
+            const retained = finding({ notRecheckedBecause: { reasonCode: 'no_lockfile', side: 'project', projectState: 'cannot_scan', lastOkScanAt: null, manifests: null } })
+            const out = renderBatchedFindings({ projectName: 'api', projectId: 'project-1', gitBranch: null, findings: [retained], isBaseline: false, portalBaseUrl: null, scanState: { state: 'cannot_scan', reasons: [{ source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile', fixHint: null }] } })
+            expect(out.markdown).toContain('findings an earlier scan recorded are marked "not re-checked"')
         })
 
         it('adds nothing for a scanned project or when no state is given', function () {
             expect(render({ state: 'scanned', reasons: [] }).markdown).not.toContain('Project ')
             expect(render(undefined).markdown).not.toContain('Project ')
         })
+    })
+})
+
+describe('an unrated finding', function () {
+    it('reads UNRATED, and claims no grade', function () {
+        const out = renderBatchedFindings({ projectName: 'api', projectId: 'project-1', gitBranch: null, findings: [finding({ severity: 'unrated' })], isBaseline: false, portalBaseUrl: null })
+        expect(out.markdown).toContain('[UNRATED]')
+        expect(out.markdown).not.toContain('[MODERATE]')
     })
 })
 
@@ -590,6 +621,26 @@ describe('renderCapabilitySummary', function () {
         expect(message.portalUrl).toBeNull()
         expect(renderCapabilitySummary({ capability, findings: 1, projects: 1, critical: 1, sourceDisabledProjects: 0, portalBaseUrl: null }).text)
             .toBe('Sentinello 3.8 now checks Python/Go/Rust/Ruby: 1 finding across 1 project, 1 critical')
+    })
+
+    // A cell can outlive its source's entry in the registry: its stored id still names it, rather than blanking the title.
+    it('names a source it does not know by its id', function () {
+        const operator = { id: 'sources-2', since: null, ecosystems: ['PyPI'], cells: [{ source: 'retired-feed', ecosystem: 'PyPI' }, { source: 'osv', ecosystem: 'PyPI' }] } as Capability
+        expect(renderCapabilitySummary({ capability: operator, findings: 2, projects: 1, critical: 0, sourceDisabledProjects: 0, portalBaseUrl: null }).text)
+            .toBe('Sentinello now checks Python with retired-feed/OSV: 2 findings across 1 project, 0 critical')
+    })
+
+    it('says what an operator switched on, in every locale', function () {
+        const operator = { id: 'sources-1', since: null, ecosystems: ['PyPI'], cells: [{ source: 'osv', ecosystem: 'PyPI' }, { source: 'gemnasium', ecosystem: 'PyPI' }, { source: 'osv', ecosystem: 'PyPI' }] } as Capability
+        const message = renderCapabilitySummary({ capability: operator, findings: 2, projects: 1, critical: 0, sourceDisabledProjects: 0, portalBaseUrl: null })
+        expect(message.text).toBe('Sentinello now checks Python with OSV/GitLab gemnasium: 2 findings across 1 project, 0 critical')
+        expect(message.webhook).toMatchObject({ capability: { id: 'sources-1', since: null, cells: operator.cells } })
+        for (const locale of ['es', 'fr', 'de', 'pt-BR', 'it', 'ja', 'zh-CN', 'ko', 'ru'] as Locale[]) {
+            const { title } = renderCapabilitySummary({ capability: operator, findings: 0, projects: 0, critical: 0, sourceDisabledProjects: 0, portalBaseUrl: null, locale })
+            expect(title).toContain('Python')
+            expect(title).toContain('OSV')
+            expect(title).not.toBe(message.title)
+        }
     })
 
     it('carries the capability and its counts for a webhook', function () {

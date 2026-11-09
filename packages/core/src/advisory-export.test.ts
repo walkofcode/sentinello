@@ -606,3 +606,28 @@ describe('projects that cannot be scanned, and findings not re-checked', functio
         expect(legacy).not.toContain('rescan pending')
     })
 })
+
+describe('notices in the export (SENTINEL-168)', function () {
+    const NOTICE = exportFinding({ packageName: 'basic-toml', advisoryId: 'RUSTSEC-2026-0374', severity: 'unrated', noticeKind: 'unmaintained', fixStatus: 'unverified', fixCheck: null, fixVersion: null })
+
+    it('lists them apart, after every finding, in no count, saying the kind and no fix', function () {
+        const md = build(PROJECT_SCOPE, [NOTICE, exportFinding()])
+        expect(md).toContain('1 finding · 1 notice, not vulnerabilities')
+        expect(md.indexOf('`lodash@')).toBeLessThan(md.indexOf('## Notices'))
+        expect(md.indexOf('## Notices')).toBeLessThan(md.indexOf('`basic-toml@'))
+        expect(md).toContain('— notice: unmaintained')
+        expect(md).toContain('no fix to chase — this is a notice (unmaintained), not a vulnerability')
+    })
+
+    it('says no findings when notices are all there is', function () {
+        const md = build(PROJECT_SCOPE, [NOTICE, { ...NOTICE, advisoryId: 'RUSTSEC-2026-0375' }])
+        expect(md).toContain('0 findings · 2 notices, not vulnerabilities')
+        expect(md).toContain('_No current findings._')
+    })
+
+    it('pages over them last, and says how many there are', function () {
+        const page = buildPaginatedAdvisoryMarkdown({ scope: PROJECT_SCOPE, prompt: '', findings: [NOTICE, exportFinding()], generatedAt: AT, offset: 0, byteBudget: 100_000 })
+        expect(page).toMatchObject({ total: 2, notices: 1, rendered: 2, nextOffset: null })
+        expect(page.markdown).toContain('1 notice, not vulnerabilities')
+    })
+})

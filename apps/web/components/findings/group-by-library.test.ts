@@ -10,6 +10,8 @@ function row(overrides: Partial<CurrentFindingRow> = {}): CurrentFindingRow {
         remediation: null,
         notRecheckedBecause: null,
         id: 'finding-1',
+        noticeKind: null,
+        advisoryKey: null,
         scanId: 'scan-1',
         projectId: 'project-1',
         scanner: 'npm-audit',

@@ -169,7 +169,8 @@
         "stateSideEnvironment": "cette installation de Sentinello",
         "stateSourceDisabled": "Aucune source activée pour {languages}",
         "sourceDisabledNotice": "{count, plural, one {# projet n’a} other {# projets n’ont}} aucune source activée pour {languages}, donc rien ne {count, plural, one {l’analyse} other {les analyse}}.",
-        "sourceDisabledAction": "Activez-en une dans Paramètres → Sources"
+        "sourceDisabledAction": "Activez-en une dans Paramètres → Sources",
+        "libraryNoticeCount": "{count, plural, one {+ # avis} other {+ # avis}}"
     },
     "WhatsNew": {
         "pillLabel": "Nouveautés",
@@ -299,7 +300,22 @@
             "webhookFlavor": "Format du payload",
             "webhookFlavorJson": "JSON structuré",
             "webhookFlavorText": "Avis en texte brut",
-            "webhookFlavorHelp": "JSON envoie la racine, le projet et les vulnérabilités pour un agent d'auto-correction. Le texte brut envoie l'export d'avis, prêt pour un LLM."
+            "webhookFlavorHelp": "JSON envoie la racine, le projet et les vulnérabilités pour un agent d'auto-correction. Le texte brut envoie l'export d'avis, prêt pour un LLM.",
+            "messages": "Messages",
+            "runSummary": "Résumé d’exécution",
+            "runSummaryHelp": "Un message par exécution planifiée ou manuelle, avec ce qui est nouveau dans tous les projets. Cette cible ne reçoit plus de messages par projet.",
+            "weeklyDigest": "Résumé hebdomadaire",
+            "weeklyDigestHelp": "Un message par semaine avec tout ce qui reste à traiter, même quand il n’y a rien.",
+            "deliveryPerProject": "Par projet",
+            "deliveryRunSummary": "Résumé d’exécution",
+            "digestOn": "Résumé hebdomadaire activé",
+            "digestOff": "Résumé hebdomadaire désactivé",
+            "digestSchedule": {
+                "title": "Planification du résumé hebdomadaire",
+                "day": "Jour",
+                "hour": "Heure",
+                "help": "Envoyé à chaque cible dont le résumé est activé, à cette heure dans le fuseau horaire de la planification ({timezone})."
+            }
         },
         "sources": {
             "metaTitle": "Sources · Paramètres",
@@ -389,6 +405,7 @@
             "scanRetentionDaysHelp": "Les lignes d'analyse plus anciennes sont supprimées, sauf les 100 plus récentes par projet, toujours conservées. Les résultats, les masquages et l'historique des notifications ne sont jamais touchés — uniquement le journal d'analyse. Les pages de projet afficheront un historique plus court.",
             "portalBaseUrl": "URL de base du portail (utilisée dans les liens profonds des notifications)",
             "globalIgnore": "Motifs d'exclusion globaux (un par ligne)",
+            "globalIgnoreHelp": "Syntaxe gitignore, relative à chaque racine. Les vulnérabilités sous un chemin exclu sont résolues sans alerte. Exclure un projet entier le supprime, avec ses mises en sourdine et son historique.",
             "watcherLabel": "Surveillance des fichiers de verrouillage (analyse au changement) — interrupteur principal. Le worker met en file un scan_request lorsqu'un fichier de verrouillage surveillé change.",
             "watchedRoots": "Racines surveillées (activation par racine)",
             "noRoots": "Aucune racine configurée pour le moment. Ajoutez d'abord une racine dans Paramètres → Racines.",
@@ -440,7 +457,8 @@
             "selected": "Sources sélectionnées",
             "selectedHelp": "Notifier uniquement pour les cellules source/langage que vous choisissez ci-dessous.",
             "selectionError": "Choisissez au moins une cellule, ou sélectionnez « Toutes les sources »."
-        }
+        },
+        "severityModerateAndUnrated": "Modérée, et non évaluée"
     },
     "Findings": {
         "columns": {
@@ -533,12 +551,17 @@
         },
         "notRecheckedCannotScan": "non revérifié — le projet ne peut pas être analysé : {reason}",
         "notRecheckedPartial": "non revérifié — le projet ne peut pas être entièrement analysé : {reason}",
+        "notRecheckedOnly": "non revérifié — {reason}",
         "notRecheckedCopies": "copies dans {manifests} non revérifiées — le projet ne peut pas être entièrement analysé : {reason}",
         "chainUnknown": "chaîne inconnue",
         "chainUnknownHint": "Le lockfile n’enregistre aucun graphe de dépendances : on ne sait pas ce qui introduit ce paquet. Cela ne veut pas dire qu’il n’y a pas d’issue.",
         "installedThrough": "dans {manifests}",
         "lastScannedSuccessfully": "dernière analyse réussie le {date}",
-        "neverScannedSuccessfully": "jamais analysé avec succès"
+        "neverScannedSuccessfully": "jamais analysé avec succès",
+        "noticesHeading": "{count, plural, one {# avis} other {# avis}}",
+        "noticesHelp": "Ce ne sont pas des vulnérabilités : l'avis indique que le paquet n'est plus maintenu, n'est pas sûr ou mérite attention. Ils ne comptent dans aucun total et n'alertent personne.",
+        "noticeNoFix": "Aucun correctif à chercher",
+        "fixUntaggedCommit": "commit sans tag : aucune version taguée ne contient le correctif"
     },
     "Triage": {
         "alias": {
@@ -673,7 +696,7 @@
             },
             "notifications": {
                 "purpose": "Envoyer les vulnérabilités pour lesquelles vous avez configuré des alertes : nom du projet, branche git, paquet et version, sévérité, identifiant de l’avis et un lien vers ce portail",
-                "when": "Lorsqu’une analyse produit une nouvelle vulnérabilité, une vulnérabilité résolue ou un échec d’analyse",
+                "when": "Une nouvelle vulnérabilité ou un échec d’analyse : par projet, ou dans un seul résumé d’exécution si la cible l’a choisi. Plus le résumé hebdomadaire, activé par défaut, au jour et à l’heure définis ici",
                 "disable": "Paramètres → Notifications — aucune n’existe tant que vous n’en ajoutez pas"
             },
             "pypi": {
@@ -771,11 +794,14 @@
             },
             "cannotScanTitle": "Le projet ne peut pas être analysé",
             "cannotScanBody": "Aucune source n'a pu lire ce projet. Les vulnérabilités ci-dessous sont celles qu'une analyse précédente a enregistrées et n'ont pas été revérifiées ; zéro vulnérabilité ici signifie inconnu, pas sûr.",
+            "cannotScanBodyNoFindings": "Aucune source n'a pu lire ce projet, rien n'a donc été vérifié ; ici, zéro vulnérabilité signifie inconnu, pas sûr.",
             "partialScanTitle": "Le projet ne peut pas être entièrement analysé",
             "partialScanBody": "Une partie de ce projet n'a pas pu être analysée, ses vulnérabilités peuvent donc être incomplètes. Celles d'une source qui n'a pas pu l'analyser n'ont pas été revérifiées.",
+            "partialScanBodyNoEarlier": "Une partie de ce projet n'a pas pu être analysée, ses vulnérabilités peuvent donc être incomplètes.",
             "scanReasonSideProject": "du côté du projet : un fichier du projet empêche de le lire, et c'est là qu'il faut le corriger",
             "scanReasonSideEnvironment": "du côté de cette installation de Sentinello : l'installation n'a pas pu faire l'analyse, et c'est à l'opérateur de corriger",
             "scanReasonNotYetRun": "rien ne l'a encore examiné : la prochaine analyse le fera",
+            "scanReasonFix": "Pour corriger : {fix}",
             "sourceDisabledReason": "Aucune source activée pour {languages}",
             "sourceDisabledAction": "Activez-en une dans Paramètres → Sources",
             "noFindingsUnknownTitle": "Aucune vulnérabilité enregistrée",

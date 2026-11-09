@@ -191,10 +191,10 @@ function ScanCard({ scan }: { scan: ScanHistoryRowVM }) {
     )
 }
 
-const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'moderate', 'low', 'info']
+const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'moderate', 'unrated', 'low', 'info']
 
 function countBySeverity(findings: ScanFindingVM[]): Record<Severity, number> {
-    const counts: Record<Severity, number> = { critical: 0, high: 0, moderate: 0, low: 0, info: 0 }
+    const counts: Record<Severity, number> = { critical: 0, high: 0, moderate: 0, unrated: 0, low: 0, info: 0 }
     for (const f of findings) {
         counts[f.severity] = counts[f.severity] + 1
     }

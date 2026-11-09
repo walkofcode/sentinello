@@ -261,7 +261,10 @@ describe('an upgrade that rebuilds both advisory caches', function () {
         seedCapabilityBaselines(handle.db, CAPABILITIES, T0)
         insertNotificationTarget(handle.db, {
             id: 'ops', kind: 'webhook', config: { url: 'https://hooks.example.test/ops' }, severityFilter: ['critical'],
-            envFilter: 'all', enabled: true, createdAt: T0, rootIds: [], projectIds: [], sourceScope: { mode: 'all', cells: [] }
+            envFilter: 'all', enabled: true, createdAt: T0, rootIds: [], projectIds: [], sourceScope: { mode: 'all', cells: [] },
+            delivery: 'per_project',
+            weeklyDigest: true,
+            digestEligibleSinceAt: null
         })
     })
 
@@ -323,7 +326,10 @@ describe('the silent baseline across that upgrade', function () {
         seedCapabilityBaselines(handle.db, CAPABILITIES, T0)
         insertNotificationTarget(handle.db, {
             id: 'ops', kind: 'webhook', config: { url: 'https://hooks.example.test/ops' }, severityFilter: ['critical', 'high'],
-            envFilter: 'all', enabled: true, createdAt: T0, rootIds: [], projectIds: [], sourceScope: { mode: 'all', cells: [] }
+            envFilter: 'all', enabled: true, createdAt: T0, rootIds: [], projectIds: [], sourceScope: { mode: 'all', cells: [] },
+            delivery: 'per_project',
+            weeklyDigest: true,
+            digestEligibleSinceAt: null
         })
     })
 
@@ -362,12 +368,15 @@ describe('the silent baseline when a feed keeps failing', function () {
         seedCapabilityBaselines(handle.db, CAPABILITIES, T0)
         insertNotificationTarget(handle.db, {
             id: 'ops', kind: 'webhook', config: { url: 'https://hooks.example.test/ops' }, severityFilter: ['critical'],
-            envFilter: 'all', enabled: true, createdAt: T0, rootIds: [], projectIds: [], sourceScope: { mode: 'all', cells: [] }
+            envFilter: 'all', enabled: true, createdAt: T0, rootIds: [], projectIds: [], sourceScope: { mode: 'all', cells: [] },
+            delivery: 'per_project',
+            weeklyDigest: true,
+            digestEligibleSinceAt: null
         })
         upsertOsvAdvisories(osv.db, [{
             advisoryId: 'GHSA-0001', ecosystem: 'PyPI', packageName: 'django', aliases: [], versions: [],
             ranges: [{ type: 'ECOSYSTEM', introduced: '0', fixed: '3.2.5', lastAffected: null }],
-            severity: 'critical', summary: 'Remote code execution in django', url: 'https://advisories.example.test/0001', malicious: false, withdrawn: null
+            severity: 'critical', summary: 'Remote code execution in django', url: 'https://advisories.example.test/0001', malicious: false, withdrawn: null, noticeKind: null
         } as never])
         feeds.gemnasiumFails = true
     })
@@ -403,7 +412,7 @@ describe('the silent baseline when a feed keeps failing', function () {
         upsertOsvAdvisories(osv.db, [{
             advisoryId: 'GHSA-0003', ecosystem: 'PyPI', packageName: 'django', aliases: [], versions: [],
             ranges: [{ type: 'ECOSYSTEM', introduced: '0', fixed: '3.2.9', lastAffected: null }],
-            severity: 'critical', summary: 'Authentication bypass in django', url: 'https://advisories.example.test/0003', malicious: false, withdrawn: null
+            severity: 'critical', summary: 'Authentication bypass in django', url: 'https://advisories.example.test/0003', malicious: false, withdrawn: null, noticeKind: null
         } as never])
         await scheduledSweep()
         expect(sentKinds()).toEqual(['capability_summary', 'findings'])

@@ -56,6 +56,7 @@ function gemRow(overrides: Partial<GemnasiumAdvisoryRow> = {}): GemnasiumAdvisor
         url: 'https://example.test/GMS-2024-1',
         malicious: false,
         withdrawn: null,
+        noticeKind: null,
         ...overrides
     } as GemnasiumAdvisoryRow
 }
@@ -144,7 +145,8 @@ describe('loadCacheForPackages', function () {
             summary: 'Prototype pollution',
             url: 'https://example.test/GHSA-aaaa',
             malicious: true,
-            withdrawn: null
+            withdrawn: null,
+            noticeKind: null
         })
     })
 

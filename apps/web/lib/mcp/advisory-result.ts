@@ -39,10 +39,11 @@ function continuationNote(input: AdvisoryNoteInput): string {
     const { page } = input
     if (page.nextOffset === null) return ''
     const remaining = page.total - (page.offset + page.rendered)
+    const notices = page.notices === 0 ? '' : ' (' + page.notices + ' of the ' + page.total + ' are notices, listed last)'
     return (
         '\n> **This document is incomplete.** Showing advisories ' + (page.offset + 1) + '–' +
         (page.offset + page.rendered) + ' of ' + page.total + '; ' + remaining +
-        ' did not fit in one response. Do not treat the list above as the full set. Retrieve the rest with:\n' +
+        ' did not fit in one response' + notices + '. Do not treat the list above as the full set. Retrieve the rest with:\n' +
         '> `get_project_advisory({ projectId: "' + input.projectId + '", depType: "' + input.depType + '"' +
         (input.minSeverity === null ? '' : ', minSeverity: "' + input.minSeverity + '"') +
         ', offset: ' + page.nextOffset + ', includePrompt: false })`\n'
