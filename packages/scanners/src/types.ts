@@ -45,6 +45,9 @@ export type RawFinding = {
     // which has no database — sees the agreement without a second lookup. `severity` above is already the
     // worst grade any of them gave.
     corroborations?: FindingCorroboration[]
+    // Set when the advisory is a notice rather than a vulnerability. A vulnerability reconciled into it (a
+    // GHSA aliasing a RUSTSEC notice) clears it: anyone reporting it as real makes it real.
+    noticeKind?: string | null
 }
 
 export type ScanResult = {
@@ -90,6 +93,9 @@ export type ScanContext = {
 export type ScannerPlugin = {
     name: string
     scan(projectPath: string, ctx: ScanContext): Promise<ScanResult>
+    // What a feed source's cache knows about a package's advisories, for telling which rows of different sources
+    // are one advisory (refreshAdvisoryKeys). Null while its cache cannot be read. Absent on a source with no cache.
+    aliasEvidence?: (ecosystem: string, packageNames: string[]) => ReadonlyMap<string, readonly { advisoryId: string; aliases: readonly string[] }[]> | null
 }
 
 export type LockfileKind = 'pnpm-lock.yaml' | 'package-lock.json' | 'yarn.lock'

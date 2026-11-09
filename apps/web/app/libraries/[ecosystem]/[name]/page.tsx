@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { getTranslations } from 'next-intl/server'
 import { getActiveSources, listActiveMutes, listLibraryUsage, listMuteLiftsForLibrary, listResolvedFindingsForLibrary } from '@sentinello/db'
-import { type Severity } from '@sentinello/core'
+import { SEVERITY_ORDER } from '@sentinello/core'
 import { advisoryIdentity } from '@/lib/merge-findings'
 import { SeverityPill } from '@/components/ui/severity-pill'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -44,11 +44,12 @@ export default async function LibraryDetailPage({ params, searchParams }: PagePr
     const resolvedFindings = listResolvedFindingsForLibrary(db, packageName, 50, ecosystem)
     const activeMutes = listActiveMutes(db, now)
     const muteLifts = listMuteLiftsForLibrary(db, packageName, 20, ecosystem)
-    const distinctAdvisories = new Set(usages.map(function pickAdv(u) { return advisoryIdentity(u.advisoryTitle, u.advisoryId) })).size
-    const distinctProjects = new Set(usages.map(function pickProj(u) { return u.projectId })).size
-    const severityOrder: Severity[] = ['critical', 'high', 'moderate', 'low', 'info']
-    const presentSeverities = severityOrder.filter(function present(s) {
-        return usages.some(function has(u) { return u.severity === s })
+    // The header counts vulnerabilities: a notice is listed apart, below them, and counted nowhere.
+    const vulnerabilities = usages.filter(function vulnerability(u) { return u.noticeKind === null })
+    const distinctAdvisories = new Set(vulnerabilities.map(advisoryIdentity)).size
+    const distinctProjects = new Set(vulnerabilities.map(function pickProj(u) { return u.projectId })).size
+    const presentSeverities = SEVERITY_ORDER.filter(function present(s) {
+        return vulnerabilities.some(function has(u) { return u.severity === s })
     })
     const bulkRows = usages.map(function toRow(u) {
         return { projectId: u.projectId, source: u.source, ecosystem: u.ecosystem, advisoryId: u.advisoryId }

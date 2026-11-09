@@ -47,7 +47,8 @@ const RACK: OsvAdvisory = {
     summary: 'Denial of service in multipart parsing',
     url: 'https://osv.example/GHSA-rack-1',
     malicious: false,
-    withdrawn: null
+    withdrawn: null,
+    noticeKind: null
 }
 
 let handle: WorkerTestDb

@@ -687,6 +687,7 @@ describe('sendHistoricalToTargetAction', function () {
     it('inserts a placeholder delivery for every existing event', async function () {
         scanProject(handle.db, 'project-1', [finding()])
         upsertFindingEvent(handle.db, {
+            gradeAnswers: {},
             baselineOf: null,
             projectId: 'project-1',
             source: 'npm-audit',

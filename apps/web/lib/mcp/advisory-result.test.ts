@@ -12,6 +12,7 @@ function pageOf(overrides: Partial<PaginatedAdvisoryMarkdown> = {}): PaginatedAd
         offset: 0,
         rendered: 1,
         total: 1,
+        notices: 0,
         nextOffset: null,
         ...overrides
     }

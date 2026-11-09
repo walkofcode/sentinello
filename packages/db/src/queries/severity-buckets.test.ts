@@ -11,7 +11,7 @@ import { upsertRoot } from './config'
 import { upsertProject } from './projects'
 import { insertScan } from './scans'
 import { mergeFindingsForScan } from './findings'
-import { getDashboardSummary, listProjectCatalog } from './dashboard'
+import { getDashboardSummary, listProjectCatalog, countOpenFindingsByProject } from './dashboard'
 
 // The severity counts are how an operator decides a project is safe to ignore, so every finding that
 // survives dedup MUST land in exactly one bucket. severityRankSql ranks 5..1 and the callers sum those
@@ -93,8 +93,8 @@ function catalogCounts() {
     return row.severityCounts
 }
 
-function bucketTotal(counts: { critical: number; high: number; moderate: number; low: number; info: number }): number {
-    return counts.critical + counts.high + counts.moderate + counts.low + counts.info
+function bucketTotal(counts: { critical: number; high: number; moderate: number; unrated: number; low: number; info: number }): number {
+    return counts.critical + counts.high + counts.moderate + counts.unrated + counts.low + counts.info
 }
 
 beforeEach(async function setup() {
@@ -169,5 +169,35 @@ describe('severity bucketing', function () {
         const summary = getDashboardSummary(db, T0, 'all')
         expect(bucketTotal(summary.severityCounts)).toBe(2)
         expect(bucketTotal(catalogCounts())).toBe(2)
+    })
+
+    // Moderate and unrated share rank 3, and the buckets split it: a merged group counts as unrated only when no
+    // row of it states moderate, as the JS merge reads it (maxSeverity).
+    it('splits rank 3 into moderate and unrated, and a stated moderate wins a merged group', function () {
+        seedFindings([{ severity: 'unrated', advisoryId: 'A-1' }, { severity: 'moderate', advisoryId: 'A-2' }])
+        const counts = catalogCounts()
+        expect(counts).toMatchObject({ moderate: 1, unrated: 1 })
+        expect(getDashboardSummary(db, T0, 'all').severityCounts).toMatchObject({ moderate: 1, unrated: 1 })
+        sqlite.prepare("UPDATE findings SET advisory_key = 'ghsa-1', package_name = 'pkg-A-1'").run()
+        expect(catalogCounts()).toMatchObject({ moderate: 1, unrated: 0 })
+    })
+
+    it('counts an unknown grade under moderate, as ever, and an unrated beside a low as unrated', function () {
+        seedFinding('catastrophic', 'B-1')
+        expect(catalogCounts()).toMatchObject({ moderate: 1, unrated: 0 })
+        // One scan: the lifecycle merge resolves what its cell's newest scan does not report.
+        seedFindings([{ severity: 'unrated', advisoryId: 'B-2' }, { severity: 'low', advisoryId: 'B-3' }])
+        sqlite.prepare("UPDATE findings SET advisory_key = 'ghsa-2', package_name = 'pkg-B-2'").run()
+        expect(catalogCounts()).toMatchObject({ moderate: 0, unrated: 1, low: 0 })
+    })
+
+    it('counts a notice in no bucket, and not as a project with findings', function () {
+        seedFinding('high', 'C-1')
+        sqlite.prepare("UPDATE findings SET notice_kind = 'unsound'").run()
+        expect(bucketTotal(catalogCounts())).toBe(0)
+        const summary = getDashboardSummary(db, T0, 'all')
+        expect(summary.severityCounts.high).toBe(0)
+        expect(summary.projectsWithFindings).toBe(0)
+        expect(countOpenFindingsByProject(db, T0).size).toBe(0)
     })
 })

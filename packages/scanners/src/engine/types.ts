@@ -29,4 +29,7 @@ export type CanonicalAdvisory = {
     summary: string | null
     url: string | null
     withdrawn: number | null
+    // Set when the record says it is a notice rather than a vulnerability (RUSTSEC's `informational`).
+    // Absent where a source has no such class.
+    noticeKind?: string | null
 }

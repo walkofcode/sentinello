@@ -77,6 +77,7 @@ function addTarget(overrides: Partial<NotificationTarget> = {}): NotificationTar
 
 function addFindingEvent(overrides: Record<string, unknown> = {}): string {
     return upsertFindingEvent(db, {
+        gradeAnswers: {},
         projectId: PROJECT_ID,
         source: 'osv',
         ecosystem: 'npm',

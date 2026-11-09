@@ -58,9 +58,10 @@ export function FindingsSection({ findings, projectId, mutes, now, sources, ecos
     // Collapse duplicate rows (same package@version reported via many dep-paths and by both sources)
     // into one row per vulnerability, carrying every source as a tag. The "by advisory" tab and its
     // count run off the merged list; "by library" keeps grouping the raw rows.
+    const mergedRows = useMemo(function build() { return mergeFindings(findings) }, [findings])
     const merged = useMemo(function build() {
         // The floor reads the merged row's severity, which is the worst any source assigned it.
-        const all = atOrAboveSeverity(mergeFindings(findings), minSeverity)
+        const all = atOrAboveSeverity(mergedRows, minSeverity).filter(function vulnerability(m) { return m.noticeKind === null })
         return sortForView(all.filter(function keep(m) {
             // A merged vuln stays whole (every tag, best fix) as long as a selected source reports it.
             if (selected.length > 0 && !m.scanners.some(function sel(s) { return selected.includes(s) })) return false
@@ -68,10 +69,19 @@ export function FindingsSection({ findings, projectId, mutes, now, sources, ecos
             if (selectedEcosystems.length > 0 && !selectedEcosystems.includes(m.ecosystem)) return false
             return true
         }), sort)
-    }, [findings, selected, selectedEcosystems, minSeverity, sort])
+    }, [mergedRows, selected, selectedEcosystems, minSeverity, sort])
+    // Notices are listed apart, below the vulnerabilities: they claim no grade, so no severity floor applies.
+    const notices = useMemo(function ofNotices() {
+        return mergedRows.filter(function keep(m) {
+            if (m.noticeKind === null) return false
+            if (selected.length > 0 && !m.scanners.some(function sel(s) { return selected.includes(s) })) return false
+            return selectedEcosystems.length === 0 || selectedEcosystems.includes(m.ecosystem)
+        })
+    }, [mergedRows, selected, selectedEcosystems])
     const groups = useMemo(function build() {
         // The by-library tab groups raw rows, so filter rows to the selected source(s)/ecosystem(s) first.
         const rows = atOrAboveSeverity(findings, minSeverity).filter(function keep(f) {
+            if (f.noticeKind !== null) return false
             if (selected.length > 0 && !selected.includes(f.scanner)) return false
             if (selectedEcosystems.length > 0 && !selectedEcosystems.includes(f.ecosystem)) return false
             return true
@@ -143,6 +153,13 @@ export function FindingsSection({ findings, projectId, mutes, now, sources, ecos
                     />
                 </>
             )}
+            {notices.length > 0 ? (
+                <section data-testid="notices" className="space-y-2 pt-4">
+                    <h3 className="text-sm font-semibold">{t('noticesHeading', { count: notices.length })}</h3>
+                    <p className="text-xs text-muted-foreground">{t('noticesHelp')}</p>
+                    <FindingsTable findings={notices} projectId={projectId} mutes={mutes} now={now} />
+                </section>
+            ) : null}
         </div>
     )
 }

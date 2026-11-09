@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { noticeKindLabel } from './notice-kind-labels'
+import { reasonFixHint } from './reason-fix-hints'
+import { REASON_SIDE } from './scan-state'
+import { LOCALES } from './types'
 import type { ScanState, ScanStateReason } from './scan-state'
 import {
     SCAN_STATE_SIDE_SHORT,
@@ -30,8 +34,8 @@ describe('project cannot be scanned — the shared words', function () {
         expect(labelScanState(state)).toEqual({
             state: 'partial',
             reasons: [
-                { source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile' },
-                { source: null, ecosystem: 'npm', reasonCode: 'not_yet_run', side: null, label: 'Has not run yet' }
+                { source: 'npm-audit', ecosystem: null, reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile', fixHint: 'commit the lockfile your package manager writes' },
+                { source: null, ecosystem: 'npm', reasonCode: 'not_yet_run', side: null, label: 'Has not run yet', fixHint: null }
             ]
         })
         expect(labelScanState({ state: 'scanned', reasons: [] }, 'fr')).toEqual({ state: 'scanned', reasons: [] })
@@ -57,8 +61,8 @@ describe('project cannot be scanned — the shared words', function () {
             { source: 'gemnasium', ecosystem: null, reasonCode: 'gemnasium_db_not_seeded', side: 'environment' }
         ]
         expect(groupScanReasons(reasons)).toEqual([
-            { reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile', subjects: ['npm audit', 'OSV', 'npm'] },
-            { reasonCode: 'gemnasium_db_not_seeded', side: 'environment', label: 'gemnasium database not downloaded yet', subjects: ['GitLab gemnasium'] }
+            { reasonCode: 'no_lockfile', side: 'project', label: 'No lockfile', subjects: ['npm audit', 'OSV', 'npm'], fixHint: 'commit the lockfile your package manager writes' },
+            { reasonCode: 'gemnasium_db_not_seeded', side: 'environment', label: 'gemnasium database not downloaded yet', subjects: ['GitLab gemnasium'], fixHint: null }
         ])
     })
 
@@ -78,5 +82,35 @@ describe('project cannot be scanned — the shared words', function () {
         expect(describeGroupedReasonLong(environment as ReturnType<typeof groupScanReasons>[number])).toContain("on this Sentinello install's side")
         const [notYet] = groupScanReasons([{ source: null, ecosystem: 'npm', reasonCode: 'not_yet_run', side: null }])
         expect(describeGroupedReasonLong(notYet as ReturnType<typeof groupScanReasons>[number])).toBe("Has not run yet — npm — nobody's fix: nothing has looked yet, and the next scan does")
+    })
+})
+
+describe('what would fix a reason on the project\'s side (SENTINEL-173)', function () {
+    it('names the fix of each project-side reason, in every locale, and none for an install\'s', function () {
+        for (const locale of LOCALES) {
+            for (const code of Object.keys(REASON_SIDE) as (keyof typeof REASON_SIDE)[]) {
+                const hint = reasonFixHint(code, locale)
+                if (REASON_SIDE[code] === 'project') expect(hint, code + ' ' + locale).toBeTruthy()
+                else expect(hint, code + ' ' + locale).toBeNull()
+            }
+        }
+        expect(reasonFixHint('ambiguous_dependency_spec')).toContain('pin exact versions')
+    })
+
+    it('adds it to the line only when asked', function () {
+        const reasons: ScanStateReason[] = [{ source: null, ecosystem: 'PyPI', reasonCode: 'ambiguous_dependency_spec', side: 'project' }, { source: 'osv', ecosystem: null, reasonCode: 'osv_db_unavailable', side: 'environment' }]
+        expect(describeScanReasons(reasons)).not.toContain('pin exact')
+        expect(describeScanReasons(reasons, 'en', true)).toContain('Ambiguous dependency spec (the project): pin exact versions')
+        expect(describeScanReasons(reasons, 'en', true)).toContain('OSV database unavailable (this Sentinello install)')
+    })
+})
+
+describe('the label of a notice\'s kind', function () {
+    it('has a word for each known kind in every locale, and reads an unknown one as itself', function () {
+        for (const locale of LOCALES) {
+            for (const kind of ['unmaintained', 'unsound', 'notice']) expect(noticeKindLabel(kind, locale).length).toBeGreaterThan(0)
+        }
+        expect(noticeKindLabel('unmaintained')).toBe('Unmaintained')
+        expect(noticeKindLabel('something-new')).toBe('something-new')
     })
 })

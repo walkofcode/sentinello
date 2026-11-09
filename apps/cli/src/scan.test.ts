@@ -181,6 +181,7 @@ function osvAdvisory(overrides: Partial<OsvAdvisory> = {}): OsvAdvisory {
         url: null,
         malicious: false,
         withdrawn: null,
+        noticeKind: null,
         ...overrides
     }
 }
@@ -717,20 +718,30 @@ describe('project cannot be scanned — a lockfile-less project', function () {
     })
 })
 
+function makeGraphForBun() {
+    return { packages: [], classify: function classify() { return { isProd: true, isDev: false, isOptional: false } }, byName: function byName() { return [] }, nodeGraph: null }
+}
+
 describe('cliScanState — the run is its own expected sources', function () {
+    it('does not expect npm audit of a Bun project', function () {
+        const bun = { kind: 'bun.lock', absolutePath: '/p/bun.lock', ecosystem: 'npm', result: { status: 'ok' as const, ecosystem: 'npm', graph: makeGraphForBun() } }
+        const state = cliScanState({ cells: [{ source: 'osv', ecosystem: 'npm' }], includeNpmAudit: true }, { project: { packageManager: 'bun' }, manifests: [bun] as never }, [{ name: 'npm-audit' }, { name: 'osv' }], [{ scanner: 'osv', ecosystem: 'npm', status: 'ok', reasonCode: 'ok', errorText: null, durationMs: 1 }])
+        expect(state).toEqual({ state: 'scanned', reasons: [] })
+    })
+
     const ok = okManifest('package-lock.json', 'npm')
     const outcome = function outcome(scanner: string, ecosystem: 'npm' | 'PyPI' = 'npm') {
         return { scanner, ecosystem, status: 'ok', reasonCode: 'ok', errorText: null, durationMs: 1 }
     }
 
     it('is scanned when every cell the run enabled answered and every ecosystem was read', function () {
-        expect(cliScanState(setup({ cells: cells(['osv']) }), { manifests: [ok] }, [{ name: 'osv' }], [outcome('osv')])).toEqual({ state: 'scanned', reasons: [] })
+        expect(cliScanState(setup({ cells: cells(['osv']) }), { project: { packageManager: 'npm' }, manifests: [ok] }, [{ name: 'osv' }], [outcome('osv')])).toEqual({ state: 'scanned', reasons: [] })
     })
 
     // Every ecosystem the run audits answers for itself: an unreadable PyPI manifest is a reason.
     it('reads an unreadable manifest of another audited ecosystem as a reason', function () {
         const pyproject: ResolvedManifest = { manifestPath: 'pyproject.toml', result: { status: 'unauditable', ecosystem: 'PyPI', reasonCode: 'no_lockfile', details: [] } }
-        const state = cliScanState(setup({ cells: cells(['osv'], ['npm', 'PyPI']) }), { manifests: [ok, pyproject] }, [{ name: 'osv' }], [outcome('osv'), outcome('osv', 'PyPI')])
+        const state = cliScanState(setup({ cells: cells(['osv'], ['npm', 'PyPI']) }), { project: { packageManager: 'npm' }, manifests: [ok, pyproject] }, [{ name: 'osv' }], [outcome('osv'), outcome('osv', 'PyPI')])
         expect(state).toEqual({ state: 'partial', reasons: [{ source: null, ecosystem: 'PyPI', reasonCode: 'no_lockfile', side: 'project' }] })
     })
 
@@ -738,13 +749,13 @@ describe('cliScanState — the run is its own expected sources', function () {
     // never a clean result.
     it('reads an ecosystem no cell answers for as having no source enabled', function () {
         const requirements = okManifest('requirements.txt', 'PyPI')
-        const state = cliScanState(setup({ cells: [] }), { manifests: [ok, requirements] }, [{ name: 'npm-audit' }], [outcome('npm-audit')])
+        const state = cliScanState(setup({ cells: [] }), { project: { packageManager: 'npm' }, manifests: [ok, requirements] }, [{ name: 'npm-audit' }], [outcome('npm-audit')])
         expect(state).toEqual({ state: 'partial', reasons: [{ source: null, ecosystem: 'PyPI', reasonCode: 'ecosystem_source_disabled', side: 'environment' }] })
     })
 
     it('reads a scanner the run never reached as not yet run, and a partly read ecosystem by its reason', function () {
         const partial: ResolvedManifest = { manifestPath: 'package-lock.json', result: { status: 'partial', ecosystem: 'npm', reasonCode: 'partial_dependency_graph', details: [], graph: graphOf([]) } }
-        expect(cliScanState(setup({ cells: cells(['osv']) }), { manifests: [partial] }, [{ name: 'npm-audit' }, { name: 'osv' }], [outcome('npm-audit')])).toEqual({
+        expect(cliScanState(setup({ cells: cells(['osv']) }), { project: { packageManager: 'npm' }, manifests: [partial] }, [{ name: 'npm-audit' }, { name: 'osv' }], [outcome('npm-audit')])).toEqual({
             state: 'partial',
             reasons: [
                 { source: 'osv', ecosystem: null, reasonCode: 'not_yet_run', side: null },
@@ -754,7 +765,7 @@ describe('cliScanState — the run is its own expected sources', function () {
     })
 
     it('cannot be scanned when the run enabled no scanner for any of its ecosystems', function () {
-        expect(cliScanState(setup({ cells: [], includeNpmAudit: false }), { manifests: [ok] }, [], [])).toEqual({
+        expect(cliScanState(setup({ cells: [], includeNpmAudit: false }), { project: { packageManager: 'npm' }, manifests: [ok] }, [], [])).toEqual({
             state: 'cannot_scan',
             reasons: [{ source: null, ecosystem: 'npm', reasonCode: 'ecosystem_source_disabled', side: 'environment' }]
         })

@@ -151,6 +151,9 @@ export type ExportFinding = {
     // an earlier scan left, not re-checked since. Absent or null otherwise.
     notRecheckedBecause?: NotRecheckedBecause | null
     severity: Severity
+    // Set when the advisory is a notice rather than a vulnerability (unmaintained, unsound, notice). It is listed
+    // apart, after every finding, and not counted among them.
+    noticeKind?: string | null
     advisoryId: string
     advisoryTitle: string | null
     advisoryUrl: string | null
@@ -224,7 +227,7 @@ function escapeForMarkdown(value: string): string {
 
 function formatFinding(index: number, f: ExportFinding): string {
     const lines: string[] = []
-    const headline = '`' + escapeForMarkdown(f.packageName) + '@' + escapeForMarkdown(f.installedVersion) + '` — ' + f.severity
+    const headline = '`' + escapeForMarkdown(f.packageName) + '@' + escapeForMarkdown(f.installedVersion) + '` — ' + (f.noticeKind ? 'notice: ' + f.noticeKind : f.severity)
     lines.push('### ' + index + '. ' + headline)
     lines.push('')
     lines.push('- **Ecosystem:** ' + ecosystemLabel(f.ecosystem))
@@ -313,11 +316,21 @@ function wayOutLines(ecosystem: string, r: Remediation, notRechecked: NotRecheck
     return lines
 }
 
-// The document's finding order. Total and deterministic — severity, then package, then advisory id —
-// which is what makes offset-based paging safe: page 2 of an unchanged data set always resumes exactly
-// where page 1 stopped. Do not make this order depend on anything that varies between calls.
+// The document's finding order. Total and deterministic — vulnerabilities before notices, severity, then package,
+// then advisory id — which is what makes offset-based paging safe: page 2 of an unchanged data set always resumes
+// exactly where page 1 stopped. Do not make this order depend on anything that varies between calls.
+function isNotice(f: ExportFinding): boolean {
+    return Boolean(f.noticeKind)
+}
+
+function countNotices(findings: readonly ExportFinding[]): number {
+    return findings.filter(isNotice).length
+}
+
 function sortForExport(findings: ExportFinding[]): ExportFinding[] {
     return [...findings].sort(function bySeverityThenName(a, b) {
+        const kind = Number(isNotice(a)) - Number(isNotice(b))
+        if (kind !== 0) return kind
         const sev = compareSeverity(a.severity, b.severity)
         if (sev !== 0) return sev
         const nameCmp = a.packageName.localeCompare(b.packageName)
@@ -329,7 +342,7 @@ function sortForExport(findings: ExportFinding[]): ExportFinding[] {
 // `range` is set only by the paginated build, where the count in the subtitle must describe the page
 // rather than the whole set — a header claiming "36 findings" above 24 of them is exactly the silent
 // undercount the remediation prompt warns against.
-function buildHeader(scope: ExportScope, generatedAt: number, count: number, range: { offset: number; total: number } | null): string[] {
+function buildHeader(scope: ExportScope, generatedAt: number, count: number, range: { offset: number; total: number } | null, notices: number): string[] {
     const title = 'Sentinello advisory export — ' + scopeTitle(scope)
     const subtitleParts: string[] = []
     subtitleParts.push('Generated ' + new Date(generatedAt).toISOString())
@@ -338,6 +351,7 @@ function buildHeader(scope: ExportScope, generatedAt: number, count: number, ran
     } else {
         subtitleParts.push(count + ' ' + (count === 1 ? 'finding' : 'findings'))
     }
+    if (notices > 0) subtitleParts.push(notices + ' ' + (notices === 1 ? 'notice' : 'notices') + ', not vulnerabilities')
     if (scope.kind === 'project') {
         subtitleParts.push('project: `' + escapeForMarkdown(scope.projectPath) + '`')
     } else if (scope.kind === 'library') {
@@ -398,12 +412,19 @@ function buildFindingsSection(findings: ExportFinding[], startIndex: number): st
     const out: string[] = []
     out.push('## Findings')
     out.push('')
-    if (findings.length === 0) {
+    if (!findings.some(function vulnerability(f) { return !isNotice(f) })) {
         out.push('_No current findings._')
         out.push('')
-        return out
     }
+    let noticesStarted = false
     findings.forEach(function appendFinding(f, i) {
+        if (isNotice(f) && !noticesStarted) {
+            noticesStarted = true
+            out.push('## Notices')
+            out.push('')
+            out.push('Not vulnerabilities: the advisory says the package is unmaintained, unsound or worth knowing about, and there is no fix version to chase. Weigh them when you next touch the dependency.')
+            out.push('')
+        }
         out.push(formatFinding(startIndex + i + 1, f))
         out.push('')
     })
@@ -422,7 +443,8 @@ export function buildAdvisoryMarkdown(args: {
 }): string {
     const { scope, prompt, findings, generatedAt } = args
     const sorted = sortForExport(findings)
-    const out = buildHeader(scope, generatedAt, sorted.length, null)
+    const notices = countNotices(sorted)
+    const out = buildHeader(scope, generatedAt, sorted.length - notices, null, notices)
         .concat(buildPromptSection(prompt))
         .concat(buildScanStateSection(args.scanStates ?? []))
         .concat(buildFindingsSection(sorted, 0))
@@ -434,7 +456,10 @@ export type PaginatedAdvisoryMarkdown = {
     offset: number
     // How many findings this page actually rendered.
     rendered: number
+    // Every entry of the list being paged, notices included: they sort last, and paging walks them too.
     total: number
+    // How many of `total` are notices, so a reader can tell vulnerabilities from the rest.
+    notices: number
     // Index to pass as the next `offset`, or null when this page is the last one.
     nextOffset: number | null
 }
@@ -460,7 +485,8 @@ export function buildPaginatedAdvisoryMarkdown(args: {
     const sorted = sortForExport(findings)
     const offset = Math.max(0, Math.min(args.offset, sorted.length))
     const stateSection = offset === 0 ? buildScanStateSection(args.scanStates ?? []) : []
-    const preamble = buildHeader(scope, generatedAt, 0, { offset, total: sorted.length }).concat(buildPromptSection(prompt)).concat(stateSection)
+    const notices = countNotices(sorted)
+    const preamble = buildHeader(scope, generatedAt, 0, { offset, total: sorted.length }, notices).concat(buildPromptSection(prompt)).concat(stateSection)
     // The header is rebuilt once the page size is known (its subtitle names the range), so only its
     // size is borrowed here. Leave headroom for that rebuild plus the continuation notice.
     let used = preamble.join('\n').length + 512
@@ -475,7 +501,7 @@ export function buildPaginatedAdvisoryMarkdown(args: {
     }
     const nextIndex = offset + page.length
     const nextOffset = nextIndex < sorted.length ? nextIndex : null
-    const out = buildHeader(scope, generatedAt, page.length, { offset, total: sorted.length })
+    const out = buildHeader(scope, generatedAt, page.length, { offset, total: sorted.length }, notices)
         .concat(buildPromptSection(prompt))
         .concat(stateSection)
         .concat(buildFindingsSection(page, offset))
@@ -484,6 +510,7 @@ export function buildPaginatedAdvisoryMarkdown(args: {
         offset,
         rendered: page.length,
         total: sorted.length,
+        notices,
         nextOffset
     }
 }

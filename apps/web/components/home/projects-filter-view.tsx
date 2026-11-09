@@ -182,13 +182,14 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
 
     // Overview cards summarize exactly the rows shown below, so the counts track every filter.
     const overviewCounts = useMemo(function buildOverview() {
-        const severityCounts = { critical: 0, high: 0, moderate: 0, low: 0, info: 0 }
+        const severityCounts = { critical: 0, high: 0, moderate: 0, unrated: 0, low: 0, info: 0 }
         let projectsWithFindings = 0
         for (const row of filtered) {
             const c = row.severityCounts
             severityCounts.critical += c.critical
             severityCounts.high += c.high
             severityCounts.moderate += c.moderate
+            severityCounts.unrated += c.unrated
             severityCounts.low += c.low
             severityCounts.info += c.info
             if (totalNonMutedFindings(row) > 0) projectsWithFindings++
@@ -384,7 +385,7 @@ export function ProjectsFilterView({ rows, inFlightProjectIds, depType, defaultD
 
 function totalNonMutedFindings(row: ProjectCatalogRow): number {
     const c = row.severityCounts
-    return c.critical + c.high + c.moderate + c.low + c.info
+    return c.critical + c.high + c.moderate + c.unrated + c.low + c.info
 }
 
 // Weight of the project's worst finding; 0 when it has none, which sorts below every real severity.
@@ -393,7 +394,7 @@ function topSeverityWeight(row: ProjectCatalogRow): number {
     const c = row.severityCounts
     if (c.critical > 0) return severityWeight('critical')
     if (c.high > 0) return severityWeight('high')
-    if (c.moderate > 0) return severityWeight('moderate')
+    if (c.moderate + c.unrated > 0) return severityWeight('moderate')
     if (c.low > 0) return severityWeight('low')
     if (c.info > 0) return severityWeight('info')
     return 0
@@ -422,7 +423,7 @@ function compareBySeverity(a: ProjectCatalogRow, b: ProjectCatalogRow): number {
     const bc = b.severityCounts
     if (bc.critical !== ac.critical) return bc.critical - ac.critical
     if (bc.high !== ac.high) return bc.high - ac.high
-    if (bc.moderate !== ac.moderate) return bc.moderate - ac.moderate
+    if (bc.moderate + bc.unrated !== ac.moderate + ac.unrated) return bc.moderate + bc.unrated - ac.moderate - ac.unrated
     if (bc.low !== ac.low) return bc.low - ac.low
     return bc.info - ac.info
 }
@@ -664,7 +665,7 @@ function ScanStateBadges({ row }: { row: ProjectCatalogRow }) {
 }
 
 function SeverityCountsRow({ counts }: { counts: ProjectCatalogRow['severityCounts'] }) {
-    const total = counts.critical + counts.high + counts.moderate + counts.low + counts.info
+    const total = counts.critical + counts.high + counts.moderate + counts.unrated + counts.low + counts.info
     if (total === 0) {
         return <span className="text-xs text-muted-foreground">—</span>
     }
@@ -673,6 +674,7 @@ function SeverityCountsRow({ counts }: { counts: ProjectCatalogRow['severityCoun
             <SeverityPill variant="critical" count={counts.critical} size="sm" />
             <SeverityPill variant="high" count={counts.high} size="sm" />
             <SeverityPill variant="moderate" count={counts.moderate} size="sm" />
+            <SeverityPill variant="unrated" count={counts.unrated} size="sm" />
             <SeverityPill variant="low" count={counts.low} size="sm" />
             <SeverityPill variant="info" count={counts.info} size="sm" />
         </div>

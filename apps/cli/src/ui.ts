@@ -47,7 +47,7 @@ const PLAIN: Palette = {
     reset: '', bold: '', dim: '', red: '', magenta: '', yellow: '', blue: '', green: '', cyan: ''
 }
 
-const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'moderate', 'low', 'info']
+const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'moderate', 'unrated', 'low', 'info']
 
 // `estimated` marks a figure that came from a measured constant rather than a Content-Length the server
 // advertised, so an approximate number never reads as an exact one.
@@ -121,7 +121,7 @@ export function createUi(options: CliOptions): Ui {
     function severityColor(severity: Severity): string {
         if (severity === 'critical') return c.red
         if (severity === 'high') return c.magenta
-        if (severity === 'moderate') return c.yellow
+        if (severity === 'moderate' || severity === 'unrated') return c.yellow
         if (severity === 'low') return c.blue
         return c.dim
     }
@@ -450,6 +450,9 @@ export function createUi(options: CliOptions): Ui {
                     .join(c.dim + ', ' + c.reset)
                 write('    ' + project.relPath.padEnd(38).slice(0, 38) + '  ' + breakdown)
             }
+        }
+        if (runSummary.notices.length > 0) {
+            write('  ' + c.dim + runSummary.notices.length + ' notice' + (runSummary.notices.length === 1 ? '' : 's') + ' (unmaintained, unsound), not vulnerabilities: listed in the report, in no count above.' + c.reset)
         }
         if (unscanned.length > 0) {
             const cannot = runSummary.projects.filter(function cannotScan(p): boolean { return p.scanState.state === 'cannot_scan' }).length

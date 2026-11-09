@@ -7,6 +7,7 @@ import type { MergedFinding } from '@/lib/merge-findings'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { SeverityPill } from '@/components/ui/severity-pill'
+import { NoticeKindBadge } from './notice-kind-badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { MuteDialog } from '@/components/triage/mute-dialog'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
@@ -45,7 +46,7 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                     return (
                         <Card key={f.key} className={cn('p-4', fullyMuted && 'opacity-60')}>
                             <div className="flex flex-wrap items-center gap-1.5">
-                                <SeverityPill variant={f.severity as Severity} size="sm" />
+                                {f.noticeKind ? <NoticeKindBadge kind={f.noticeKind} /> : <SeverityPill variant={f.severity as Severity} size="sm" />}
                                 <SourceGradesPopover grades={f.grades} reported={f.severity as Severity} />
                                 {f.malicious ? <Badge variant="malicious" className="px-2 py-0.5 text-[0.625rem] font-semibold tracking-wider ring-0">{t('malicious')}</Badge> : null}
                                 <span className="flex min-w-0 flex-1 items-center gap-1">
@@ -109,7 +110,7 @@ export function FindingsTable({ findings, projectId, mutes, now }: Props) {
                                 <TableRow key={f.key} className={fullyMuted ? 'opacity-60' : ''}>
                                     <TableCell>
                                         <div className="flex flex-wrap items-center gap-1">
-                                            <SeverityPill variant={f.severity as Severity} size="sm" />
+                                            {f.noticeKind ? <NoticeKindBadge kind={f.noticeKind} /> : <SeverityPill variant={f.severity as Severity} size="sm" />}
                                             <SourceGradesPopover grades={f.grades} reported={f.severity as Severity} />
                                             {f.malicious ? <Badge variant="malicious" className="px-2 py-0.5 text-[0.625rem] font-semibold tracking-wider ring-0">{t('malicious')}</Badge> : null}
                                         </div>

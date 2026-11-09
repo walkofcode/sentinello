@@ -64,6 +64,7 @@ function osvRow(overrides: Partial<OsvAdvisoryRow> = {}): OsvAdvisoryRow {
         url: null,
         malicious: false,
         withdrawn: null,
+        noticeKind: null,
         ...overrides
     } as OsvAdvisoryRow
 }

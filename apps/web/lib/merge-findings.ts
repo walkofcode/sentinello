@@ -1,5 +1,5 @@
 import type { CurrentFindingRow } from '@sentinello/db'
-import { compareSeverity, requireComparator, severityWeight, type FindingInstallation, type FixCheck, type FixStatus, type NotRecheckedBecause, type Remediation, type Severity } from '@sentinello/core'
+import { compareSeverity, maxSeverity, requireComparator, type FindingInstallation, type FixCheck, type FixStatus, type NotRecheckedBecause, type Remediation, type Severity } from '@sentinello/core'
 import { compareVersions } from '@sentinello/versions'
 import { parseJsonArray } from '@/lib/format'
 
@@ -19,6 +19,9 @@ export type MergedFinding = {
     // in two Gemfile.locks lists both. Empty when every row predates 3.8.
     installations: FindingInstallation[]
     severity: Severity
+    // Set when every row of the group is a notice, not a vulnerability: anyone reporting it as a vulnerability
+    // makes it one. A notice row has no place in the counts (notNoticeSql), and the page lists it apart.
+    noticeKind: string | null
     malicious: boolean
     scanners: string[]
     advisoryId: string
@@ -57,20 +60,12 @@ export type MergedFinding = {
 // npm audit before OSV before gemnasium before anything else, so the source tags read consistently across rows.
 const SCANNER_ORDER: Record<string, number> = { 'npm-audit': 0, osv: 1, gemnasium: 2 }
 
-// Two findings are the same vulnerability when they sit on the same package@version and describe the
-// same advisory. npm audit and OSV use different ids for the same CVE, but share the advisory title, so
-// the title (when present) is the cross-source key; we fall back to the id for title-less records.
-// Cross-source identity of a vulnerability. npm-audit and OSV assign different ids to the same CVE
-// but share the title, so the normalized title is the identity when present, else the id. The
-// 't:'/'a:' prefixes keep a title from ever colliding with an id. Mirrors advisoryIdentitySql in
-// packages/db so SQL counts and these JS counts agree. Exported so the library views dedupe the same way.
-export function advisoryIdentity(title: string | null, id: string): string {
-    const normalized = title ? title.trim().toLowerCase() : ''
-    return normalized.length > 0 ? 't:' + normalized : 'a:' + id
-}
-
-function advisoryKey(row: CurrentFindingRow): string {
-    return advisoryIdentity(row.advisoryTitle, row.advisoryId)
+// Cross-source identity of a vulnerability: the key refreshAdvisoryKeys wrote from ids and aliases, never the
+// title, since a generic title merges different vulnerabilities (SENTINEL-174). The fallback covers only an old
+// resolved row and the moment between migration and boot: the row's own source and id. Mirrors advisoryIdentitySql
+// in packages/db, so SQL counts and these JS counts agree. Exported so the library views dedupe the same way.
+export function advisoryIdentity(row: { advisoryKey: string | null; source: string; advisoryId: string }): string {
+    return row.advisoryKey ?? row.source + ':' + row.advisoryId
 }
 
 // npm audit joins multiple hoisted copies into one comma-separated installedVersion ("4.17.21, 4.17.11")
@@ -148,7 +143,7 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
     const installations = new Map<string, FindingInstallation>()
     for (const r of bucket) {
         for (const i of r.installations) installations.set(i.manifestPath + '\x00' + i.version, i)
-        if (severityWeight(r.severity) > severityWeight(severity)) severity = r.severity
+        severity = maxSeverity([severity, r.severity])
         if (r.advisoryId.startsWith('MAL-')) malicious = true
         if (r.isProd) isProd = true
         if (r.isDev) isDev = true
@@ -199,6 +194,8 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
         installedVersion: unionInstalledVersions(bucket),
         installations: [...installations.values()].sort(function byManifest(a, b) { return a.manifestPath.localeCompare(b.manifestPath) || a.version.localeCompare(b.version) }),
         severity: severity as Severity,
+        // `first` is one row of the group, so `every` holding means its kind is the group's.
+        noticeKind: bucket.every(function isNotice(r) { return r.noticeKind !== null }) ? first.noticeKind : null,
         malicious,
         scanners,
         grades,
@@ -225,7 +222,7 @@ function mergeBucket(key: string, bucket: [CurrentFindingRow, ...CurrentFindingR
 export function mergeFindings(rows: CurrentFindingRow[]): MergedFinding[] {
     const groups = new Map<string, [CurrentFindingRow, ...CurrentFindingRow[]]>()
     for (const row of rows) {
-        const key = row.ecosystem + '\x00' + row.packageName + '\x00' + advisoryKey(row)
+        const key = row.ecosystem + '\x00' + row.packageName + '\x00' + advisoryIdentity(row)
         const bucket = groups.get(key)
         if (bucket) bucket.push(row)
         else groups.set(key, [row])

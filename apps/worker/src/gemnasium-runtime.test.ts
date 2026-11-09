@@ -699,7 +699,8 @@ describe('the scanner the runtime produces', function () {
             summary: 'Uncontrolled resource consumption',
             url: 'https://example.test/CVE-2026-93687',
             malicious: false,
-            withdrawn: null
+            withdrawn: null,
+
         }])
     }
 
@@ -710,7 +711,7 @@ describe('the scanner the runtime produces', function () {
     it('drops an advisory the OSV evidence shows withdrawn', async function () {
         markSeeded()
         seedBraces()
-        evidence.linkRows = new Map([['braces', [{ advisoryId: 'GHSA-vfj7-8cjw-p6xm', aliases: ['CVE-2026-93687'], withdrawn: Date.UTC(2026, 9, 23) }]]])
+        evidence.linkRows = new Map([['braces', [{ advisoryId: 'GHSA-vfj7-8cjw-p6xm', aliases: ['CVE-2026-93687'], withdrawn: Date.UTC(2026, 9, 23), ranges: [], versions: [] }]]])
         const rt = startGemnasiumRuntime(handle.db, runtime, evidence)
         const result = await scanWith(rt.scanner as never, [{ ecosystem: 'npm', name: 'braces', version: '3.0.3' }])
         expect(result.reasonCode).toBe('ok')

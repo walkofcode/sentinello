@@ -1,12 +1,14 @@
 import { join, resolve } from 'node:path'
 import { ulid } from 'ulid'
-import { ECOSYSTEMS, requireEcosystemId, type EcosystemId, type Finding, type FindingCorroboration, type FindingInstallation, type Project, type Scan, type SourceCell } from '@sentinello/core'
+import { ECOSYSTEMS, requireEcosystemId, sourceAppliesToPackageManager, type EcosystemId, type Finding, type FindingCorroboration, type FindingInstallation, type GradeAnswers, type Project, type Scan, type SourceCell } from '@sentinello/core'
 import {
     applyFindingCorroborations,
     getRunnableSourceCells,
+    hasOpenFindingsInCell,
     insertScan,
     listOpenFindingEcosystems,
     mergeFindingsForScan,
+    refreshAdvisoryKeys,
     getRootById,
     setProjectGitBranch,
     walCheckpoint,
@@ -78,6 +80,12 @@ export type ProjectScanOutcome = {
     project: Project
     scan: Scan
     findings: Finding[]
+    // What this scan closed in its cell: their packages' advisory keys are recomputed too.
+    resolved: Finding[]
+    // What each source answered about each of `findings` in this project scan, by finding id (GradeAnswers): the
+    // own source's grade BEFORE escalation, each corroborator's grade, and null for every other source whose cell
+    // of that ecosystem answered ok. The notifier reads it to tell a corrected grade from a real one.
+    gradeAnswers: Map<string, GradeAnswers>
 }
 
 export type BatchResult = {
@@ -154,7 +162,7 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
         const outcomes: ProjectScanOutcome[] = []
         for (const scanner of input.scanners) {
             for (const ecosystem of ecosystems) {
-                if (!cellRunnable(runnable, scanner.name, ecosystem)) continue
+                if (!cellRunnable(runnable, scanner.name, ecosystem) || !sourceAppliesToPackageManager(scanner.name, project.packageManager)) continue
                 const outcome = makeErrorOutcome(project, 'project root not found in DB', requireEcosystemId(ecosystem), undefined, scanner.name)
                 insertScan(input.db, outcome.scan)
                 outcomes.push(outcome)
@@ -210,6 +218,11 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
         for (const ecosystem of detected) {
             if (input.abortSignal && input.abortSignal.aborted) break
             if (!cellRunnable(runnable, scanner.name, ecosystem)) continue
+            // A source that cannot answer for this package manager is not attempted (a Bun project and npm
+            // audit). What it found before the project moved to that manager has nothing left to re-check it,
+            // so one last answer of nothing installed resolves those rows; with none open there is no scan.
+            const applies = sourceAppliesToPackageManager(scanner.name, project.packageManager)
+            if (!applies && !hasOpenFindingsInCell(input.db, project.id, scanner.name, ecosystem)) continue
             const isNpmAudit = scanner.name === NPM_AUDIT_SCANNER_NAME
             const cell = cellResults(resolved, ecosystem)
             const graphForCell = isNpmAudit ? npmGraph : mergeResolvedGraphs(cell.map(function result(r) { return r.result }))
@@ -221,12 +234,13 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
             // The project was read now and holds no manifest of this ecosystem at all — an incomplete walk keeps
             // those it could not see (withUnreadManifests), so this is a removal: nothing of it is installed, and
             // no source has anything to look up. The scan answers so itself, whatever the source's state.
-            const nothingInstalled = inventoryRead && cell.length === 0
+            const nothingInstalled = !applies || (inventoryRead && cell.length === 0)
             const outcome = await runOneScanner(input, project, projectPath, scanner, ecosystem, reportedByPackage, corroborations, graphForCell, coverageForCell, coverage, unreadManifests, nothingInstalled)
             outcomes.push(outcome)
         }
     }
     recordCorroborations(input.db, outcomes, corroborations)
+    refreshKeysForScan(input, outcomes)
     // Fix settlement also waits for every source: the fix has to clear every source's affected set and
     // every installed copy. With it comes the way out for every finding settled `none_released`, from the
     // same registry data and the npm lockfile's node graph. Neither ever fails the scan or skips
@@ -235,7 +249,9 @@ export async function runProjectScanners(input: RunProjectScansInput): Promise<P
     //     `unverified` inside) leaves the rows unsettled, which read as "rescan pending", and no way out;
     //   - a way-out failure keeps the settlements and leaves those findings without guidance (their Fix
     //     line still says no fixed version is released).
-    const settledFindings = outcomes.flatMap(function findingsOf(o) { return o.findings })
+    // A notice has no fix to chase, so it is neither settled nor given a way out; its fix fields stay unwritten
+    // and every surface branches on its kind before reading them.
+    const settledFindings = outcomes.flatMap(function findingsOf(o) { return o.findings }).filter(function vulnerability(f) { return f.noticeKind === null })
     const evidence = withRetainedCopies(evidenceByFinding(reportedByPackage), settledFindings)
     const registry = input.registry ?? createRegistryClients(createDbRegistryStores(input.db), { abortSignal: input.abortSignal })
     try {
@@ -354,6 +370,8 @@ function withRetainedCopies(evidence: Map<string, FixEvidence[]>, findings: read
 // rebuilt in full so that a source which stops reporting an advisory also stops corroborating it.
 function recordCorroborations(db: DrizzleDb, outcomes: ProjectScanOutcome[], events: CorroborationEvent[]): void {
     const byTarget = new Map<string, FindingCorroboration[]>()
+    // Survivors another source reported as a vulnerability: whatever they said of themselves, they are one.
+    const reportedReal = new Set<string>()
     for (const event of events) {
         const key = targetIdentity(event.target)
         const list = byTarget.get(key) || []
@@ -361,34 +379,76 @@ function recordCorroborations(db: DrizzleDb, outcomes: ProjectScanOutcome[], eve
         // That is still one corroborating source.
         if (!list.some(function already(c) { return c.source === event.by.source })) list.push(event.by)
         byTarget.set(key, list)
+        if (!event.target.finding.noticeKind) reportedReal.add(key)
     }
     const touched: string[] = []
-    const byFindingId = new Map<string, { own: Finding['severity']; corroborations: FindingCorroboration[] }>()
+    const byFindingId = new Map<string, { own: Finding['severity']; corroborations: FindingCorroboration[]; clearNotice: boolean }>()
+    // Every finding's own grade, corroborated or not: the only place it exists once escalation has run, and the
+    // answer its own source gave in this sighting.
+    const ownGrades = new Map<string, Finding['severity']>()
     for (const outcome of outcomes) {
         for (const finding of outcome.findings) {
             touched.push(finding.id)
-            const corroborations = byTarget.get(findingIdentity(finding))
             // The row's own severity is always the surviving source's grade, never a previous
             // escalation: a continuing episode has just had `severity` rewritten from this scan's
             // incoming finding. Reading it here is what keeps escalation from ratcheting — a source
             // that softens its assessment brings the finding back down on the next scan.
-            if (corroborations) byFindingId.set(finding.id, { own: finding.severity, corroborations })
+            ownGrades.set(finding.id, finding.severity)
+            const key = findingIdentity(finding)
+            const corroborations = byTarget.get(key)
+            if (corroborations) byFindingId.set(finding.id, { own: finding.severity, corroborations, clearNotice: finding.noticeKind !== null && reportedReal.has(key) })
         }
     }
-    if (touched.length === 0) return
-    const applied = applyFindingCorroborations(db, touched, byFindingId)
-    // Fold what was persisted back onto the in-memory findings the caller still holds. Those objects were
-    // built by the lifecycle merge before any later source had run, so their severity and corroboration
-    // set are both pre-escalation — and they are exactly what the notifier reads to stamp the event and
-    // build the webhook payload. Reading the escalation back rather than recomputing it here is the point:
-    // one place decides the grade, everything else is told.
+    if (touched.length > 0) {
+        const applied = applyFindingCorroborations(db, touched, byFindingId)
+        // Fold what was persisted back onto the in-memory findings the caller still holds. Those objects were
+        // built by the lifecycle merge before any later source had run, so their severity and corroboration
+        // set are both pre-escalation — and they are exactly what the notifier reads to stamp the event and
+        // build the webhook payload. Reading the escalation back rather than recomputing it here is the point:
+        // one place decides the grade, everything else is told.
+        for (const outcome of outcomes) {
+            for (const finding of outcome.findings) {
+                const escalated = applied.severities.get(finding.id)
+                if (escalated !== undefined) finding.severity = escalated
+                // Rebuilt in full, as the column just was: no source agreeing this scan, no corroborations.
+                finding.corroborations = byTarget.get(findingIdentity(finding)) ?? []
+                if (byFindingId.get(finding.id)?.clearNotice === true) finding.noticeKind = null
+            }
+        }
+    }
+    const answeredOk = outcomes.filter(function ok(o) { return o.scan.status === 'ok' })
     for (const outcome of outcomes) {
         for (const finding of outcome.findings) {
-            const escalated = applied.severities.get(finding.id)
-            if (escalated !== undefined) finding.severity = escalated
-            const attached = byTarget.get(findingIdentity(finding))
-            if (attached) finding.corroborations = attached
+            const answers: GradeAnswers = {}
+            for (const answered of answeredOk) {
+                if (answered.scan.ecosystem === finding.ecosystem) answers[answered.scan.source] = null
+            }
+            answers[finding.source] = ownGrades.get(finding.id) as Finding['severity']
+            for (const c of finding.corroborations) answers[c.source] = c.severity
+            outcome.gradeAnswers.set(finding.id, answers)
         }
+    }
+}
+
+// Recomputes which advisory each row is, for the packages this scan touched. Every open row of those packages
+// is read, across projects: a row this scan wrote can join them to another project's. A failure costs the
+// counts a stale key until the next refresh, never the scan.
+function refreshKeysForScan(input: RunProjectScansInput, outcomes: ProjectScanOutcome[]): void {
+    const packages = new Map<string, { ecosystem: string; packageName: string }>()
+    for (const outcome of outcomes) {
+        for (const finding of [...outcome.findings, ...outcome.resolved]) {
+            packages.set(finding.ecosystem + '\x00' + finding.packageName, { ecosystem: finding.ecosystem, packageName: finding.packageName })
+        }
+    }
+    if (packages.size === 0) return
+    try {
+        const caches = input.scanners.flatMap(function evidence(s) { return s.aliasEvidence ? [s.aliasEvidence] : [] })
+        const { keys } = refreshAdvisoryKeys(input.db, caches, [...packages.values()])
+        for (const outcome of outcomes) {
+            for (const finding of outcome.findings) finding.advisoryKey = keys.get(finding.id) ?? finding.advisoryKey
+        }
+    } catch (err) {
+        console.error('[runner] advisory keys not refreshed for project ' + input.project.id + ': ' + errText(err))
     }
 }
 
@@ -521,6 +581,8 @@ async function runOneScanner(
             installations: installationsFor(raw, resolvedGraph),
             vulnerableRange: raw.vulnerableRange,
             severity: raw.severity,
+            noticeKind: raw.noticeKind ?? null,
+            aliases: raw.aliases ?? [],
             fixAvailable: raw.fixAvailable,
             fixVersion: raw.fixVersion,
             depPath: raw.depPath,
@@ -535,10 +597,10 @@ async function runOneScanner(
     // one ecosystem's scan never resolves another's (SENTINEL-122). For error/timeout/unauditable
     // scans we record the scan row but leave findings alone so the UI keeps its last-known view and a
     // transient failure never mass-resolves an entire project.
-    const merged = input.db.transaction(function mergeLifecycle(tx): Finding[] {
+    const merged = input.db.transaction(function mergeLifecycle(tx): { active: Finding[]; resolved: Finding[] } {
         insertScan(tx, scan)
-        if (scan.status !== 'ok') return []
-        const result = mergeFindingsForScan(tx, {
+        if (scan.status !== 'ok') return { active: [], resolved: [] }
+        return mergeFindingsForScan(tx, {
             projectId: project.id,
             scanner: scanner.name,
             ecosystem,
@@ -547,11 +609,10 @@ async function runOneScanner(
             incoming,
             unreadManifests
         })
-        return result.active
     })
     // Notification is deliberately NOT fired here — see the comment at the notify loop in
     // runProjectScanners for why it has to wait until every source has had its say.
-    return { project, scan, findings: merged }
+    return { project, scan, findings: merged.active, resolved: merged.resolved, gradeAnswers: new Map() }
 }
 
 // The answer for an ecosystem the project no longer holds any manifest of: an ok scan of no packages, which
@@ -577,5 +638,5 @@ function makeErrorOutcome(project: Project, errorText: string, ecosystem: Ecosys
         errorText,
         rawJson: ''
     }
-    return { project, scan, findings: [] }
+    return { project, scan, findings: [], resolved: [], gradeAnswers: new Map() }
 }

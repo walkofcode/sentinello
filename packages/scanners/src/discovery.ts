@@ -13,6 +13,7 @@ import {
 } from '@sentinello/core'
 import { detectManifestsInSync, type DetectedManifest } from './resolver'
 import { isWithin } from './resolver/paths'
+import { crateNameOfManifest, ownCratesOfLock } from './resolver/rust'
 
 // Project discovery: walk a directory tree and report every project in it, with every manifest it owns.
 // Shared by the worker (which walks mounted /roots on a schedule and reconciles the
@@ -38,7 +39,9 @@ import { isWithin } from './resolver/paths'
 const LOCKFILE_TO_PM: Record<string, PackageManager> = {
     'pnpm-lock.yaml': 'pnpm',
     'package-lock.json': 'npm',
-    'yarn.lock': 'yarn'
+    'yarn.lock': 'yarn',
+    'bun.lock': 'bun',
+    'bun.lockb': 'bun'
 }
 
 // Never descended, under any configuration. `node_modules` holds dependencies, not user-authored
@@ -357,10 +360,11 @@ function addManifests(project: DiscoveredProject, found: DetectedManifest[]): vo
     }
 }
 
-// Orders the manifests independently of directory read order (which differs between filesystems): the
-// project's own first, then by directory, keeping registry order within one directory. Then derives the
-// ecosystems from them.
+// Drops what a sibling lock covers, then orders the manifests independently of directory read order (which
+// differs between filesystems): the project's own first, then by directory, keeping registry order within one
+// directory. Then derives the ecosystems from them.
 function finishProject(project: DiscoveredProject, ecosystems: readonly EcosystemDefinition[]): void {
+    project.manifests = withoutLockedCrates(project)
     project.manifests.sort(function byDirectory(a, b) {
         return manifestDirOf(a.path).localeCompare(manifestDirOf(b.path))
     })
@@ -369,6 +373,34 @@ function finishProject(project: DiscoveredProject, ecosystems: readonly Ecosyste
             return project.manifests.some(function ofEco(m) { return m.ecosystem === eco.id })
         })
         .map(function id(eco) { return eco.id })
+}
+
+// A Cargo.toml with no lock beside it or above it is still covered when any Cargo.lock in the project lists
+// its crate as one of its own (a source-less package): it is built from that lock, and calling it unlocked
+// makes the project look less scanned than it is (SENTINEL-171). By name alone, because a lock records no path;
+// a manifest no lock lists keeps its `no_lockfile`. A lock or manifest that cannot be read covers nothing.
+function withoutLockedCrates(project: DiscoveredProject): ProjectManifest[] {
+    const bare = project.manifests.filter(function isBare(m) { return m.kind === 'Cargo.toml' })
+    if (bare.length === 0) return project.manifests
+    const locked = new Set<string>()
+    for (const m of project.manifests) {
+        if (m.kind !== 'Cargo.lock') continue
+        for (const name of ownCratesOfLock(readFileOrEmpty(join(project.absolutePath, m.path)))) locked.add(name)
+    }
+    if (locked.size === 0) return project.manifests
+    return project.manifests.filter(function uncovered(m) {
+        if (m.kind !== 'Cargo.toml') return true
+        const name = crateNameOfManifest(readFileOrEmpty(join(project.absolutePath, m.path)))
+        return name === null || !locked.has(name)
+    })
+}
+
+function readFileOrEmpty(path: string): string {
+    try {
+        return readFileSync(path, 'utf8')
+    } catch {
+        return ''
+    }
 }
 
 function isNpm(eco: EcosystemDefinition): boolean {
@@ -409,6 +441,18 @@ function classifySkip(
         return 'gitignore'
     }
     return null
+}
+
+// Whether the operator's exclude patterns cover a path below the walk root, with the rule the walk applies:
+// patterns are rooted at the root, and a path below an excluded directory is excluded with it. The watcher
+// asks, so an edit under an excluded directory wakes no scan.
+export function isExcludedPath(rootPath: string, absolutePath: string, excludes: readonly string[]): boolean {
+    if (excludes.length === 0) return false
+    const root = resolve(rootPath)
+    const path = resolve(absolutePath)
+    const rel = relative(root, path)
+    if (rel === '' || !isWithin(root, path)) return false
+    return ignoreFactory().add([...excludes]).ignores(rel.split(sep).join('/'))
 }
 
 // Composes this directory's .gitignore and .sentinelloignore into one matcher, or returns null when

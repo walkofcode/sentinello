@@ -37,12 +37,16 @@ export type OsvAdvisoryRow = {
     url: string | null
     malicious: boolean
     withdrawn: number | null
+    // `database_specific.informational` when the record says it is a notice and not a vulnerability
+    // (RUSTSEC: unmaintained, unsound, notice). Null for every vulnerability.
+    noticeKind: string | null
 }
 
-// The identity half of an OSV row: the fields gemnasium's withdrawal stamping links on. gemnasium-db
-// records no withdrawal, so an advisory GitHub withdrew is recognised by finding the OSV records that
-// share its id or an alias, for the same package, and seeing that every one of them is withdrawn.
-export type OsvAdvisoryLink = Pick<OsvAdvisoryRow, 'advisoryId' | 'aliases' | 'withdrawn'>
+// The evidence half of an OSV row: the fields gemnasium's stamping links on. gemnasium-db records no
+// withdrawal, so an advisory GitHub withdrew is recognised by finding the OSV records that share its id or an
+// alias, for the same package, and seeing that every one of them is withdrawn. Its ranges are stale in places
+// too, so the linked rows' affected sets say whether a matched version is still affected at all.
+export type OsvAdvisoryLink = Pick<OsvAdvisoryRow, 'advisoryId' | 'aliases' | 'withdrawn' | 'ranges' | 'versions'>
 
 // Bump whenever normalizeOsvRecord's output shape changes in a way that requires rebuilding the cache.
 // v2: started capturing affected[].versions and real MAL- ranges (was: all-versions malware shortcut).
@@ -97,6 +101,12 @@ export type OsvAdvisoryLink = Pick<OsvAdvisoryRow, 'advisoryId' | 'aliases' | 'w
 //     fix read as "no fixed version released"; v8 keeps a refused part and settles them `unknown`. The
 //     live-cache diff found 19 such npm advisories and no other npm change, so npm is bumped too and its
 //     export is downloaded again once (about 200 MB).
+// v9 (crates.io and PyPI only): a record with no stated bucket is graded from its CVSS v3 or v2 vector, and a
+//     RUSTSEC record's `informational` is read as the row's notice kind. Decided by the diff against the
+//     2026-11-08 exports: 424 crates.io and 4,533 PyPI records carry a scorable vector and no bucket, and 521
+//     crates.io records are notices. npm, Go and RubyGems have no such record, so they keep v8 and their
+//     downloads. A CVSS v4 vector has no scorer here and reads as no vector: 89 crates.io and 567 PyPI records,
+//     none installed on the review's live data, read unrated.
 //
 // PER ECOSYSTEM, because each ecosystem's cache is its own download: a change that only re-derives PyPI
 // rows must re-seed PyPI and nothing else, and npm's export alone is over 200 MB. Every store keys the
@@ -106,9 +116,9 @@ export type OsvAdvisoryLink = Pick<OsvAdvisoryRow, 'advisoryId' | 'aliases' | 'w
 // cache alike — invalidates on exactly the same signal.
 export const OSV_NORMALIZER_VERSIONS: Record<EcosystemId, number> = {
     npm: 8,
-    PyPI: 8,
+    PyPI: 9,
     Go: 8,
-    'crates.io': 8,
+    'crates.io': 9,
     RubyGems: 8
 }
 

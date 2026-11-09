@@ -1,8 +1,10 @@
 import type { OsvAdvisoryLink } from '@sentinello/core'
 import { describe, expect, it } from 'vitest'
+import { comparatorForEcosystem } from '@sentinello/core'
+import { refusedRange } from '@sentinello/versions'
 import { matchPackages, type GemnasiumAdvisory } from './gemnasium'
 import type { ResolvedPackage } from './resolver/types'
-import { stampWithdrawn, stampWithdrawnByPackage } from './withdrawn'
+import { clearedByOsv, stampWithdrawn, stampWithdrawnByPackage } from './withdrawn'
 
 // gemnasium-db has no withdrawn field, so gemnasium advisories are stamped from the OSV records linked
 // to them. The rule is deliberately narrow, and every edge of it is a way to get it wrong:
@@ -30,7 +32,7 @@ function advisory(overrides: Partial<GemnasiumAdvisory> = {}): GemnasiumAdvisory
 }
 
 function link(overrides: Partial<OsvAdvisoryLink> = {}): OsvAdvisoryLink {
-    return { advisoryId: 'GHSA-vfj7-8cjw-p6xm', aliases: ['CVE-2026-93687'], withdrawn: WITHDRAWN_AT, ...overrides }
+    return { advisoryId: 'GHSA-vfj7-8cjw-p6xm', aliases: ['CVE-2026-93687'], withdrawn: WITHDRAWN_AT, ranges: [], versions: [], ...overrides }
 }
 
 function pkg(name: string, version: string): ResolvedPackage {
@@ -140,5 +142,51 @@ describe('a stamped advisory through the matcher', function () {
 
     it('still reports the advisory when OSV has nothing linked', function () {
         expect(findingsFor([])).toHaveLength(1)
+    })
+})
+
+describe('clearedByOsv — gemnasium stale where upstream renumbered (SENTINEL-169)', function () {
+    const SEMVER = comparatorForEcosystem('Go')
+    const ACCEPTED = ['SEMVER', 'ECOSYSTEM']
+    function live(overrides: Partial<OsvAdvisoryLink> = {}): OsvAdvisoryLink {
+        return link({ withdrawn: null, ranges: [{ type: 'SEMVER', introduced: '0', fixed: '0.9.0', lastAffected: null }], ...overrides })
+    }
+    function cleared(records: OsvAdvisoryLink[] | undefined, version = 'v0.14.0'): boolean {
+        return clearedByOsv(records, version, SEMVER as NonNullable<typeof SEMVER>, ACCEPTED)
+    }
+
+    it('clears a version no live linked record contains', function () {
+        expect(cleared([live()])).toBe(true)
+    })
+
+    it('keeps one a record still contains, by range or by enumerated version', function () {
+        expect(cleared([live()], 'v0.8.0')).toBe(false)
+        expect(cleared([live(), live({ ranges: [{ type: 'SEMVER', introduced: '0.10.0', fixed: null, lastAffected: null }] })])).toBe(false)
+        expect(cleared([live({ versions: ['v0.14.0'] })])).toBe(false)
+        expect(cleared([live({ versions: ['0.14.0'] })])).toBe(false)
+    })
+
+    it('has nothing to say with no linked record: gemnasium stands alone', function () {
+        expect(cleared(undefined)).toBe(false)
+        expect(cleared([])).toBe(false)
+    })
+
+    it('never clears on an incomplete affected set', function () {
+        expect(cleared([live({ ranges: [refusedRange('<not-a-version', 'SEMVER')] })])).toBe(false)
+        expect(cleared([live({ ranges: [{ introduced: '0', fixed: '0.9.0', lastAffected: null }] })])).toBe(false)
+        expect(cleared([live({ ranges: [{ type: 'GIT', introduced: '0', fixed: '0.9.0', lastAffected: null }] })])).toBe(false)
+        expect(cleared([live({ ranges: [], versions: [] })])).toBe(false)
+        expect(cleared([live()], 'not-a-version')).toBe(false)
+    })
+
+    it('reads an enumerated version it cannot normalize as no version at all', function () {
+        expect(cleared([live({ versions: ['garbage'] })])).toBe(true)
+    })
+
+    it('stamps only the live linked records onto an advisory, and none when none links', function () {
+        const stamped = stampWithdrawn([advisory()], [link(), live()])[0]
+        expect(stamped?.withdrawn).toBeNull()
+        expect(stamped?.osvRecords).toEqual([live()])
+        expect(stampWithdrawn([advisory()], [link({ advisoryId: 'GHSA-other', aliases: [] })])[0]?.osvRecords).toBeUndefined()
     })
 })

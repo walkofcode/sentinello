@@ -19,6 +19,10 @@ function row(overrides: Partial<CurrentFindingRow> = {}): CurrentFindingRow {
         remediation: null,
         notRecheckedBecause: null,
         id: 'finding-1',
+        noticeKind: null,
+        // One key unless a test says otherwise: the merge itself is what these cases are about, and which rows
+        // are one advisory is refreshAdvisoryKeys's to say (advisory-keys.test.ts).
+        advisoryKey: overrides.advisoryTitle ?? 'ghsa-1',
         scanId: 'scan-1',
         projectId: 'project-1',
         scanner: 'npm-audit',
@@ -46,25 +50,12 @@ function row(overrides: Partial<CurrentFindingRow> = {}): CurrentFindingRow {
 }
 
 describe('advisoryIdentity', function () {
-    it('uses the normalized title when there is one', function () {
-        expect(advisoryIdentity('Prototype Pollution', 'GHSA-1')).toBe('t:prototype pollution')
+    it('is the key refreshAdvisoryKeys wrote', function () {
+        expect(advisoryIdentity({ advisoryKey: 'ghsa-1', source: 'osv', advisoryId: 'GHSA-1' })).toBe('ghsa-1')
     })
 
-    it('normalizes case and surrounding whitespace', function () {
-        expect(advisoryIdentity('  Prototype Pollution  ', 'GHSA-1')).toBe(advisoryIdentity('prototype pollution', 'GHSA-2'))
-    })
-
-    it('falls back to the id when there is no title', function () {
-        expect(advisoryIdentity(null, 'GHSA-1')).toBe('a:GHSA-1')
-    })
-
-    it('falls back to the id when the title is blank', function () {
-        expect(advisoryIdentity('   ', 'GHSA-1')).toBe('a:GHSA-1')
-    })
-
-    // The t:/a: prefixes exist so a title can never collide with an id that happens to look like it.
-    it('keeps a title-keyed identity distinct from an id-keyed one', function () {
-        expect(advisoryIdentity('GHSA-1', 'other')).not.toBe(advisoryIdentity(null, 'GHSA-1'))
+    it('falls back on the row\'s own source and id, never its title, as advisoryIdentitySql does', function () {
+        expect(advisoryIdentity({ advisoryKey: null, source: 'npm-audit', advisoryId: '1123528' })).toBe('npm-audit:1123528')
     })
 })
 
@@ -598,5 +589,20 @@ describe('mergeFindings — not re-checked', function () {
             row({ id: 'b', scanner: 'osv', source: 'osv', fixVersion: '4.17.21' })
         ])
         expect(fresh[0]).toMatchObject({ fixVersion: '4.17.21', notRecheckedBecause: null })
+    })
+})
+
+describe('mergeFindings — unrated and notices', function () {
+    it('reports a stated moderate over unrated, in either order, as the SQL buckets do', function () {
+        for (const severities of [['unrated', 'moderate'], ['moderate', 'unrated']]) {
+            const merged = mergeFindings(severities.map(function one(severity, i) { return row({ id: 'r' + i, severity, source: 's' + i, scanner: 's' + i }) }))
+            expect(merged[0]?.severity).toBe('moderate')
+        }
+        expect(mergeFindings([row({ severity: 'unrated' })])[0]?.severity).toBe('unrated')
+    })
+
+    it('is a notice only when every row says so: anyone reporting it as a vulnerability makes it one', function () {
+        expect(mergeFindings([row({ noticeKind: 'unsound' })])[0]?.noticeKind).toBe('unsound')
+        expect(mergeFindings([row({ noticeKind: 'unsound' }), row({ id: 'r2', source: 'osv', scanner: 'osv' })])[0]?.noticeKind).toBeNull()
     })
 })

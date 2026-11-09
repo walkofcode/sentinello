@@ -906,7 +906,8 @@ describe('the scanner the runtime produces', function () {
             summary: 'Prototype pollution',
             url: 'https://example.test/GHSA-aaaa',
             malicious: false,
-            withdrawn: null
+            withdrawn: null,
+            noticeKind: null
         } as never])
 
         const rt = startOsvRuntime(handle.db, runtime)
@@ -1042,8 +1043,8 @@ describe('the withdrawal evidence the controller exposes', function () {
         const cache = openCache()
         markUsable(cache.db, 'npm')
         upsertOsvAdvisories(cache.db, [
-            { advisoryId: 'GHSA-a', ecosystem: 'npm', packageName: 'braces', aliases: ['CVE-1'], ranges: [], versions: [], severity: null, summary: null, url: null, malicious: false, withdrawn: 5 },
-            { advisoryId: 'GHSA-b', ecosystem: 'npm', packageName: 'braces', aliases: ['CVE-1'], ranges: [], versions: ['1.0.0'], severity: null, summary: null, url: null, malicious: false, withdrawn: null }
+            { advisoryId: 'GHSA-a', ecosystem: 'npm', packageName: 'braces', aliases: ['CVE-1'], ranges: [], versions: [], severity: null, summary: null, url: null, malicious: false, withdrawn: 5 , noticeKind: null},
+            { advisoryId: 'GHSA-b', ecosystem: 'npm', packageName: 'braces', aliases: ['CVE-1'], ranges: [], versions: ['1.0.0'], severity: null, summary: null, url: null, malicious: false, withdrawn: null , noticeKind: null}
         ])
         cache.sqlite.close()
         const controller = createOsvController(handle.db, runtime)
@@ -1355,7 +1356,8 @@ describe('every batch re-checks withdrawals — end to end', function () {
             summary: 'Uncontrolled resource consumption in braces',
             url: 'https://example.test/' + CVE,
             malicious: false,
-            withdrawn: null
+            withdrawn: null,
+
         }])
         setGemnasiumMeta(opened.db, GEMNASIUM_META_KEYS.seedComplete, true)
         setGemnasiumMeta(opened.db, GEMNASIUM_META_KEYS.normalizerVersion, GEMNASIUM_NORMALIZER_VERSION)
@@ -1521,7 +1523,7 @@ describe('every batch re-checks withdrawals — end to end', function () {
         })
 
         expect(c.osvController.evidence.links('npm', ['braces'])?.get('braces')).toEqual([
-            { advisoryId: GHSA, aliases: [CVE], withdrawn: null }
+            expect.objectContaining({ advisoryId: GHSA, aliases: [CVE], withdrawn: null })
         ])
 
         replacement.resolve(osvRows(DUPLICATE, null))

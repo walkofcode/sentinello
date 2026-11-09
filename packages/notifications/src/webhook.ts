@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Finding, NotificationTarget, WebhookTargetConfig } from '@sentinello/core'
+import { fixKindOf, type Finding, type NotificationTarget, type WebhookTargetConfig } from '@sentinello/core'
 import { redactErrorText, redactTarget } from './redact'
 import { validateWebhookUrl } from './ssrf'
 import type { NotificationSender, RenderedMessage, SendResult, WebhookPayloadContext } from './types'
@@ -90,6 +90,8 @@ export function toWebhookVulnerability(f: Finding): Record<string, unknown> {
         fixAvailable: f.fixAvailable,
         // 'released' | 'none_released' | 'unverified' — see FixStatus. Additive.
         fixStatus: f.fixStatus,
+        // 'release', or 'untagged_commit' for a fix that is a commit nobody tagged; null with no released fix. Additive.
+        fixKind: fixKindOf(f),
         // The way out for a 'none_released' finding (see Remediation in @sentinello/core); null otherwise.
         // Additive.
         remediation: f.fixStatus === 'none_released' ? f.remediation : null,

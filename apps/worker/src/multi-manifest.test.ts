@@ -99,7 +99,8 @@ function advisory(advisoryId: string, fixed: string): OsvAdvisory {
         summary: advisoryId,
         url: 'https://osv.example/' + advisoryId,
         malicious: false,
-        withdrawn: null
+        withdrawn: null,
+        noticeKind: null
     }
 }
 

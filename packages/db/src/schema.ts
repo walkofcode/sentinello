@@ -30,7 +30,7 @@ export const projects = sqliteTable(
         // manifest (it drives the npm-audit command), otherwise the manager of its anchor manifest. Every
         // manifest's own manager is derived from manifestsJson. A TS-only enum: SQLite text has no CHECK.
         packageManager: text('package_manager', {
-            enum: ['npm', 'yarn', 'pnpm', 'pip', 'poetry', 'uv', 'pipenv', 'go', 'cargo', 'bundler', 'unknown']
+            enum: ['npm', 'yarn', 'pnpm', 'bun', 'pip', 'poetry', 'uv', 'pipenv', 'go', 'cargo', 'bundler', 'unknown']
         }).notNull(),
         nvmrcVersion: text('nvmrc_version'),
         // Checked-out branch, refreshed by discovery sweeps and again at scan start so the portal
@@ -196,8 +196,18 @@ export const findings = sqliteTable(
         // right one. `corroborationsJson` keeps every source's own grade so the disagreement stays
         // visible rather than being silently overwritten.
         severity: text('severity', {
-            enum: ['critical', 'high', 'moderate', 'low', 'info']
+            enum: ['critical', 'high', 'moderate', 'unrated', 'low', 'info']
         }).notNull(),
+        // Set when the advisory is a notice rather than a vulnerability (Finding.noticeKind): unmaintained,
+        // unsound, notice. Such a row stays a finding, so mutes work unchanged, and notNoticeSql keeps it out
+        // of every severity count.
+        noticeKind: text('notice_kind'),
+        // JSON string[]: the cross-references the row's own source lists. Evidence for advisoryKey.
+        aliasesJson: text('aliases_json').notNull().default('[]'),
+        // The representative id of the rows sharing an id or alias for this (ecosystem, package), written by
+        // refreshAdvisoryKeys. Every aggregate groups on it through advisoryIdentitySql, and the JS merge
+        // reads the same expression. Null only on an old resolved row, or between migration and boot.
+        advisoryKey: text('advisory_key'),
         // JSON FindingCorroboration[]: the other sources that independently reported this same advisory
         // for this same package, each with the advisory id IT uses and the severity IT assigned. Empty
         // for a finding only one source reported. Rewritten in full at the end of every project scan, so
@@ -492,7 +502,14 @@ export const notificationEvents = sqliteTable(
         packageName: text('package_name'),
         // Denormalized for finding events so selectDispatchablePairs() can filter by target.severity_filter
         // in SQL without joining back to historical findings rows. Null for scan_failure events.
-        severity: text('severity', { enum: ['critical', 'high', 'moderate', 'low', 'info'] }),
+        severity: text('severity', { enum: ['critical', 'high', 'moderate', 'unrated', 'low', 'info'] }),
+        // The corrected-grade rule (nextEventGrade): the release a sighting last read this event under, the
+        // grade a correction replaced (what a target's filter still judges it on), and what each source last
+        // answered under that release, as JSON GradeAnswers. grade_answers_json is null for an event recorded
+        // at the current version, which tracks nothing and behaves as any re-grade always has.
+        gradeVersion: integer('grade_version').notNull().default(0),
+        policySeverity: text('policy_severity', { enum: ['critical', 'high', 'moderate', 'unrated', 'low', 'info'] }),
+        gradeAnswersJson: text('grade_answers_json'),
         failureSignature: text('failure_signature'),
         firstScanId: text('first_scan_id')
             .notNull()

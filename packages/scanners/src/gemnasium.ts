@@ -1,10 +1,12 @@
+import type { OsvAdvisoryLink } from '@sentinello/core'
 import { specifierSemantics, type VersionRange } from '@sentinello/versions'
 import { unresolvedGraphReason, unresolvedGraphRawJson } from './coverage'
-import { comparatorForEcosystem } from './engine/comparators'
+import { acceptedRangeTypesForEcosystem, comparatorForEcosystem } from './engine/comparators'
 import { matchAdvisories } from './engine/matcher'
 import type { CanonicalAdvisory } from './engine/types'
 import type { ResolvedPackage } from './resolver/types'
 import type { RawFinding, ScanContext, ScannerPlugin, ScanResult } from './types'
+import { clearedByOsv } from './withdrawn'
 
 export const GEMNASIUM_SCANNER_NAME = 'gemnasium'
 
@@ -28,6 +30,9 @@ export type GemnasiumAdvisory = {
     // Epoch ms of the withdrawal, or null. gemnasium-db itself records none: the lookup stamps it from the
     // OSV records linked to the advisory (see ./withdrawn), and the matcher then drops it.
     withdrawn: number | null
+    // The live OSV records of this same advisory for this package, stamped beside `withdrawn` from the same
+    // complete snapshot: what clearedByOsv reads once a version has matched. Absent when none links.
+    osvRecords?: OsvAdvisoryLink[]
 }
 
 // Injected by the worker: given an ecosystem (the registry EcosystemId, e.g. 'npm' | 'PyPI' | 'Go' |
@@ -107,7 +112,13 @@ export function createGemnasiumScanner(deps: GemnasiumScannerDeps): ScannerPlugi
             durationMs: Date.now() - startedAt
         }
     }
-    return { name: GEMNASIUM_SCANNER_NAME, scan }
+    return {
+        name: GEMNASIUM_SCANNER_NAME,
+        scan,
+        aliasEvidence: function aliasEvidence(ecosystem, packageNames) {
+            return deps.isSeeded() ? deps.lookup(ecosystem, packageNames) : null
+        }
+    }
 }
 
 // Looks up the advisories for the resolved packages, normalizes them to CanonicalAdvisory, and runs the
@@ -135,7 +146,11 @@ export function matchPackages(
                 return toCanonicalAdvisory(name, ecosystem, advisory)
             }))
         }
-        for (const finding of matchAdvisories(pkgs, byPackage, comparator)) findings.push(finding)
+        const acceptedRangeTypes = acceptedRangeTypesForEcosystem(ecosystem) ?? []
+        for (const finding of matchAdvisories(pkgs, byPackage, comparator)) {
+            const advisory = byPackageRaw.get(finding.packageName)?.find(function same(a) { return a.advisoryId === finding.advisoryId })
+            if (!clearedByOsv(advisory?.osvRecords, finding.installedVersion, comparator, acceptedRangeTypes)) findings.push(finding)
+        }
     }
     return findings
 }

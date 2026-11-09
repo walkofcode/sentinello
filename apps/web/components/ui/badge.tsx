@@ -12,6 +12,7 @@ const badgeVariants = cva(
                 critical: 'bg-[color:var(--color-sev-critical)]/15 text-[color:var(--color-sev-critical)] ring-[color:var(--color-sev-critical)]/30',
                 high: 'bg-[color:var(--color-sev-high)]/15 text-[color:var(--color-sev-high)] ring-[color:var(--color-sev-high)]/30',
                 moderate: 'bg-[color:var(--color-sev-moderate)]/15 text-[color:var(--color-sev-moderate)] ring-[color:var(--color-sev-moderate)]/30',
+                unrated: 'bg-slate-500/15 text-slate-600 ring-slate-500/30 dark:text-slate-300',
                 low: 'bg-[color:var(--color-sev-low)]/15 text-[color:var(--color-sev-low)] ring-[color:var(--color-sev-low)]/30',
                 info: 'bg-[color:var(--color-sev-info)]/15 text-[color:var(--color-sev-info)] ring-[color:var(--color-sev-info)]/30',
                 muted: 'bg-muted text-muted-foreground ring-border',

@@ -789,7 +789,7 @@ describe('runBatch — coverage on every scan row', function () {
         return JSON.parse(listScansForProject(db, PROJECT_ID)[0]?.rawJson ?? '')
     }
 
-    const NO_LOCKFILE = [{ ecosystem: 'npm', manifestPath: 'package.json', status: 'unauditable', reasonCode: 'no_lockfile', details: ['package.json has no lockfile covering it (package-lock.json, pnpm-lock.yaml, yarn.lock)'] }]
+    const NO_LOCKFILE = [{ ecosystem: 'npm', manifestPath: 'package.json', status: 'unauditable', reasonCode: 'no_lockfile', details: ['package.json has no lockfile covering it (package-lock.json, pnpm-lock.yaml, yarn.lock, bun.lock, bun.lockb)'] }]
 
     it('records it on an npm-audit scan, which is handed none', async function () {
         await writeBarePackageJson()

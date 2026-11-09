@@ -308,6 +308,7 @@ describe('cascadeDeleteProjects', function () {
             }]
         })
         const eventId = upsertFindingEvent(db, {
+            gradeAnswers: {},
             baselineOf: null,
             projectId: id,
             source: 'osv',

@@ -162,7 +162,7 @@ describe('getDashboardSummary', function () {
     it('reports zeroes on an empty estate', function () {
         const summary = getDashboardSummary(db, T0 + DAY)
         expect(summary.projectsWithFindings).toBe(0)
-        expect(summary.severityCounts).toEqual({ critical: 0, high: 0, moderate: 0, low: 0, info: 0 })
+        expect(summary.severityCounts).toEqual({ critical: 0, high: 0, moderate: 0, unrated: 0, low: 0, info: 0 })
         expect(summary.lastScanFinishedAt).toBeNull()
     })
 
@@ -255,6 +255,7 @@ describe('getDashboardSummary', function () {
         expect(getDashboardSummary(db, T0 + HOUR).findingsLast24h).toBe(0)
 
         upsertFindingEvent(db, {
+            gradeAnswers: {},
             baselineOf: null,
             projectId: 'project-1',
             source: 'npm-audit',
@@ -271,6 +272,7 @@ describe('getDashboardSummary', function () {
     it('drops an event out of the window once it ages past a day', function () {
         const scanId = scanProject('project-1', [finding()], { at: T0 })
         upsertFindingEvent(db, {
+            gradeAnswers: {},
             baselineOf: null,
             projectId: 'project-1',
             source: 'npm-audit',
@@ -287,6 +289,7 @@ describe('getDashboardSummary', function () {
     it('excludes a muted discovery event', function () {
         const scanId = scanProject('project-1', [finding()], { at: T0 })
         upsertFindingEvent(db, {
+            gradeAnswers: {},
             baselineOf: null,
             projectId: 'project-1',
             source: 'npm-audit',

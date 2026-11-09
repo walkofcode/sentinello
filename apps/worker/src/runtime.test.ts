@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createCacheRebuilds, createWorkerRuntime, waitForInFlight } from './runtime'
+import { upsertRoot } from '@sentinello/db'
+import { closeWorkerTestDb, openWorkerTestDb, ROOT_ID, seedProject, T0 } from './worker-test-db.fixture'
+import { createCacheRebuilds, createWorkerRuntime, refreshAllAdvisoryKeys, waitForInFlight } from './runtime'
 
 // Shutdown correctness depends on this pair. abort() tells scanner subprocesses to bail out fast,
 // and waitForInFlight holds the shutdown until DB writes for already-started scans have landed —
@@ -316,5 +318,46 @@ describe('createCacheRebuilds', function () {
         await seed.promise.catch(function ignore() {})
         await Promise.resolve()
         expect(rebuilds.failed('osv/PyPI')).toBe(true)
+    })
+})
+
+describe('refreshAllAdvisoryKeys', function () {
+    it('backfills from what the running feeds know, and says how many it wrote', async function () {
+        const handle = await openWorkerTestDb('worker-advisory-keys')
+        const log = vi.spyOn(console, 'log').mockImplementation(function silence() {})
+        try {
+            upsertRoot(handle.db, { id: ROOT_ID, path: '/repo', label: null, createdAt: T0 })
+            seedProject(handle.db, { id: 'p', relPath: 'p', name: 'p' })
+            handle.sqlite.prepare("INSERT INTO scans (id, project_id, started_at, finished_at, scanner, source, ecosystem, status, reason_code, duration_ms, raw_json) VALUES ('s', 'p', 1, 1, 'osv', 'osv', 'npm', 'ok', 'ok', 1, '{}')").run()
+            handle.sqlite.prepare("INSERT INTO findings (id, scan_id, project_id, scanner, source, ecosystem, advisory_id, package_name, installed_version, vulnerable_range, severity) VALUES ('f', 's', 'p', 'osv', 'osv', 'npm', 'GHSA-1', 'lodash', '1.0.0', '<2', 'high')").run()
+            const runtime = createWorkerRuntime()
+            refreshAllAdvisoryKeys(handle.db, runtime)
+            expect(log).toHaveBeenCalledWith('[worker] advisory keys refreshed on 1 finding')
+            log.mockClear()
+            refreshAllAdvisoryKeys(handle.db, runtime)
+            expect(log).not.toHaveBeenCalled()
+            handle.sqlite.prepare("INSERT INTO findings (id, scan_id, project_id, scanner, source, ecosystem, advisory_id, package_name, installed_version, vulnerable_range, severity) VALUES ('g', 's', 'p', 'osv', 'osv', 'npm', 'GHSA-2', 'lodash', '1.0.0', '<2', 'high'), ('h', 's', 'p', 'osv', 'osv', 'npm', 'GHSA-3', 'lodash', '1.0.0', '<2', 'high')").run()
+            refreshAllAdvisoryKeys(handle.db, runtime)
+            expect(log).toHaveBeenCalledWith('[worker] advisory keys refreshed on 2 findings')
+        } finally {
+            await closeWorkerTestDb(handle)
+        }
+    })
+
+    it('leaves the old keys and says so when a cache throws', async function () {
+        const handle = await openWorkerTestDb('worker-advisory-keys-fail')
+        const error = vi.spyOn(console, 'error').mockImplementation(function silence() {})
+        try {
+            upsertRoot(handle.db, { id: ROOT_ID, path: '/repo', label: null, createdAt: T0 })
+            seedProject(handle.db, { id: 'p', relPath: 'p', name: 'p' })
+            handle.sqlite.prepare("INSERT INTO scans (id, project_id, started_at, finished_at, scanner, source, ecosystem, status, reason_code, duration_ms, raw_json) VALUES ('s', 'p', 1, 1, 'osv', 'osv', 'npm', 'ok', 'ok', 1, '{}')").run()
+            handle.sqlite.prepare("INSERT INTO findings (id, scan_id, project_id, scanner, source, ecosystem, advisory_id, package_name, installed_version, vulnerable_range, severity) VALUES ('f', 's', 'p', 'osv', 'osv', 'npm', 'GHSA-1', 'lodash', '1.0.0', '<2', 'high')").run()
+            const runtime = createWorkerRuntime()
+            runtime.aliasEvidence.set('osv', function broken() { throw new Error('cache gone') })
+            refreshAllAdvisoryKeys(handle.db, runtime)
+            expect(error).toHaveBeenCalledWith('[worker] advisory keys not refreshed: cache gone')
+        } finally {
+            await closeWorkerTestDb(handle)
+        }
     })
 })

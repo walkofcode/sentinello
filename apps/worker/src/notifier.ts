@@ -73,6 +73,8 @@ export async function notifyForCompletedScan(input: NotifyForCompletedScanInput)
     // fine, and the re-scan queued when the cache lands replaces the verdict. It records no event.
     const silentBaselines = pendingBaselineCapabilities(input.db, CAPABILITIES)
     for (const finding of input.outcome.findings) {
+        // A notice is not a vulnerability, and alerts nobody: it records no event at all.
+        if (finding.noticeKind !== null) continue
         const ecosystem = requireEcosystemId(finding.ecosystem)
         const baseline = silentBaselines.find(function covers(c) { return c.ecosystems.includes(ecosystem) })
         upsertFindingEvent(input.db, {
@@ -83,6 +85,7 @@ export async function notifyForCompletedScan(input: NotifyForCompletedScanInput)
             advisoryId: finding.advisoryId,
             packageName: finding.packageName,
             severity: finding.severity,
+            gradeAnswers: input.outcome.gradeAnswers.get(finding.id) ?? {},
             firstScanId: input.outcome.scan.id,
             at
         })
@@ -402,6 +405,7 @@ export function toExportFinding(f: Finding): ExportFinding {
         remediation: f.remediation,
         notRecheckedBecause: f.notRecheckedBecause ?? null,
         severity: f.severity,
+        noticeKind: f.noticeKind,
         advisoryId: f.advisoryId,
         advisoryTitle: f.advisoryTitle,
         advisoryUrl: f.advisoryUrl,

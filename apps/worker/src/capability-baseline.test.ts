@@ -75,6 +75,7 @@ let eventSeq = 0
 function baselineEvent(projectId: string, severity: Severity = 'high', ecosystem: 'PyPI' | 'RubyGems' = 'PyPI', packageName?: string): void {
     eventSeq += 1
     upsertFindingEvent(handle.db, {
+        gradeAnswers: {},
         projectId,
         source: 'osv',
         ecosystem,

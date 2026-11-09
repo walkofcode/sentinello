@@ -210,7 +210,7 @@ describe('runDoctor — advisory cache', function () {
         const lodash: OsvAdvisoryRow = {
             advisoryId: 'GHSA-unsynced-lodash', ecosystem: 'npm', packageName: 'lodash', aliases: [],
             ranges: [{ type: 'SEMVER', introduced: '0', fixed: '4.17.21', lastAffected: null }], versions: [],
-            severity: 'critical', summary: 'Prototype pollution', url: null, malicious: false, withdrawn: null
+            severity: 'critical', summary: 'Prototype pollution', url: null, malicious: false, withdrawn: null, noticeKind: null
         }
         await writer.write([lodash])
         await writer.commit()

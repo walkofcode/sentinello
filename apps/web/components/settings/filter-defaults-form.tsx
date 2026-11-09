@@ -7,7 +7,7 @@ import { updateFilterDefaultsAction, type FilterDefaultsInput } from '@/lib/acti
 import { Dropdown } from '@/components/ui/dropdown'
 import { SaveStatus } from '@/components/settings/save-status'
 
-type MinSeverity = '' | Severity
+type MinSeverity = '' | Exclude<Severity, 'unrated'>
 
 const DEP_TYPE_VALUES: DepTypeFilter[] = ['prod', 'all', 'dev']
 

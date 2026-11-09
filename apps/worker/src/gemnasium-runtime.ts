@@ -25,7 +25,7 @@ import {
 export type { ScannerPlugin }
 import { gemnasiumFeedDisabled, syncGemnasium } from './gemnasium-sync'
 import type { WithdrawalEvidence } from './osv-runtime'
-import { GEMNASIUM_CACHE, type WorkerRuntime } from './runtime'
+import { GEMNASIUM_CACHE, refreshAllAdvisoryKeys, type WorkerRuntime } from './runtime'
 
 // Owns the gemnasium cache connection + the gemnasium scanner instance + the periodic sync job. Opened
 // lazily so a worker with the source disabled never creates gemnasium.db or touches the network. The main
@@ -157,6 +157,7 @@ export function startGemnasiumRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime,
     runGemnasiumMigrations(gemnasiumDb)
 
     const scanner = createGemnasiumScannerFor(mainDb, gemnasiumDb, evidence)
+    if (scanner.aliasEvidence) runtime.aliasEvidence.set(scanner.name, scanner.aliasEvidence)
 
     // Mirror an initial status snapshot immediately so the Settings panel shows "not seeded yet" rather
     // than nothing the moment the source is enabled.
@@ -187,6 +188,7 @@ export function startGemnasiumRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime,
         },
         stop: function stop() {
             task.stop()
+            runtime.aliasEvidence.delete(scanner.name)
         }
     }
 }
@@ -236,6 +238,7 @@ export async function runSync(mainDb: DrizzleDb, gemnasiumDb: GemnasiumDrizzleDb
         // See the OSV twin for why this is a full sweep, why it is deliberately not guarded by
         // isAnyScanInFlight, and why one already waiting is enough: every project scanned while the cache
         // was unusable holds a stale gemnasium_db_not_seeded verdict that nothing else ever revisits.
+        refreshAllAdvisoryKeys(mainDb, runtime)
         if (enqueueFullSweepUnlessPending(mainDb, Date.now())) {
             console.log('[gemnasium] cache is matchable again — enqueued a full re-scan to replace stale unauditable verdicts')
         } else {

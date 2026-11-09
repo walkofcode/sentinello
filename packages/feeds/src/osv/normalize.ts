@@ -1,5 +1,6 @@
 import { canonicalPackageName, comparatorForEcosystem, type OsvAdvisoryRow, type OsvRange } from '@sentinello/core'
 import { canMatchSomething, isRefused, isZeroVersion, refusedRange, type VersionComparator } from '@sentinello/versions'
+import { severityFromCvss } from '../gemnasium/cvss'
 
 // Parses a single OSV record (one *.json file from a per-ecosystem export, or one /v1/vulns response) into
 // the denormalized advisory→package rows we cache. One record can affect multiple packages, each with its
@@ -25,7 +26,7 @@ type OsvAffected = {
     package?: OsvPackage
     ranges?: OsvRangeRaw[]
     versions?: string[]
-    database_specific?: { last_known_affected_version_range?: string }
+    database_specific?: { last_known_affected_version_range?: string; informational?: unknown }
 }
 type OsvSeverity = { type?: string; score?: string }
 type OsvRecord = {
@@ -35,7 +36,7 @@ type OsvRecord = {
     withdrawn?: string
     affected?: OsvAffected[]
     references?: Array<{ type?: string; url?: string }>
-    database_specific?: { severity?: string; source?: string }
+    database_specific?: { severity?: string; source?: string; informational?: unknown }
     severity?: OsvSeverity[]
 }
 
@@ -83,10 +84,12 @@ export function normalizeOsvRecord(record: unknown, ecosystem: string): OsvAdvis
         // what made the matcher flag clean, remediated versions as compromised.
         const ranges = extractRanges(affected.ranges, affected.database_specific?.last_known_affected_version_range, comparator)
         const versions = extractVersions(affected.versions)
+        const noticeKind = noticeKindOf(r.database_specific?.informational) ?? noticeKindOf(affected.database_specific?.informational)
         const existing = byPackage.get(packageName)
         if (existing) {
             for (const range of ranges) existing.ranges.push(range)
             for (const version of versions) existing.versions.push(version)
+            existing.noticeKind ??= noticeKind
             continue
         }
         byPackage.set(packageName, {
@@ -100,7 +103,8 @@ export function normalizeOsvRecord(record: unknown, ecosystem: string): OsvAdvis
             summary,
             url,
             malicious,
-            withdrawn
+            withdrawn,
+            noticeKind
         })
     }
     for (const row of byPackage.values()) {
@@ -259,13 +263,26 @@ function boundOpenEndedRange(ranges: ExtractedRange[], lastKnownAffected: string
     return canMatchSomething(bounded, comparator) ? [bounded] : ranges
 }
 
-// GHSA records carry the severity bucket in database_specific.severity (e.g. "MODERATE"). Some records
-// only ship a CVSS vector under severity[] — we ignore those here and let the scanner default, since
-// computing a bucket from a vector is out of scope for the cache.
+// GHSA records carry the severity bucket in database_specific.severity (e.g. "MODERATE"). Others state only a
+// CVSS vector under severity[] (RUSTSEC and PYSEC do), which is scored with the one scorer gemnasium uses. A
+// vector with no scorer (CVSS v4) or one that cannot be read is no vector. Null then, and the finding is
+// unrated: nobody graded it.
 function pickSeverity(r: OsvRecord): string | null {
     const ds = r.database_specific && r.database_specific.severity
     if (typeof ds === 'string' && ds.length > 0) return ds
-    return null
+    if (!Array.isArray(r.severity)) return null
+    return severityFromCvss(vectorOfType(r.severity, 'CVSS_V3'), vectorOfType(r.severity, 'CVSS_V2'))
+}
+
+function vectorOfType(severity: OsvSeverity[], type: string): string | null {
+    const entry = severity.find(function ofType(s) { return s.type === type && typeof s.score === 'string' })
+    return entry?.score ?? null
+}
+
+// `informational` says what kind of notice a record is. RUSTSEC writes it on the affected entry (null for a
+// real vulnerability); the record level is read too, as the same field's other place in the schema.
+function noticeKindOf(value: unknown): string | null {
+    return isNonEmptyString(value) ? value : null
 }
 
 function pickUrl(r: OsvRecord, advisoryId: string): string | null {

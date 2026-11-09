@@ -38,7 +38,10 @@ export const osvAdvisories = sqliteTable(
         malicious: integer('malicious', { mode: 'boolean' }).notNull().default(false),
         // Epoch ms of the advisory's `withdrawn` timestamp when set; null otherwise. Withdrawn advisories
         // are kept out of matching (a withdrawn record is no longer a real finding).
-        withdrawn: integer('withdrawn')
+        withdrawn: integer('withdrawn'),
+        // `database_specific.informational` when the record is a notice and not a vulnerability (RUSTSEC:
+        // unmaintained, unsound, notice); null otherwise.
+        noticeKind: text('notice_kind')
     },
     function osvAdvisoriesIndexes(table) {
         return {

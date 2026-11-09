@@ -721,3 +721,54 @@ describe('normalizeOsvRecord — each ecosystem in its own comparator', function
         expect(normalizeOsvRecord({ id: 'X-1', affected: [{ package: { name: 'x', ecosystem: 'Maven' }, versions: ['1.0'] }] }, 'Maven')).toEqual([])
     })
 })
+
+describe('normalizeOsvRecord — severity from a CVSS vector (SENTINEL-167)', function () {
+    function severityOf(overrides: Record<string, unknown>): string | null | undefined {
+        return normalizeOsvRecord(record(overrides), 'npm')[0]?.severity
+    }
+
+    it('scores a v3 vector when no bucket is stated', function () {
+        expect(severityOf({ severity: [{ type: 'CVSS_V3', score: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H' }] })).toBe('high')
+        expect(severityOf({ severity: [{ type: 'CVSS_V3', score: 'CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H' }] })).toBe('critical')
+    })
+
+    it('falls back to a v2 vector, and a stated bucket beats any vector', function () {
+        expect(severityOf({ severity: [{ type: 'CVSS_V2', score: 'AV:N/AC:L/Au:N/C:P/I:P/A:P' }] })).toBe('high')
+        expect(severityOf({ severity: [{ type: 'CVSS_V3', score: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H' }], database_specific: { severity: 'LOW' } })).toBe('LOW')
+    })
+
+    it('reads a vector it has no scorer for, or cannot read, as no vector', function () {
+        expect(severityOf({ severity: [{ type: 'CVSS_V4', score: 'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N' }] })).toBeNull()
+        expect(severityOf({ severity: [{ type: 'CVSS_V3', score: 'CVSS:3.1/nonsense' }] })).toBeNull()
+        expect(severityOf({ severity: [{ type: 'CVSS_V3' }] })).toBeNull()
+        expect(severityOf({ severity: 'high' })).toBeNull()
+        expect(severityOf({})).toBeNull()
+    })
+})
+
+describe('normalizeOsvRecord — notices (SENTINEL-168)', function () {
+    function noticeOf(overrides: Record<string, unknown>, entry: Record<string, unknown> = {}): string | null | undefined {
+        return normalizeOsvRecord(record({ affected: [{ package: { name: 'lodash', ecosystem: 'npm' }, versions: ['1.0.0'], ...entry }], ...overrides }), 'npm')[0]?.noticeKind
+    }
+
+    it('reads the kind from the affected entry, where RUSTSEC writes it, and null is a real vulnerability', function () {
+        expect(noticeOf({}, { database_specific: { informational: 'unmaintained' } })).toBe('unmaintained')
+        expect(noticeOf({}, { database_specific: { informational: null } })).toBeNull()
+        expect(noticeOf({})).toBeNull()
+    })
+
+    it('reads it at the record level too, which wins', function () {
+        expect(noticeOf({ database_specific: { informational: 'notice' } }, { database_specific: { informational: 'unsound' } })).toBe('notice')
+    })
+
+    it('takes the first kind any entry of a merged package states', function () {
+        const rows = normalizeOsvRecord(record({
+            affected: [
+                { package: { name: 'lodash', ecosystem: 'npm' }, versions: ['1.0.0'] },
+                { package: { name: 'lodash', ecosystem: 'npm' }, versions: ['2.0.0'], database_specific: { informational: 'unsound' } },
+                { package: { name: 'lodash', ecosystem: 'npm' }, versions: ['3.0.0'], database_specific: { informational: 'notice' } }
+            ]
+        }), 'npm')
+        expect(rows[0]?.noticeKind).toBe('unsound')
+    })
+})

@@ -2,14 +2,16 @@ import { basename, dirname, resolve } from 'node:path'
 import { existsSync } from 'node:fs'
 import chokidar from 'chokidar'
 import { STABLE_ECOSYSTEMS } from '@sentinello/core'
-import { isWithin } from '@sentinello/scanners'
+import { isExcludedPath, isWithin } from '@sentinello/scanners'
 import {
     enqueueScanRequest,
+    getConfigValue,
     listProjects,
     type DrizzleDb,
     type Root,
     listRoots
 } from '@sentinello/db'
+import { CONFIG_KEYS, DEFAULT_GLOBAL_IGNORE } from './config-loader'
 
 // Optional lockfile watcher.
 // On any modification of a lockfile of an offered ecosystem — package-lock.json, pnpm-lock.yaml,
@@ -120,6 +122,10 @@ function scheduleEnqueue(
 }
 
 function enqueueForFile(db: DrizzleDb, roots: Root[], filePath: string): void {
+    // Read when the event fires, so an exclusion saved a moment ago already holds: a lockfile under an
+    // excluded directory is one discovery will not look at, and it wakes no scan.
+    const excludes = getConfigValue<string[]>(db, CONFIG_KEYS.globalIgnore) || DEFAULT_GLOBAL_IGNORE
+    if (roots.some(function excluded(root) { return isExcludedPath(root.path, filePath, excludes) })) return
     const projectDir = dirname(resolve(filePath))
     const match = findProjectForDir(db, roots, projectDir)
     if (!match) {

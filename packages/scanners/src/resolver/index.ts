@@ -3,8 +3,9 @@ import { dirname, join, resolve } from 'node:path'
 import { getEcosystem, STABLE_ECOSYSTEMS, type EcosystemDefinition } from '@sentinello/core'
 import type { DetectedLockfile } from '../types'
 import { parseGoMod } from './go'
+import { parseBunLock } from './bun'
 import { makeGraph } from './graph'
-import { parseNpmLock } from './npm-lock'
+import { isNpmLockV1, parseNpmLock } from './npm-lock'
 import { isWithin, manifestPathOf } from './paths'
 import { parsePnpmLock } from './pnpm'
 import { parsePythonLock } from './python'
@@ -103,10 +104,18 @@ export async function resolveManifest(projectPath: string, manifest: DetectedMan
     if (lockless !== null) return { status: 'unauditable', ecosystem, reasonCode: 'no_lockfile', details: [lockless] }
     if (ecosystem === 'npm') {
         if (kind === 'package-lock.json') {
-            return wrapNpm(ecosystem, await parseNpmLock(projectPath, absolutePath, manifestPath), kind)
+            const graph = await parseNpmLock(projectPath, absolutePath, manifestPath)
+            if (graph === null && await isNpmLockV1(absolutePath)) {
+                return { status: 'unauditable', ecosystem, reasonCode: 'unsupported_lockfile', details: [manifestPath + ' is lockfileVersion 1, which lists no packages to read: run npm install with npm 7 or later to upgrade it'] }
+            }
+            return wrapNpm(ecosystem, graph, kind)
         }
         if (kind === 'pnpm-lock.yaml') {
             return wrapNpm(ecosystem, await parsePnpmLock(absolutePath, manifestPath), kind)
+        }
+        if (kind === 'bun.lock') return parseBunLock(absolutePath, manifestPath)
+        if (kind === 'bun.lockb') {
+            return { status: 'unauditable', ecosystem, reasonCode: 'unsupported_lockfile', details: [manifestPath + ' is Bun\'s binary lockfile, which cannot be read: run bun install --save-text-lockfile to write bun.lock'] }
         }
         // yarn.lock (and anything else) is not parsed — unauditable, same posture as the JS-only path.
         return { status: 'unauditable', ecosystem, reasonCode: 'unsupported_lockfile', details: [kind + ' is not a supported JavaScript lockfile format'] }

@@ -72,6 +72,7 @@ function target(overrides: Partial<NotificationTarget> = {}): NotificationTarget
 
 function findingEvent(overrides: Partial<UpsertFindingEventInput> = {}): UpsertFindingEventInput {
     return {
+        gradeAnswers: {},
         projectId: PROJECT_ID,
         source: 'osv',
         ecosystem: 'npm',
@@ -537,5 +538,19 @@ describe('hydrateTargets scope joins', function () {
         expect(scoped?.projectIds).toEqual([PROJECT_ID])
         expect(unscoped?.rootIds).toEqual([])
         expect(unscoped?.projectIds).toEqual([])
+    })
+})
+
+describe('a finding event\'s stored answers', function () {
+    it('reads a corrupted column as no stored answers rather than failing every scan of the project', function () {
+        upsertFindingEvent(db, findingEvent())
+        const stored = function stored() { return listEventsForProject(db, PROJECT_ID)[0]?.gradeAnswers }
+        expect(stored()).toBeNull()
+        for (const corrupt of ['{ not json', '[1]', 'null']) {
+            sqlite.prepare('UPDATE notification_events SET grade_answers_json = ?').run(corrupt)
+            expect(stored()).toEqual(corrupt === 'null' ? {} : {})
+        }
+        upsertFindingEvent(db, findingEvent({ severity: 'critical', gradeAnswers: { osv: 'critical' } }))
+        expect(stored()).toEqual({ osv: 'critical' })
     })
 })

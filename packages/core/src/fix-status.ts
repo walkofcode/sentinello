@@ -1,4 +1,4 @@
-import { getEcosystem } from './ecosystems'
+import { comparatorForEcosystem, getEcosystem } from './ecosystems'
 import { reasonCodeLabel } from './reason-code-labels'
 import { parseRemediation, type Remediation } from './remediation'
 import { notRecheckedBecause, type FindingScanContext, type NotRecheckedBecause } from './scan-state'
@@ -125,6 +125,20 @@ export type FixFacts = Pick<FixFields, 'fixStatus' | 'fixVersion' | 'fixAvailabl
     ecosystem: string
     packageName: string
     notRecheckedBecause?: NotRecheckedBecause | null
+    // A notice has no fix to chase: its fix fields are never settled, and this is read before them.
+    noticeKind?: string | null
+}
+
+// What kind of thing a fix version is: `release`, a version somebody tagged; `untagged_commit`, a pseudo-version
+// the advisory states and the registry confirmed, which is installable and which nobody tagged. Null when no
+// fix was settled as available. Every surface that names a fix reads this, so none calls a commit a release.
+export type FixKind = 'release' | 'untagged_commit'
+
+export function fixKindOf(f: { ecosystem: string; fixStatus: FixStatus; fixVersion: string | null }): FixKind | null {
+    if (f.fixStatus !== 'released' || !f.fixVersion) return null
+    const comparator = comparatorForEcosystem(f.ecosystem)
+    const normalized = comparator?.normalize(f.fixVersion) ?? null
+    return normalized !== null && (comparator as NonNullable<typeof comparator>).releaseKind(normalized) === 'pseudo' ? 'untagged_commit' : 'release'
 }
 
 export type FixTextStyle = {
@@ -178,6 +192,7 @@ export function describeNotRechecked(reason: NotRecheckedBecause): string {
 // was not re-checked; a row no settlement ever wrote says only that, in place of "rescan pending" — a
 // rescan of a project that cannot be scanned would change nothing.
 export function describeFix(f: FixFacts, style: FixTextStyle): string {
+    if (f.noticeKind) return 'no fix to chase — this is a notice (' + f.noticeKind + '), not a vulnerability'
     const notRechecked = f.notRecheckedBecause ?? null
     if (notRechecked === null) return describeSettledFix(f, style)
     if (f.fixCheck === null) return describeNotRechecked(notRechecked)
@@ -188,6 +203,7 @@ function describeSettledFix(f: FixFacts, style: FixTextStyle): string {
     const check = f.fixCheck
     if (check === null) return 'fix not re-checked yet — rescan pending'
     if (f.fixStatus === 'released' && f.fixVersion) {
+        if (fixKindOf(f) === 'untagged_commit') return 'upgrade to ' + style.code(f.fixVersion) + ' (an untagged commit: no tagged release has the fix)' + staleSuffix(check)
         return 'upgrade to ' + style.code(f.fixVersion) + staleSuffix(check)
     }
     if (f.fixStatus === 'none_released') {

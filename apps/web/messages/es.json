@@ -169,7 +169,8 @@
         "stateSideEnvironment": "esta instalación de Sentinello",
         "stateSourceDisabled": "Sin fuente habilitada para {languages}",
         "sourceDisabledNotice": "{count, plural, one {# proyecto no tiene} other {# proyectos no tienen}} ninguna fuente habilitada para {languages}, así que nada {count, plural, one {lo} other {los}} escanea.",
-        "sourceDisabledAction": "Activa una en Configuración → Fuentes"
+        "sourceDisabledAction": "Activa una en Configuración → Fuentes",
+        "libraryNoticeCount": "{count, plural, one {+ # aviso} other {+ # avisos}}"
     },
     "WhatsNew": {
         "pillLabel": "Novedades",
@@ -389,6 +390,7 @@
             "scanRetentionDaysHelp": "Las filas de escaneo más antiguas que esto se eliminan, salvo los 100 escaneos más recientes de cada proyecto, que siempre se conservan. Los hallazgos, los silenciamientos y el historial de notificaciones nunca se tocan: solo el registro de escaneos. Las páginas de proyecto mostrarán un historial más corto.",
             "portalBaseUrl": "URL base del portal (usada en los enlaces directos de notificaciones)",
             "globalIgnore": "Patrones de ignorado globales (uno por línea)",
+            "globalIgnoreHelp": "Sintaxis de gitignore, relativa a cada raíz. Los hallazgos bajo una ruta excluida se resuelven sin alerta. Excluir un proyecto entero lo elimina, con sus silencios e historial.",
             "watcherLabel": "Observador de lockfiles (escaneo al cambiar) — interruptor maestro. El worker encola un scan_request cuando cambia un lockfile observado.",
             "watchedRoots": "Raíces observadas (opcional por raíz)",
             "noRoots": "Aún no hay raíces configuradas. Agrega una raíz en Configuración → Raíces primero.",
@@ -440,7 +442,8 @@
             "selected": "Fuentes seleccionadas",
             "selectedHelp": "Notificar solo para las celdas de fuente/lenguaje que elijas abajo.",
             "selectionError": "Elegí al menos una celda, o seleccioná “Todas las fuentes”."
-        }
+        },
+        "severityModerateAndUnrated": "Moderada y sin calificar"
     },
     "Findings": {
         "columns": {
@@ -538,7 +541,11 @@
         "chainUnknownHint": "El lockfile no registra un grafo de dependencias, así que no se sabe qué trae este paquete. No significa que no haya salida.",
         "installedThrough": "en {manifests}",
         "lastScannedSuccessfully": "último escaneo correcto {date}",
-        "neverScannedSuccessfully": "nunca se escaneó correctamente"
+        "neverScannedSuccessfully": "nunca se escaneó correctamente",
+        "noticesHeading": "{count, plural, one {# aviso} other {# avisos}}",
+        "noticesHelp": "No son vulnerabilidades: el aviso dice que el paquete no tiene mantenimiento, es inseguro por diseño o merece atención. No cuentan en ningún total y no alertan a nadie.",
+        "noticeNoFix": "Sin corrección que buscar",
+        "fixUntaggedCommit": "commit sin etiquetar: ninguna versión etiquetada tiene la corrección"
     },
     "Triage": {
         "alias": {
@@ -771,11 +778,14 @@
             },
             "cannotScanTitle": "El proyecto no se puede escanear",
             "cannotScanBody": "Ninguna fuente pudo leer este proyecto. Los hallazgos de abajo son los que registró un escaneo anterior y no se volvieron a comprobar; cero hallazgos aquí significa desconocido, no seguro.",
+            "cannotScanBodyNoFindings": "Ninguna fuente pudo leer este proyecto, así que no se ha comprobado nada; aquí cero hallazgos significa desconocido, no seguro.",
             "partialScanTitle": "El proyecto no se puede escanear por completo",
             "partialScanBody": "Una parte de este proyecto no se pudo escanear, así que sus hallazgos pueden estar incompletos. Los hallazgos de una fuente que no pudo escanearlo no se volvieron a comprobar.",
+            "partialScanBodyNoEarlier": "Una parte de este proyecto no se pudo escanear, así que sus hallazgos pueden estar incompletos.",
             "scanReasonSideProject": "del lado del proyecto: un archivo del proyecto impide leerlo, y la solución es cambiarlo allí",
             "scanReasonSideEnvironment": "del lado de esta instalación de Sentinello: la instalación no pudo hacer el escaneo, y la solución corresponde al operador",
             "scanReasonNotYetRun": "nada lo ha revisado aún: lo hará el próximo escaneo",
+            "scanReasonFix": "Para corregirlo: {fix}",
             "sourceDisabledReason": "Sin fuente habilitada para {languages}",
             "sourceDisabledAction": "Activa una en Configuración → Fuentes",
             "noFindingsUnknownTitle": "No hay hallazgos registrados",

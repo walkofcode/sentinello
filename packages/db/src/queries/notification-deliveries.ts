@@ -3,11 +3,11 @@ import { ulid } from 'ulid'
 import { CACHE_NOT_READY_FAILURE_SIGNATURES, type DepTypeFilter, type NotificationDelivery, type NotificationEvent, type NotificationTarget } from '@sentinello/core'
 import type { DrizzleDb } from '../client'
 import { notificationDeliveries, notificationEvents, notificationTargets } from '../schema'
+import { rowToEvent } from './notification-events'
 import { listTargetRootIds } from './notification-target-roots'
 import { listTargetProjectIds } from './notification-target-projects'
 
 type NotificationDeliveryRow = typeof notificationDeliveries.$inferSelect
-type NotificationEventRow = typeof notificationEvents.$inferSelect
 type NotificationTargetRow = typeof notificationTargets.$inferSelect
 
 export type DispatchablePair = {
@@ -84,7 +84,7 @@ export function selectDispatchablePairs(db: DrizzleDb, projectId: string, at: nu
     }
     return rows.map(function toPair(row): DispatchablePair {
         return {
-            event: eventRowToEvent(row.event),
+            event: rowToEvent(row.event),
             target: targetRowToTarget(
                 row.target,
                 // The loop above sets both maps for every row's target id before this runs.
@@ -104,7 +104,12 @@ export function selectDispatchablePairs(db: DrizzleDb, projectId: string, at: nu
 // baseline suppression. `e` and `t` are the SQL names the caller gave notification_events and
 // notification_targets.
 //
-//  - severity: finding events only; scan_failure events always pass (operational signals).
+//  - severity: finding events only; scan_failure events always pass (operational signals). Judged on the grade
+//    the event holds for the target's filter, COALESCE(policy_severity, severity): a correction cannot change
+//    who is owed the event, in either direction (nextEventGrade). `moderate` in a filter also covers `unrated`,
+//    which a stored filter never names (severityInFilter).
+//  - notices: a finding event whose open row is now a notice is told to no target. The notifier records no event
+//    for one; this refuses one recorded before the row became a notice.
 //  - prod/dev (target.env_filter ∈ {'all','prod','dev'}): scan failures bypass, having no finding row to
 //    classify. A finding event matches when ANY of its findings rows (same identity tuple: project, source
 //    — the event carries it in `scanner` — ecosystem, advisory, package) is prod (target 'prod') or dev and
@@ -130,7 +135,21 @@ export function eventEligibleForTargetSql(e: string, t: string, at: number): SQL
             ${ev}.event_type = 'scan_failure'
             OR EXISTS (
                 SELECT 1 FROM json_each(${tg}.severity_filter_json)
-                WHERE json_each.value = ${ev}.severity
+                WHERE json_each.value = COALESCE(${ev}.policy_severity, ${ev}.severity)
+                   OR (json_each.value = 'moderate' AND COALESCE(${ev}.policy_severity, ${ev}.severity) = 'unrated')
+            )
+        )
+        AND NOT (
+            ${ev}.event_type = 'finding'
+            AND EXISTS (
+                SELECT 1 FROM findings n
+                WHERE n.project_id = ${ev}.project_id
+                  AND COALESCE(n.source, n.scanner) = ${ev}.scanner
+                  AND n.ecosystem = ${ev}.ecosystem
+                  AND n.advisory_id = ${ev}.advisory_id
+                  AND n.package_name = ${ev}.package_name
+                  AND n.resolved_at IS NULL
+                  AND n.notice_kind IS NOT NULL
             )
         )
         AND (
@@ -311,25 +330,6 @@ function rowToDelivery(row: NotificationDeliveryRow): NotificationDelivery {
         firstSucceededAt: row.firstSucceededAt,
         lastAttemptedAt: row.lastAttemptedAt,
         lastErrorText: row.lastErrorText
-    }
-}
-
-function eventRowToEvent(row: NotificationEventRow): NotificationEvent {
-    return {
-        id: row.id,
-        eventType: row.eventType,
-        identityKey: row.identityKey,
-        projectId: row.projectId,
-        scanner: row.scanner,
-        ecosystem: row.ecosystem,
-        advisoryId: row.advisoryId,
-        packageName: row.packageName,
-        severity: row.severity,
-        failureSignature: row.failureSignature,
-        firstScanId: row.firstScanId,
-        firstSeenAt: row.firstSeenAt,
-        firstNotifiedAt: row.firstNotifiedAt,
-        lastSeenAt: row.lastSeenAt
     }
 }
 

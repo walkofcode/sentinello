@@ -29,6 +29,10 @@ export type IncomingFinding = {
     installations: FindingInstallation[]
     vulnerableRange: string
     severity: Finding['severity']
+    // Set when the advisory is a notice rather than a vulnerability (Finding.noticeKind). Absent means null.
+    noticeKind?: string | null
+    // The cross-references the source lists for its advisory, stored as evidence for advisoryKey.
+    aliases?: readonly string[]
     // The fix the source STATES. Written unsettled (fix_status NULL) and settled by applyFixSettlement
     // once every source has run; until then readers withhold it.
     fixAvailable: boolean
@@ -132,6 +136,8 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
                     installationsJson: JSON.stringify(installations),
                     vulnerableRange: inc.vulnerableRange,
                     severity: inc.severity,
+                    noticeKind: inc.noticeKind ?? null,
+                    aliasesJson: JSON.stringify(inc.aliases ?? []),
                     fixAvailable: inc.fixAvailable,
                     fixVersion: inc.fixVersion,
                     // Unsettled until applyFixSettlement runs for this scan: last scan's verdict was about
@@ -154,6 +160,8 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
                 installationsJson: JSON.stringify(installations),
                 vulnerableRange: inc.vulnerableRange,
                 severity: inc.severity,
+                noticeKind: inc.noticeKind ?? null,
+                aliasesJson: JSON.stringify(inc.aliases ?? []),
                 fixAvailable: inc.fixAvailable,
                 fixVersion: inc.fixVersion,
                 fixStatus: null,
@@ -186,6 +194,10 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             installationsJson: JSON.stringify(inc.installations),
             vulnerableRange: inc.vulnerableRange,
             severity: inc.severity,
+            noticeKind: inc.noticeKind ?? null,
+            aliasesJson: JSON.stringify(inc.aliases ?? []),
+            // Written by refreshAdvisoryKeys at the end of the project scan, once every source's row is in.
+            advisoryKey: null,
             // Left empty here and rewritten by applyFindingCorroborations at the end of the project
             // scan: a later source cannot have agreed yet at the moment this row is written.
             corroborationsJson: '[]',
@@ -219,6 +231,9 @@ export function mergeFindingsForScan(db: DrizzleDb, input: MergeFindingsInput): 
             vulnerableRange: inc.vulnerableRange,
             severity: inc.severity,
             corroborations: [],
+            noticeKind: inc.noticeKind ?? null,
+            aliases: [...(inc.aliases ?? [])],
+            advisoryKey: null,
             // Read back exactly as a reader would see the unsettled row.
             ...readFixFields({ fixStatus: null, fixVersion: inc.fixVersion, fixAvailable: inc.fixAvailable, fixCheckJson: null, remediationJson: null }),
             depPath: inc.depPath,
@@ -344,6 +359,17 @@ export function listOpenFindingEcosystems(db: DrizzleDb, projectId: string): str
     return rows.map(function ecosystem(r) { return r.ecosystem })
 }
 
+// Whether a (source, ecosystem) cell still has open findings on a project.
+export function hasOpenFindingsInCell(db: DrizzleDb, projectId: string, source: string, ecosystem: string): boolean {
+    const row = db
+        .select({ id: findings.id })
+        .from(findings)
+        .where(and(eq(findings.projectId, projectId), sql`COALESCE(${findings.source}, ${findings.scanner}) = ${source}`, eq(findings.ecosystem, ecosystem), isNull(findings.resolvedAt)))
+        .limit(1)
+        .get()
+    return row !== undefined
+}
+
 // The ecosystems an identity without one could mean: every ecosystem with an open finding of this source,
 // advisory and package — on one project, or on any when projectId is null. A mute names one ecosystem's
 // package; MCP's mute_finding infers it from here when the caller leaves it out, and refuses when there
@@ -417,6 +443,9 @@ export function listResolvedFindingsForLibrary(
         vulnerable_range: string
         severity: string
         corroborations_json: string
+        notice_kind: string | null
+        aliases_json: string
+        advisory_key: string | null
         fix_available: number
         fix_version: string | null
         fix_status: string | null
@@ -456,6 +485,9 @@ export function listResolvedFindingsForLibrary(
             vulnerableRange: row.vulnerable_range,
             severity: row.severity as Finding['severity'],
             corroborations: parseFindingCorroborations(row.corroborations_json),
+            noticeKind: row.notice_kind,
+            aliases: parseFindingAliases(row.aliases_json),
+            advisoryKey: row.advisory_key,
             ...readFixFields({ fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json, remediationJson: row.remediation_json }),
             depPath: parseDepPath(row.dep_path_json),
             isProd: row.is_prod === 1,
@@ -531,6 +563,9 @@ function rowToFindingInContext(row: FindingRow, scanContext: FindingScanContext 
         vulnerableRange: row.vulnerableRange,
         severity: row.severity,
         corroborations: parseFindingCorroborations(row.corroborationsJson),
+        noticeKind: row.noticeKind,
+        aliases: parseFindingAliases(row.aliasesJson),
+        advisoryKey: row.advisoryKey,
         ...readFixFields(row, scanContext),
         depPath: parseDepPath(row.depPathJson),
         isProd: row.isProd,
@@ -540,6 +575,11 @@ function rowToFindingInContext(row: FindingRow, scanContext: FindingScanContext 
         resolvedAt: row.resolvedAt,
         resolvedScanId: row.resolvedScanId
     }
+}
+
+// Degrades like parseDepPath below: these are evidence, and a corrupted column only loses the evidence.
+function parseFindingAliases(json: string): string[] {
+    return parseDepPath(json)
 }
 
 // Degrades rather than throws, in line with the two checks below it. dep_path_json is display-only
@@ -582,7 +622,7 @@ export type ApplyCorroborationsResult = {
 export function applyFindingCorroborations(
     db: DrizzleDb,
     touchedIds: string[],
-    byFindingId: Map<string, { own: Finding['severity']; corroborations: FindingCorroboration[] }>
+    byFindingId: Map<string, { own: Finding['severity']; corroborations: FindingCorroboration[]; clearNotice?: boolean }>
 ): ApplyCorroborationsResult {
     const severities = new Map<string, Finding['severity']>()
     if (touchedIds.length === 0) return { written: 0, severities }
@@ -593,9 +633,11 @@ export function applyFindingCorroborations(
             for (const id of touchedIds.slice(i, i + CHUNK)) {
                 const entry = byFindingId.get(id)
                 const corroborations = entry ? entry.corroborations : []
-                const values: { corroborationsJson: string; severity?: Finding['severity'] } = {
+                const values: { corroborationsJson: string; severity?: Finding['severity']; noticeKind?: null } = {
                     corroborationsJson: JSON.stringify(corroborations)
                 }
+                // Another source reported this notice as a vulnerability, which makes it one.
+                if (entry?.clearNotice === true) values.noticeKind = null
                 // Only the corroborated rows need their severity reconsidered; an uncorroborated one is
                 // already reported at its own source's grade.
                 if (entry && corroborations.length > 0) {

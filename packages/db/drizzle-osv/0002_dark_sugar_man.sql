@@ -1,0 +1,1 @@
+ALTER TABLE `osv_advisories` ADD `notice_kind` text;

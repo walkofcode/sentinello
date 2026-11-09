@@ -457,7 +457,7 @@ describe('incrementalSyncOsv', function () {
 
         expect(result).toMatchObject({ status: 'ok', upserted: 1, recordCount: 1 })
         expect(lookupOsvLinksByPackages(db, ECO, ['braces']).get('braces')).toEqual([
-            { advisoryId: 'GHSA-aaaa', aliases: ['CVE-2024-1'], withdrawn: withdrawnAt }
+            expect.objectContaining({ advisoryId: 'GHSA-aaaa', aliases: ['CVE-2024-1'], withdrawn: withdrawnAt })
         ])
         // Still never matched.
         expect(lookupOsvByPackages(db, ECO, ['braces']).get('braces')).toBeUndefined()
@@ -508,7 +508,7 @@ describe('incrementalSyncOsv', function () {
         const activeB = row({ advisoryId: 'GHSA-b', packageName: 'braces', aliases: ['CVE-X'] })
 
         function links() {
-            return lookupOsvLinksByPackages(db, ECO, ['braces']).get('braces')
+            return lookupOsvLinksByPackages(db, ECO, ['braces']).get('braces')?.map(function identity({ advisoryId, aliases, withdrawn }) { return { advisoryId, aliases, withdrawn } })
         }
 
         beforeEach(function seedActiveA() {

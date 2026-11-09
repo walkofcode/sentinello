@@ -18,6 +18,7 @@ export type { DepScope, DetectedManifest, LockEdge, LockEdgeKind, LockNode, Lock
 export {
     detectPackageManager,
     discoverProjectsInTree,
+    isExcludedPath,
     readGitBranch,
     rediscoverProject,
     withUnreadManifests

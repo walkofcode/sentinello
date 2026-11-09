@@ -13,7 +13,7 @@ import {
     listRoots,
     listScansForProject
 } from '@sentinello/db'
-import { buildPaginatedAdvisoryMarkdown, ECOSYSTEMS, labelScanState, meetsSeverityFloor, type EcosystemId } from '@sentinello/core'
+import { buildPaginatedAdvisoryMarkdown, ECOSYSTEMS, fixKindOf, labelScanState, meetsSeverityFloor, type EcosystemId } from '@sentinello/core'
 import { getDb } from '@/lib/db'
 import { buildProjectAdvisoryParts } from '@/lib/project-advisory-export'
 import { buildAdvisoryToolResult } from '@/lib/mcp/advisory-result'
@@ -182,7 +182,7 @@ export function registerReadTools(server: McpServer): void {
                 if (source && f.source !== source) return false
                 if (minSeverity) return meetsSeverityFloor(f.severity, minSeverity)
                 return true
-            })
+            }).map(function withFixKind(f) { return { ...f, fixKind: fixKindOf(f) } })
             return {
                 content: [{ type: 'text', text: JSON.stringify(filtered, null, 2) }],
                 structuredContent: { findings: filtered }

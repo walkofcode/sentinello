@@ -113,7 +113,8 @@ function toOsvAdvisory(row: OsvAdvisoryRow): OsvAdvisory {
         summary: row.summary,
         url: row.url,
         malicious: row.malicious,
-        withdrawn: row.withdrawn
+        withdrawn: row.withdrawn,
+        noticeKind: row.noticeKind ?? null
     }
 }
 

@@ -13,7 +13,6 @@ import {
     type ScanState,
     type Severity
 } from '@sentinello/core'
-import type { FixSettlement } from '@sentinello/fixes'
 import type { RawFinding } from '@sentinello/scanners'
 import type { CliOptions, DepTypeFilter } from './options'
 import type { ProjectScanResult } from './scan'
@@ -43,10 +42,13 @@ export type RunSummary = {
     totalFindings: number
     counts: SeverityCounts
     findings: ExportFinding[]
+    // Advisories that are notices, not vulnerabilities (Finding.noticeKind): listed, and in no count above, so
+    // --fail-on never trips on one.
+    notices: ExportFinding[]
 }
 
 function emptyCounts(): SeverityCounts {
-    return { critical: 0, high: 0, moderate: 0, low: 0, info: 0 }
+    return { critical: 0, high: 0, moderate: 0, unrated: 0, low: 0, info: 0 }
 }
 
 // 'dev' means reachable ONLY from a dev dependency — the same rule the portal applies in SQL
@@ -64,6 +66,7 @@ function matchesDepType(finding: RawFinding, depType: DepTypeFilter): boolean {
 export function summarize(results: readonly ProjectScanResult[], options: CliOptions): RunSummary {
     const projects: ProjectSummary[] = []
     const findings: ExportFinding[] = []
+    const notices: ExportFinding[] = []
     const total = emptyCounts()
     let totalFindings = 0
     for (const result of results) {
@@ -71,28 +74,33 @@ export function summarize(results: readonly ProjectScanResult[], options: CliOpt
         let projectFindings = 0
         for (const finding of result.findings) {
             if (!matchesDepType(finding, options.depType)) continue
-            if (!meetsSeverityFloor(finding.severity, options.minSeverity)) continue
-            counts[finding.severity]++
-            total[finding.severity]++
-            projectFindings++
-            totalFindings++
+            if (!finding.noticeKind && !meetsSeverityFloor(finding.severity, options.minSeverity)) continue
+            if (!finding.noticeKind) {
+                counts[finding.severity]++
+                total[finding.severity]++
+                projectFindings++
+                totalFindings++
+            }
             // Settled against its ecosystem's registry exactly as the worker settles it; only a `released`
-            // fix is rendered as "upgrade to". scanProject settles every finding it keeps, so the entry is there.
-            const fix = result.fixes.get(finding) as FixSettlement
-            findings.push({
+            // fix is rendered as "upgrade to". scanProject settles every finding it keeps but a notice, which
+            // has no fix to chase.
+            const fix = result.fixes.get(finding)
+            const list = finding.noticeKind ? notices : findings
+            list.push({
                 // npm-audit builds its findings without an ecosystem; it only ever reports npm packages.
                 ecosystem: finding.ecosystem ?? DEFAULT_ECOSYSTEM,
                 packageName: finding.packageName,
                 installedVersion: finding.installedVersion,
                 // scanProject records the installations of every finding it keeps.
                 installations: result.installations.get(finding) as FindingInstallation[],
-                fixAvailable: fix.fixAvailable,
-                fixVersion: fix.fixVersion,
-                fixStatus: fix.fixStatus,
-                fixCheck: fix.fixCheck,
+                fixAvailable: fix?.fixAvailable ?? false,
+                fixVersion: fix?.fixVersion ?? null,
+                fixStatus: fix?.fixStatus ?? 'unverified',
+                fixCheck: fix?.fixCheck ?? null,
                 // Only a finding settled 'none_released' has one.
                 remediation: result.remediations.get(finding) ?? null,
                 severity: finding.severity,
+                noticeKind: finding.noticeKind ?? null,
                 advisoryId: finding.advisoryId,
                 advisoryTitle: finding.advisoryTitle,
                 advisoryUrl: finding.advisoryUrl,
@@ -120,7 +128,7 @@ export function summarize(results: readonly ProjectScanResult[], options: CliOpt
             scanState: result.scanState
         })
     }
-    return { projects, totalFindings, counts: total, findings }
+    return { projects, totalFindings, counts: total, findings, notices }
 }
 
 // Resolves the remediation prompt: a file when one was given, the built-in default otherwise, or nothing
@@ -150,7 +158,7 @@ export function renderMarkdown(summary: RunSummary, options: CliOptions, prompt:
     return buildAdvisoryMarkdown({
         scope: buildScope(options, summary.projects.length),
         prompt,
-        findings: summary.findings,
+        findings: [...summary.findings, ...summary.notices],
         generatedAt,
         // Only the projects that could not be (fully) scanned are rendered, in their own section.
         scanStates: summary.projects.map(function state(p) {
@@ -184,7 +192,8 @@ export function renderJson(summary: RunSummary, options: CliOptions, generatedAt
                 scanState: labelScanState(p.scanState)
             }
         }),
-        findings: summary.findings
+        findings: summary.findings,
+        notices: summary.notices
     }, null, 2) + '\n'
 }
 

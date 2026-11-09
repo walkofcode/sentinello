@@ -39,12 +39,11 @@ import type {
     NotificationTargetKind,
     Severity
 } from '@sentinello/core'
-import { errText, getEcosystem, getSource, sourceEnabledKey, sourceSupportsEcosystem, type EcosystemId, type SourceId } from '@sentinello/core'
+import { errText, getEcosystem, getSource, sourceEnabledKey, sourceSupportsEcosystem, TARGET_SEVERITY_VALUES, type EcosystemId, type SourceId } from '@sentinello/core'
 import { senderFor } from '@sentinello/notifications'
 import { getDb } from '@/lib/db'
 import { run, UserFacingError, type ActionResult } from '@/lib/actions/action-result'
 
-const SEVERITY_VALUES = ['critical', 'high', 'moderate', 'low', 'info'] as const
 
 // --- Roots ---
 
@@ -172,7 +171,8 @@ export async function updateScheduleAction(intervalHours: number, startHour = 0,
 
 // --- Notifications ---
 
-const severityFilterSchema = z.array(z.enum(SEVERITY_VALUES)).min(1)
+// A stored filter never holds `unrated`: moderate covers it (severityInFilter), so this refuses the value.
+const severityFilterSchema = z.array(z.enum(TARGET_SEVERITY_VALUES)).min(1)
 
 const targetConfigSchemas: Record<NotificationTargetKind, z.ZodTypeAny> = {
     slack: z.object({ webhookUrl: z.string().min(1) }),

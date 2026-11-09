@@ -8,12 +8,16 @@ type Props = {
     count?: number
     size?: Size
     className?: string
+    // What the pill reads, when it is not the severity's own word.
+    label?: string
 }
 
 const TONE_BG: Record<Severity, string> = {
     critical: 'bg-[color:var(--color-sev-critical)]',
     high: 'bg-[color:var(--color-sev-high)]',
     moderate: 'bg-[color:var(--color-sev-moderate)]',
+    // Slate, the neutral of the palette: nobody graded it, so it wears no severity's hue.
+    unrated: 'bg-slate-500',
     low: 'bg-[color:var(--color-sev-low)]',
     info: 'bg-[color:var(--color-sev-info)]'
 }
@@ -31,7 +35,7 @@ const SIZE_CLASSES: Record<Size, { wrap: string; label: string; count: string }>
     }
 }
 
-export function SeverityPill({ variant, count, size = 'default', className }: Props) {
+export function SeverityPill({ variant, count, size = 'default', className, label }: Props) {
     if (count === 0) return null
     const s = SIZE_CLASSES[size]
     return (
@@ -43,7 +47,7 @@ export function SeverityPill({ variant, count, size = 'default', className }: Pr
                 className
             )}
         >
-            <span className={s.label}>{variant}</span>
+            <span className={s.label}>{label ?? variant}</span>
             {count !== undefined && <span className={s.count}>{count}</span>}
         </div>
     )

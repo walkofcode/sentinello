@@ -169,7 +169,8 @@
         "stateSideEnvironment": "questa installazione di Sentinello",
         "stateSourceDisabled": "Nessuna fonte abilitata per {languages}",
         "sourceDisabledNotice": "{count, plural, one {# progetto non ha} other {# progetti non hanno}} alcuna fonte abilitata per {languages}, quindi {count, plural, one {non viene scansionato} other {non vengono scansionati}}.",
-        "sourceDisabledAction": "Attivane una in Impostazioni → Fonti"
+        "sourceDisabledAction": "Attivane una in Impostazioni → Fonti",
+        "libraryNoticeCount": "{count, plural, one {+ # avviso} other {+ # avvisi}}"
     },
     "WhatsNew": {
         "pillLabel": "Novità",
@@ -389,6 +390,7 @@
             "scanRetentionDaysHelp": "Le righe di scansione più vecchie vengono eliminate, tranne le 100 più recenti per progetto, che vengono sempre conservate. Risultati, silenziamenti e cronologia delle notifiche non vengono mai toccati — solo il registro delle scansioni. Le pagine di progetto mostreranno una cronologia più breve.",
             "portalBaseUrl": "URL base del portale (usato nei deep link delle notifiche)",
             "globalIgnore": "Pattern di esclusione globali (uno per riga)",
+            "globalIgnoreHelp": "Sintassi gitignore, relativa a ogni radice. Le vulnerabilità sotto un percorso escluso si risolvono senza avviso. Escludere un intero progetto lo rimuove, con i silenziamenti e la cronologia.",
             "watcherLabel": "Watcher dei lockfile (scansione al cambiamento) — interruttore principale. Il worker accoda un scan_request quando un lockfile monitorato cambia.",
             "watchedRoots": "Radici monitorate (attivazione per singola radice)",
             "noRoots": "Nessuna radice ancora configurata. Aggiungi prima una radice in Impostazioni → Radici.",
@@ -440,7 +442,8 @@
             "selected": "Fonti selezionate",
             "selectedHelp": "Notifica solo per le celle fonte/linguaggio che selezioni qui sotto.",
             "selectionError": "Seleziona almeno una cella oppure scegli “Tutte le fonti”."
-        }
+        },
+        "severityModerateAndUnrated": "Moderata e non classificata"
     },
     "Findings": {
         "columns": {
@@ -538,7 +541,11 @@
         "chainUnknownHint": "Il lockfile non registra un grafo delle dipendenze, quindi non si sa cosa introduce questo pacchetto. Non significa che non ci sia una via d’uscita.",
         "installedThrough": "in {manifests}",
         "lastScannedSuccessfully": "ultima scansione riuscita il {date}",
-        "neverScannedSuccessfully": "mai scansionato con successo"
+        "neverScannedSuccessfully": "mai scansionato con successo",
+        "noticesHeading": "{count, plural, one {# avviso} other {# avvisi}}",
+        "noticesHelp": "Non sono vulnerabilità: l'avviso dice che il pacchetto non è mantenuto, non è sicuro o merita attenzione. Non rientrano in alcun conteggio e non avvisano nessuno.",
+        "noticeNoFix": "Nessuna correzione da cercare",
+        "fixUntaggedCommit": "commit senza tag: nessuna versione con tag contiene la correzione"
     },
     "Triage": {
         "alias": {
@@ -771,11 +778,14 @@
             },
             "cannotScanTitle": "Il progetto non può essere scansionato",
             "cannotScanBody": "Nessuna fonte è riuscita a leggere questo progetto. Le vulnerabilità qui sotto sono quelle registrate da una scansione precedente e non sono state ricontrollate; zero vulnerabilità qui significa sconosciuto, non sicuro.",
+            "cannotScanBodyNoFindings": "Nessuna fonte è riuscita a leggere questo progetto, quindi non è stato controllato nulla; qui zero vulnerabilità significa sconosciuto, non sicuro.",
             "partialScanTitle": "Il progetto non può essere scansionato del tutto",
             "partialScanBody": "Una parte di questo progetto non è stata scansionata, quindi le sue vulnerabilità potrebbero essere incomplete. Quelle di una fonte che non è riuscita a scansionarlo non sono state ricontrollate.",
+            "partialScanBodyNoEarlier": "Una parte di questo progetto non è stata scansionata, quindi le sue vulnerabilità potrebbero essere incomplete.",
             "scanReasonSideProject": "dal lato del progetto: un file del progetto ne impedisce la lettura, e la soluzione è modificarlo lì",
             "scanReasonSideEnvironment": "dal lato di questa installazione di Sentinello: l'installazione non è riuscita a eseguire la scansione, e la soluzione spetta all'operatore",
             "scanReasonNotYetRun": "nessuno lo ha ancora esaminato: lo farà la prossima scansione",
+            "scanReasonFix": "Per correggere: {fix}",
             "sourceDisabledReason": "Nessuna fonte abilitata per {languages}",
             "sourceDisabledAction": "Attivane una in Impostazioni → Fonti",
             "noFindingsUnknownTitle": "Nessuna vulnerabilità registrata",

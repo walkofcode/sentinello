@@ -140,6 +140,7 @@ export function AdvancedForm({ initial, roots, portalBaseUrlEnvManaged }: Props)
                     onChange={function onChange(e) { setGlobalIgnore(e.target.value) }}
                     placeholder={'node_modules\n.git\ndist\n.next'}
                 />
+                <p className="text-xs text-muted-foreground">{t('advanced.globalIgnoreHelp')}</p>
             </div>
             <div className="space-y-3">
                 <label className="flex items-center gap-2 text-sm">

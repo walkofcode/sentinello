@@ -367,7 +367,7 @@ describe('the silent baseline when a feed keeps failing', function () {
         upsertOsvAdvisories(osv.db, [{
             advisoryId: 'GHSA-0001', ecosystem: 'PyPI', packageName: 'django', aliases: [], versions: [],
             ranges: [{ type: 'ECOSYSTEM', introduced: '0', fixed: '3.2.5', lastAffected: null }],
-            severity: 'critical', summary: 'Remote code execution in django', url: 'https://advisories.example.test/0001', malicious: false, withdrawn: null
+            severity: 'critical', summary: 'Remote code execution in django', url: 'https://advisories.example.test/0001', malicious: false, withdrawn: null, noticeKind: null
         } as never])
         feeds.gemnasiumFails = true
     })
@@ -403,7 +403,7 @@ describe('the silent baseline when a feed keeps failing', function () {
         upsertOsvAdvisories(osv.db, [{
             advisoryId: 'GHSA-0003', ecosystem: 'PyPI', packageName: 'django', aliases: [], versions: [],
             ranges: [{ type: 'ECOSYSTEM', introduced: '0', fixed: '3.2.9', lastAffected: null }],
-            severity: 'critical', summary: 'Authentication bypass in django', url: 'https://advisories.example.test/0003', malicious: false, withdrawn: null
+            severity: 'critical', summary: 'Authentication bypass in django', url: 'https://advisories.example.test/0003', malicious: false, withdrawn: null, noticeKind: null
         } as never])
         await scheduledSweep()
         expect(sentKinds()).toEqual(['capability_summary', 'findings'])

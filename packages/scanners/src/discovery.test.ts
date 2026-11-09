@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterAll, describe, expect, it } from 'vitest'
 import { ECOSYSTEMS, STABLE_ECOSYSTEMS } from '@sentinello/core'
-import { discoverProjectsInTree, detectPackageManager, readGitBranch } from './discovery'
+import { discoverProjectsInTree, detectPackageManager, readGitBranch, isExcludedPath } from './discovery'
 import type { DiscoveryError, DiscoverySkip } from './discovery'
 
 // Fixture trees are built at runtime from the specs below rather than committed as files, for two
@@ -505,5 +505,60 @@ describe('discoverProjectsInTree — unreadable paths', function () {
         } finally {
             await chmod(join(root, '.git'), 0o644)
         }
+    })
+})
+
+describe('discovery — a Bun project', function () {
+    it('names Bun for a text or binary lockfile, after every manager that was already read', async function () {
+        const text = await makeTree({ 'package.json': PKG, 'bun.lock': '{}' })
+        expect(discoverProjectsInTree({ rootPath: text })[0]).toMatchObject({ packageManager: 'bun', manifests: [{ path: 'bun.lock', ecosystem: 'npm', kind: 'bun.lock' }] })
+        const binary = await makeTree({ 'package.json': PKG, 'bun.lockb': 'x' })
+        expect(discoverProjectsInTree({ rootPath: binary })[0]).toMatchObject({ packageManager: 'bun', manifests: [{ kind: 'bun.lockb' }] })
+        const both = await makeTree({ 'package.json': PKG, 'bun.lock': '{}', 'pnpm-lock.yaml': 'lockfileVersion: 9\n' })
+        expect(discoverProjectsInTree({ rootPath: both })[0]).toMatchObject({ packageManager: 'pnpm', manifests: [{ kind: 'pnpm-lock.yaml' }] })
+    })
+})
+
+describe('discovery — a crate a sibling Cargo.lock lists (SENTINEL-171)', function () {
+    const LOCK = 'version = 3\n\n[[package]]\nname = "desktop"\nversion = "0.1.0"\n\n[[package]]\nname = "gx-core"\nversion = "0.1.0"\n\n[[package]]\nname = "from-registry"\nversion = "1.0.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\n'
+    function crate(name: string): string {
+        return '[package]\nname = "' + name + '"\nversion = "0.1.0"\n'
+    }
+    function manifestsOf(root: string): string[] {
+        return (discoverProjectsInTree({ rootPath: root })[0] as { manifests: { path: string }[] }).manifests.map(function path(m) { return m.path })
+    }
+
+    it('drops a manifest whose crate a lock in the project lists as its own', async function () {
+        const root = await makeTree({ 'package.json': PKG, 'pnpm-lock.yaml': 'lockfileVersion: 9\n', 'apps/desktop/Cargo.toml': crate('desktop'), 'apps/desktop/Cargo.lock': LOCK, 'packages/gx-core/Cargo.toml': crate('gx-core') })
+        expect(manifestsOf(root)).toEqual(['pnpm-lock.yaml', 'apps/desktop/Cargo.lock'])
+    })
+
+    it('keeps one no lock lists, one a lock lists only from a registry, and a virtual manifest', async function () {
+        const root = await makeTree({ 'package.json': PKG, 'apps/desktop/Cargo.lock': LOCK, 'apps/desktop/Cargo.toml': crate('desktop'), 'packages/orphan/Cargo.toml': crate('orphan'), 'packages/copy/Cargo.toml': crate('from-registry'), 'virtual/Cargo.toml': '[workspace]\nmembers = []\n' })
+        const manifests = manifestsOf(root)
+        expect(manifests).toContain('packages/orphan/Cargo.toml')
+        expect(manifests).toContain('packages/copy/Cargo.toml')
+        expect(manifests).toContain('virtual/Cargo.toml')
+    })
+
+    it('covers nothing from a lock it cannot read or that lists nothing', async function () {
+        const root = await makeTree({ 'package.json': PKG, 'a/Cargo.lock': 'version = 3\n', 'b/Cargo.toml': crate('b') })
+        expect(manifestsOf(root)).toContain('b/Cargo.toml')
+        const none = await makeTree({ 'package.json': PKG, 'b/Cargo.toml': crate('b') })
+        expect(manifestsOf(none)).toContain('b/Cargo.toml')
+    })
+})
+
+describe('isExcludedPath', function () {
+    it('applies a pattern from the root, and to everything below what it names', function () {
+        expect(isExcludedPath('/repo', '/repo/.dependencies/zed/Cargo.lock', ['.dependencies'])).toBe(true)
+        expect(isExcludedPath('/repo', '/repo/Core/skills/native-ios/Gemfile.lock', ['Core/skills/native-ios'])).toBe(true)
+        expect(isExcludedPath('/repo', '/repo/other/Gemfile.lock', ['Core/skills/native-ios'])).toBe(false)
+    })
+
+    it('says no with no patterns, for the root itself, and for a path outside it', function () {
+        expect(isExcludedPath('/repo', '/repo/a', [])).toBe(false)
+        expect(isExcludedPath('/repo', '/repo', ['a'])).toBe(false)
+        expect(isExcludedPath('/repo', '/elsewhere/a', ['a'])).toBe(false)
     })
 })

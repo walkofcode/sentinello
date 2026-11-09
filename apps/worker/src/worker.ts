@@ -11,7 +11,7 @@ import { createGemnasiumController, type GemnasiumController } from './gemnasium
 import { startLockfileWatcher, type WatcherHandle } from './watcher'
 import { startMuteExpirySweep, type MuteExpiryHandle } from './mute-expiry'
 import { startScanRetentionSweep, type ScanRetentionHandle } from './scan-retention'
-import { createWorkerRuntime, waitForInFlight, type WorkerRuntime } from './runtime'
+import { createWorkerRuntime, refreshAllAdvisoryKeys, waitForInFlight, type WorkerRuntime } from './runtime'
 
 // The worker's boot sequence and graceful-shutdown machinery.
 //
@@ -123,6 +123,7 @@ export async function main(): Promise<void> {
     // It reads its withdrawal evidence through the OSV controller, whose cache is synced for every
     // gemnasium cell too.
     const gemnasiumController: GemnasiumController = createGemnasiumController(db, runtime, osvController.evidence)
+    refreshAllAdvisoryKeys(db, runtime)
     const scheduler = startScheduler({ db, sqlite, runtime, osvController, gemnasiumController })
     const poller = startScanRequestPoller({
         db, sqlite, runtime, scheduler, osvController, gemnasiumController,

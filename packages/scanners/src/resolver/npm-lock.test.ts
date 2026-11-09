@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { parseNpmLock } from './npm-lock'
+import { isNpmLockV1, parseNpmLock } from './npm-lock'
 
 // Fixtures are written at runtime from specs held here rather than committed: a lockfile on disk in the
 // repo would be picked up by our own tooling, and the shapes under test are small enough to read inline.
@@ -295,7 +295,16 @@ describe('parseNpmLock node graph', function () {
     })
 
     it('has no node graph for a lockfile without a packages map', async function () {
-        const graph = await parseNpmLock(dir, await writeLock({ lockfileVersion: 1, dependencies: {} }), 'package-lock.json')
+        const graph = await parseNpmLock(dir, await writeLock({ lockfileVersion: 3, dependencies: {} }), 'package-lock.json')
         expect(graph?.nodeGraph).toBeNull()
+    })
+
+    // Read as an empty graph, a v1 file told every feed source the project had nothing installed.
+    it('has nothing to say about a lockfileVersion 1 file, and says why', async function () {
+        const path = await writeLock({ lockfileVersion: 1, dependencies: { lodash: { version: '4.17.20' } } })
+        expect(await parseNpmLock(dir, path, 'package-lock.json')).toBeNull()
+        expect(await isNpmLockV1(path)).toBe(true)
+        expect(await isNpmLockV1(await writeLock({ lockfileVersion: 3 }))).toBe(false)
+        expect(await isNpmLockV1(join(dir, 'gone.json'))).toBe(false)
     })
 })

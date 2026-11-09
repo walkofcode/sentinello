@@ -37,7 +37,7 @@ import {
 export type { ScannerPlugin }
 import { incrementalSyncOsv, osvFeedDisabled, seedOsv } from './osv-sync'
 import { enabledGemnasiumEcosystems, gemnasiumSourceEnabled, type GemnasiumController } from './gemnasium-runtime'
-import { osvCache, type WorkerRuntime } from './runtime'
+import { osvCache, refreshAllAdvisoryKeys, type WorkerRuntime } from './runtime'
 
 // Owns the OSV cache connection + the OSV scanner instance + the periodic sync job. Opened lazily so a
 // worker that needs no OSV data never creates osv.db or touches the network. The main DB is read to learn
@@ -288,6 +288,7 @@ export function startOsvRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime): OsvR
     runOsvMigrations(osvDb)
 
     const scanner = createOsvScannerFor(mainDb, osvDb)
+    if (scanner.aliasEvidence) runtime.aliasEvidence.set(scanner.name, scanner.aliasEvidence)
 
     // Mirror an initial status snapshot immediately (even before the first sync) so the Settings panel
     // shows "not seeded yet" rather than nothing the moment the source is enabled.
@@ -322,6 +323,7 @@ export function startOsvRuntime(mainDb: DrizzleDb, runtime: WorkerRuntime): OsvR
         },
         stop: function stop() {
             task.stop()
+            runtime.aliasEvidence.delete(scanner.name)
         }
     }
 }
@@ -378,7 +380,7 @@ export async function runSync(mainDb: DrizzleDb, osvDb: OsvDrizzleDb, runtime: W
         // A joined sync reports its transition to the caller that started it, which enqueues for it.
         if (await flight.done && flight.started) becameUsable = true
     }
-    if (becameUsable) enqueueRescan(mainDb)
+    if (becameUsable) enqueueRescan(mainDb, runtime)
 }
 
 // Re-checks the withdrawal evidence of every gemnasium ecosystem before a batch matches against it, with no
@@ -401,7 +403,7 @@ async function refreshWithdrawalEvidence(mainDb: DrizzleDb, osvDb: OsvDrizzleDb,
         const usable = osvCacheUsable(osvDb, ecosystem)
         const flight = syncOnce(mainDb, osvDb, ecosystem, runtime)
         if (!usable) {
-            if (flight.started) runtime.track(rescanWhenUsable(mainDb, ecosystem, flight.done))
+            if (flight.started) runtime.track(rescanWhenUsable(mainDb, ecosystem, flight.done, runtime))
             continue
         }
         try {
@@ -410,12 +412,12 @@ async function refreshWithdrawalEvidence(mainDb: DrizzleDb, osvDb: OsvDrizzleDb,
             console.error('[osv] withdrawal evidence refresh failed for ' + ecosystem + '; scanning against the last complete snapshot: ' + errText(err))
         }
     }
-    if (becameUsable) enqueueRescan(mainDb)
+    if (becameUsable) enqueueRescan(mainDb, runtime)
 }
 
-async function rescanWhenUsable(mainDb: DrizzleDb, ecosystem: EcosystemId, done: Promise<boolean>): Promise<void> {
+async function rescanWhenUsable(mainDb: DrizzleDb, ecosystem: EcosystemId, done: Promise<boolean>, runtime: WorkerRuntime): Promise<void> {
     try {
-        if (await done) enqueueRescan(mainDb)
+        if (await done) enqueueRescan(mainDb, runtime)
     } catch (err) {
         console.error('[osv] background seed failed for ' + ecosystem + ': ' + errText(err))
     }
@@ -434,7 +436,8 @@ async function rescanWhenUsable(mainDb: DrizzleDb, ecosystem: EcosystemId, done:
 // concurrency. A sweep still WAITING is enough, though: it has not scanned anything yet. That is what makes
 // an upgrade that rebuilds two caches sweep once — the first cache to land queues the sweep, the poller
 // holds it while the other is still rebuilding (runtime.rebuilds), and the second finds it waiting.
-function enqueueRescan(mainDb: DrizzleDb): void {
+function enqueueRescan(mainDb: DrizzleDb, runtime: WorkerRuntime): void {
+    refreshAllAdvisoryKeys(mainDb, runtime)
     if (enqueueFullSweepUnlessPending(mainDb, Date.now())) {
         console.log('[osv] cache is matchable again — enqueued a full re-scan to replace stale unauditable verdicts')
         return
@@ -542,7 +545,8 @@ function toScannerAdvisory(row: OsvAdvisoryRow): OsvAdvisory {
         summary: row.summary,
         url: row.url,
         malicious: row.malicious,
-        withdrawn: row.withdrawn
+        withdrawn: row.withdrawn,
+        noticeKind: row.noticeKind
     }
 }
 

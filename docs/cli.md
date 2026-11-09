@@ -39,7 +39,7 @@ npm audit is npm's own tool and answers for npm only, and only it runs the Node 
 runs a package manager: there is no pip, go, cargo or bundle involved, every lockfile is read as a file.
 
 `requirements.txt`, `Pipfile.lock`, `go.mod` and `go.sum` record no dependency graph, so a finding read
-from one shows its dependency path as **chain unknown**. `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`,
+from one shows its dependency path as **chain unknown**. `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `bun.lock`, `bun.lockb`,
 `poetry.lock`, `uv.lock`, `Cargo.lock` and `Gemfile.lock` record one, and their findings show the real chain.
 
 ## Output

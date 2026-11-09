@@ -1,16 +1,18 @@
 'use client'
 
 import { useFormatter, useLocale, useTranslations } from 'next-intl'
-import { scanReasonLabel, type FixFields, type Locale, type NotRecheckedBecause } from '@sentinello/core'
+import { fixKindOf, scanReasonLabel, type FixFields, type Locale, type NotRecheckedBecause } from '@sentinello/core'
 import { Badge } from '@/components/ui/badge'
 
 type Props = {
     installed: string
     vulnerableRange: string
     // The settled fix (readFixFields). Only a `released` version is shown as the badge to upgrade to.
-    fix: FixFields
+    fix: VersionChainFix
     className?: string
 }
+
+type VersionChainFix = FixFields & { ecosystem: string; noticeKind?: string | null }
 
 export function VersionChain({ installed, vulnerableRange, fix }: Props) {
     const t = useTranslations('Findings')
@@ -34,10 +36,17 @@ export function VersionChain({ installed, vulnerableRange, fix }: Props) {
     )
 }
 
-function FixTarget({ fix }: { fix: FixFields }) {
+function FixTarget({ fix }: { fix: VersionChainFix }) {
     const t = useTranslations('Findings')
+    // Read before any fix field: a notice has none, and "rescan pending" would promise one.
+    if (fix.noticeKind) return <span className="text-muted-foreground">{t('noticeNoFix')}</span>
     if (fix.fixStatus === 'released' && fix.fixVersion) {
-        return <Badge variant="default" className="font-mono">{fix.fixVersion}</Badge>
+        return (
+            <span className="inline-flex flex-wrap items-center gap-1">
+                <Badge variant="default" className="font-mono">{fix.fixVersion}</Badge>
+                {fixKindOf(fix) === 'untagged_commit' ? <span className="text-muted-foreground">{t('fixUntaggedCommit')}</span> : null}
+            </span>
+        )
     }
     if (fix.fixStatus === 'none_released') {
         return <span className="font-medium text-destructive">{t('noFixReleased')}</span>

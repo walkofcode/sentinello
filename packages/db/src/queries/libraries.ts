@@ -19,9 +19,12 @@ export type LibrarySummary = {
     // PyPI as two unrelated libraries, so the aggregation groups and the UI keys/links by both.
     ecosystem: string
     packageName: string
+    // Vulnerabilities only. A library whose only rows are notices stays listed, with these at zero and its
+    // notices counted below, so its page stays reachable.
     distinctAdvisories: number
     distinctProjects: number
     severities: string[]
+    distinctNotices: number
 }
 
 export type LibraryProjectUsage = {
@@ -43,6 +46,10 @@ export type LibraryProjectUsage = {
     advisoryTitle: string | null
     advisoryUrl: string | null
     severity: string
+    // Set when the row is a notice, not a vulnerability (Finding.noticeKind).
+    noticeKind: string | null
+    // The cross-source identity (refreshAdvisoryKeys); null only between migration and boot.
+    advisoryKey: string | null
     // The settled fix, read the same way as CurrentFindingRow's (readFixFields).
     fixStatus: FixStatus
     fixAvailable: boolean
@@ -68,15 +75,17 @@ export function listLibraries(db: DrizzleDb, at: number, depType: DepTypeFilter 
             package_name: string
             distinct_advisories: number
             distinct_projects: number
-            severities: string
+            distinct_notices: number
+            severities: string | null
         }>(
             sql`
             SELECT
                 f.ecosystem AS ecosystem,
                 f.package_name AS package_name,
-                COUNT(DISTINCT ${advisoryIdentitySql('f')}) AS distinct_advisories,
-                COUNT(DISTINCT f.project_id) AS distinct_projects,
-                GROUP_CONCAT(DISTINCT f.severity) AS severities
+                COUNT(DISTINCT CASE WHEN f.notice_kind IS NULL THEN ${advisoryIdentitySql('f')} END) AS distinct_advisories,
+                COUNT(DISTINCT CASE WHEN f.notice_kind IS NULL THEN f.project_id END) AS distinct_projects,
+                COUNT(DISTINCT CASE WHEN f.notice_kind IS NOT NULL THEN ${advisoryIdentitySql('f')} END) AS distinct_notices,
+                GROUP_CONCAT(DISTINCT CASE WHEN f.notice_kind IS NULL THEN f.severity END) AS severities
             FROM findings f
             INNER JOIN projects p ON p.id = f.project_id
             WHERE f.resolved_at IS NULL
@@ -107,9 +116,9 @@ export function listLibraries(db: DrizzleDb, at: number, depType: DepTypeFilter 
             packageName: row.package_name,
             distinctAdvisories: row.distinct_advisories,
             distinctProjects: row.distinct_projects,
-            // GROUP_CONCAT under a GROUP BY cannot return NULL here: findings.severity is NOT NULL
-            // (schema.ts:162) and a group always holds at least one row.
-            severities: row.severities.split(',').filter(Boolean)
+            distinctNotices: row.distinct_notices,
+            // NULL when every row of the group is a notice.
+            severities: (row.severities ?? '').split(',').filter(Boolean)
         }
     })
 }
@@ -144,6 +153,8 @@ export function listLibraryUsage(
         advisory_title: string | null
         advisory_url: string | null
         severity: string
+        notice_kind: string | null
+        advisory_key: string | null
         fix_status: string | null
         fix_available: number
         fix_version: string | null
@@ -168,6 +179,8 @@ export function listLibraryUsage(
             f.advisory_title AS advisory_title,
             f.advisory_url AS advisory_url,
             f.severity AS severity,
+            f.notice_kind AS notice_kind,
+            f.advisory_key AS advisory_key,
             f.fix_status AS fix_status,
             f.fix_available AS fix_available,
             f.fix_version AS fix_version,
@@ -219,6 +232,8 @@ export function listLibraryUsage(
             advisoryTitle: row.advisory_title,
             advisoryUrl: row.advisory_url,
             severity: row.severity,
+            noticeKind: row.notice_kind,
+            advisoryKey: row.advisory_key,
             ...readFixFields(
                 { fixStatus: row.fix_status, fixVersion: row.fix_version, fixAvailable: row.fix_available === 1, fixCheckJson: row.fix_check_json, remediationJson: row.remediation_json },
                 // Every row here is open (resolved_at IS NULL above).

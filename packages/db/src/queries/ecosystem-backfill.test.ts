@@ -37,6 +37,7 @@ let dir: string
 
 function seedEvent(): string {
     return upsertFindingEvent(db, {
+        gradeAnswers: {},
         baselineOf: null,
         projectId: PROJECT_ID,
         source: 'osv',
